@@ -578,11 +578,11 @@ export function createOverlay(canvas) {
     if (item.state === 'pending' && !item.lost) {
       bx += button(ui.accept, bx, by, 'card-accept', { primary: true }) + 8;
       button(ui.return, bx, by, 'card-return');
-    } else if (item.state === 'accepted' && !item.local) {
+    } else if (item.state === 'accepted') {
       if (!item.lost) bx += button(item.placed ? ui.move : ui.place, bx, by, 'card-place') + 8;
       if (item.placed) bx += button(ui.takeDown, bx, by, 'card-unplace') + 8;
     }
-    if (item.lost && !item.local) button(ui.remove, bx, by, 'card-remove');
+    if (item.lost) button(ui.remove, bx, by, 'card-remove');
     regions.push({ id: 'card-close', x: x + w - 34, y: y + 6, w: 28, h: 28 });
     ctx.fillStyle = palette.inkFaint;
     ctx.font = `600 16px ${FONT}`;

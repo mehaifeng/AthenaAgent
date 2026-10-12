@@ -1,29 +1,29 @@
 // 雅典娜的城邦：页面入口。两种驱动——
 //
 //   实时（mode=live）：应用里的 NativeWebView 打开它（OfficePreviewHost 的 /polis/ 路由）。页面先自检，
-//       通过就发 ready，之后由 C# 推城邦、事件、成果（bridge.mjs），页面只发封闭集合里的意图。
-//   回放（默认）：普通浏览器里读夹具（城邦快照 + 回放事件），按真实节奏回放——演示、冒烟测试和运动自检用。
-//       index.html?fixture=../fixtures/synthetic.json   &speed=2  &t=30000  &paused=1
+//       通过就发 ready，之后由 C# 推城邦、成果、对话栏的状态（bridge.mjs），页面只发封闭集合里的意图。
+//   夹具（默认）：普通浏览器里读夹具（一座城邦的快照）——演示、冒烟测试和运动自检用。
+//       index.html?fixture=../fixtures/synthetic.json
 //       &shot=1   固定一帧、不跑动画循环（截图用），渲染完 document.title = 'ready'
 //       &selftest=motion   运动自检：镜头逐帧移动，比较屏幕空间效果与当帧真实投影，title = 'motion-max-error-px:…'
 //       &ao=0 &shadows=0 &grade=0 &accent=0   调试开关
-//       &demo=1   回放里加上一组合成的积累数据（居民、橄榄林、委托板、神谕、海图、摆好的藏品）——演示、截图与冒烟用
+//       &demo=1   加上一组合成的积累数据（居民、橄榄林、委托板、神谕、海图、摆好的藏品）——演示、截图与冒烟用
 //       &gallery=<资产 Id>&view=game|mid   美术审查：只画一件资产（gallery.mjs），渲染完 title = 'gallery-ready'
 //
-// 失败要明说（设计稿 12.5）：没有 WebGL 2、脚本出错，都在实时模式里回报 failed（C# 在游戏区显示原因和"回到对话"），
-// 在回放模式里显示页面自己的错误卡片。
+// 雅典娜不镜像任何回合（2026-10-13）：原来的"回放"（把一段归档会话按真实节奏演一遍）连同实时的工具事件一起拿掉了，
+// 夹具里只剩城邦快照。她在城里过她自己的日子（athena.mjs）。
 //
-// 操作（2026-10-11）：WASD / 方向键走路，鼠标点物件互动，左上角三种视角（缺省自由），V 换视角，M 海图，Esc 收起；
-// 实时模式底部是和雅典娜说话的对话栏（talk.mjs）——按 Enter、或者点她。
+// 失败要明说（设计稿 12.5）：没有 WebGL 2、脚本出错，都在实时模式里回报 failed（C# 在游戏区显示原因和"回到对话"），
+// 在夹具模式里显示页面自己的错误卡片。
+//
+// 操作：WASD / 方向键走路，走近人或物件按 E 互动，左上角三种视角（缺省自由），V 换视角，M 海图，Esc 收起；
+// 实时模式底部是和雅典娜说话的对话栏（talk.mjs）——走到她跟前按 E、或者在城里按 Enter。
 import * as THREE from '../vendor/three.bundle.mjs';
 import { createGame, ATHENA_HOVER_ANCHOR } from './game.mjs';
 import { createTalk } from './talk.mjs';
 import { isTypingTarget } from './controls.mjs';
-import { createReplay } from './replay.mjs';
-import { createLiveFeed } from './live.mjs';
 import { connectHost } from './bridge.mjs';
 import { openReader } from './reader.mjs';
-import { cityIndex } from './replay.mjs';
 import { demoAccumulation } from './demo.mjs';
 
 const params = new URLSearchParams(location.search);
@@ -31,7 +31,7 @@ const live = params.get('mode') === 'live';
 // 夜里（M3 第三轮：跟着应用的深色主题）：地址里带着打开时的主题，页面一加载就是那一套颜色，不先白一下
 const nightAtStart = params.get('theme') === 'dark';
 document.body.classList.toggle('night', nightAtStart);
-const status = { ready: false, errors: [], phase: 'boot', mode: live ? 'live' : 'replay' };
+const status = { ready: false, errors: [], phase: 'boot', mode: live ? 'live' : 'fixture' };
 window.__polis = status;
 const record = (msg) => status.errors.push(String(msg));
 window.addEventListener('error', (e) => record(e.message));
@@ -69,7 +69,7 @@ async function main() {
     if (type === 'say') liveGame?.noteSaid();   // 托付了：你在城里比划两秒（M3）
     return host ? host.send(type, fields) : sentLocally(type, fields);
   };
-  // 对话栏只在实时模式里有：回放是一段录好的委托，没有人在听
+  // 对话栏只在实时模式里有：夹具里没有人在听
   if (live) {
     talk = createTalk(document.getElementById('talk'), { send, onOpen: () => liveGame?.releaseKeys() });
     window.__polisTalk = talk;
@@ -78,13 +78,12 @@ async function main() {
     params,
     status,
     send,
-    onReadItem: (item) => openReader(document, document.getElementById('reader'), { title: item.title, markdown: item.markdown ?? item.title }),
     onTalk: talk ? () => { talk.open({ focus: true }); } : null,
     onUiBlocked: (blocked) => talk?.setSuppressed(blocked),
     onViewChange: () => syncView(game),
     modalOpen: readerOpen,
     topInset: live ? 52 : 0,
-    defaultView: live ? 'free' : 'athena',
+    defaultView: 'free',
     talkOpen: () => !!talk?.isOpen,
   });
   window.__polisGame = game;
@@ -93,7 +92,7 @@ async function main() {
   wireView(game);
 
   if (live) return startLive(game);
-  return startReplay(game);
+  return startFixture(game);
 }
 
 function sentLocally(type, fields) {
@@ -109,7 +108,7 @@ function closeReader() {
   reader.replaceChildren();
 }
 
-// —— 视角：左上角（回放在右下）一组三选一的按钮，缺省"自由"；拖动平移会把镜头交还给你，按钮跟着变 ——
+// —— 视角：左上角（夹具模式在右下）一组三选一的按钮，缺省"自由"；拖动平移会把镜头交还给你，按钮跟着变 ——
 function wireView(game) {
   for (const button of document.querySelectorAll('#view button[data-view]')) {
     button.addEventListener('click', () => { game.setFollow(button.dataset.view); syncView(game); wake(); });
@@ -141,7 +140,6 @@ function dismissTopmost(game) {
 
 let liveGame = null;
 let talk = null;
-let liveFeed = createLiveFeed();
 const epoch = performance.now();
 const clock = () => performance.now() - epoch;
 let visible = true;
@@ -163,29 +161,13 @@ function liveHandlers() {
     }),
     city: whenReady((m) => {
       const isNew = !liveGame.city || m.key !== status.city?.key;
-      if (isNew) {
-        liveGame.loadCity(m.city, { key: m.key, sanctuary: !!m.sanctuary, player: m.player, founding: !!m.founding, now: clock() });
-        liveFeed = createLiveFeed({ city: cityIndex(m.city) });
-      } else {
-        status.lastUpdate = liveGame.updateCity(m.city, m.origins ?? {});
-        liveFeed.setCity(cityIndex(m.city));
-      }
+      if (isNew) liveGame.loadCity(m.city, { key: m.key, sanctuary: !!m.sanctuary, player: m.player, founding: !!m.founding, now: clock() });
+      else status.lastUpdate = liveGame.updateCity(m.city, m.origins ?? {});
       liveGame.cityArrived({ partial: !!m.partial });
       wake();
     }),
     depart: whenReady((m) => { liveGame.startVoyage(m.caption ?? ''); wake(); }),
     arrive: whenReady(() => { liveGame.cityArrived({ partial: false }); wake(); }),
-    focus: whenReady((m) => {
-      liveFeed = createLiveFeed({ city: cityIndex(liveGame.city ?? {}) });
-      liveGame.focus({ last: m.last ?? null, interrupted: !!m.interrupted, now: clock() });
-      wake();
-    }),
-    events: whenReady((m) => {
-      const now = clock();
-      for (const e of m.events ?? []) if (e.type === 'turn') liveGame.noteTurn(Math.max(0, now - (e.ageMs ?? 0)), e.turn ?? 0);
-      status.liveEvents = (status.liveEvents ?? 0) + liveFeed.push(m.events, now);
-      wake();
-    }),
     items: whenReady((m) => { liveGame.setItems(m.items); wake(); }),
     grove: whenReady((m) => { liveGame.setGrove(m.trees); wake(); }),
     residents: whenReady((m) => { liveGame.setResidents(m.residents); wake(); }),
@@ -195,7 +177,7 @@ function liveHandlers() {
     notices: whenReady((m) => { liveGame.setNotices(m.notices); wake(); }),
     report: whenReady((m) => { liveGame.setHerald(m); wake(); }),
     fog: whenReady((m) => { liveGame.setFog(m.missing ? { path: m.path ?? null } : null); wake(); }),
-    // 对话栏的状态（这份委托在不在办事、能不能托付、草稿、附件）；带 open 时展开并聚焦（预填之后）
+    // 对话栏的状态（这份委托在不在办事、等不等审批、能不能托付、草稿、附件）；带 open 时展开并聚焦（预填之后）
     composer: whenReady((m) => { talk?.apply(m); wake(); }),
     visibility: (m) => { visible = !!m.visible; status.visible = visible; wake(); },
     // 应用的主题换了（深 / 浅色）：页面上的条、阅读器立刻换（CSS 自己过渡），城里一秒多从白天走到夜里
@@ -229,7 +211,7 @@ function startLive(game) {
   window.addEventListener('keydown', (e) => {
     if (isTypingTarget(e.target) || e.isComposing) return;
     if (e.key === 'Enter' && !e.shiftKey && !e.metaKey && !e.ctrlKey && !e.altKey) {
-      if (talk?.available && !readerOpen() && !game.chartOpen) { e.preventDefault(); talk.open({ focus: true }); }
+      if (talk?.available && !readerOpen() && !game.chartOpen) { e.preventDefault(); talk.open({ focus: true }); wake(); }
       return;
     }
     if (e.key === 'Escape') { dismissTopmost(game); wake(); return; }
@@ -286,7 +268,7 @@ function liveLoop(wall) {
     lastWall = wall;
     lastRender = wall;
     try {
-      liveGame.frame(clock(), dt, wall, { feed: (orch) => liveFeed.drain(orch) });
+      liveGame.frame(clock(), dt, wall);
       updateHint();
     } catch (e) {
       loopRunning = false;
@@ -297,16 +279,16 @@ function liveLoop(wall) {
   requestAnimationFrame(liveLoop);
 }
 
-// ———————————————————————— 回放模式 ————————————————————————
+// ———————————————————————— 夹具模式 ————————————————————————
 
-async function startReplay(game) {
+async function startFixture(game) {
   status.phase = 'fixture';
   const fixtureUrl = params.get('fixture') ?? '../fixtures/synthetic.json';
   const res = await fetch(fixtureUrl);
   if (!res.ok) throw new Error(`读不到夹具 ${fixtureUrl}：HTTP ${res.status}`);
   const fixture = await res.json();
   if (fixture.kind !== 'athena-polis-fixture' || fixture.schema !== 1) throw new Error('这不是城邦夹具（schema 1）');
-  status.fixture = { synthetic: fixture.synthetic, buildings: fixture.buildings.length, toolCalls: fixture.replay?.toolCalls ?? 0, durationMs: fixture.replay?.durationMs ?? 0 };
+  status.fixture = { synthetic: fixture.synthetic, buildings: fixture.buildings.length };
 
   status.phase = 'build';
   if (params.get('demo') === '1') {
@@ -319,78 +301,30 @@ async function startReplay(game) {
     game.setIslands(demo.islands);
     game.setItems(demo.items);
   }
-  game.loadCity(fixture, { key: 'fixture' });
+  game.loadCity(fixture, { key: 'fixture', now: clock() });
   syncChartButton(game);
   document.getElementById('btn-chart').addEventListener('click', () => game.toggleChart());
-  let replay = createReplay(fixture);
-  // 回放的时钟喂事件；turn 事件顺带记下开场白
-  const feedReplay = (orch, now) => replay.feed({ ingest: (e) => { if (e.type === 'turn') game.noteTurn(e.t, e.turn); orch.ingest(e); } }, now);
-  const restart = () => { game.resetTimeline(); replay = createReplay(fixture); };
 
-  // —— 跳到某一刻：把回放和编排器从头推进过去（编排器是纯逻辑，推进很快） ——
-  function seek(t) {
-    restart();
-    for (let x = 0; x < t; x += 50) {
-      feedReplay(game.sim.orch, x);
-      game.sim.orch.update(x);
-    }
-    game.sim.time = t;
-  }
-
-  let playing = params.get('paused') !== '1';
-  let speed = Number(params.get('speed') ?? 1) || 1;
   let hudVisible = params.get('hud') !== '0';
-  const clock2 = (ms) => {
-    const s = Math.max(0, Math.floor(ms / 1000));
-    return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
-  };
-  const hud = () => {
-    if (!hudVisible) return null;
-    const { turn, delivered } = replay.turnAt(game.sim.time);
-    const follow = game.follow;
-    return [
-      `回放 ${clock2(game.sim.time)} / ${clock2(replay.duration)} · 第 ${turn} 回合 / 共 ${fixture.replay?.turns ?? 0}${delivered ? '（已交付）' : ''} · ×${speed}${playing ? '' : ' · 已暂停'}`,
-      `视角：${follow === 'athena' ? '跟着雅典娜' : follow === 'player' ? '跟着你' : '自由'}（V 换）· WASD / 方向键走动 · 拖动转视角 · 红色的卷轴是交给你的成果，走近按 E 看看`,
-    ];
-  };
-
+  const hud = () => (hudVisible
+    ? [`演示城邦（${fixture.workspaceName ?? ''}）· 视角：${{ athena: '跟着雅典娜', player: '跟着你', free: '自由' }[game.follow]}（V 换）`,
+      'WASD / 方向键走动（Shift 跑）· 拖动转视角 · 走近人或物件按 E · M 海图 · H 隐藏这一行']
+    : null);
   window.addEventListener('keydown', (e) => {
     if (isTypingTarget(e.target) || e.isComposing || e.metaKey || e.ctrlKey || e.altKey) return;
-    if (e.code === 'Space') { playing = !playing; e.preventDefault(); }
-    else if (e.code === 'KeyV') game.cycleView();
-    else if (e.key === '1' || e.key === '2' || e.key === '4') speed = Number(e.key);
-    else if (e.code === 'KeyR') restart();
+    if (e.code === 'KeyV') game.cycleView();
     else if (e.code === 'KeyH') hudVisible = !hudVisible;
     else if (e.code === 'KeyM') game.toggleChart();
     else if (e.key === 'Escape') dismissTopmost(game);
-    syncButtons();
-  });
-  const buttons = {
-    play: document.getElementById('btn-play'),
-    speed: document.getElementById('btn-speed'),
-    restart: document.getElementById('btn-restart'),
-  };
-  function syncButtons() {
-    buttons.play.textContent = playing ? '暂停' : '继续';
-    buttons.speed.textContent = `速度 ×${speed}`;
     syncView(game);
-  }
-  buttons.play.addEventListener('click', () => { playing = !playing; syncButtons(); });
-  buttons.speed.addEventListener('click', () => { speed = speed === 1 ? 2 : speed === 2 ? 4 : 1; syncButtons(); });
-  buttons.restart.addEventListener('click', () => { restart(); syncButtons(); });
-  syncButtons();
+  });
 
   status.phase = 'render';
-  const startAt = Number(params.get('t') ?? 0) || 0;
-  if (startAt > 0) seek(startAt);
-
-  status.seek = (t) => { seek(t); game.frame(game.sim.time, 16, performance.now(), { snap: true, hud: hud() }); };
   status.pixelStats = () => pixelStats(game.R.renderer.domElement);
-  status.steps = () => game.sim.orch.steps.map(({ kind, start, end, at, to, from }) => ({ kind, start, end, at, to, from }));
   status.collectAll = () => game.collectAll();
 
   if (params.get('selftest') === 'motion') {
-    const result = motionSelftest(game, seek, replay.duration);
+    const result = motionSelftest(game);
     status.selftest = result;
     status.ready = true;
     document.title = `motion-max-error-px:${result.maxErrorPx.toFixed(3)}`;
@@ -398,22 +332,21 @@ async function startReplay(game) {
   }
 
   if (params.get('shot') === '1') {
-    for (let i = 0; i < 3; i++) game.frame(game.sim.time, 16, performance.now(), { snap: true, feed: feedReplay, hud: hud() });
+    for (let i = 0; i < 3; i++) game.frame(clock(), 16, performance.now(), { snap: true, hud: hud() });
     status.ready = true;
     document.title = 'ready';
     return;
   }
 
   let last = performance.now();
-  game.frame(game.sim.time, 16, last, { snap: true, feed: feedReplay, hud: hud() });
+  game.frame(clock(), 16, last, { snap: true, hud: hud() });
   status.ready = true;
   document.title = 'ready';
   const loop = (wall) => {
     const dt = Math.min(100, wall - last);
     last = wall;
-    const now = playing ? game.sim.time + dt * speed : game.sim.time;
     try {
-      game.frame(now, dt, wall, { feed: feedReplay, hud: hud() });
+      game.frame(clock(), dt, wall, { hud: hud() });
     } catch (e) {
       record(e?.stack ?? e);
       throw e;
@@ -425,14 +358,10 @@ async function startReplay(game) {
 
 // —— 运动自检（设计稿 12.7）：镜头按脚本逐帧移动，比较每个屏幕空间效果这一帧用的位置与当帧的真实投影 ——
 // 真值在渲染之后算：渲染器这时已经把相机和人物的矩阵更新成了这一帧真正用的那一组。
-function motionSelftest(game, seek, duration) {
+// 两个时间窗是请雅典娜自己造出来的（2026-10-13：原来取自回放的"走"和"瞬移"）：走——从广场一圈的一个点走到对面那个点；
+// 瞬移——请她去港口（远过 10 秒的路，化作一道光过去）。之后在自由视角里按住 W + D 走一段。
+function motionSelftest(game) {
   const sync = params.get('nosync') !== '1';   // nosync=1：故意不对齐矩阵，看修复前的偏差有多大
-  seek(duration + 2000);
-  const steps = game.sim.orch.steps;
-  const walk = steps.find((s) => s.kind === 'walk' && s.end - s.start > 800);
-  const tele = steps.find((s) => s.kind === 'teleport');
-  const windows = [walk, tele].filter(Boolean).map((s) => [s.start - 200, s.end + 200]);
-  if (windows.length === 0) windows.push([0, 3000]);
   const errors = { glow: 0, bubble: 0, labels: 0 };
   const kinds = {};   // 名牌按种类计数：建筑、公共建筑、居民（M2）、遗失藏品的名牌（M2）……
   let frames = 0;
@@ -441,9 +370,10 @@ function motionSelftest(game, seek, duration) {
   const size = game.R.size, dpr = game.overlay.dpr;
   let i = 0;
   // M2：站在一棵橄榄树跟前（有积累数据时），树的名牌和脚下的"E 去这份委托"也进自检；隔一帧换成站在一位居民跟前——
-  // 他在走，脚下那块"E 和他说话"跟着他走，和旁白气泡一样按他这一帧的位置投影（M3 第三轮：互动改成走近按 E）
+  // 他在走，脚下那块"E 和他说话"跟着他走，按他这一帧的位置投影（M3 第三轮：互动改成走近按 E）
   const tree = game.world?.groveTrees?.[0];
   const walker = [...(game.world?.residents?.keys() ?? [])][0] ?? null;
+  const teleporting = () => game.athenaSim?.state().step.kind === 'teleport';
 
   function measure(t) {
     if (tree && i % 2 === 0) game.setHover('tree', tree.conversationId);
@@ -458,18 +388,18 @@ function motionSelftest(game, seek, duration) {
     game.frame(t, 40, performance.now(), { snap: true, sync, script });
     const used = game.used;
     const world = game.world;
-    const teleporting = game.sim.orch.state(t).step?.kind === 'teleport';
+    const tele = teleporting();
     const truthGlow = used.glowWorld.clone();
-    if (!teleporting) truthGlow.copy(world.athena.userData.chest).applyMatrix4(world.athena.matrixWorld);
+    if (!tele) truthGlow.copy(world.athena.userData.chest).applyMatrix4(world.athena.matrixWorld);
     const tg = truthGlow.project(camera);
     if (frames > 0) {
       errors.glow = Math.max(errors.glow, Math.hypot(((tg.x + 1) / 2 - used.glowUv.x) * size.x, ((tg.y + 1) / 2 - used.glowUv.y) * size.y));
-      const head = teleporting ? used.headWorld.clone() : world.athena.userData.headTop.clone().applyMatrix4(world.athena.matrixWorld);
+      const head = tele ? used.headWorld.clone() : world.athena.userData.headTop.clone().applyMatrix4(world.athena.matrixWorld);
       const hb = head.project(camera);
       errors.bubble = Math.max(errors.bubble, Math.hypot(((hb.x + 1) / 2) * window.innerWidth - used.bubbleCss.x, (1 - (hb.y + 1) / 2) * window.innerHeight - used.bubbleCss.y) * dpr);
       for (const l of used.labels) {
         kinds[l.kind] = (kinds[l.kind] ?? 0) + 1;
-        const truth = l.key?.startsWith('prompt:athena') && !teleporting
+        const truth = l.key?.startsWith('prompt:athena') && !tele
           ? ATHENA_HOVER_ANCHOR.clone().applyMatrix4(world.athena.matrixWorld)
           : l.key?.startsWith('prompt:resident:')
             ? (() => { const r = world.residents.get(l.key.split(':')[2]); return new THREE.Vector3(r.figure.root.position.x, 0.02, r.figure.root.position.z); })()
@@ -482,16 +412,26 @@ function motionSelftest(game, seek, duration) {
     i++;
   }
 
-  for (const [from, to] of windows) {
-    seek(Math.max(0, from));
-    game.follow = 'athena';
-    for (let t = Math.max(0, from); t <= to; t += 40) measure(t);
+  /** 请她去 site（时刻 t），返回这一步的时间窗：她开始动之前 200 毫秒到她停下之后 200 毫秒。 */
+  function windowFor(site, t) {
+    game.athenaGoTo(site, t);
+    game.frame(t, 16, performance.now(), { snap: true });
+    const step = game.athenaSim.state().step;
+    return { kind: step.kind, span: [step.start - 200, (step.end ?? step.start) + 200] };
   }
+
+  game.follow = 'athena';
+  game.frame(0, 16, performance.now(), { snap: true });
+  const walk = windowFor('agora:3', 1000);
+  for (let t = walk.span[0]; t <= walk.span[1]; t += 40) measure(t);
+  const tele = windowFor('harbor', walk.span[1] + 400);
+  for (let t = tele.span[0]; t <= tele.span[1]; t += 40) measure(t);
+  const windows = [walk.span, tele.span];
+  const kindsOfWindows = [walk.kind, tele.kind];
 
   // 自由视角里走路（2026-10-11）：按住 W + D，镜头不跟任何人，只在你快走出画面时挪一下（keepPlayerInView）——
   // 它和脚本的绕转、推拉、平移一起挪镜头，屏幕空间效果照样要和当帧投影对齐；而且你一直在画面里
-  const walkFrom = windows[windows.length - 1][1] + 400;
-  seek(walkFrom);
+  const walkFrom = tele.span[1] + 400;
   game.follow = 'free';
   const start = game.player;
   const key = (type, code) => window.dispatchEvent(new KeyboardEvent(type, { code, key: code.slice(3).toLowerCase() }));
@@ -511,7 +451,7 @@ function motionSelftest(game, seek, duration) {
   const walking = { frames: walkFrames, metres: +Math.hypot(end.x - start.x, end.z - start.z).toFixed(2), maxPlayerNdc: +playerNdc.toFixed(3) };
 
   const maxErrorPx = Math.max(errors.glow, errors.bubble, errors.labels);
-  return { maxErrorPx, errors, frames, windows, sync, kinds, walk: walking };
+  return { maxErrorPx, errors, frames, windows, windowKinds: kindsOfWindows, sync, kinds, walk: walking };
 }
 
 function pixelStats(canvas) {

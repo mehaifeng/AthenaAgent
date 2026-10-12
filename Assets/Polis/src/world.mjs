@@ -8,7 +8,7 @@
 // 港前第 z = 2 行加了三处场馆（彩绘柱廊、书库、金库，每处 12 个底座）和橄榄林的台地；广场上加了日晷与传令官的讲台，
 // 委托板上钉着建议的纸条；居民站在各自能力的建筑旁；设立了神谕，神庙前立起三足鼎。
 import * as THREE from '../vendor/three.bundle.mjs';
-import { groundPlane, Kit, m4, buildScaffold } from './art/kit.mjs';
+import { groundPlane, Kit, m4 } from './art/kit.mjs';
 import { rng, hashSeed } from './art/noise.mjs';
 import { oliveGeometries, OLIVE_STAGES } from './art/plants.mjs';
 import { buildSlotMarker } from './art/items.mjs';
@@ -47,7 +47,7 @@ export function buildWorld(scene, city, layout, M, options) {
   root.name = 'polis-world';
   scene.add(root);
   const world = {
-    root, layout, buildings: new Map(), vacant: new Map(), labels: [], maidens: [], scaffolds: new Map(), sanctuary: !!options.sanctuary,
+    root, layout, buildings: new Map(), vacant: new Map(), labels: [], sanctuary: !!options.sanctuary,
     venues: new Map(), residents: new Map(), groveTrees: [], assets,
   };
   const add = (o) => { root.add(o); return o; };
@@ -369,11 +369,6 @@ export function buildWorld(scene, city, layout, M, options) {
       group.add(tree);
     }
     const height = group.userData.height ?? 5;
-    const scaffold = buildScaffold(M, 6.5, Math.min(5.5, height));
-    scaffold.position.set(0, 0, PLOT / 2 - 1.2);
-    scaffold.visible = false;
-    group.add(scaffold);
-    world.scaffolds.set(`b:${bld.key}`, scaffold);
     const label = labelAt(bld.key, plot, height, 'building', `b:${bld.key}`);
     const entry = { group, height, kind: bld.kind, building: bld, label };
     world.buildings.set(`b:${bld.key}`, entry);
@@ -438,13 +433,8 @@ export function buildWorld(scene, city, layout, M, options) {
   add(player.root);
   world.playerFigure = player;
   world.player = player.root;
-  for (let k = 0; k < 6; k++) {
-    const maiden = assets.figure('figure.maiden');
-    maiden.root.visible = false;
-    maiden.root.scale.setScalar(0.9);
-    add(maiden.root);
-    world.maidens.push(maiden);
-  }
+  // 派发子代理时飞出去的六位黄金侍女（M1–M3）随直播一起拿掉了（2026-10-13）：她们只为镜像那一次工具调用而建、平时藏着。
+  // 黄金侍女这位居民还在（characters.RESIDENT_ROLES.maiden）
 
   /** 居民：每位站在他那项能力的建筑旁（characters.RESIDENT_ROLES），按 C# 推导出来的名单出现。 */
   world.setResidents = (list, nameOf = (kind) => kind) => {
@@ -554,7 +544,6 @@ export function buildWorld(scene, city, layout, M, options) {
       disposeGroup(old.group);
       world.labels.splice(world.labels.indexOf(old.label), 1);
       world.buildings.delete(id);
-      world.scaffolds.delete(id);
     }
     const vacant = world.vacant.get(bld.key);
     if (vacant) {
@@ -576,7 +565,6 @@ export function buildWorld(scene, city, layout, M, options) {
       disposeGroup(old.group);
       world.labels.splice(world.labels.indexOf(old.label), 1);
       world.buildings.delete(id);
-      world.scaffolds.delete(id);
     }
     if (!world.vacant.has(v.key)) placeVacant(v);
     world.rebuildOccupancy();

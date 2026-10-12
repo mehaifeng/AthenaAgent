@@ -5,40 +5,13 @@ using System.Linq;
 namespace Athena.UI.ViewModels.GameMode;
 
 /// <summary>
-/// 页面要的词条：旁白台词库（<c>Polis.Line.*</c>，"|" 分隔多个变体，做法和宠物台词库一样）、页面界面词条
-/// （<c>Polis.Ui.*</c>）、建筑类型的叫法（<c>Polis.Place.*</c>）与公共建筑的名字（<c>Polis.Public.*</c>）。
-/// 都在 locale 文件里；进入游戏、切换界面语言时由 C# 推给页面。这里的中文是 locale 缺词条时的回退，
-/// 与页面自带的默认表（narration.mjs / game.mjs / world.mjs）一一对应。
+/// 页面要的词条：页面界面词条（<c>Polis.Ui.*</c>）、建筑类型的叫法（<c>Polis.Place.*</c>）与公共建筑的名字
+/// （<c>Polis.Public.*</c>）。都在 locale 文件里；进入游戏、切换界面语言时由 C# 推给页面。这里的中文是 locale
+/// 缺词条时的回退，与页面自带的默认表（game.mjs / world.mjs）一一对应。
+/// 旁白台词库（<c>Polis.Line.*</c>）连同直播一起拿掉了（2026-10-13）：雅典娜不再镜像回合，也就没有按工具类别的旁白。
 /// </summary>
 public static class PolisLocale
 {
-    /// <summary>（页面里的键, locale 键, 中文回退）</summary>
-    public static IReadOnlyList<(string JsKey, string Key, string Fallback)> Lines { get; } = new[]
-    {
-        ("turn", "Polis.Line.Turn", "交给我吧|好，我来办|这就去办"),
-        ("read.file", "Polis.Line.ReadFile", "我去{place}翻翻《{name}》|去{place}找《{name}》"),
-        ("read.file.at", "Polis.Line.ReadFileAt", "在{place}查查《{name}》|打开《{name}》看看"),
-        ("read.dir", "Polis.Line.ReadDir", "我去{place}看看|去{place}里找找"),
-        ("read.dir.at", "Polis.Line.ReadDirAt", "在{place}里找找|翻翻{place}里有什么"),
-        ("write.file", "Polis.Line.WriteFile", "去{place}写《{name}》|我去誊写《{name}》"),
-        ("write.file.at", "Polis.Line.WriteFileAt", "我在誊写《{name}》|在{place}落笔写《{name}》"),
-        ("write.dir", "Polis.Line.WriteDir", "去{place}收拾一下|{place}要搭个脚手架"),
-        ("write.dir.at", "Polis.Line.WriteDirAt", "我在{place}收拾一下|{place}搭起了脚手架"),
-        ("terminal", "Polis.Line.Terminal", "去锻炉敲打一下|我去锻炉一趟"),
-        ("terminal.at", "Polis.Line.TerminalAt", "炉火点上了|炉火正旺"),
-        ("web", "Polis.Line.Web", "去港口放船|我去港口一趟"),
-        ("web.at", "Polis.Line.WebAt", "船出海打听消息去了|放船出海，去外面问问"),
-        ("memory.recall", "Polis.Line.MemoryRecall", "去图书馆翻翻旧卷|看看我记过些什么"),
-        ("memory.write", "Polis.Line.MemoryWrite", "这件事我记下了"),
-        ("subagents", "Polis.Line.Subagents", "我叫上了{count}位侍女|侍女们，分头去吧"),
-        ("workshop", "Polis.Line.Workshop", "去工坊忙一下"),
-        ("outside", "Polis.Line.Outside", "我出城一趟|这一样东西在城外"),
-        ("failure", "Polis.Line.Failure", "这条路走不通，我换一条"),
-        ("deliver", "Polis.Line.Deliver", "做好了，你看看|给你，刚做好的"),
-        ("approval", "Polis.Line.Approval", "这一步需要你点头|等你点个头，我再动手"),
-        ("interrupted", "Polis.Line.Interrupted", "上次在这里停下了，要接着做吗？"),
-    };
-
     public static IReadOnlyList<(string JsKey, string Key, string Fallback)> Ui { get; } = new[]
     {
         ("dismiss", "Polis.Ui.Dismiss", "知道了"),
@@ -244,7 +217,7 @@ public static class PolisLocale
     };
 
     /// <summary>全部 locale 键（测试核对中英两份 locale 都有这些词条）。</summary>
-    public static IEnumerable<string> AllKeys => Lines.Concat(Ui).Concat(Places).Concat(PublicNames).Select(e => e.Key)
+    public static IEnumerable<string> AllKeys => Ui.Concat(Places).Concat(PublicNames).Select(e => e.Key)
         .Concat(Residents.SelectMany(r => new[] { r.NameKey, r.IntroKey, r.TryKey }))
         .Concat(Board.SelectMany(b => new[] { b.LineKey, b.PromptKey }))
         .Concat(Oracle.Select(o => o.Key))
@@ -259,7 +232,6 @@ public static class PolisLocale
             => entries.ToDictionary(e => e.JsKey, e => l(e.Key, e.Fallback), StringComparer.Ordinal);
         return new Dictionary<string, Dictionary<string, string>>(StringComparer.Ordinal)
         {
-            ["lines"] = Table(Lines, localize),
             ["ui"] = Table(Ui, localize),
             ["places"] = Table(Places, localize),
             ["publicNames"] = Table(PublicNames, localize),

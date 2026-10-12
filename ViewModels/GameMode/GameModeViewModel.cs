@@ -47,7 +47,8 @@ public enum PolisFailureStage
 /// <summary>
 /// 游戏模式（设计稿第 9–12 节）：中间区域的另一种呈现。它不另存"当前会话"——会话树是唯一的选择来源；
 /// 它不另开一个递归文件监听——与工作台共用 <see cref="IWorkspaceWatcherService"/>；它不给聊天服务加回调——
-/// 雅典娜的事件从气泡的渲染模型推导（<see cref="PolisEventProjector"/>）。
+/// 交付与归属从气泡的渲染模型推导（<see cref="PolisDeliveries"/>）。雅典娜不镜像回合（2026-10-13 拿掉了直播）：
+/// 页面收不到工具调用、推理和审批事件，只收到这一回合交出来的成果和对话栏的状态。
 ///
 /// 这里是状态机与编排：模式（存进 <c>MainLayoutSettings.GameMode</c>）、页面的生死（惰性创建、失败、保留一段时间再释放）、
 /// 城邦的装载（先按快照显示，再后台核对）、外部改动、成果与意图。纯规则都在 <c>Services/GameMode</c>，那里有断言。
@@ -131,9 +132,8 @@ public sealed partial class GameModeViewModel : ViewModelBase, IDisposable
     /// </summary>
     private int _surveysInFlight;
     private string? _rescanAfterSurvey;
-    private PolisEventProjector? _projector;
-    private bool _projectionDirty;
-    private bool _wasWaiting;
+    private PolisDeliveries? _deliveries;
+    private bool _deliveriesDirty;
     /// <summary>
     /// 游戏刚替这份委托预填了一段话（委托板、居民、神谕、退回）：它显示出来的那一刻，城里的对话栏展开并聚焦，
     /// 让你看一眼再托付。预填可能落在一份还没换上来的委托里（新开的委托要等会话切换的第二拍），所以记下 Id、到时再开。
@@ -735,7 +735,7 @@ public sealed partial class GameModeViewModel : ViewModelBase, IDisposable
             // 同一座城：不换场景；第一拍可能已经让页面出港（切走又切回），这里让它靠岸
             if (key != _cityKey) await LoadCityAsync(session.Workspace);
             else Post(new { type = "arrive" });
-            SendFocus();
+            FocusSession();
         }
         catch (OperationCanceledException)
         {
@@ -753,7 +753,7 @@ public sealed partial class GameModeViewModel : ViewModelBase, IDisposable
     /// <summary>换到这份委托：订阅它的渲染模型，已有的一切算"已经演过"。</summary>
     private void AttachSession(ConversationSessionItemViewModel session)
     {
-        if (ReferenceEquals(_session, session) && _projector != null) return;
+        if (ReferenceEquals(_session, session) && _deliveries != null) return;
         DetachSession();
         _session = session;
         session.PropertyChanged += OnSessionPropertyChanged;
@@ -763,7 +763,6 @@ public sealed partial class GameModeViewModel : ViewModelBase, IDisposable
         session.Chat.PropertyChanged += OnChatPropertyChanged;
         session.Chat.PendingAttachments.CollectionChanged += OnPendingAttachmentsChanged;
         session.Chat.InputFocusRequested += OnChatInputFocusRequested;
-        _wasWaiting = session.IsWaitingForApproval;
     }
 
     private void DetachSession()
@@ -776,7 +775,7 @@ public sealed partial class GameModeViewModel : ViewModelBase, IDisposable
         _session.Chat.PendingAttachments.CollectionChanged -= OnPendingAttachmentsChanged;
         _session.Chat.InputFocusRequested -= OnChatInputFocusRequested;
         _session = null;
-        _projector = null;
+        _deliveries = null;
     }
 
     // ———————————————————————— 城里的对话栏 ————————————————————————
@@ -824,35 +823,21 @@ public sealed partial class GameModeViewModel : ViewModelBase, IDisposable
         Flush();
     }
 
-    private void SendFocus()
+    /// <summary>
+    /// 换到这份委托：已有的回合算已经交付（不再造成果），正在进行的那一回合从现在起记归属；
+    /// 对话栏换成这份委托的——带上它输入框里的字，刚替它预填过（新开的委托、退回）就展开。
+    /// 页面那一侧没有"雅典娜转向这份委托"：她不镜像回合，换委托不动她（2026-10-13）。
+    /// </summary>
+    private void FocusSession()
     {
         if (_session == null) return;
-        var now = DateTimeOffset.UtcNow;
-        var messages = _session.Chat.Messages.ToList();
-        _projector = new PolisEventProjector(_fogged ? null : _cityWorkspace?.DirectoryPath, _home, BuildingKeys());
-        var last = _projector.LastPlace(messages, now);
-        Post(new
-        {
-            type = "focus",
-            conversationId = _session.ConversationId,
-            last = last == null ? null : new { category = last.Category, place = last.Place, building = last.Building },
-            interrupted = _session.WasInterrupted
-        });
-        var baseline = _projector.Baseline(messages, now);
-        if (baseline.Count > 0) PostEvents(baseline);
-        if (_session.IsWaitingForApproval) PostEvents(new[] { new PolisLiveEvent("approval") { At = now, Waiting = true } });
-        _wasWaiting = _session.IsWaitingForApproval;
-        // 对话栏换成这份委托的：带上它输入框里的字；刚替它预填过（新开的委托、退回）就展开
+        _deliveries = new PolisDeliveries(_fogged ? null : _cityWorkspace?.DirectoryPath, _home);
+        _deliveries.Baseline(_session.Chat.Messages.ToList(), DateTimeOffset.UtcNow);
         var open = _prefillFor == _session.ConversationId;
         if (open) _prefillFor = null;
         PostComposer(includeDraft: true, open: open);
         Flush();
     }
-
-    private IReadOnlySet<string> BuildingKeys()
-        => (_city?.Buildings.Select(b => b.Key) ?? Enumerable.Empty<string>())
-            .Concat(_city?.Market ?? Enumerable.Empty<string>())
-            .ToHashSet(StringComparer.Ordinal);
 
     /// <summary>
     /// 装一座城（设计稿 10.3"先显示，再核对"）：读存档与索引快照 → 有快照就立刻按快照画出来 → 后台有界、可取消地扫描 →
@@ -1122,7 +1107,6 @@ public sealed partial class GameModeViewModel : ViewModelBase, IDisposable
         _lastScan = state.Scan;
         PostCity(state.City, sanctuary: false, founding: false, partial: false, origins: null);
         PostItems();
-        if (_projector != null) _projector.BuildingKeys = BuildingKeys();
         Flush();
         await PersistSaveAsync();
         try
@@ -1143,6 +1127,9 @@ public sealed partial class GameModeViewModel : ViewModelBase, IDisposable
     /// 无头测试用它把一次测绘卡在"读过文件夹、还没落地"——外部改动与换城恰好落在这段时间里的那种竞争。
     /// </summary>
     internal Action<string>? SurveyScanned { get; set; }
+
+    /// <summary>她这一回合碰过的地方（测试用：等归属记下了再写盘）。</summary>
+    internal IReadOnlyList<PolisAthenaTouch> AthenaTouches => _deliveries?.Touches ?? Array.Empty<PolisAthenaTouch>();
 
     private async Task RescanAsync(string why)
     {
@@ -1258,7 +1245,7 @@ public sealed partial class GameModeViewModel : ViewModelBase, IDisposable
         var old = change.OldFullPath == null ? null : PolisPaths.ToRelative(change.Root, change.OldFullPath, comparison);
         var at = new DateTimeOffset(change.OccurredAtUtc, TimeSpan.Zero);
         _pendingChanges.Add(new PolisFsChange(relative, change.ChangeType, old, at));
-        _pendingOrigins.Add(PolisChanges.Attribute(relative, at, _projector?.Touches ?? Array.Empty<PolisAthenaTouch>(), DateTimeOffset.UtcNow));
+        _pendingOrigins.Add(PolisChanges.Attribute(relative, at, _deliveries?.Touches ?? Array.Empty<PolisAthenaTouch>(), DateTimeOffset.UtcNow));
         _watcherTimer ??= new DispatcherTimer(WatcherDebounce, DispatcherPriority.Background, (_, _) => _ = ApplyPendingChangesAsync());
         _watcherTimer.Stop();
         _watcherTimer.Start();
@@ -1340,7 +1327,6 @@ public sealed partial class GameModeViewModel : ViewModelBase, IDisposable
                 var after = state.City.Buildings.FirstOrDefault(b => b.Key == key);
                 AddNotice(DescribeExternal(key, before, after));
             }
-            if (_projector != null) _projector.BuildingKeys = BuildingKeys();
             Flush();
             await PersistSaveAsync();
             await _store.SaveIndexAsync(slot, state.Index, CancellationToken.None);
@@ -1459,13 +1445,15 @@ public sealed partial class GameModeViewModel : ViewModelBase, IDisposable
         });
     }
 
-    // ———————————————————————— 雅典娜的事件与成果 ————————————————————————
+    // ———————————————————————— 交付与归属 ————————————————————————
+    // 订阅的只是"这一回合交付了没有"（气泡停止流式输出）和"她这一回合碰过哪些路径"（工具调用的起止，外部改动的归属要它：
+    // 不记的话，她写的每个文件都会被当成外部改动挂上公告板）。工具、推理、审批都不再推给页面。
 
     private void OnMessagesChanged(object? sender, NotifyCollectionChangedEventArgs e)
     {
         if (e.NewItems != null) foreach (ChatMessage message in e.NewItems) WatchMessage(message);
         if (e.OldItems != null) foreach (ChatMessage message in e.OldItems) UnwatchMessage(message);
-        MarkProjectionDirty();
+        MarkDeliveriesDirty();
     }
 
     private void WatchMessage(ChatMessage message)
@@ -1484,14 +1472,12 @@ public sealed partial class GameModeViewModel : ViewModelBase, IDisposable
 
     private void WatchSegment(ChatMessageSegment segment)
     {
-        segment.PropertyChanged += OnSegmentPropertyChanged;
         segment.ToolCalls.CollectionChanged += OnToolCallsChanged;
         foreach (var entry in segment.ToolCalls) entry.PropertyChanged += OnToolCallPropertyChanged;
     }
 
     private void UnwatchSegment(ChatMessageSegment segment)
     {
-        segment.PropertyChanged -= OnSegmentPropertyChanged;
         segment.ToolCalls.CollectionChanged -= OnToolCallsChanged;
         foreach (var entry in segment.ToolCalls) entry.PropertyChanged -= OnToolCallPropertyChanged;
     }
@@ -1500,63 +1486,47 @@ public sealed partial class GameModeViewModel : ViewModelBase, IDisposable
     {
         if (e.NewItems != null) foreach (ChatMessageSegment segment in e.NewItems) WatchSegment(segment);
         if (e.OldItems != null) foreach (ChatMessageSegment segment in e.OldItems) UnwatchSegment(segment);
-        MarkProjectionDirty();
+        MarkDeliveriesDirty();
     }
 
     private void OnToolCallsChanged(object? sender, NotifyCollectionChangedEventArgs e)
     {
         if (e.NewItems != null) foreach (ToolCallEntry entry in e.NewItems) entry.PropertyChanged += OnToolCallPropertyChanged;
         if (e.OldItems != null) foreach (ToolCallEntry entry in e.OldItems) entry.PropertyChanged -= OnToolCallPropertyChanged;
-        MarkProjectionDirty();
+        MarkDeliveriesDirty();
     }
 
     private void OnMessagePropertyChanged(object? sender, PropertyChangedEventArgs e)
     {
         if (e.PropertyName is nameof(ChatMessage.IsStreaming) or nameof(ChatMessage.IsLoading) or nameof(ChatMessage.DurationMs))
-            MarkProjectionDirty();
-    }
-
-    private void OnSegmentPropertyChanged(object? sender, PropertyChangedEventArgs e)
-    {
-        if (e.PropertyName == nameof(ChatMessageSegment.Text)) MarkProjectionDirty();
+            MarkDeliveriesDirty();
     }
 
     private void OnToolCallPropertyChanged(object? sender, PropertyChangedEventArgs e)
     {
-        if (e.PropertyName == nameof(ToolCallEntry.Status)) MarkProjectionDirty();
+        if (e.PropertyName == nameof(ToolCallEntry.Status)) MarkDeliveriesDirty();
     }
 
     private void OnSessionPropertyChanged(object? sender, PropertyChangedEventArgs e)
     {
         if (e.PropertyName != nameof(ConversationSessionItemViewModel.IsWaitingForApproval) || _session == null) return;
-        var waiting = _session.IsWaitingForApproval;
-        if (waiting == _wasWaiting) return;
-        _wasWaiting = waiting;
-        // 审批状态镜像（7.1"定"）：雅典娜停在门槛前、封印变红。审批本身照旧在原生审批窗口里——网页没有"批准"。
-        PostEvents(new[] { new PolisLiveEvent("approval") { At = DateTimeOffset.UtcNow, Waiting = waiting } });
-        PostComposer();   // 对话栏的状态行：她在等你点头
+        // 等审批（7.1"定"）只在对话栏上显示：红封印、"她在等你点头"。审批本身照旧在原生审批窗口里——网页没有"批准"。
+        PostComposer();
     }
 
-    private void MarkProjectionDirty()
+    private void MarkDeliveriesDirty()
     {
-        _projectionDirty = true;
+        _deliveriesDirty = true;
         if (_page != null && !_flushTimer.IsEnabled) _flushTimer.Start();
     }
 
-    /// <summary>算出新增事件；交付的那一回合在这里变成一件成果（存进存档，带颜色等你收下）。</summary>
-    private void Project()
+    /// <summary>交付的那一回合在这里变成一件成果（存进存档，带颜色等你收下）：气泡停止流式输出的那一刻它就出现在城里。</summary>
+    private void ObserveDeliveries()
     {
-        if (!_projectionDirty || _projector == null || _session == null) return;
-        _projectionDirty = false;
+        if (!_deliveriesDirty || _deliveries == null || _session == null) return;
+        _deliveriesDirty = false;
         var now = DateTimeOffset.UtcNow;
-        var events = _projector.Project(_session.Chat.Messages.ToList(), now).ToList();
-        for (var i = 0; i < events.Count; i++)
-        {
-            if (events[i].Type != "deliver" || events[i].MessageId is not { } messageId) continue;
-            var item = CreateItem(messageId, now);
-            if (item != null) events[i] = events[i] with { ItemId = item.Id };
-        }
-        if (events.Count > 0) PostEvents(events);
+        foreach (var messageId in _deliveries.Observe(_session.Chat.Messages.ToList(), now)) CreateItem(messageId, now);
     }
 
     /// <summary>
@@ -1565,12 +1535,12 @@ public sealed partial class GameModeViewModel : ViewModelBase, IDisposable
     /// </summary>
     private PolisItem? CreateItem(string messageId, DateTimeOffset now)
     {
-        if (_session == null || _projector == null) return null;
+        if (_session == null || _deliveries == null) return null;
         if (_save.Items.Any(i => i.SourceMessageId == messageId)) return null;
         var bubble = _session.Chat.Messages.FirstOrDefault(m => m.Id == messageId);
         if (bubble == null) return null;
 
-        var written = _projector.WrittenFiles(bubble)
+        var written = _deliveries.WrittenFiles(bubble)
             .Select(w => w.RelativePath)
             .LastOrDefault(path => KindOfFile(path) != null);
         PolisItem item;
@@ -1700,32 +1670,6 @@ public sealed partial class GameModeViewModel : ViewModelBase, IDisposable
 
     // ———————————————————————— 推送 ————————————————————————
 
-    private void PostEvents(IEnumerable<PolisLiveEvent> events)
-    {
-        var flushAt = DateTimeOffset.UtcNow;
-        Post(new
-        {
-            type = "events",
-            events = events.Select(e => new
-            {
-                type = e.Type,
-                ageMs = Math.Max(0, (flushAt - e.At).TotalMilliseconds),
-                turn = e.Turn,
-                id = e.Id,
-                tool = e.Tool,
-                category = e.Category,
-                place = e.Place,
-                path = e.Path,
-                building = e.Building,
-                ok = e.Ok,
-                reasoning = e.Reasoning,
-                agents = e.Agents,
-                itemId = e.ItemId,
-                waiting = e.Waiting
-            }).ToList()
-        });
-    }
-
     private void Post(object message)
     {
         if (_page == null) return;
@@ -1740,7 +1684,7 @@ public sealed partial class GameModeViewModel : ViewModelBase, IDisposable
     private void Flush()
     {
         _flushTimer.Stop();
-        Project();
+        ObserveDeliveries();
         if (_page == null || _outbox.Count == 0) return;
         var payload = JsonSerializer.Serialize(_outbox, PageJson);
         _outbox.Clear();

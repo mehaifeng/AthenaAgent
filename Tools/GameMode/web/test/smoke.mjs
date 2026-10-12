@@ -1,14 +1,16 @@
 // 冒烟测试（设计稿 12.7）：Chromium 和 WebKit（大致对应 WebView2 和 WKWebView）各跑一遍。
-//   回放：加载合成夹具后页面报告"就绪"、没有控制台错误、画面非空，并且动画循环在走。
+//   夹具：加载合成夹具后页面报告"就绪"、没有控制台错误、画面非空，并且动画循环在走。
 //   实时：页面里先注入一个假的宿主（invokeCSharpAction，与 NativeWebView 注入的同名函数），按应用的协议推城邦、
-//         事件、成果、雾、阅读器，检查页面发回的意图——就绪、收下、重新定位都发了，"批准"从没发过；
+//         成果、对话栏、雾、阅读器，检查页面发回的意图——就绪、收下、重新定位都发了，"批准"从没发过；
+//         刚做完的成果直接出现在你脚下，装城时就在的排在广场南边；等审批只在对话栏上（红封印）；
+//         工具 / 推理 / 审批事件（events）、"转向这份委托"（focus）页面已经不认（2026-10-13：直播拿掉了）；
 //         不可见时停止渲染；卷轴里的 HTML 只是文字。Chromium 另外关掉 WebGL 跑一遍：页面必须回报 failed（webgl）。
 //   M2：积累（橄榄林、居民、委托板、神谕、海图、藏品的摆放）的每一条意图都发得出去、形状对；传令官的行可点；
 //   资产清单：一件换成外部 glTF（测试现写的 GLB，带内嵌贴图）真的换上了、贴图读进了材质，另一件模型不存在（404）退回程序化的，页面没有报错；
 //   雅典娜换成一个 A-pose 人台、蒙在程序化骨架上（rig: procedural）——身体是蒙皮网格，手里的东西还在。
 //   操作（2026-10-11）：视角缺省自由、V 轮换、左键拖动转镜头；WASD 走路且走不进房子；点雅典娜打开对话栏；对话栏收到 composer
 //   才出现，Enter 托付（say 带会话 Id）、草稿同步（draft）、她在办事时"请她停下"（stop-turn）；在对话栏里按 W 是字不是脚步，
-//   输入法选字时的 Enter 不托付；预填（composer open）展开并聚焦。
+//   输入法选字时的 Enter 不托付；预填（composer open）展开并聚焦；你在远处开口，她过来（远了化作一道光）。
 //   bin/Debug/net10.0/.playwright/node/darwin-arm64/node Tools/GameMode/web/test/smoke.mjs [chromium,webkit]
 import { readFileSync, mkdtempSync, writeFileSync, rmSync } from 'node:fs';
 import { deflateSync, crc32 } from 'node:zlib';
@@ -20,7 +22,7 @@ import { mannequinGlb } from './mannequin.mjs';
 
 const browsers = (process.argv[2] ?? 'chromium,webkit').split(',');
 const fixture = JSON.parse(readFileSync(new URL('../fixtures/synthetic.json', import.meta.url), 'utf8'));
-const city = { ...fixture, replay: null };
+const city = fixture;
 const assetsDir = mkdtempSync(path.join(tmpdir(), 'polis-assets-'));
 writeFileSync(path.join(assetsDir, 'house.glb'), boxGlb(6, 4.5, 6));
 writeFileSync(path.join(assetsDir, 'mannequin.glb'), mannequinGlb());
@@ -36,8 +38,8 @@ try {
   for (const name of browsers) {
     const browser = await launch(name);
     try {
-      failed = !(await replayCheck(name, browser)) || failed;
-      failed = !(await liveCheck(name, browser)) || failed;
+      failed = !(await fixtureCheck(name, browser)) || failed;
+      failed = !(await deliveryCheck(name, browser)) || failed;
       failed = !(await accumulationCheck(name, browser)) || failed;
       failed = !(await controlsCheck(name, browser)) || failed;
     } finally {
@@ -52,29 +54,30 @@ try {
 console.log(failed ? 'SMOKE FAILED' : 'SMOKE PASSED');
 process.exit(failed ? 1 : 0);
 
-async function replayCheck(name, browser) {
+async function fixtureCheck(name, browser) {
   const started = Date.now();
-  const result = { browser: `${name} ${browser.version()}`, mode: 'replay' };
+  const result = { browser: `${name} ${browser.version()}`, mode: 'fixture' };
   try {
-    const { page, problems } = await openPage(browser, `${server.origin}/polis/index.html?fixture=../fixtures/synthetic.json&speed=4`);
+    const { page, problems } = await openPage(browser, `${server.origin}/polis/index.html?fixture=../fixtures/synthetic.json&demo=1`);
     await page.waitForFunction(() => window.__polis?.ready === true || document.title === 'error', null, { timeout: 90_000 });
-    const first = await page.evaluate(() => ({ title: document.title, errors: window.__polis.errors, now: window.__polis.now, fixture: window.__polis.fixture }));
+    const first = await page.evaluate(() => ({ title: document.title, errors: window.__polis.errors, now: window.__polis.now, frames: window.__polis.frames, fixture: window.__polis.fixture }));
     await page.waitForTimeout(3000);
-    const later = await page.evaluate(() => ({ now: window.__polis.now, step: window.__polis.step, errors: window.__polis.errors, pixels: window.__polis.pixelStats() }));
+    const later = await page.evaluate(() => ({ now: window.__polis.now, frames: window.__polis.frames, athena: window.__polis.athena, errors: window.__polis.errors, pixels: window.__polis.pixelStats() }));
     const checks = {
       ready: first.title === 'ready',
       noPageErrors: later.errors.length === 0,
       noConsoleErrors: problems.length === 0,
-      // 画面调成了黑白，按 5 位量化最多 32 种灰阶；全空的一帧标准差≈0、只有一两种颜色
+      // 全空的一帧标准差≈0、只有一两种颜色
       nonEmptyFrame: later.pixels.std > 8 && later.pixels.distinct >= 16,
-      animating: later.now > first.now,
+      animating: later.now > first.now && later.frames > first.frames,
+      athenaLivesHere: ['idle', 'walk', 'teleport'].includes(later.athena),
       syntheticFixture: first.fixture?.synthetic === true && first.fixture.buildings >= 8,
     };
     Object.assign(result, {
       checks,
       pixels: { mean: +later.pixels.mean.toFixed(1), std: +later.pixels.std.toFixed(1), distinct: later.pixels.distinct },
-      replayMs: Math.round(later.now),
-      step: later.step,
+      clockMs: Math.round(later.now),
+      athena: later.athena,
       problems: [...problems, ...later.errors],
       seconds: +((Date.now() - started) / 1000).toFixed(1),
     });
@@ -88,7 +91,7 @@ async function replayCheck(name, browser) {
   }
 }
 
-async function liveCheck(name, browser) {
+async function deliveryCheck(name, browser) {
   const started = Date.now();
   const result = { browser: `${name} ${browser.version()}`, mode: 'live' };
   try {
@@ -101,20 +104,37 @@ async function liveCheck(name, browser) {
     await page.waitForFunction(() => (window.__hostInbox ?? []).some((m) => m.type === 'ready') || document.title === 'error', null, { timeout: 90_000 });
     const send = (message) => page.evaluate((m) => window.polis.receive(JSON.stringify(m)), message);
 
-    await send({ type: 'init', tables: { ui: { relocate: 'Relocate', accept: 'Keep' }, lines: { turn: 'On it' } } });
+    await send({ type: 'init', tables: { ui: { relocate: 'Relocate', accept: 'Keep' } } });
     await send({ type: 'depart', caption: '驶向我的工作区' });
     await send({ type: 'city', key: 'ws-1', city, player: { x: 1, z: 4 } });
-    await send({ type: 'focus', last: { category: 'read', place: 'inside', building: '合同' } });
-    await send({ type: 'events', events: [
-      { type: 'turn', turn: 1, ageMs: 50 },
-      { type: 'tool-start', id: 'w1', tool: 'write_system_file', category: 'write', place: 'inside', path: '合同/摘要.md', building: '合同', ageMs: 20 },
-      { type: 'approval', waiting: true, ageMs: 10 },
-    ] });
-    await send({ type: 'items', items: [{ id: 'item-1', kind: 'scroll', title: '<img src=x onerror=alert(1)>', state: 'pending', path: '合同/摘要.md', createdAt: '2026-10-11T09:00:00Z' }] });
+    // 装城时就在的一件（重启、你离开期间交付的）：排在广场南边，不在你脚下
+    await send({ type: 'items', items: [{ id: 'item-0', kind: 'scroll', title: '旧卷', state: 'pending', createdAt: '2026-10-10T09:00:00Z' }] });
     await send({ type: 'notices', notices: [{ text: '「照片」里多了 2 个文件' }] });
     await send({ type: 'report', title: '你离开期间', lines: ['「账本」改名为「财务」'] });
-    await page.waitForFunction(() => window.__polis.step === 'await', null, { timeout: 20_000 });
-    const awaiting = await page.evaluate(() => ({ step: window.__polis.step, city: window.__polis.city, pixels: window.__polis.pixelStats() }));
+    // 直播拿掉之后（2026-10-13）页面不再认工具 / 推理 / 审批事件，也没有"转向这份委托"：送进去只记一笔"认不得"
+    await send({ type: 'events', events: [{ type: 'tool-start', id: 'w1', tool: 'write_system_file' }] });
+    await send({ type: 'focus', last: null });
+    // 对话栏：这份委托在办事、在等你点头——栏上一枚红封印
+    await send({ type: 'composer', conversationId: 'c-1', busy: true, queued: false, waiting: true, compressing: false, canSend: false, attachments: [] });
+    await page.waitForFunction(() => (window.__polis.frames ?? 0) > 3 && (window.__polis.shownItems ?? []).some((i) => i.id === 'item-0'), null, { timeout: 20_000 });
+    const loaded = await page.evaluate(() => ({
+      city: window.__polis.city, pixels: window.__polis.pixelStats(), player: window.__polis.player,
+      row: (window.__polis.shownItems ?? []).find((i) => i.id === 'item-0'),
+      sealed: document.getElementById('talk').classList.contains('waiting'),
+      placeholder: document.querySelector('#talk .talk-input').placeholder,
+      errors: window.__polis.errors,
+      athena: window.__polis.athena,
+    }));
+    await send({ type: 'composer', conversationId: 'c-1', busy: false, queued: false, waiting: false, compressing: false, canSend: true, attachments: [] });
+    const unsealed = await page.evaluate(() => !document.getElementById('talk').classList.contains('waiting'));
+
+    // 刚做完的一回合：C# 推来整份清单，里面多了一件待收的——它直接出现在你脚下（不再等她走过来递）
+    await send({ type: 'items', items: [
+      { id: 'item-0', kind: 'scroll', title: '旧卷', state: 'pending', createdAt: '2026-10-10T09:00:00Z' },
+      { id: 'item-1', kind: 'scroll', title: '<img src=x onerror=alert(1)>', state: 'pending', path: '合同/摘要.md', createdAt: '2026-10-11T09:00:00Z' },
+    ] });
+    await page.waitForFunction(() => (window.__polis.shownItems ?? []).some((i) => i.id === 'item-1'), null, { timeout: 5000 });
+    const delivered = await page.evaluate(() => ({ player: window.__polis.player, shown: window.__polis.shownItems.find((i) => i.id === 'item-1'), action: window.__polis.playerAction }));
 
     // 收下：打开卡片、点"收下"（按钮画在 canvas 上，这里直接走同一个处理函数）
     await page.evaluate(() => { window.__polisGame.openCard('item-1'); window.__polisGame.onButton('card-accept'); });
@@ -143,32 +163,9 @@ async function liveCheck(name, browser) {
       xss: window.__xss ?? 0,
     }));
 
-    await send({ type: 'events', events: [{ type: 'approval', waiting: false }, { type: 'tool-end', id: 'w1', ok: true }, { type: 'deliver', turn: 1, itemId: 'item-1' }] });
     await page.waitForTimeout(800);
     const landedFirst = await page.evaluate(() => window.__polis.voyage ?? null);
-
-    // 交付的成果藏到她递出那一刻（2026-10-12，用户：卷轴先刷在广场附近，她走到你跟前放下时广场那卷才消失）。
-    // C# 在同一批里先推成果、再推交付事件，这里照样一批送进去
-    await page.evaluate((batch) => window.polis.receive(JSON.stringify(batch)), [
-      { type: 'items', items: [
-        { id: 'item-1', kind: 'scroll', title: '摘要', state: 'accepted', path: '合同/摘要.md', createdAt: '2026-10-11T09:00:00Z' },
-        { id: 'item-2', kind: 'scroll', title: '第二卷', state: 'pending', createdAt: '2026-10-11T09:05:00Z' },
-      ] },
-      { type: 'events', events: [{ type: 'turn', turn: 2 }, { type: 'deliver', turn: 2, itemId: 'item-2' }] },
-    ]);
-    const deliverySeen = [];
-    const deliveryStarted = Date.now();
-    while (Date.now() - deliveryStarted < 45_000) {   // 机器忙时她走过来要二三十秒
-      const s = await page.evaluate(() => ({ step: window.__polis.step, player: window.__polis.player, shown: (window.__polis.shownItems ?? []).find((i) => i.id === 'item-2') ?? null }));
-      deliverySeen.push(s);
-      if (s.shown) break;
-      await page.waitForTimeout(60);
-    }
-    const firstShown = deliverySeen.find((s) => s.shown);
-    const deliveryHidden = deliverySeen.length > 1 && deliverySeen.slice(0, -1).every((s) => !s.shown);
-    // 第一次出现就在你脚边（她递到你跟前），不是广场那一排。不按 step === 'deliver' 认：机器忙时一次取样之间整段交付已经走完、回到 idle
-    const shownOnlyAtHandover = !!firstShown && ['deliver', 'idle'].includes(firstShown.step)
-      && Math.hypot(firstShown.shown.x - firstShown.player.x, firstShown.shown.z - firstShown.player.z) < 2.5;
+    const waitingText = await page.evaluate(() => window.__polisGame.ui.talkWaiting);
 
     // 航海过场的上限（9.2）：新城只来了顶层（partial），完整测绘迟迟不到——到上限先靠岸，不卡在海上
     await page.evaluate(() => document.getElementById('reader').hidden = true);
@@ -180,10 +177,13 @@ async function liveCheck(name, browser) {
     const inbox = await page.evaluate(() => window.__hostInbox.map((m) => m.type));
     const checks = {
       readySent: inbox[0] === 'ready',
-      deliveredItemHiddenUntilHandover: deliveryHidden && shownOnlyAtHandover,
-      cityLoaded: awaiting.city?.buildings === city.buildings.length && awaiting.city.key === 'ws-1',
-      awaitsApproval: awaiting.step === 'await',
-      nonEmptyFrame: awaiting.pixels.std > 8 && awaiting.pixels.distinct >= 16,
+      existingItemWaitsOnTheRow: !!loaded.row && Math.hypot(loaded.row.x - loaded.player.x, loaded.row.z - loaded.player.z) > 2.5,
+      freshItemAtYourFeet: !!delivered.shown && Math.hypot(delivered.shown.x - delivered.player.x, delivered.shown.z - delivered.player.z) < 1.5,
+      cityLoaded: loaded.city?.buildings === city.buildings.length && loaded.city.key === 'ws-1',
+      approvalOnlyOnTheBar: loaded.sealed && loaded.placeholder === waitingText && unsealed,
+      noLiveMirror: loaded.errors.some((e) => e.includes('unknown host message: events')) && loaded.errors.some((e) => e.includes('unknown host message: focus'))
+        && ['idle', 'walk', 'teleport'].includes(loaded.athena),
+      nonEmptyFrame: loaded.pixels.std > 8 && loaded.pixels.distinct >= 16,
       acceptSent: inbox.includes('accept-delivery'),
       relocateSent: fogged === true && inbox.includes('relocate'),
       neverApproves: !inbox.some((t) => /approv|allow|grant/i.test(t)),
@@ -194,7 +194,7 @@ async function liveCheck(name, browser) {
       voyageWaitsForPartial: stillSailing === 'sailing',
       noProblems: problems.length === 0,
     };
-    Object.assign(result, { checks, inbox, delivery: { samples: deliverySeen.length, first: firstShown ?? null, last: deliverySeen.at(-1) }, problems, seconds: +((Date.now() - started) / 1000).toFixed(1) });
+    Object.assign(result, { checks, inbox, delivery: { row: loaded.row, fresh: delivered }, problems, seconds: +((Date.now() - started) / 1000).toFixed(1) });
     await page.close();
     console.log(JSON.stringify(result, null, 2));
     return Object.values(checks).every(Boolean);
@@ -371,7 +371,6 @@ async function controlsCheck(name, browser) {
     const inbox = () => page.evaluate(() => window.__hostInbox);
     await send({ type: 'init', tables: {} });
     await send({ type: 'city', key: 'ws-1', city, player: { x: 2.6, z: 4.4 } });
-    await send({ type: 'focus', last: null });
     await page.waitForFunction(() => (window.__polis.frames ?? 0) > 5, null, { timeout: 20_000 });
     const talkBefore = await page.evaluate(() => document.getElementById('talk').hidden);
     const viewDefault = await page.evaluate(() => ({ status: window.__polis.view, radio: document.querySelector('#view button[aria-checked="true"]')?.dataset.view }));
@@ -497,6 +496,21 @@ async function controlsCheck(name, browser) {
     const prefilled = await page.evaluate(() => ({ open: document.getElementById('talk').classList.contains('open'), value: window.__polisTalk.value, focused: document.activeElement?.classList.contains('talk-input') }));
     const saysAfterPrefill = (await inbox()).filter((m) => m.type === 'say').length;
     await page.keyboard.press('Escape');
+    // 你在远处开口（2026-10-13）：站到港口去按 Enter——她离你远过 12 米，就过来（远过 10 秒的路化作一道光过来）
+    await page.waitForFunction(() => !document.getElementById('talk').classList.contains('open'), null, { timeout: 3000 }).catch(() => {});
+    const farAway = await page.evaluate(() => {
+      const g = window.__polisGame, h = g.layout.sitePoint('harbor'), a = g.world.athena.position;
+      g.placePlayer(h.x, h.z - 1.2, Math.PI);
+      return { player: { x: h.x, z: h.z - 1.2 }, athena: { x: a.x, z: a.z }, summoned: window.__polis.summoned ?? 0 };
+    });
+    await page.waitForTimeout(200);
+    await page.keyboard.press('Enter');
+    const cameOver = await page.waitForFunction(() => {
+      const g = window.__polisGame, a = g.world.athena.position, p = g.player;
+      return Math.hypot(a.x - p.x, a.z - p.z) < 3 && window.__polis.athena === 'idle';
+    }, null, { timeout: 15_000 }).then(() => true, () => false);
+    const summon = await page.evaluate(() => ({ summoned: window.__polis.summoned ?? 0, at: window.__polis.athenaAt, steps: window.__polisGame.athenaSim.steps.slice(-3).map((s) => s.kind) }));
+    await page.keyboard.press('Escape');
     // M3 第三轮：夜里跟着应用的深色主题——推一条 theme，页面上的条立刻换，城里一秒多走到夜里；换回来也一样
     await send({ type: 'theme', night: true });
     await page.waitForFunction(() => window.__polis.night === 1, null, { timeout: 5000 }).catch(() => {});
@@ -539,12 +553,14 @@ async function controlsCheck(name, browser) {
       stopWhileBusy: busyBar.stop && !busyBar.send && stopSent,
       enterOpensTalk: enterOpens,
       prefillOpensWithoutSending: prefilled.open && prefilled.focused && prefilled.value === '关于《摘要》，请修改：' && saysAfterPrefill === saysBeforePrefill,
+      athenaComesWhenCalledFromAfar: Math.hypot(farAway.athena.x - farAway.player.x, farAway.athena.z - farAway.player.z) > 12 && cameOver
+        && summon.summoned === farAway.summoned + 1 && summon.steps.includes('teleport'),
       nightFollowsTheme: nightNow.body && nightNow.k === 1 && nightNow.overlay && !dayAgain.body && dayAgain.k === 0 && nightNow.pixels.mean < dayAgain.pixels.mean - 20,
       longScrollReachesTheEnd: readerFit.cardInside && readerFit.scrollable && readerFit.lastVisible && readerFit.table,
       neverApproves: !all.some((m) => /approv|allow|grant/i.test(m.type)),
       noProblems: problems.length === 0,
     };
-    Object.assign(result, { checks, angles: { before: a0, after: a1 }, walked: { from: p0, to: p1 }, closeUp: { before: viewBefore, during: closeUp, reopened, afterClose, wheel, wheeledDuringRestore }, problems, seconds: +((Date.now() - started) / 1000).toFixed(1) });
+    Object.assign(result, { checks, angles: { before: a0, after: a1 }, walked: { from: p0, to: p1 }, closeUp: { before: viewBefore, during: closeUp, reopened, afterClose, wheel, wheeledDuringRestore }, summon: { farAway, cameOver, ...summon }, problems, seconds: +((Date.now() - started) / 1000).toFixed(1) });
     await page.close();
     console.log(JSON.stringify(result, null, 2));
     return Object.values(checks).every(Boolean);

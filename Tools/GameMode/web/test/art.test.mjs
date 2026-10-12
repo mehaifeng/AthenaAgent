@@ -9,7 +9,7 @@ import {
   venueSlotLocal, venueStandLocal, groveSpot, groveTerraces, islandLayout, chartTransform, hitIsland,
   SLOTS_PER_VENUE, TREES_PER_TERRACE, PLOT_SIZE, TERRACE,
 } from '../../../../Assets/Polis/src/civic-layout.mjs';
-import { intent, INTENT_TYPES } from '../../../../Assets/Polis/src/live.mjs';
+import { intent, INTENT_TYPES } from '../../../../Assets/Polis/src/intents.mjs';
 import * as THREE from '../../../../Assets/Polis/vendor/three.bundle.mjs';
 import { makeWaterMaterial, swellHeight, SWELLS, MAX_RECTS } from '../../../../Assets/Polis/src/art/water.mjs';
 import { buildCharacter, CHARACTER_IDS, CHARACTER_SPECS } from '../../../../Assets/Polis/src/art/characters.mjs';

@@ -1588,29 +1588,7 @@
     <system:String x:Key="GameMode.Notice.VenueFull">{0}满了，{1}先收着</system:String>
     <system:String x:Key="GameMode.Item.Image">一幅彩绘</system:String>
     <system:String x:Key="GameMode.Return.Prefill">关于{0}，请修改：</system:String>
-    <!-- 游戏页面的词条：旁白台词库（"|" 分隔变体）、界面、建筑叫法、公共建筑名（由 C# 推给页面） -->
-    <system:String x:Key="Polis.Line.Turn">交给我吧|好，我来办|这就去办</system:String>
-    <system:String x:Key="Polis.Line.ReadFile">我去{place}翻翻《{name}》|去{place}找《{name}》</system:String>
-    <system:String x:Key="Polis.Line.ReadFileAt">在{place}查查《{name}》|打开《{name}》看看</system:String>
-    <system:String x:Key="Polis.Line.ReadDir">我去{place}看看|去{place}里找找</system:String>
-    <system:String x:Key="Polis.Line.ReadDirAt">在{place}里找找|翻翻{place}里有什么</system:String>
-    <system:String x:Key="Polis.Line.WriteFile">去{place}写《{name}》|我去誊写《{name}》</system:String>
-    <system:String x:Key="Polis.Line.WriteFileAt">我在誊写《{name}》|在{place}落笔写《{name}》</system:String>
-    <system:String x:Key="Polis.Line.WriteDir">去{place}收拾一下|{place}要搭个脚手架</system:String>
-    <system:String x:Key="Polis.Line.WriteDirAt">我在{place}收拾一下|{place}搭起了脚手架</system:String>
-    <system:String x:Key="Polis.Line.Terminal">去锻炉敲打一下|我去锻炉一趟</system:String>
-    <system:String x:Key="Polis.Line.TerminalAt">炉火点上了|炉火正旺</system:String>
-    <system:String x:Key="Polis.Line.Web">去港口放船|我去港口一趟</system:String>
-    <system:String x:Key="Polis.Line.WebAt">船出海打听消息去了|放船出海，去外面问问</system:String>
-    <system:String x:Key="Polis.Line.MemoryRecall">去图书馆翻翻旧卷|看看我记过些什么</system:String>
-    <system:String x:Key="Polis.Line.MemoryWrite">这件事我记下了</system:String>
-    <system:String x:Key="Polis.Line.Subagents">我叫上了{count}位侍女|侍女们，分头去吧</system:String>
-    <system:String x:Key="Polis.Line.Workshop">去工坊忙一下</system:String>
-    <system:String x:Key="Polis.Line.Outside">我出城一趟|这一样东西在城外</system:String>
-    <system:String x:Key="Polis.Line.Failure">这条路走不通，我换一条</system:String>
-    <system:String x:Key="Polis.Line.Deliver">做好了，你看看|给你，刚做好的</system:String>
-    <system:String x:Key="Polis.Line.Approval">这一步需要你点头|等你点个头，我再动手</system:String>
-    <system:String x:Key="Polis.Line.Interrupted">上次在这里停下了，要接着做吗？</system:String>
+    <!-- 游戏页面的词条：界面、建筑叫法、公共建筑名（由 C# 推给页面）。旁白台词库（Polis.Line.*）已随直播拿掉（2026-10-13） -->
     <system:String x:Key="Polis.Ui.Dismiss">知道了</system:String>
     <system:String x:Key="Polis.Ui.NoticeBoard">广场公告板</system:String>
     <system:String x:Key="Polis.Ui.FogTitle">找不到这座城邦的文件夹</system:String>

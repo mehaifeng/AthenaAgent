@@ -4557,16 +4557,24 @@ static void TestGameModeSwitchAndFailures()
         if (gameMode.PageState != PolisPageState.Ready)
             throw new InvalidOperationException("收到 ready 之后页面状态必须是 Ready。");
         var init = page.Messages.First(m => m.GetProperty("type").GetString() == "init");
-        if (init.GetProperty("tables").GetProperty("lines").GetProperty("turn").GetString() != localization.GetString("Polis.Line.Turn", "<missing>"))
-            throw new InvalidOperationException("旁白台词库必须从 locale 文件推给页面（Polis.Line.*）。");
+        // 直播拿掉之后（2026-10-13）没有按工具类别的旁白：init 里不再有台词库，界面词条照样从 locale 文件推来
+        if (init.GetProperty("tables").TryGetProperty("lines", out _))
+            throw new InvalidOperationException("旁白台词库已随直播拿掉，init 不该再带 lines。");
+        if (init.GetProperty("tables").GetProperty("ui").GetProperty("talkSend").GetString() != localization.GetString("Polis.Ui.TalkSend", "<missing>"))
+            throw new InvalidOperationException("页面的界面词条必须从 locale 文件推给页面（Polis.Ui.*）。");
         var city = page.Messages.Last(m => m.GetProperty("type").GetString() == "city").GetProperty("city");
         var keys = city.GetProperty("buildings").EnumerateArray().Select(b => b.GetProperty("key").GetString()).OrderBy(k => k, StringComparer.Ordinal).ToList();
         if (!keys.SequenceEqual(new[] { "合同", "照片" }.OrderBy(k => k, StringComparer.Ordinal)))
             throw new InvalidOperationException($"推给页面的城邦必须是这个工作区的顶层文件夹，实际 [{string.Join(", ", keys)}]。");
         PumpTimers(() => File.Exists(Path.Combine(paths.GetWorkspacesDirectory(), workspace.Id, "game", "polis.json")), 10000,
             "测绘之后存档必须写进 Workspaces/<id>/game/polis.json。");
-        // 焦点在城装好、传令官播报完之后才推（M2 到达时多了一步）：等它来，不假设它和存档落盘的先后
-        PumpTimers(() => page.MessageTypes.Contains("focus"), 10000, "雅典娜要转向当前选中的这份委托（focus）。");
+        // 对话栏在城装好、传令官播报完之后换成这份委托的（M2 到达时多了一步）：等它来，不假设它和存档落盘的先后。
+        // 页面那一侧没有"雅典娜转向这份委托"了（focus 随直播拿掉，2026-10-13）
+        PumpTimers(() => page.Messages.Any(m => m.GetProperty("type").GetString() == "composer"
+                && m.TryGetProperty("draft", out var d) && d.ValueKind == JsonValueKind.String), 10000,
+            "换到这份委托时，对话栏要带着它输入框里的字推给页面（composer + draft）。");
+        if (page.MessageTypes.Contains("focus") || page.MessageTypes.Contains("events"))
+            throw new InvalidOperationException("直播已经拿掉：页面不该再收到 focus 或 events。");
 
         // —— 夜里（M3 第三轮）：游戏跟着应用的深 / 浅色主题。打开时的主题在地址里（页面一加载就是那一套颜色），
         // 就绪时再推一条直接到位的 theme；之后应用换主题，视图在主题变体落地的那一刻（ActualThemeVariantChanged）告诉 ViewModel ——
@@ -4872,8 +4880,9 @@ static void TestGameModeCityLifecycle()
         bubble.Segments.Add(group);
         chat.Messages.Add(new ChatMessage { Role = "user", Content = "写个摘要" });
         chat.Messages.Add(bubble);
-        PumpTimers(() => OfType(page, "events").Any(e => e.GetProperty("events").EnumerateArray().Any(x => x.GetProperty("type").GetString() == "tool-start" && x.GetProperty("id").GetString() == "w1")),
-            5000, "回合里的工具调用必须从渲染模型推导出来推给页面。");
+        // 归属：她这一回合的工具目标要从渲染模型记下来（写盘的改动才能认出是她的）——但不再推给页面
+        PumpTimers(() => gameMode.AthenaTouches.Any(t => t.RelativePath == "合同/摘要.md" && t.End == null),
+            5000, "回合里正在写的文件要从渲染模型记成她碰过的地方。");
         var noticesBefore = OfType(page, "notices").Count;
         var updatesBefore = OfType(page, "city").Count;
         File.WriteAllText(Path.Combine(workspaceRoot, "合同", "摘要.md"), "summary");
@@ -4892,13 +4901,16 @@ static void TestGameModeCityLifecycle()
         PumpTimers(() => OfType(page, "items").Any(i => i.GetProperty("items").EnumerateArray().Any(x => x.GetProperty("path").GetString() == "合同/摘要.md" && x.GetProperty("state").GetString() == "pending")),
             5000, "交付的成果必须推给页面（待收下）。");
 
-        // 审批状态镜像（7.1"定"）：会话在等审批，雅典娜就停在门槛前；审批本身仍在原生审批窗口里
+        // 等审批（7.1"定"）只在对话栏上显示（红封印）；审批本身仍在原生审批窗口里。雅典娜不再停在门槛前（直播拿掉了）
         conversation.IsWaitingForApproval = true;
-        PumpTimers(() => OfType(page, "events").Any(e => e.GetProperty("events").EnumerateArray().Any(x => x.GetProperty("type").GetString() == "approval" && x.GetProperty("waiting").GetBoolean())),
-            5000, "会话在等审批时要镜像给页面（approval waiting = true）。");
+        PumpTimers(() => OfType(page, "composer").Any(c => c.GetProperty("waiting").GetBoolean()),
+            5000, "会话在等审批时，对话栏要显示出来（composer waiting = true）。");
+        var composersBefore = OfType(page, "composer").Count;
         conversation.IsWaitingForApproval = false;
-        PumpTimers(() => OfType(page, "events").Any(e => e.GetProperty("events").EnumerateArray().Any(x => x.GetProperty("type").GetString() == "approval" && !x.GetProperty("waiting").GetBoolean())),
-            5000, "审批结束也要镜像给页面。");
+        PumpTimers(() => OfType(page, "composer").Skip(composersBefore).Any(c => !c.GetProperty("waiting").GetBoolean()),
+            5000, "审批结束，对话栏的红封印要撤掉。");
+        if (page.MessageTypes.Contains("events"))
+            throw new InvalidOperationException("直播已经拿掉：工具调用、推理、审批都不该再以 events 推给页面。");
 
         // 收下与退回（7.1"评"）：收下写进存档；退回 = 在同一会话里追加一条修改要求（预填输入框，由人发出）
         var itemId = OfType(page, "items").Last().GetProperty("items").EnumerateArray().First(x => x.GetProperty("path").GetString() == "合同/摘要.md").GetProperty("id").GetString()!;

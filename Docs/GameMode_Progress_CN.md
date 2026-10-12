@@ -3,6 +3,61 @@
 > 配合 `Docs/GameMode_Design_CN.md`（设计稿 v6）与 `Docs/GameMode_Goals_CN.md`（三段目标）使用。上下文被压缩后先读这里再继续。
 > 分支：M0 在 `feature/game-mode-m0`（从 `docs/game-mode-design` 拉出）；M1 在 `feature/game-mode-m1`（M0 未合入 main，从 `feature/game-mode-m0` 拉出，并合入了 origin/main 的 PR #28 以复用工作台监听的 Error 处理）；
 > M2 在 `feature/game-mode-m2`（2026-10-11：M1 的 PR #29 还没合入 main，按目标从 `feature/game-mode-m1` 的 28fd148 拉出）。
+> 2026-10-13 改向（用户拍板）：拆直播 → 居民生成器 → 问话 → 辩论 → 户与民居，五个里程碑在同一个分支 `worktree-polis-no-live` 上顺序提交、
+> 一个 PR。每个里程碑一节，新的在上；每节末尾的「待你确认」是无人值守时我替你定下的设计选择。
+
+## M-A 拆直播：雅典娜不再镜像回合（2026-10-13）
+
+用户 2026-10-12 拍板：游戏模式不再是"执行会话"的另一种呈现；保留对话 / 游戏切换与城里的对话栏，直播（实时镜像）的实现整个拿掉，
+连"一回合一场交付"也不留。理由是量出来的（`python3 -I Tools/GameMode/rhythm/rhythm.py`，开发版 logs.db，2026-07-23..10-12）：
+
+| 指标 | 数值 |
+|---|---|
+| 回合数 | 198 |
+| 工具执行时长中位数 | 0.05 s |
+| 相邻两次工具开始间隔 ≤ 0.5 s 的比例 | 30 % |
+| 两轮之间等模型的中位数 / p90 | 4.7 s / 17.6 s |
+| 完全不调工具的回合 | 40 % |
+
+动画的最小单位（一次过渡、一个动作、半秒一步）比工具事件慢一个数量级、又比等模型快一个数量级，没有一个时钟能让逐调用的镜像好看；
+镜像里也没有你的选择。
+
+### 做了什么
+
+| # | 内容 | 落点 |
+|---|---|---|
+| 1 | 页面：删 `orchestrator.mjs`（六条节奏规则 + 等审批）、`replay.mjs`、`narration.mjs`、`live.mjs` 的事件流；帧率策略与过场靠岸挪进 `frame-policy.mjs`，意图的封闭集合挪进 `intents.mjs` | `Assets/Polis/src/` |
+| 2 | 雅典娜住在城里：`athena.mjs`（纯逻辑）——在广场一圈的六个点之间闲逛（每处停 6–10 秒，按种子错开），每次移动走完，你在 2.5 米内或对话栏开着就不再走开；你在远处（> 12 米）开口，她走过来，远过 10 秒的路化作一道光过来。光只在瞬移那一下有 | `athena.mjs`、`game.mjs` |
+| 3 | 成果：这座城的第一份成果清单之后再来的待收成果，直接出现在你脚下（你伸手接一下）；装城时就在的排在广场南边。不再等她走过来递 | `game.mjs` 的 `setItems` |
+| 4 | 等审批只在对话栏上显示：一枚红封印、整条栏描红边，收起时占位字是"她在等你点头：看看审批窗口"。审批本身仍在原生窗口，网页仍没有"批准" | `talk.mjs`、`index.html` |
+| 5 | 去掉只为镜像而建的东西：飞出去的六位黄金侍女（平时藏着的六个人物，构建和布料都省了）、建筑前的脚手架、开场白与工具旁白、她的"做事 / 交付 / 沉思"三种光 | `world.mjs`、`game.mjs` |
+| 6 | 港口的船按自己的时刻表出海（每 180 秒一趟、20 秒回来，按墙钟）：原来只在她"取网页"时出海，拿掉之后船就永远泊着、水手永远在收缆 | `game.mjs` 的 `BOAT_TRIP` |
+| 7 | C#：`PolisEventProjector` → `PolisDeliveries`（只留交付与这一回合的工具目标——外部改动的归属要它）；删 `PolisReplayConverter` 与夹具里的 `replay`；路径解析挪进 `PolisToolTargets`；`GameModeViewModel` 不再推 `events` / `focus`，审批状态只推 `composer` | `ViewModels/GameMode/`、`Services/GameMode/` |
+| 8 | `PolisExport` 只导城邦快照（`fixture` 不再要会话，`list` 只数回合与工具调用）；合成夹具重新生成（-254 行） | `Tools/GameMode/` |
+| 9 | 旁白台词库 `Polis.Line.*` 从两份 locale 删掉（各 22 条）；`init` 不再带 `lines` 表 | `Assets/Locales/`、`PolisLocale` |
+| 10 | 文档：本文件、`Assets/Polis/CLAUDE.md`（新的第一条规则写明原因和数字）、根 `CLAUDE.md` / `AGENTS.md`、设计稿顶部与第 6 节（已废止）、M0 演示（已废止）、M1/M2/M3 验收清单（废止的条目逐条写明） | `Docs/` |
+
+### 这一轮的运行
+
+| 检查 | 结果 |
+|---|---|
+| `dotnet build Athena.UI.csproj` | 0 警告 0 错误 |
+| `ATHENA_ARCHIVE_ONLY=polis dotnet run --project Athena.Archive.Tests` | 21/21 通过（`polis tool targets` 接住了原回放测试里路径解析的全部断言；`polis deliveries` 新写） |
+| `ATHENA_HEADLESS_ONLY=game-mode Scripts/run-headless-tests.sh` | 3/3 通过（城的生命周期里：不再推 `events` / `focus`、写盘之前归属已经记下、红封印开与关、交付的成果照样推来） |
+| `node --test Tools/GameMode/web/test/*.test.mjs` | 92/92 通过（新：`athena.test.mjs` 5 例；`page.test.mjs` 断言没有页面模块再引用直播的模块或认工具 / 推理事件） |
+| 冒烟（Chromium 154、WebKit 26.5） | 全部通过；新检查 `existingItemWaitsOnTheRow`、`freshItemAtYourFeet`、`approvalOnlyOnTheBar`、`noLiveMirror`、`athenaComesWhenCalledFromAfar`（两种浏览器里她都是化作一道光从广场过来，`summoned` 1） |
+| 运动自检 | 162 帧，最大偏差 0.000 px（光晕、头顶的话、名牌）；两个时间窗现在由她自己造：走（广场一圈对面那个点，800–2825 ms）、瞬移（去港口，3025–3845 ms）；`--nosync` 时 315.8 px，自检照样抓得住漂移 |
+
+美术审查（`/tmp`，不进仓库）：合成城邦白天 / 夜里各一张，她站在广场一圈上、没有光；对话栏等审批的样子白天 / 夜里、收起 / 展开各一张——红边、红点、半身像的红圈都在，夜里换成稍亮的 `#cd683e`，和夜色分得开。
+
+### 待你确认
+
+1. **奠基时她头顶的两句话留着。** 方案写的是"奠基后第一条建议改为对话栏里的一行提示"；我保留了她头顶的气泡（"这是你的城邦……"和委托板上的第一条建议），因为这两句不来自任何回合，留在她身上更像"人"，改到对话栏还要改 `talk.mjs` 的版式。要改成对话栏提示就说一声。
+2. **你在远处开口，她会过来。** 方案只写了"对话栏开着或你在 2.5 m 内就面向你"；我加了"离你远过 12 米就走过来（远过 10 秒化作一道光）"，这样近景镜头总能看到两个人，瞬移也还有用处（运动自检要它）。
+3. **港口的船按时刻表出海**（每 3 分钟一趟、20 秒）。数字是我定的，没有依据，只为港口不是一幅静物。
+4. **归属仍订阅工具调用的状态**：方案写的是删掉对 `ToolCalls` / `ToolCallEntry.Status` 的订阅，但外部改动的归属要知道她这一回合写过哪些文件，不然她写的每个文件都会挂上公告板。只删了推给页面的那一半。
+5. 测试文件 `live.test.mjs` 改名为 `page.test.mjs`（方案写的是 `frame-policy.test.mjs`）：里面还有意图、阅读器和"不写标记"的断言，不只是帧率。
+6. 雅典娜的"做事 / 交付"姿势和她手里的那些家什（卷轴、石板、锤、缆……）作为美术资产留在 `art/` 里，城里不再用；要清掉再说。
 
 ## 冒烟的 `zoomRestoredAfterClose` 时好时坏：退回的半路上又进了近景（2026-10-12）
 

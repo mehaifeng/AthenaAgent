@@ -14,17 +14,9 @@
   html, body { margin: 0; height: 100%; overflow: hidden; background: #e4dfd6; font-family: "PingFang SC", "Noto Sans CJK SC", "Microsoft YaHei", sans-serif; }
   #scene, #overlay { display: block; position: absolute; left: 0; top: 0; width: 100%; height: 100%; }
   #overlay { pointer-events: none; }
-  #controls { position: absolute; right: 12px; bottom: 12px; display: flex; gap: 6px; }
-  #controls button {
-    font: 500 13px "PingFang SC", "Noto Sans CJK SC", sans-serif; color: #f4f1ec; background: rgba(30, 28, 26, 0.62);
-    border: 1px solid rgba(255, 255, 255, 0.18); border-radius: 6px; padding: 6px 12px; cursor: pointer;
-  }
-  #controls button:hover { background: rgba(30, 28, 26, 0.8); }
-  /* 实时模式：没有回放的播放 / 速度 / 重新开始 */
-  body.live #controls { display: none; }
-  /* 视角与海图：实时模式在左上角（底部正中留给对话栏）；回放模式在右下、播放按钮上面（左上角是回放的状态行） */
+  /* 视角与海图：实时模式在左上角（底部正中留给对话栏）；夹具模式在右下（左上角是演示的说明行） */
   #toolbar { position: absolute; left: 12px; top: 12px; display: flex; gap: 8px; align-items: center; }
-  body:not(.live) #toolbar { left: auto; top: auto; right: 12px; bottom: 54px; }
+  body:not(.live) #toolbar { left: auto; top: auto; right: 12px; bottom: 12px; }
   #toolbar > button, #view {
     font: 500 13px "PingFang SC", "Noto Sans CJK SC", sans-serif; color: #f4f1ec; background: rgba(30, 28, 26, 0.62);
     border: 1px solid rgba(255, 255, 255, 0.18); border-radius: 8px;
@@ -62,6 +54,12 @@
   #talk.busy .talk-status::before { content: ''; display: inline-block; width: 7px; height: 7px; margin-right: 7px; border-radius: 50%;
     background: #fffbea; box-shadow: 0 0 0 1px rgba(60, 55, 50, 0.55), 0 0 8px 3px rgba(255, 246, 214, 0.95); animation: talk-pulse 1.4s ease-in-out infinite; }
   @keyframes talk-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }
+  /* 等你点头（审批）：一枚红封印，整条栏描一道红边——点缀色只有一个意思，"轮到你了"。2026-10-13 起这是城里唯一显示审批的地方
+     （她不再停在门槛前）；审批本身仍在原生审批窗口里，网页没有"批准" */
+  #talk.waiting { border-color: rgba(185, 87, 47, 0.9); box-shadow: 0 0 0 2px rgba(185, 87, 47, 0.32), 0 6px 24px rgba(0, 0, 0, 0.18); }
+  #talk.waiting .talk-bust { box-shadow: 0 0 0 2px #b9572f; }
+  #talk.waiting .talk-status::before { content: ''; display: inline-block; width: 9px; height: 9px; margin-right: 7px; border-radius: 50%;
+    background: #b9572f; box-shadow: 0 0 0 2px rgba(185, 87, 47, 0.28); animation: none; }
   #talk .talk-row { display: flex; align-items: flex-end; gap: 8px; }
   #talk .talk-input { flex: 1; min-width: 0; box-sizing: border-box; height: 25px; resize: none; border: 0; outline: none; background: transparent; color: inherit;
     font: inherit; line-height: 1.5; padding: 2px 4px; overflow-y: auto; }
@@ -74,9 +72,9 @@
   #talk .talk-hint { color: #8a7f74; font-size: 12px; }
   #talk .talk-attachments { color: #4a433d; font-size: 12.5px; }
   /* 夜里（M3 第三轮：跟着应用的深色主题）：页面自己的几样东西换成夜里的颜色，颜色之间过渡 0.6 秒 */
-  #talk, #toolbar > button, #view, #view button, #hint, #controls button { transition: background-color 0.6s ease, color 0.6s ease, border-color 0.6s ease, box-shadow 0.6s ease; }
+  #talk, #toolbar > button, #view, #view button, #hint { transition: background-color 0.6s ease, color 0.6s ease, border-color 0.6s ease, box-shadow 0.6s ease; }
   body.night { background: #15181d; }
-  body.night #controls button, body.night #toolbar > button, body.night #view { color: #ece5d6; background: rgba(10, 11, 13, 0.7); border-color: rgba(236, 229, 214, 0.14); }
+  body.night #toolbar > button, body.night #view { color: #ece5d6; background: rgba(10, 11, 13, 0.7); border-color: rgba(236, 229, 214, 0.14); }
   body.night #view .view-label { color: rgba(236, 229, 214, 0.6); }
   body.night #view button[aria-checked="true"] { background: rgba(214, 204, 186, 0.92); color: #1d1b19; }
   body.night #hint { background: rgba(10, 11, 13, 0.66); color: #ece5d6; }
@@ -88,6 +86,8 @@
   body.night #talk .talk-input::placeholder { color: #857c70; }
   body.night #talk button { color: #1d1b19; background: rgba(214, 204, 186, 0.92); }
   body.night #talk.busy .talk-status::before { box-shadow: 0 0 0 1px rgba(236, 229, 214, 0.5), 0 0 10px 4px rgba(255, 236, 190, 0.9); }
+  body.night #talk.waiting { border-color: rgba(205, 104, 62, 0.95); box-shadow: 0 0 0 2px rgba(205, 104, 62, 0.36), 0 6px 24px rgba(0, 0, 0, 0.55); }
+  body.night #talk.waiting .talk-status::before { background: #cd683e; box-shadow: 0 0 0 2px rgba(205, 104, 62, 0.3); }
   body.night #reader { background: rgba(0, 0, 0, 0.52); }
   body.night #reader .scroll { --reader-paper: #23211e; --reader-ink: #ece5d6; --reader-ink-soft: #b8b0a2; --reader-ink-faint: #8f877b; --reader-code: #302d29;
     --reader-quote: #6a604f; --reader-rule: rgba(236, 229, 214, 0.16); --reader-zebra: rgba(236, 229, 214, 0.04); --reader-button: rgba(214, 204, 186, 0.9); --reader-button-ink: #1d1b19;
@@ -145,11 +145,6 @@
 <body>
 <canvas id="scene"></canvas>
 <canvas id="overlay"></canvas>
-<div id="controls">
-  <button id="btn-play" type="button">暂停</button>
-  <button id="btn-speed" type="button">速度 ×1</button>
-  <button id="btn-restart" type="button">重新开始</button>
-</div>
 <div id="toolbar">
   <div id="view" role="radiogroup">
     <span class="view-label">视角</span>

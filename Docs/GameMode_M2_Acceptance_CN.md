@@ -4,6 +4,9 @@
 > 会动的人物、2D 半身像）。设计见 `Docs/GameMode_Design_CN.md`，进度、决定、美术审查记录与证据见 `Docs/GameMode_Progress_CN.md`，
 > 换外部模型见 `Docs/GameMode_AssetManifest_CN.md`。自动化测试已覆盖的部分（存档、推导、意图校验、审批……）这里不再重复；
 > 这份清单只列需要人在真实窗口里看一眼、点一下的事。每一项后面的「预期」是通过的样子。M1 的清单（`Docs/GameMode_M1_Acceptance_CN.md`）仍然有效。
+>
+> **2026-10-13 起雅典娜不镜像回合（直播拿掉了，见 `Docs/GameMode_Progress_CN.md` 顶上一节）。** 1.2 的「等她交付」改为「等这一回合结束，
+> 成果直接出现在你脚下」；8.2 整项废止（她不再做事、交付、等审批；走路早在 M3 改成了步行）。
 
 ## 0. 准备
 

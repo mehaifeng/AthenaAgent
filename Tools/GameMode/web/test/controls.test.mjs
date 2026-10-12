@@ -118,6 +118,12 @@ test('talk bar: you can hand Athena a request only when she is free and you wrot
   assert.equal(busy.showStop, true, '她在办事：可以请她停下');
   assert.equal(busy.status, ui.talkBusy);
   assert.equal(talkView({ ...idle, waiting: true, busy: true }, '', ui).status, ui.talkWaiting, '等审批时提示去看审批窗口');
+  // 2026-10-13：审批只在对话栏上显示（她不再停在门槛前）——红封印，收起时占位字就是"她在等你点头"
+  const waiting = talkView({ ...idle, waiting: true, busy: true }, '', ui, false);
+  assert.equal(waiting.seal, true, '等审批：栏上一枚红封印');
+  assert.equal(waiting.placeholder, ui.talkWaiting, '收起时看不见状态行，等审批写在占位字里（比"她在办事"优先）');
+  assert.equal(talkView({ ...idle, waiting: true, busy: true }, '', ui, true).placeholder, ui.talkPlaceholder, '展开时状态行已经说了，占位字只是邀请');
+  assert.equal(talkView(idle, '', ui).seal, false, '不等审批：没有封印');
   assert.equal(talkView({ ...idle, compressing: true, canSend: false }, 'x', ui).canSend, false, '整理记忆（压缩上下文）时不能托付');
   assert.equal(talkView(idle, '', ui).status, ui.talkIdle);
   assert.ok(MAX_SAY_CHARS >= 8000, '一次能写一大段话');

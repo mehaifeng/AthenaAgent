@@ -1,14 +1,12 @@
 using System;
 using System.Collections.Generic;
-using System.Linq;
-using System.Text.Json;
 
 namespace Athena.UI.Services.GameMode;
 
 /// <summary>
-/// 合成夹具：一棵内存里的目录树和一段编出来的三回合会话，走和真实数据完全相同的管线
-/// （扫描 → 汇总 → 账本 → 回放转换 → 组合）。测试、冒烟和演示的默认场景都用它；由真实数据导出的夹具不进仓库。
-/// 覆盖面：六类建筑都有、并发的一批读、城外路径、失败、侍女、记忆、估出来的收尾、被剪掉的空闲。
+/// 合成夹具：一棵内存里的目录树，走和真实数据完全相同的管线（扫描 → 汇总 → 账本 → 组合）。
+/// 测试、冒烟和演示的默认场景都用它；由真实数据导出的夹具不进仓库。覆盖面：六类建筑都有、市集、空地、被跳过的目录。
+/// （编出来的三回合会话连同回放一起拿掉了，2026-10-13：雅典娜不再镜像回合。）
 /// </summary>
 public static class PolisSyntheticFixture
 {
@@ -16,8 +14,6 @@ public static class PolisSyntheticFixture
     public const string WorkspaceRoot = "/Users/demo/我的工作区";
     public const string Home = "/Users/demo";
     public const string WorkspaceName = "我的工作区";
-
-    private static readonly DateTimeOffset T0 = new(2026, 10, 11, 9, 0, 0, TimeSpan.FromHours(8));
 
     public static IReadOnlyDictionary<string, IReadOnlyList<PolisFsEntry>> Tree()
     {
@@ -55,67 +51,12 @@ public static class PolisSyntheticFixture
             : throw new System.IO.DirectoryNotFoundException(dir);
     }
 
-    public static IReadOnlyList<PolisReplayMessage> Conversation()
-    {
-        var messages = new List<PolisReplayMessage>();
-        var call = 0;
-        string P(string relative) => WorkspaceRoot + "/" + relative;
-
-        void User(double at) => messages.Add(new PolisReplayMessage("user", T0.AddSeconds(at), false, null, null, null, null, 0));
-
-        void Round(double at, int reasoning, params (string Name, object Args, double DoneAt, bool Ok)[] calls)
-        {
-            var ids = calls.Select(_ => "call_" + (++call).ToString(System.Globalization.CultureInfo.InvariantCulture)).ToArray();
-            var json = JsonSerializer.Serialize(calls.Select((c, i) => new
-            {
-                Id = ids[i],
-                FunctionName = c.Name,
-                Arguments = JsonSerializer.Serialize(c.Args)
-            }));
-            messages.Add(new PolisReplayMessage("assistant", T0.AddSeconds(at), true, json, null, null, null, reasoning));
-            for (var i = 0; i < calls.Length; i++)
-            {
-                messages.Add(new PolisReplayMessage("tool", T0.AddSeconds(calls[i].DoneAt), false, null, ids[i], calls[i].Ok, null, 0));
-            }
-        }
-
-        void Bubble(double at, long? durationMs) => messages.Add(new PolisReplayMessage("assistant", T0.AddSeconds(at), false, null, null, null, durationMs, 0));
-
-        // 第一回合：去书库读合同，一批并发读两件，再写一份摘要
-        User(0);
-        Round(6.2, 820, ("read_system_file", new { path = P("合同/租赁合同.docx") }, 6.26, true));
-        Round(10.9, 400,
-            ("read_system_file", new { path = P("合同/附件/附件一.pdf") }, 11.02, true),
-            ("list_system_directory", new { path = P("合同") }, 11.03, true));
-        Round(15.5, 0, ("write_system_file", new { path = P("合同/合同摘要.md"), content = "（正文不进回放）" }, 15.58, true));
-        Bubble(0.05, 21_000);
-
-        // 第二回合：锻炉、港口、作坊。距上一回合交付 39 秒，回放里剪成 3 秒
-        User(60);
-        Round(64.1, 0, ("execute_terminal_command", new { command = "python3", arguments = new[] { "统计.py" }, workingDirectory = P("网站") }, 66.4, true));
-        Round(69.0, 300, ("web_search", new { query = "（查询词不进回放）" }, 71.5, true));
-        Round(74.2, 0, ("fetch_url_to_file", new { url = "https://example.invalid/q.pdf", outputPath = P("下载/报价单.pdf") }, 76.0, true));
-        Round(79.0, 150, ("modify_system_file", new { path = P("网站/app.js"), diffContent = "…" }, 79.1, true));
-        Bubble(60.05, 24_500);
-
-        // 第三回合：图书馆、黄金侍女、城外（失败）、~ 开头的路径；气泡没有总时长，收尾按估计
-        User(100);
-        Round(103.0, 0, ("recall_from_memory", new { query = "上次的预算" }, 103.3, true));
-        Round(107.5, 600, ("dispatch_subagents", new { tasks = new[] { new { title = "甲" }, new { title = "乙" }, new { title = "丙" } } }, 119.5, true));
-        Round(123.0, 0, ("read_system_file", new { path = "/etc/hosts" }, 123.02, false));
-        Round(127.5, 0, ("read_system_file", new { path = "~/我的工作区/账本/2026预算.xlsx" }, 127.6, true));
-        Bubble(100.05, null);
-
-        return messages;
-    }
-
     /// <summary>用真实管线生成合成夹具。</summary>
     public static PolisFixtureDocument Build()
     {
         var scan = PolisScanner.Scan(Enumerator());
         var summary = PolisBuildings.Summarize(scan, Now);
         var layout = PolisLayoutLedger.Update(PolisLedger.Empty, summary.Buildings);
-        var replay = PolisReplayConverter.Convert(Conversation(), WorkspaceRoot, Home);
-        return PolisFixture.Compose(WorkspaceName, scan, summary, layout, replay, Now, synthetic: true);
+        return PolisFixture.Compose(WorkspaceName, scan, summary, layout, Now, synthetic: true);
     }
 }

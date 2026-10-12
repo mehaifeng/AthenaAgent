@@ -9,10 +9,9 @@ using Microsoft.Data.Sqlite;
 // 用法（仓库根目录；先 dotnet build Tools/GameMode/PolisExport）：
 //   dotnet Tools/GameMode/PolisExport/bin/Debug/net10.0/PolisExport.dll synthetic --out Tools/GameMode/web/fixtures/synthetic.json
 //   dotnet …/PolisExport.dll list --db <AthenaData/conversations.db> [--workspace-id <id>]
-//   dotnet …/PolisExport.dll fixture --root <工作区目录> --db <conversations.db> --conversation <会话 id 前缀>
-//                                     --out Tools/GameMode/.local/real-fixture.json [--ledger <账本文件>] [--home <主目录>]
+//   dotnet …/PolisExport.dll fixture --root <工作区目录> --out Tools/GameMode/.local/real-fixture.json [--ledger <账本文件>] [--max-entries N]
 // 由真实数据导出的夹具含真实的文件夹名和路径，只写进被 .gitignore 忽略的 Tools/GameMode/.local/。
-// 回放事件里没有消息正文：工具结果只取 success 布尔值，推理只取长度，终端命令和查询词一概不读。
+// 2026-10-13 起夹具只有城邦快照：回放（把归档会话转成事件）连同直播一起拿掉了，list 只数会话的回合与工具调用。
 
 var command = args.Length > 0 ? args[0] : "help";
 var options = ParseOptions(args.Skip(1).ToArray());
@@ -48,7 +47,6 @@ void ExportFixture()
 {
     var root = Path.GetFullPath(Required("root"));
     if (!Directory.Exists(root)) throw new ArgumentException($"工作区目录不存在：{root}");
-    var home = Opt("home") ?? Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
     var now = DateTimeOffset.UtcNow;
 
     var scanOptions = Opt("max-entries") is { } max ? new PolisScanOptions { MaxEntries = int.Parse(max, System.Globalization.CultureInfo.InvariantCulture) } : PolisScanOptions.Default;
@@ -60,71 +58,32 @@ void ExportFixture()
     var layout = PolisLayoutLedger.Update(previous, summary.Buildings);
     if (ledgerPath != null) File.WriteAllText(ledgerPath, PolisFixture.LedgerToJson(layout.Ledger));
 
-    var messages = LoadConversation(Required("db"), Required("conversation"));
-    var replay = PolisReplayConverter.Convert(messages, root, home);
-    var fixture = PolisFixture.Compose(new DirectoryInfo(root).Name, scan, summary, layout, replay, now, synthetic: false);
+    var fixture = PolisFixture.Compose(new DirectoryInfo(root).Name, scan, summary, layout, now, synthetic: false);
     Write(PolisFixture.ToJson(fixture), Required("out"));
 
     Console.Error.WriteLine(
         $"城邦：{fixture.Buildings.Count} 座建筑（{string.Join("、", fixture.Buildings.GroupBy(b => b.Kind).Select(g => $"{g.Key} {g.Count()}"))}），" +
-        $"市集摊位 {fixture.Market.Count}，扫描 {scan.VisitedEntries} 项{(scan.Truncated ? "（未完全测绘）" : string.Empty)}；" +
-        $"回放：{replay.Turns} 回合、{replay.ToolCalls} 次工具调用、{replay.DurationMs / 1000.0:F1} 秒，剪掉空闲 {replay.CompressedGaps} 处");
+        $"市集摊位 {fixture.Market.Count}，扫描 {scan.VisitedEntries} 项{(scan.Truncated ? "（未完全测绘）" : string.Empty)}");
 }
 
-static List<PolisReplayMessage> LoadConversation(string dbPath, string conversationPrefix)
-{
-    using var connection = Open(dbPath);
-    using var query = connection.CreateCommand();
-    query.CommandText = "select conversation_id, payload from conversations order by updated_at desc";
-    using var reader = query.ExecuteReader();
-    while (reader.Read())
-    {
-        if (!reader.GetString(0).StartsWith(conversationPrefix, StringComparison.OrdinalIgnoreCase)) continue;
-        return ProjectMessages(reader.GetString(1));
-    }
-    throw new ArgumentException($"找不到 id 以 {conversationPrefix} 开头的会话");
-}
-
-// 归档负载 → 回放输入。正文在这里读完就丢：只留角色、时间、调用结构、成功与否、推理长度。
-static List<PolisReplayMessage> ProjectMessages(string payload)
+// 归档负载 → 只数角色：回合数（可见的用户消息）、工具调用（tool 消息）、有总时长的气泡。正文在这里读完就丢。
+static (int Turns, int ToolCalls, int Timed, string First) CountMessages(string payload)
 {
     using var doc = JsonDocument.Parse(payload);
-    var result = new List<PolisReplayMessage>();
-    if (!doc.RootElement.TryGetProperty("messages", out var messages) || messages.ValueKind != JsonValueKind.Array) return result;
+    int turns = 0, toolCalls = 0, timed = 0;
+    string first = "-";
+    if (!doc.RootElement.TryGetProperty("messages", out var messages) || messages.ValueKind != JsonValueKind.Array) return (0, 0, 0, first);
     foreach (var m in messages.EnumerateArray())
     {
         var role = Str(m, "role") ?? string.Empty;
-        if (!DateTimeOffset.TryParse(Str(m, "timestamp"), System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.None, out var timestamp)) continue;
-        bool? succeeded = null;
-        if (role == "tool" && Str(m, "content") is { } content)
-        {
-            try
-            {
-                using var parsed = JsonDocument.Parse(content);
-                if (parsed.RootElement.ValueKind == JsonValueKind.Object
-                    && parsed.RootElement.TryGetProperty("success", out var success)
-                    && success.ValueKind is JsonValueKind.True or JsonValueKind.False)
-                {
-                    succeeded = success.GetBoolean();
-                }
-            }
-            catch (JsonException)
-            {
-                // 结果不是 JSON（老消息）：成功与否未知，回放按失败处理
-            }
-        }
-
-        result.Add(new PolisReplayMessage(
-            role,
-            timestamp,
-            m.TryGetProperty("isHidden", out var hidden) && hidden.ValueKind == JsonValueKind.True,
-            Str(m, "toolCallsJson"),
-            Str(m, "toolCallId"),
-            succeeded,
-            m.TryGetProperty("durationMs", out var duration) && duration.ValueKind == JsonValueKind.Number ? duration.GetInt64() : null,
-            Str(m, "reasoningContent")?.Length ?? 0));
+        var hidden = m.TryGetProperty("isHidden", out var h) && h.ValueKind == JsonValueKind.True;
+        if (first == "-" && DateTimeOffset.TryParse(Str(m, "timestamp"), System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.None, out var timestamp))
+            first = timestamp.ToString("yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture);
+        if (role == "user" && !hidden) turns++;
+        else if (role == "tool") toolCalls++;
+        else if (role == "assistant" && !hidden && m.TryGetProperty("durationMs", out var d) && d.ValueKind == JsonValueKind.Number && d.GetInt64() > 0) timed++;
     }
-    return result;
+    return (turns, toolCalls, timed, first);
 }
 
 static void ListConversations(string dbPath, string? workspaceId)
@@ -137,11 +96,8 @@ static void ListConversations(string dbPath, string? workspaceId)
     while (reader.Read())
     {
         if (workspaceId != null && !string.Equals(reader.IsDBNull(1) ? null : reader.GetString(1), workspaceId, StringComparison.OrdinalIgnoreCase)) continue;
-        var messages = ProjectMessages(reader.GetString(2));
-        var replay = PolisReplayConverter.Convert(messages, "/", null);
-        var timed = messages.Count(m => m.Role == "assistant" && !m.IsHidden && m.DurationMs > 0);
-        var first = messages.Count == 0 ? "-" : messages[0].Timestamp.ToString("yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture);
-        Console.WriteLine($"{reader.GetString(0)[..8]}  {replay.Turns,4}  {replay.ToolCalls,8}  {timed,14}  {first}");
+        var (turns, toolCalls, timed, first) = CountMessages(reader.GetString(2));
+        Console.WriteLine($"{reader.GetString(0)[..8]}  {turns,4}  {toolCalls,8}  {timed,14}  {first}");
     }
 }
 

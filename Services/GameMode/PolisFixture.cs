@@ -26,7 +26,7 @@ public sealed record PolisFixtureAgora(int Files, long Bytes, DateTimeOffset? La
 
 public sealed record PolisFixtureScan(int Files, int Visited, bool Truncated, int SkippedDirectories, int UnreadableDirectories);
 
-/// <summary>网页原型读的夹具：一座城邦的快照 + 一段回放。只有名字、数量、时间和地块，没有任何文件内容或消息正文。</summary>
+/// <summary>网页读的夹具：一座城邦的快照。只有名字、数量、时间和地块，没有任何文件内容或消息正文。（回放连同直播一起拿掉了，2026-10-13。）</summary>
 public sealed record PolisFixtureDocument(
     int Schema,
     string Kind,
@@ -39,8 +39,7 @@ public sealed record PolisFixtureDocument(
     IReadOnlyList<PolisFixtureVacantPlot> Vacant,
     IReadOnlyList<string> Market,
     IReadOnlyDictionary<string, PolisPlot> PublicSites,
-    int SeaStartsAtZ,
-    PolisReplay? Replay)
+    int SeaStartsAtZ)
 {
     public const int CurrentSchema = 1;
     public const string FixtureKind = "athena-polis-fixture";
@@ -77,7 +76,6 @@ public static class PolisFixture
         PolisScanResult scan,
         PolisSummary summary,
         PolisLayout layout,
-        PolisReplay? replay,
         DateTimeOffset generatedAt,
         bool synthetic)
     {
@@ -99,14 +97,6 @@ public static class PolisFixture
             })
             .ToList();
 
-        var keys = new HashSet<string>(buildings.Select(b => b.Key).Concat(layout.MarketStalls), StringComparer.Ordinal);
-        var annotated = replay is null ? null : replay with
-        {
-            Events = replay.Events
-                .Select(e => e.Place == "inside" ? e with { Building = SiteOf(e.Path, keys) } : e)
-                .ToList()
-        };
-
         return new PolisFixtureDocument(
             PolisFixtureDocument.CurrentSchema,
             PolisFixtureDocument.FixtureKind,
@@ -119,8 +109,7 @@ public static class PolisFixture
             layout.Vacant.Select(v => new PolisFixtureVacantPlot(v.Key, new PolisPlot(v.X, v.Z))).ToList(),
             layout.MarketStalls,
             PolisLayoutLedger.PublicSites.ToDictionary(kv => JsonNamingPolicy.CamelCase.ConvertName(kv.Key.ToString()), kv => kv.Value),
-            PolisLayoutLedger.SeaStartsAtZ,
-            annotated);
+            PolisLayoutLedger.SeaStartsAtZ);
     }
 
     /// <summary>换行固定为 \n、末尾带一个换行：生成结果与提交进仓库的文件逐字节可比。</summary>

@@ -35,10 +35,13 @@ export function talkView(state, draft, ui, open = false) {
     status,
     expression: state.waiting ? 'neutral' : busy ? 'speak' : 'smile',
     busy,
+    // 等你点头（审批）：栏上一枚红封印（点缀色只有一个意思——"轮到你了"）。2026-10-13 起这是城里唯一显示审批的地方：
+    // 她不再停在门槛前（直播拿掉了），审批本身仍在原生审批窗口里
+    seal: !!state.waiting,
     canSend: !!state.canSend && !busy && !!state.conversationId && String(draft ?? '').trim().length > 0,
     showStop: busy,
-    // 收起时状态行看不见，"她在办事"写在占位字里；展开时状态行已经说了，占位字只是邀请
-    placeholder: busy && !open ? ui.talkBusy : ui.talkPlaceholder,
+    // 收起时状态行看不见，"她在等你点头 / 她在办事"写在占位字里；展开时状态行已经说了，占位字只是邀请
+    placeholder: !open && state.waiting ? ui.talkWaiting : busy && !open ? ui.talkBusy : ui.talkPlaceholder,
   };
 }
 
@@ -110,7 +113,7 @@ export function createTalk(root, { send, onOpen = null }) {
     attachmentsEl.textContent = names.length ? fill(ui.talkAttachments, { names: names.join(' · ') }) : '';
     root.classList.toggle('open', open);
     root.classList.toggle('busy', view.busy);
-    root.classList.toggle('waiting', !!state.waiting);
+    root.classList.toggle('waiting', view.seal);
     const hidden = !available || suppressed;
     const appearing = root.hidden && !hidden;
     root.hidden = hidden;

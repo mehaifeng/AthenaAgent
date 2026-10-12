@@ -1,43 +1,50 @@
-// 城邦这一局：场景、人物、镜头、旁白、成果、面板，以及每一帧的推进。M0 的 main.mjs 拆出来的——
-// 同一套东西现在有两个驱动：回放（夹具，测试与演示）和实时（应用里的 NativeWebView，C# 推事件）。
+// 城邦这一局：场景、人物、镜头、成果、面板，以及每一帧的推进。两个驱动：夹具（普通浏览器里，测试与演示）和
+// 实时（应用里的 NativeWebView，C# 推城邦、成果与对话栏的状态）。
 //
-// 屏幕空间效果（光晕、旁白气泡、建筑与居民的名牌、橄榄树的名牌）必须用"这一帧真正用来渲染的"相机矩阵投影（设计稿 12.2）。
+// 雅典娜不镜像任何回合（2026-10-13 改向，见 athena.mjs）：页面收不到工具调用、推理和审批事件。她住在城里——在广场上
+// 待着、走一走，你走近或者开口，她就停下面向你；你在远处开口，她走过来。一回合做完，成果直接出现在你脚下。
+//
+// 屏幕空间效果（光晕、她头顶的话、建筑与居民的名牌、橄榄树的名牌）必须用"这一帧真正用来渲染的"相机矩阵投影（设计稿 12.2）。
 // 每帧的顺序固定为：推进 → 摆好人物和镜头 → 对齐矩阵 → 算屏幕空间位置 → 渲染 → 叠加层。
 //
 // M2：人物是可动的骨架（art/rig.mjs），动作来自纯函数的姿势（art/poses.mjs）；城里的一切经资产库（art/assets.mjs）造出来。
 // 积累：收下的藏品摆在港前三处场馆的底座上（摆在哪由你选）、橄榄林一份委托一棵树、居民随能力出现、委托板三条建议、
 // 神庙的每日神谕、传令官的报告、群岛海图——意图都是封闭集合里的那几条，C# 逐条校验；网页没有"批准"。
 //
-// 操作（controls.mjs，2026-10-11 实测之后）：WASD / 方向键走路，鼠标点物件互动（点地面不走路）；视角缺省是自由的——
-// 左键拖动绕着转、右键拖动平移、滚轮缩放。和雅典娜说话在城里的对话栏（talk.mjs）：点她、或者按 Enter。
+// 操作（controls.mjs）：WASD / 方向键走路；走近人或物件按 E 互动（鼠标只管镜头和界面上的按钮）；视角缺省是自由的——
+// 左键拖动绕着转、右键拖动平移、滚轮缩放。和雅典娜说话在城里的对话栏（talk.mjs）：走到她跟前按 E、或者按 Enter。
 import * as THREE from '../vendor/three.bundle.mjs';
 import { OrbitControls } from '../vendor/three.bundle.mjs';
 import { createLayout, pointAlong, polyLength, PLAYER_SPEED, SPEED, ATHENA_STRIDE } from './layout.mjs';
 import {
   VIEW, VIEW_MODES, RUN_FACTOR, MOVE_KEYS, nextView, moveDirection, slide, orbitAngles, deadZoneShift, turnToward, isTypingTarget,
 } from './controls.mjs';
-import { cityIndex, siteForTool } from './replay.mjs';
-import { createOrchestrator, stepProgress } from './orchestrator.mjs';
-import { lineForVisit, pick, LINES_ZH, PLACE_ZH } from './narration.mjs';
+import { createAthena, stepProgress } from './athena.mjs';
 import { createRenderer } from './render.mjs';
 import { createOverlay } from './overlay.mjs';
 import { makeMaterials, setNightWindows } from './art/materials.mjs';
 import { swellHeight } from './art/water.mjs';
 import { createAssetLibrary } from './art/assets.mjs';
-import { workVariantFor } from './art/characters.mjs';
 import { setClothWind } from './art/rig.mjs';
 import { windAt } from './art/springs.mjs';
 import { ONE_SHOT_MS, oneShotDone } from './art/poses.mjs';
 import { buildWorld, PUBLIC_NAMES } from './world.mjs';
-import { hashSeed } from './art/noise.mjs';
-import { framePolicy, transitionArrival } from './live.mjs';
+import { framePolicy, transitionArrival } from './frame-policy.mjs';
 import { islandLayout, chartTransform, hitIsland, SLOTS_PER_VENUE } from './civic-layout.mjs';
 
 const CAMERA = { distance: 300, elevation: 33, azimuth: 45 };
 const BUBBLE_MS = 3600;
-const BOAT_MS = 7000;
+/**
+ * 港口的船按自己的时刻表出海（2026-10-13）：原来只在雅典娜"取网页"时出海，直播拿掉之后船就永远泊着。
+ * 每 periodMs 出海一趟、tripMs 回来——港口有动静，水手在船出海时停下收缆。按墙钟算，同一刻永远是同一个位置。
+ */
+export const BOAT_TRIP = Object.freeze({ periodMs: 180_000, tripMs: 20_000, offsetMs: 45_000 });
 const VOYAGE_FADE_MS = 400;
 const REVEAL_MS = 3200;
+/** 你在远处开口（对话栏展开）、她离你比这更远：她走过来（远了化作一道光过来）。近景镜头只在两人相距 12 米内看两个人。 */
+const SUMMON_DISTANCE = 12;
+/** 你离她这么近，她就不再走开（闲逛暂停，athena.mjs 的 hold）。 */
+const NEAR_ATHENA = 2.5;
 /** 指针停在她身上时那块名牌的位置（她自己的坐标系里）：脚下，头顶留给旁白气泡。 */
 export const ATHENA_HOVER_ANCHOR = Object.freeze(new THREE.Vector3(0, -0.6, 0));
 const SAVE_PLAYER_MS = 700;    // 停下来这么久才记下位置（走的途中不发）
@@ -135,17 +142,16 @@ export const UI_ZH = Object.freeze({
  * @param {object} options
  * @param {URLSearchParams} options.params
  * @param {object} options.status window.__polis（测试读它）
- * @param {(type: string, fields?: object) => void} options.send 发一条意图给宿主（回放模式里只记下）
- * @param {(item: object) => void} [options.onReadItem] 读一件成果（回放模式在本地开阅读器）
- * @param {() => void} [options.onTalk] 点了雅典娜：打开对话栏（实时模式才有；回放里点她什么也不做）
+ * @param {(type: string, fields?: object) => void} options.send 发一条意图给宿主（夹具模式里只记下）
+ * @param {() => void} [options.onTalk] 走到雅典娜跟前按 E：打开对话栏（实时模式才有；夹具里没有人在听）
  * @param {(blocked: boolean) => void} [options.onUiBlocked] 画面中间被卡片、面板、海图、雾或过场占着（对话栏让开）
  * @param {(mode: string) => void} [options.onViewChange] 视角变了（按钮、V 键，或者拖动平移把镜头交还给你）
  * @param {() => boolean} [options.modalOpen] 页面上有别的东西挡着（卷轴阅读器）：这时方向键不走路
  * @param {number} [options.topInset] 顶上被 DOM 工具条占着的高度（实时模式左上角的视角与海图）：顶上的面板往下让
- * @param {string} [options.defaultView] 缺省视角：应用里是自由（你是主角）；回放是一段录好的委托，缺省跟着雅典娜看
+ * @param {string} [options.defaultView] 缺省视角：自由（你是主角）
  * @param {() => boolean} [options.talkOpen] 对话栏此刻是不是展开着（M3：你站着和她说话、她听着；托付之后你比划两秒）
  */
-export function createGame({ params, status, send, onReadItem, onTalk = null, onUiBlocked = null, onViewChange = null, modalOpen = () => false, topInset = 0, defaultView = 'free', talkOpen = () => false }) {
+export function createGame({ params, status, send, onTalk = null, onUiBlocked = null, onViewChange = null, modalOpen = () => false, topInset = 0, defaultView = 'free', talkOpen = () => false }) {
   const R = createRenderer({
     canvas: document.getElementById('scene'),
     ao: params.get('ao') !== '0', shadows: params.get('shadows') !== '0',
@@ -157,8 +163,6 @@ export function createGame({ params, status, send, onReadItem, onTalk = null, on
   status.assets = assets.report;
 
   let ui = { ...UI_ZH };
-  let lines = { ...LINES_ZH };
-  let places = { ...PLACE_ZH };
   let publicNames = { ...PUBLIC_NAMES };
 
   // —— 城 ——
@@ -166,9 +170,6 @@ export function createGame({ params, status, send, onReadItem, onTalk = null, on
   let cityKey = null;
   let layout = null;
   let world = null;
-  let index = cityIndex({});
-  let kindOf = () => null;
-  let buildingKeys = [];
   let sanctuary = false;
   let fogInfo = null;
   const flashes = new Map();   // 建筑 key → 外部改动的闪动开始时间
@@ -185,11 +186,21 @@ export function createGame({ params, status, send, onReadItem, onTalk = null, on
   // 脚下画一块"E 和雅典娜说话"；按 E 才触发。鼠标不再点城里的东西——叠加层上的按钮、海图、"雅典娜在这边"仍然是点的
   let focus = null;            // { type: 'athena' | 'resident' | 'item' | 'slot' | 'tree' | 'board' | 'oracle' | 'venue', id?, venue?, slot?, x, z }
   let forcedFocus = null;      // 测试与运动自检：不管远近，就当你站在它跟前（setHover）
-  let pendingBoardLine = null; // 奠基揭幕之后雅典娜说的第一条建议
+  // 她头顶的话：本地的几句（奠基揭幕时那一句、揭幕之后委托板上的第一条建议），不来自任何回合
+  let speech = [];             // [{ text, t, minMs }]（t：页面时钟，frame 的 now）
+  let pendingBoardLine = null; // 揭幕之后要说第一条建议的时刻
 
   // —— 玩家：WASD / 方向键走路（真实时间，不随回放暂停）。点地面不走——鼠标只管互动 ——
   const player = { pos: { x: 2.6, z: 4.4 }, yaw: Math.PI * 0.85, walkClock: 0, moving: false, dirty: false, stoppedAt: 0 };
-  const playerSite = () => `pt:${(player.pos.x + 0.9).toFixed(2)},${(player.pos.z + 0.4).toFixed(2)}`;
+  /** 你身边一个她能站的地方（你在远处开口时她走过来站在这儿）：先试你右前方，撞墙就换个方向，都不行就站你这儿。 */
+  const playerSite = () => {
+    const offsets = [[0.9, 0.4], [-0.9, 0.4], [0.4, 0.9], [0.4, -0.9], [1.2, 0], [-1.2, 0], [0, 1.2], [0, -1.2]];
+    for (const [dx, dz] of offsets) {
+      const p = { x: player.pos.x + dx, z: player.pos.z + dz };
+      if (!layout || layout.walkable(p)) return `pt:${p.x.toFixed(2)},${p.z.toFixed(2)}`;
+    }
+    return `pt:${player.pos.x.toFixed(2)},${player.pos.z.toFixed(2)}`;
+  };
   const pressed = new Set();   // 按住的方向：'up' | 'down' | 'left' | 'right'
   let running = false;
   // —— M3 的动画状态：一次性的动作（接过、挥手）、托付的时刻（之后两秒多做"说"的手势）、看向谁 ——
@@ -198,22 +209,15 @@ export function createGame({ params, status, send, onReadItem, onTalk = null, on
   const playerHead = new THREE.Vector3();
   const athenaChest = new THREE.Vector3();
 
-  // —— 编排器 + 旁白（换城、换会话时整个重建） ——
-  let sim = null;
-  function createSim(home = 'agora', startAt = 0) {
-    let wander = 0;
-    const orch = createOrchestrator({
-      travelMs: (a, b) => layout.travelMs(a, b),
-      wanderTarget: () => `agora:${(wander++) % 6}`,
-      playerSpot: playerSite,
-      home,
-      startAt,
-    });
-    return { orch, time: startAt, cues: [], cueSteps: 0, turns: [], delivered: new Map(), stoppedAt: null };
-  }
+  // —— 雅典娜（athena.mjs）：换城时整个重建。clock 是页面的时钟（毫秒，frame 的 now，只进不退） ——
+  let athenaSim = null;
+  let clock = 0;
+  let talkWasOpen = false;
+  const createAthenaFor = (startAt) => createAthena({ travelMs: (a, b) => layout.travelMs(a, b), home: 'agora:0', startAt });
 
-  // —— 成果：C# 推来的藏品（实时模式），或回放里交付时生成的本地记录 ——
+  // —— 成果：C# 推来的藏品。这座城装好之后才到的待收成果是刚做完的那一回合：直接出现在你脚下 ——
   const items = new Map();      // id → { item, object, display, collectedAt, spot, revealAt }
+  let itemsPrimed = false;      // 这座城的第一份成果清单到过了没有（之后再来的新成果才算"刚交到你手上"）
   let card = null;              // 当前打开的成果卡片的 id
   let notices = [];
   let herald = null;
@@ -301,9 +305,6 @@ export function createGame({ params, status, send, onReadItem, onTalk = null, on
     sanctuary = !!options.sanctuary;
     layout = createLayout({ ...doc, groveTrees: groveTrees.length });
     world = buildWorld(R.scene, doc, layout, M, { names: publicNames, sanctuary, assets });
-    index = cityIndex(doc);
-    kindOf = (key) => doc.buildings.find((b) => b.key === key)?.kind ?? null;
-    buildingKeys = [...world.buildings.keys()];
     for (const record of items.values()) { record.object = null; record.display = null; }   // 旧城的物件随旧城拆掉
     player.y = null;
     athenaY = null;
@@ -314,17 +315,21 @@ export function createGame({ params, status, send, onReadItem, onTalk = null, on
       player.moving = false;
       player.dirty = false;
       pressed.clear();
+      itemsPrimed = false;   // 新的一座城：它的第一份成果清单是"一直在那儿的"，不是刚交到你手上的
       // 存档里这座城的远近：靠岸时镜头推回的就是它（没有存档就推回出港前的远近）
       if (p && Number.isFinite(p.zoom)) { camera.zoom = p.zoom; camera.updateProjectionMatrix(); if (voyage) voyage.restoreZoom = p.zoom; }
       // 换了一座城：镜头先看着你（跟着雅典娜的视角下一帧自己会转过去）
       if (follow !== 'athena') centerCameraOn(player.pos.x, player.pos.z);
     }
-    if (!keepPlayer || !sim) sim = createSim(options.home ?? 'agora', options.now ?? 0);
+    const startAt = Math.max(clock, options.now ?? clock);
+    if (!keepPlayer || !athenaSim) { athenaSim = createAthenaFor(startAt); routes = new WeakMap(); athenaY = null; athenaYaw = null; }
     if (options.founding) {
-      // 第一次进入这座城（5.4）：俯瞰揭幕，旁白"这是你的城邦，每座建筑都是你的一个文件夹"；之后从存档恢复，不再播
+      // 第一次进入这座城（5.4）：俯瞰揭幕，她说"这是你的城邦，每座建筑都是你的一个文件夹"，揭幕之后再说委托板上的第一条建议；
+      // 之后从存档恢复，不再播
       reveal = { startedAt: performance.now() };
-      sim.cues.push({ t: sim.time, text: ui.founding, minMs: REVEAL_MS });
-      pendingBoardLine = { t: sim.time + REVEAL_MS + 400 };
+      speech = [];
+      say(ui.founding, startAt, REVEAL_MS);
+      pendingBoardLine = { t: startAt + REVEAL_MS + 400 };
     }
     applyAccumulation();
     status.city = { buildings: doc.buildings.length, vacant: (doc.vacant ?? []).length, market: (doc.market ?? []).length, sanctuary, key: cityKey };
@@ -348,7 +353,7 @@ export function createGame({ params, status, send, onReadItem, onTalk = null, on
    */
   function updateCity(doc, origins = {}) {
     if (!city || !layout || !world || (doc.seaStartsAtZ ?? 2) !== (city.seaStartsAtZ ?? 2)) {
-      loadCity(doc, { key: cityKey, sanctuary, now: sim?.time ?? 0 });
+      loadCity(doc, { key: cityKey, sanctuary, now: clock });
       return 'rebuilt';
     }
     const before = new Map(city.buildings.map((b) => [b.key, b]));
@@ -358,7 +363,7 @@ export function createGame({ params, status, send, onReadItem, onTalk = null, on
     const marketChanged = JSON.stringify(doc.market ?? []) !== JSON.stringify(city.market ?? []);
     if (!fits || moved || marketChanged) {
       // 改名时 C# 已经把账本条目换了名字：同一块地换了一个 key，这也走整城重建（地块没动）
-      const keep = { player: { ...player.pos }, time: sim?.time ?? 0 };
+      const keep = { player: { ...player.pos }, time: clock };
       loadCity(doc, { key: cityKey, sanctuary, now: keep.time });
       player.pos = keep.player;
       markExternal(origins);
@@ -380,9 +385,6 @@ export function createGame({ params, status, send, onReadItem, onTalk = null, on
       changed++;
     }
     city = doc;
-    index = cityIndex(doc);
-    kindOf = (key) => doc.buildings.find((b) => b.key === key)?.kind ?? null;
-    buildingKeys = [...world.buildings.keys()];
     markExternal(origins);
     status.city = { ...status.city, buildings: doc.buildings.length, vacant: (doc.vacant ?? []).length };
     return changed > 0 ? 'patched' : 'unchanged';
@@ -417,16 +419,15 @@ export function createGame({ params, status, send, onReadItem, onTalk = null, on
   const safeSite = (site) => (site && (site === 'agora' || site === 'harbor' || site === 'gate' || site.startsWith('agora:') || site.startsWith('pt:') || layout.plots.has(site)) ? site : 'agora');
 
   /**
-   * 雅典娜在时刻 now 的位置、朝向、光，以及她这一刻的动作（走 / 停 / 做事 / 交付）。
-   * 光只在她干活的时候有（做事、交付、渡海，思考时一下一下地亮）：站着、走着、等你审批时没有光——
-   * 2026-10-12，用户：去掉始终存在的圣光。第一版站着 0.22、走着 0.24，一直罩着一团光
+   * 雅典娜在时刻 now 的位置、朝向、光，以及她这一刻的动作（走 / 停）。光只在她化作一道光的那一下有：站着、走着都没有——
+   * 2026-10-12，用户：去掉始终存在的圣光。她不再做事、交付、沉思（2026-10-13：直播拿掉了），那几种光也就没有了。
    */
   function athenaPose(state, now) {
     const step = state.step;
     const pose = { x: 0, z: 0, yaw: 0, visible: true, glow: 0, teleport: null, action: 'idle', t: now, style: {} };
     if (!step) return pose;
     const t = now - step.start;
-    if (step.kind === 'walk' || step.kind === 'wander') {
+    if (step.kind === 'walk') {
       // 她走路（M3）：步子的相位按走过的距离推进（起步和停步时慢下来，脚也慢下来，不打滑）
       const route = routeOf(step);
       const f = ease(stepProgress(step, now));
@@ -445,26 +446,22 @@ export function createGame({ params, status, send, onReadItem, onTalk = null, on
     const at = safeSite(step.at ?? state.position);
     const p = layout.sitePoint(at);
     Object.assign(pose, { x: p.x, z: p.z, yaw: facingAt(at), t });
-    if (step.kind === 'meditate') {
-      const level = 0.6 + Math.min(1, (step.reasoning ?? 0) / 1200) * 0.8;
-      pose.glow = 0.2 + 0.07 * level * (0.5 + 0.5 * Math.sin(((now - step.start) / 1700) * Math.PI * 2));
-      pose.action = 'idle';
-    } else if (step.kind === 'await') {
-      // 停在门槛前，手中石板的封印是红色的；不干活，没有光
-      pose.glow = 0;
-      pose.action = 'work';
-      pose.style = { variant: 'await' };
-    } else if (step.kind === 'act') {
-      pose.acting = true;
-      pose.glow = step.failed ? 0.07 : 0.32;   // 失败：光暗下去
-      pose.action = 'work';
-      pose.style = { variant: workVariantFor('athena', step.category) };
-    } else if (step.kind === 'deliver') {
-      pose.glow = 0.34;
-      pose.action = 'deliver';
-      pose.style = { duration: Math.max(600, (step.end ?? step.start + 1800) - step.start) };
-    }
     return pose;
+  }
+
+  /** 留住她：你离她 2.5 米以内、或者对话栏开着——她不再走开（athena.mjs 的 hold）。 */
+  function athenaHeld() {
+    if (talkOpen()) return true;
+    const a = world?.athena;
+    return !!a && a.visible && Math.hypot(a.position.x - player.pos.x, a.position.z - player.pos.z) < NEAR_ATHENA;
+  }
+
+  /** 对话栏刚展开（不管是走到她跟前按 E、还是在城里任何地方按 Enter）：她离你太远，就走过来（远了化作一道光过来）。 */
+  function summonIfFar(now) {
+    const a = world?.athena;
+    if (!a || !athenaSim) return;
+    if (Math.hypot(a.position.x - player.pos.x, a.position.z - player.pos.z) <= SUMMON_DISTANCE) return;
+    if (athenaSim.goTo(playerSite(), now)) status.summoned = (status.summoned ?? 0) + 1;
   }
 
   function applyAthena(pose, line = null, dt = 16) {
@@ -489,38 +486,30 @@ export function createGame({ params, status, send, onReadItem, onTalk = null, on
     if (dp < 8 && !pose.teleport) style.lookAt = playerHead.set(player.pos.x, 1.5, player.pos.z);
     world.athenaFigure.pose(action, pose.t, style);
     status.athenaPose = action;
-    // 光属于雅典娜：她在哪干活，哪里就亮。做事时她的光挪到身前、照得更远，把所在建筑的正面照亮
+    // 光属于雅典娜：只在她化作一道光的那一下亮（第一版有一个 0.6 的底：站着脚下也有一圈光）。
+    // 夜里她的光照得更亮、更远：夜城里只有她这一处亮
     const light = a.userData.light;
     if (!light) return;
-    // 夜里她的光照得更亮、更远：夜城里只有她这一处亮（光属于雅典娜）
     const boost = 1 + 1.4 * nightK;
-    if (pose.acting) {
-      light.position.set(0, 2.6, 2.2);
-      light.distance = 14 + 4 * nightK;
-      light.intensity = (pose.glow > 0.1 ? 28 : 2) * boost;
-    } else {
-      light.position.set(0, 0.45, 0.3);
-      light.distance = 4.5 + 2.5 * nightK;
-      light.intensity = pose.glow * 3 * boost;   // 没在干活就不亮（第一版有一个 0.6 的底：站着脚下也有一圈光）
-    }
+    light.position.set(0, 0.45, 0.3);
+    light.distance = 4.5 + 2.5 * nightK;
+    light.intensity = pose.glow * 3 * boost;
   }
 
-  // —— 场景里随动作变化的东西：脚手架、船、侍女、居民、交付的成果 ——
-  function applyEffects(state, now, wall, dt) {
-    const step = state.step;
-    for (const [key, scaffold] of world.scaffolds) {
-      const writing = step && step.kind === 'act' && step.category === 'write' && step.at === key;
-      // 被打断的委托：停工的脚手架（设计稿 10.3 第 5 条）
-      scaffold.visible = !!(writing || (sim.stoppedAt === key));
-    }
+  /** 港口的船此刻在出海的哪一段（0..1），泊着时为 null（BOAT_TRIP：按墙钟的时刻表）。 */
+  function boatTripAt(wall) {
+    const phase = (((wall + BOAT_TRIP.offsetMs) % BOAT_TRIP.periodMs) + BOAT_TRIP.periodMs) % BOAT_TRIP.periodMs;
+    return phase < BOAT_TRIP.tripMs ? phase / BOAT_TRIP.tripMs : null;
+  }
 
-    const web = lastStep((s) => s.kind === 'act' && s.at === 'harbor' && s.start <= now && now - s.start < BOAT_MS);
+  // —— 场景里随时间变化的东西：船、居民、成果 ——
+  function applyEffects(wall, dt) {
     const boat = world.boat;
     const prevBoatZ = boat.position.z;
     boat.position.copy(world.boatHome);
     boat.rotation.set(0, 0, 0);
-    if (web) {
-      const f = (now - web.start) / BOAT_MS;
+    const f = boatTripAt(wall);
+    if (f != null) {
       const out = f < 0.42 ? ease(f / 0.42) : f < 0.58 ? 1 : 1 - ease((f - 0.58) / 0.42);
       boat.position.z += out * 32;
       boat.position.x += Math.sin(out * Math.PI) * 2.5;
@@ -535,46 +524,7 @@ export function createGame({ params, status, send, onReadItem, onTalk = null, on
     const boatSpeed = dt > 0 ? ((boat.position.z - prevBoatZ) / dt) * 1000 : 0;
     M.water.userData.water.update({ time: sec, night: nightK, boat: { x: bx, z: bz, speed: Math.abs(boatSpeed) > 20 ? 0 : boatSpeed }, shores: world.waterShores });
 
-    const sub = lastStep((s) => s.kind === 'act' && s.category === 'subagents' && s.start <= now && (s.end == null || now < s.end));
-    world.maidens.forEach((m) => { m.root.visible = false; });
-    if (sub) {
-      const tool = sim.orch.tools.get(sub.visit.toolIds[0]);
-      const n = Math.min(world.maidens.length, tool?.meta?.agents ?? 3);
-      const duration = Math.max(4000, (sub.end ?? now + 1) - sub.start);
-      const f = Math.min(1, (now - sub.start) / duration);
-      const home = layout.sitePoint(safeSite(sub.at));
-      for (let k = 0; k < n; k++) {
-        const m = world.maidens[k];
-        const around = { x: home.x + Math.cos((k / n) * Math.PI * 2) * 1.3, z: home.z + Math.sin((k / n) * Math.PI * 2) * 1.3 };
-        const target2 = buildingKeys.length ? layout.sitePoint(buildingKeys[(hashSeed(`${sub.start}:${k}`) % buildingKeys.length)]) : around;
-        const out = f < 0.12 ? 0 : f < 0.45 ? ease((f - 0.12) / 0.33) : f < 0.7 ? 1 : f < 0.9 ? 1 - ease((f - 0.7) / 0.2) : 0;
-        const moving = (f > 0.12 && f < 0.45) || (f > 0.7 && f < 0.9);
-        m.root.visible = f < 0.97;
-        m.root.position.set(around.x + (target2.x - around.x) * out, 0.02, around.z + (target2.z - around.z) * out);
-        m.root.scale.setScalar(0.9 * Math.min(1, f / 0.12, (1 - f) / 0.1 + 0.001));
-        m.root.rotation.y = Math.atan2(target2.x - around.x, target2.z - around.z) + (f > 0.58 ? Math.PI : 0);
-        m.pose(moving ? 'walk' : out >= 1 ? 'work' : 'idle', now - sub.start + k * 137, { variant: 'read', speed: 4, stride: 1.1 });
-      }
-    }
-
     animateResidents(wall, dt);
-
-    // 回放里的交付：递到 55% 时在你脚下生成一件本地成果（实时模式里成果由 C# 推来，按 itemId 对上这一步）
-    for (const s of sim.orch.steps) {
-      if (s.kind !== 'deliver' || now < s.start + (s.end - s.start) * 0.55 || sim.delivered.has(s)) continue;
-      sim.delivered.set(s, true);
-      // 她把成果递到你脚下：你伸手接一下（一次性的动作；走起来就打断）
-      if (String(s.at ?? '').startsWith('pt:') && !player.moving) anim.playerOneShot = { action: 'receive', start: wall };
-      const id = s.itemId ?? `replay:${s.turn ?? sim.delivered.size}:${Math.round(s.start)}`;
-      const existing = items.get(id);
-      const p = layout.sitePoint(safeSite(s.at));
-      if (existing) {
-        existing.spot = { x: p.x - 0.5, z: p.z - 0.15 };
-        existing.revealAt = performance.now();
-      } else if (!s.itemId) {
-        items.set(id, { item: { id, kind: 'scroll', title: pick(lines.deliver, s.turn ?? 0), state: 'pending', local: true }, object: null, display: null, spot: { x: p.x - 0.5, z: p.z - 0.15 }, revealAt: performance.now() });
-      }
-    }
     placeItems();
   }
 
@@ -644,10 +594,6 @@ export function createGame({ params, status, send, onReadItem, onTalk = null, on
     const wall = performance.now();
     let row = 0;
     if (world) for (const v of world.venues.values()) for (const s of v.slots) s.item = null;
-    // 她还没递出来的成果先藏着：实时模式里成果和交付事件同一批到，第一版先把它摆进广场南边那一排，
-    // 等她走到你跟前递出时它才从那一排"跳"到你脚下（2026-10-12，用户实测）
-    const awaiting = sim.orch.awaitingItems();
-    for (const s of sim.orch.steps) if (s.kind === 'deliver' && s.itemId && !sim.delivered.has(s)) awaiting.add(s.itemId);
     for (const record of [...items.values()].sort((a, b) => (a.item.createdAt ?? '').localeCompare(b.item.createdAt ?? ''))) {
       const { item } = record;
       const placement = item.placement && world?.venues.get(item.placement.venue);
@@ -667,8 +613,7 @@ export function createGame({ params, status, send, onReadItem, onTalk = null, on
       }
       if (record.display) { record.display.parent?.remove(record.display); record.display = null; }
       const visibleState = item.state === 'pending' || record.collectedAt != null;
-      const undelivered = item.state === 'pending' && !record.spot && awaiting.has(item.id);
-      if ((!visibleState && !item.lost) || undelivered) {
+      if (!visibleState && !item.lost) {
         if (record.object) record.object.visible = false;
         continue;
       }
@@ -701,7 +646,7 @@ export function createGame({ params, status, send, onReadItem, onTalk = null, on
         if (k >= 1) record.collectedAt = null;
       }
     }
-    // 城里此刻看得见的成果（测试用：她还没递出来的那件不在里面）
+    // 城里此刻看得见的成果（测试用）
     status.shownItems = [...items.values()].filter((r) => r.object?.visible).map((r) => ({ id: r.item.id, x: +r.object.position.x.toFixed(2), z: +r.object.position.z.toFixed(2) }));
     if (world) world.showSlotMarkers(placing != null, () => true);
     if (placing && world) {
@@ -710,52 +655,21 @@ export function createGame({ params, status, send, onReadItem, onTalk = null, on
     }
   }
 
-  function lastStep(pred) {
-    const steps = sim.orch.steps;
-    for (let i = steps.length - 1; i >= 0; i--) if (pred(steps[i])) return steps[i];
-    return null;
-  }
-
-  // —— 旁白：按步骤和回合事件生成"台词时间线"，取最近的一句 ——
-  function refreshCues() {
-    const steps = sim.orch.steps;
-    for (let i = sim.cueSteps; i < steps.length; i++) {
-      const s = steps[i];
-      const tools = (s.visit?.toolIds ?? []).map((id) => sim.orch.tools.get(id)?.meta).filter(Boolean);
-      if ((s.kind === 'walk' || s.kind === 'teleport') && s.visit?.kind === 'work') {
-        s.visit.announced = true;
-        sim.cues.push({ t: s.start, text: lineForVisit(s.visit, tools, kindOf, i, lines, 'go', places) });
-      } else if (s.kind === 'act' && !s.visit.announced) {
-        s.visit.announced = true;
-        sim.cues.push({ t: s.start, text: lineForVisit(s.visit, tools, kindOf, i, lines, 'at', places), step: i });
-      } else if (s.kind === 'act' && !s.visit.arrived && ['terminal', 'web'].includes(s.category)) {
-        s.visit.arrived = true;
-        sim.cues.push({ t: s.start, text: lineForVisit(s.visit, tools, kindOf, i, lines, 'at', places) });
-      } else if (s.kind === 'deliver') {
-        sim.cues.push({ t: s.start, text: lineForVisit(s.visit, [], kindOf, i, lines, 'go', places), minMs: 2600 });
-      } else if (s.kind === 'await') {
-        // 刚开工就停下来等审批（工具调用先出现、审批随后弹出）：那句"我在做什么"不成立了，撤掉，只说要你点头
-        const prev = steps[i - 1];
-        if (prev && prev.kind === 'act' && prev.stoppedForApproval && prev.end - prev.start < 400) {
-          sim.cues = sim.cues.filter((c) => c.step !== i - 1);
-        }
-        sim.cues.push({ t: s.start, text: pick(lines.approval, i), minMs: 2600, step: i });
-      }
-      if (s.kind === 'act' && s.failed) sim.cues.push({ t: s.start + 900, text: pick(lines.failure, i) });
-    }
-    sim.cueSteps = steps.length;
-    // 奠基揭幕之后，雅典娜按委托板给出第一条建议（5.4）
-    if (pendingBoardLine && suggestions.length > 0) {
-      sim.cues.push({ t: Math.max(sim.time, pendingBoardLine.t), text: suggestions[0].line, minMs: 3400 });
-      pendingBoardLine = null;
-    }
+  // —— 她头顶的话：一句接一句，每句至少停 minMs。只有本地的几句（奠基、揭幕之后委托板上的第一条建议），不跟着任何回合 ——
+  function say(text, t, minMs = 2600) {
+    if (!text) return;
+    speech.push({ text, t, minMs });
+    speech.sort((a, b) => a.t - b.t);
   }
 
   function currentLine(now) {
-    const all = [
-      ...sim.turns.map((t) => ({ t: t.t, text: pick(lines.turn, t.turn), minMs: 1600 })),
-      ...sim.cues.filter((c) => c.text),
-    ].sort((a, b) => a.t - b.t);
+    // 奠基揭幕之后，她按委托板给出第一条建议（5.4）：建议来得比揭幕晚，就等它来了再说
+    if (pendingBoardLine && suggestions.length > 0 && now >= pendingBoardLine.t) {
+      say(suggestions[0].line, now, 3400);
+      pendingBoardLine = null;
+    }
+    if (speech.length > 8) speech = speech.filter((c) => now - c.t < 60_000);
+    const all = speech;
     let best = null;
     let free = -Infinity;
     for (const c of all) {
@@ -952,23 +866,25 @@ export function createGame({ params, status, send, onReadItem, onTalk = null, on
   const tmp = new THREE.Vector3();
   let used = null;
   let regions = [];
-  function frame(now, dt, wall, { snap = false, sync = true, script = null, feed = null, hud = null } = {}) {
+  function frame(now, dt, wall, { snap = false, sync = true, script = null, hud = null } = {}) {
     if (!world) {
       overlay.draw({ time: wall, labels: [], bubble: null, edges: [], voyage: voyageFrame(wall), ui, chart: chartView(), topInset });
       syncUiBlocked();
       return null;
     }
-    if (feed) feed(sim.orch, now);
-    const state = sim.orch.update(now);
-    sim.time = now;
-    refreshCues();
+    clock = Math.max(clock, now);
     setClothWind(windAt(wall));   // 海上吹来的风：全城的衣摆、面纱、斗篷都吃它（M3）
     stepNight(dt);
-    const line = currentLine(now);
     updatePlayer(wall, dt);
+    // 对话栏刚展开：她离你远就走过来（你在城里任何地方按 Enter 开口，都不必先去找她）
+    const talking = talkOpen();
+    if (talking && !talkWasOpen) summonIfFar(now);
+    talkWasOpen = talking;
+    const state = athenaSim.update(now, { hold: athenaHeld() });
+    const line = currentLine(now);
     const pose = athenaPose(state, now);
     applyAthena(pose, line, dt);
-    applyEffects(state, now, wall, dt);
+    applyEffects(wall, dt);
     focus = pickFocus(pose);
     status.focus = focus ? { type: focus.type, id: focus.id ?? focus.venue ?? null, slot: focus.slot ?? null } : null;
     followCamera(dt, pose, snap);
@@ -1021,14 +937,11 @@ export function createGame({ params, status, send, onReadItem, onTalk = null, on
       const p = R.projectCss(tmp.copy(record.object.position));
       if (p.x < 0 || p.y < 0 || p.x > window.innerWidth || p.y > window.innerHeight) edges.push(p);
     }
-    // 等审批：她停在门槛前，红色的封印也算"轮到你了"——在画面外时同样在边缘指一下
+    // 等审批不在城里显示（2026-10-13：她不再停在门槛前）——对话栏上的红封印就是"轮到你了"
     const offscreen = (p) => p.x < 0 || p.y < 0 || p.x > window.innerWidth || p.y > window.innerHeight;
     let athenaEdge = null;
-    if (state.step?.kind === 'await') {
-      const p = R.projectCss(tmp.set(pose.x, 1, pose.z));
-      if (offscreen(p)) edges.push(p);
-    } else if (follow !== 'athena' && pose.visible && !reveal) {
-      // 自由视角（缺省）下她常常在画面外干活：边缘一枚白色的标记指着她（光属于雅典娜，不用点缀色），点它就跟过去
+    if (follow !== 'athena' && pose.visible && !reveal) {
+      // 自由视角（缺省）下她常常在画面外：边缘一枚白色的标记指着她（光属于雅典娜，不用点缀色），点它就跟过去
       const p = R.projectCss(tmp.set(pose.x, 1, pose.z));
       if (offscreen(p)) athenaEdge = { x: p.x, y: p.y, busy: pose.action !== 'idle' || pose.glow > 0.25 };
     }
@@ -1055,7 +968,8 @@ export function createGame({ params, status, send, onReadItem, onTalk = null, on
       topInset,
     });
     status.now = now;
-    status.step = state.step?.kind ?? null;
+    status.athena = state.step?.kind ?? null;
+    status.athenaAt = state.position;
     status.frames = (status.frames ?? 0) + 1;
     status.athenaAction = pose.action;
     return state;
@@ -1159,7 +1073,7 @@ export function createGame({ params, status, send, onReadItem, onTalk = null, on
       : null;
     return {
       title: item.title ?? '', kindLabel, stateLabel, where, state: item.state, path: item.path ?? null,
-      placed: !!item.placement, lost: !!item.lost, local: !!item.local,
+      placed: !!item.placement, lost: !!item.lost,
     };
   }
 
@@ -1189,7 +1103,7 @@ export function createGame({ params, status, send, onReadItem, onTalk = null, on
         const v = world?.venues.get(panel.id);
         if (!v) return null;
         const placed = v.slots.filter((s) => s.item).length;
-        const stored = [...items.values()].filter((r) => r.item.state === 'accepted' && !r.item.placement && !r.item.local).slice(0, 5).map((r) => ({ id: r.item.id, title: r.item.title ?? '' }));
+        const stored = [...items.values()].filter((r) => r.item.state === 'accepted' && !r.item.placement).slice(0, 5).map((r) => ({ id: r.item.id, title: r.item.title ?? '' }));
         return { type: 'venue', bust: panel.id === 'paintedStoa' ? 'painter' : panel.id === 'vault' ? 'accountant' : 'scribe', expression: 'neutral',
           title: venueName(panel.id), lines: [fill(ui.venueCount, { count: placed, total: SLOTS_PER_VENUE })], stored, empty: ui.venueEmpty, storedTitle: ui.venueStored, placeHere: ui.placeHere };
       }
@@ -1475,10 +1389,7 @@ export function createGame({ params, status, send, onReadItem, onTalk = null, on
       case 'card-close': card = null; break;
       case 'card-read': {
         const record = items.get(card);
-        if (record) {
-          if (record.item.local) onReadItem?.(record.item);
-          else send('read-scroll', { itemId: record.item.id });
-        }
+        if (record) send('read-scroll', { itemId: record.item.id });
         break;
       }
       case 'card-open': {
@@ -1530,7 +1441,7 @@ export function createGame({ params, status, send, onReadItem, onTalk = null, on
     if (!record) return;
     record.item = { ...record.item, state };
     record.collectedAt = performance.now();
-    if (!record.item.local) send(state === 'accepted' ? 'accept-delivery' : 'return-delivery', { itemId: record.item.id });
+    send(state === 'accepted' ? 'accept-delivery' : 'return-delivery', { itemId: record.item.id });
     card = null;
   }
 
@@ -1544,7 +1455,7 @@ export function createGame({ params, status, send, onReadItem, onTalk = null, on
     if (assets.report.requested.length === 0) return 0;
     const loaded = await assets.prepare();
     status.assets = assets.report;
-    if (loaded > 0 && city) loadCity(city, { key: cityKey, sanctuary, now: sim?.time ?? 0 });
+    if (loaded > 0 && city) loadCity(city, { key: cityKey, sanctuary, now: clock });
     return loaded;
   }
 
@@ -1553,7 +1464,12 @@ export function createGame({ params, status, send, onReadItem, onTalk = null, on
     get world() { return world; },
     get layout() { return layout; },
     get city() { return city; },
-    get sim() { return sim; },
+    /** 雅典娜的时间线（athena.mjs）：测试与运动自检读它。 */
+    get athenaSim() { return athenaSim; },
+    /** 请她去一个地方（站点名）：走得到就走，远了化作一道光（运动自检用它造出"走"和"瞬移"两个时间窗）。 */
+    athenaGoTo(site, t = clock) { return athenaSim?.goTo(site, t) ?? false; },
+    /** 页面的时钟（frame 的 now，只进不退）。 */
+    get clock() { return clock; },
     get used() { return used; },
     get follow() { return follow; },
     set follow(v) { setFollow(v); },
@@ -1587,50 +1503,34 @@ export function createGame({ params, status, send, onReadItem, onTalk = null, on
     get ui() { return ui; },
     setTables(tables) {
       if (tables.ui) ui = { ...UI_ZH, ...tables.ui };
-      if (tables.lines) lines = { ...LINES_ZH, ...tables.lines };
-      if (tables.places) places = { ...PLACE_ZH, ...tables.places };
       if (tables.publicNames) publicNames = { ...PUBLIC_NAMES, ...tables.publicNames };
     },
-    /** 换一份委托（同一座城里切换会话）：雅典娜出现在那份委托最后一次动作的地点（9.2）。 */
-    focus({ last = null, interrupted = false, now = 0 } = {}) {
-      const site = last ? safeSite(siteForTool(last, index)) : 'agora';
-      sim = createSim(site, now);
-      routes = new WeakMap();
-      sim.stoppedAt = interrupted && site.startsWith('b:') ? site : null;
-      if (interrupted) sim.cues.push({ t: now, text: pick(lines.interrupted, 0), minMs: 3600 });
-      status.focus = { site, interrupted };
-    },
-    /** 时间线从头来（回放的"重新开始"与跳转）：城不拆，编排器与本地成果重建。 */
-    resetTimeline(home = 'agora', now = 0) {
-      sim = createSim(home, now);
-      routes = new WeakMap();
-      for (const [id, record] of items) {
-        if (!record.item.local) continue;
-        if (record.object && world) world.root.remove(record.object);
-        items.delete(id);
-      }
-      card = null;
-    },
-    /** 新回合开始时的开场白（实时模式里由 turn 事件驱动）。 */
-    noteTurn(t, turn) {
-      sim.turns.push({ t, turn });
-      sim.stoppedAt = null;
-    },
+    /**
+     * C# 推来的成果清单（整份）。这座城装好之后才到的新的待收成果，就是刚做完的那一回合：直接出现在你脚下，你伸手接一下
+     * （2026-10-13：她不再走过来递——直播拿掉了）。装城时就已经在的（重启、你离开期间交付的）在广场南边排成一排等你。
+     */
     setItems(list) {
       const seen = new Set();
+      const wall = performance.now();
+      let handed = false;
       for (const item of list ?? []) {
         seen.add(item.id);
         const record = items.get(item.id);
         if (record) {
           const wasPending = record.item.state === 'pending';
           record.item = item;
-          if (wasPending && item.state !== 'pending' && record.collectedAt == null) record.collectedAt = performance.now();
+          if (wasPending && item.state !== 'pending' && record.collectedAt == null) record.collectedAt = wall;
         } else {
-          items.set(item.id, { item, object: null, display: null, spot: null, revealAt: null, collectedAt: null });
+          const fresh = itemsPrimed && world != null && item.state === 'pending' && !item.lost && !item.placement;
+          const spot = fresh ? { x: player.pos.x + 0.4, z: player.pos.z + 0.25 } : null;
+          items.set(item.id, { item, object: null, display: null, spot, revealAt: null, collectedAt: null });
+          handed = handed || fresh;
         }
       }
+      if (world) itemsPrimed = true;
+      if (handed && !player.moving) anim.playerOneShot = { action: 'receive', start: wall };
       for (const [id, record] of items) {
-        if (record.item.local || seen.has(id)) continue;
+        if (seen.has(id)) continue;
         if (record.object && world) world.root.remove(record.object);
         if (record.display) record.display.parent?.remove(record.display);
         items.delete(id);
@@ -1643,7 +1543,7 @@ export function createGame({ params, status, send, onReadItem, onTalk = null, on
       herald = linesIn.length ? { ...report, lines: linesIn } : null;
       status.herald = herald;
     },
-    setGrove(trees) { groveTrees = Array.isArray(trees) ? trees : []; if (world && city) { const before = layout.plots.size; layout = createLayout({ ...city, groveTrees: groveTrees.length }); if (layout.plots.size !== before) { loadCity(city, { key: cityKey, sanctuary, now: sim?.time ?? 0 }); return; } world.setLayout(layout); applyAccumulation(); } },
+    setGrove(trees) { groveTrees = Array.isArray(trees) ? trees : []; if (world && city) { const before = layout.plots.size; layout = createLayout({ ...city, groveTrees: groveTrees.length }); if (layout.plots.size !== before) { loadCity(city, { key: cityKey, sanctuary, now: clock }); return; } world.setLayout(layout); applyAccumulation(); } },
     setResidents(list) { residents = Array.isArray(list) ? list.map((r) => ({ ...r })) : []; applyAccumulation(); },
     setBoard(list) { suggestions = Array.isArray(list) ? list.filter((s) => s && s.id && s.line) : []; applyAccumulation(); status.board = suggestions.map((s) => s.id); },
     setOracle(info) { oracle = info ?? null; applyAccumulation(); status.oracle = !!oracle?.exists; },
@@ -1658,7 +1558,7 @@ export function createGame({ params, status, send, onReadItem, onTalk = null, on
     /** 你此刻够得着的那一样（测试用）。 */
     get focus() { return focus; },
     /** 城里能互动的东西（测试用）。 */
-    interactables: () => interactables(world ? athenaPose(sim.orch.state(sim.time), sim.time) : null),
+    interactables: () => interactables(world && athenaSim ? athenaPose(athenaSim.state(), clock) : null),
     /** 按一下交互键（测试与外部调用）。 */
     interact() { if (card || panel) { card = null; panel = null; return true; } return activate(focus); },
     /** 测试：把你放到 (x, z)，面朝 yaw。 */
@@ -1690,7 +1590,7 @@ export function createGame({ params, status, send, onReadItem, onTalk = null, on
     get playerMoving() { return player.moving || pressed.size > 0; },
     get player() { return { ...player.pos, yaw: player.yaw }; },
     policy(visible) {
-      return framePolicy({ visible, step: sim?.orch.state(sim.time).step?.kind ?? null, playerMoving: player.moving || pressed.size > 0, transitioning: voyage != null || reveal != null || glide != null || arrival != null || nightK !== nightTarget, now: performance.now(), lastInputAt, residents: world?.residents.size ?? 0 });
+      return framePolicy({ visible, step: athenaSim?.state().step.kind ?? null, playerMoving: player.moving || pressed.size > 0, transitioning: voyage != null || reveal != null || glide != null || arrival != null || nightK !== nightTarget, now: performance.now(), lastInputAt });
     },
     resize() { R.resize(); overlay.resize(); },
     collectAll() { for (const id of items.keys()) { card = id; decide('accepted'); } },

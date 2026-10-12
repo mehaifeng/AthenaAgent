@@ -1588,29 +1588,7 @@
     <system:String x:Key="GameMode.Notice.VenueFull">The {0} is full; {1} is kept in storage for now</system:String>
     <system:String x:Key="GameMode.Item.Image">A painting</system:String>
     <system:String x:Key="GameMode.Return.Prefill">About {0}, please change: </system:String>
-    <!-- Game page strings: narration library ("|" separates variants), UI, place words, public building names (pushed to the page by C#) -->
-    <system:String x:Key="Polis.Line.Turn">On it|Leave it to me|I'll get to it</system:String>
-    <system:String x:Key="Polis.Line.ReadFile">Off to the {place} to look through {name}|Going to the {place} for {name}</system:String>
-    <system:String x:Key="Polis.Line.ReadFileAt">Checking {name} in the {place}|Let me open {name}</system:String>
-    <system:String x:Key="Polis.Line.ReadDir">Off to the {place} to look around|Searching the {place}</system:String>
-    <system:String x:Key="Polis.Line.ReadDirAt">Looking through the {place}|What's in the {place}?</system:String>
-    <system:String x:Key="Polis.Line.WriteFile">Off to the {place} to write {name}|Going to copy out {name}</system:String>
-    <system:String x:Key="Polis.Line.WriteFileAt">Writing {name}|Setting down {name} in the {place}</system:String>
-    <system:String x:Key="Polis.Line.WriteDir">Off to tidy the {place}|The {place} needs scaffolding</system:String>
-    <system:String x:Key="Polis.Line.WriteDirAt">Tidying the {place}|Scaffolding is up at the {place}</system:String>
-    <system:String x:Key="Polis.Line.Terminal">Off to the forge|A trip to the forge</system:String>
-    <system:String x:Key="Polis.Line.TerminalAt">The fire is lit|The forge is hot</system:String>
-    <system:String x:Key="Polis.Line.Web">Off to the harbor to send a boat|A trip to the harbor</system:String>
-    <system:String x:Key="Polis.Line.WebAt">A boat is out asking around|Sending a boat out for news</system:String>
-    <system:String x:Key="Polis.Line.MemoryRecall">Off to the library for the old scrolls|Let me see what I wrote down</system:String>
-    <system:String x:Key="Polis.Line.MemoryWrite">I'll remember this</system:String>
-    <system:String x:Key="Polis.Line.Subagents">I called {count} maidens|Maidens, split up and go</system:String>
-    <system:String x:Key="Polis.Line.Workshop">Busy at the workshop</system:String>
-    <system:String x:Key="Polis.Line.Outside">Heading out of the city|This one is outside the walls</system:String>
-    <system:String x:Key="Polis.Line.Failure">That way is blocked; trying another</system:String>
-    <system:String x:Key="Polis.Line.Deliver">Done — have a look|Here, freshly made</system:String>
-    <system:String x:Key="Polis.Line.Approval">I need your nod for this step|Waiting for your nod before I start</system:String>
-    <system:String x:Key="Polis.Line.Interrupted">We stopped here last time. Shall I carry on?</system:String>
+    <!-- Game page strings: UI, place words, public building names (pushed to the page by C#). The narration library (Polis.Line.*) went with the live mirror (2026-10-13) -->
     <system:String x:Key="Polis.Ui.Dismiss">Got it</system:String>
     <system:String x:Key="Polis.Ui.NoticeBoard">Agora notice board</system:String>
     <system:String x:Key="Polis.Ui.FogTitle">This polis's folder cannot be found</system:String>

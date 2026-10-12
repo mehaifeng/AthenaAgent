@@ -228,7 +228,7 @@ var tests = new (string Name, Func<Task> Run)[]
     ("polis scan: breadth-first, skips generated and hidden entries, and marks what the budget cut as not fully surveyed", TestPolisScanAsync),
     ("polis buildings: the dominant kind picks the building, mixed or empty is a house, size is logarithmic and state follows the last change", TestPolisBuildingsAsync),
     ("polis layout ledger: existing plots never move, a deleted folder leaves its plot, newcomers take the next edge plot, overflow goes to the market", TestPolisLayoutLedgerAsync),
-    ("polis replay: real timestamps become think/tool/deliver events with workspace-relative places and no message text", TestPolisReplayConverterAsync),
+    ("polis tool targets: a tool call's path argument becomes a workspace-relative place, '..' and '~' resolved, relative paths and siblings outside", TestPolisToolTargetsAsync),
     ("polis tool categories: every tool FunctionRegistry registers has an explicit action category", TestPolisToolCategoriesCoverRegistryAsync),
     ("polis fixture: the committed synthetic fixture is exactly what the pipeline generates", TestPolisSyntheticFixtureCommittedAsync),
     ("polis city: deleting a folder moves no other building, an offline rename keeps the plot, and the snapshot draws the same city", TestPolisCityLedgerStabilityAsync),
@@ -236,7 +236,7 @@ var tests = new (string Name, Func<Task> Run)[]
     ("polis offline diff: renames are inferred from child names, items come back by path, rename or fingerprint, and the rest are lost but never deleted", TestPolisOfflineDiffAndRenameRecoveryAsync),
     ("polis attribution: only Athena's tool targets inside their time window are hers; batches group by building and flood into a full rescan", TestPolisChangeAttributionAsync),
     ("polis intents: a closed set checked in C#; escaping paths, links out of the workspace and 'approve' are rejected", TestPolisIntentValidationAsync),
-    ("polis events: derived from the bubbles' render model, the running turn only, each change once, deliveries when streaming stops", TestPolisEventProjectorAsync),
+    ("polis deliveries: a turn is delivered once when its bubble stops streaming, history is never re-delivered, and only the running turn's tool targets count as hers", TestPolisDeliveriesAsync),
     ("polis collection: accepted items are placed, moved and taken down in the save only; a lost item keeps its pedestal and only a click removes it; v2 saves migrate", TestPolisCollectionAsync),
     ("polis grove: one olive tree per completed commission, ordered by when it started, aged by its turns, derived from sessions alone", TestPolisGroveDerivationAsync),
     ("polis residents: each capability brings its resident at its first successful use, every registered tool has one, and the town re-derives from the archive", TestPolisResidentDerivationAsync),
@@ -10603,94 +10603,25 @@ static Task TestPolisLayoutLedgerAsync()
     return Task.CompletedTask;
 }
 
-static Task TestPolisReplayConverterAsync()
+// 工具调用 → 地点（2026-10-13：回放连同直播拿掉了，路径解析留下——归属与交付还要它）
+static Task TestPolisToolTargetsAsync()
 {
-    var replay = PolisReplayConverter.Convert(PolisSyntheticFixture.Conversation(), PolisSyntheticFixture.WorkspaceRoot, PolisSyntheticFixture.Home);
-    AssertEqual(3, replay.Turns, "三个回合");
-    AssertEqual(12, replay.ToolCalls, "十二次工具调用");
-    AssertEqual(2, replay.CompressedGaps, "两段回合之间的空闲被剪短");
-    AssertEqual(84_000L, replay.DurationMs, "回放总长（剪掉空闲之后）");
-
-    var events = replay.Events;
-    AssertTrue(events.Zip(events.Skip(1)).All(p => p.First.T <= p.Second.T), "事件时间单调不减");
-    AssertTrue(events.All(e => e.End is null || e.End >= e.T), "每个区间的结束不早于开始");
-
-    var think1 = events[1];
-    AssertTrue(think1.Type == "think" && think1.T == 0 && think1.End == 6_200 && think1.Reasoning == 820, "第一段等模型：从提问到第一个调用载体，带推理长度");
-    var t1 = events.Single(e => e.Id == "t1");
-    AssertTrue(t1.T == 6_200 && t1.End == 6_260 && t1.Category == "read" && t1.Path == "合同/租赁合同.docx" && t1.Ok == true, "工具从载体开始、到结果回填结束，路径转成工作区相对路径");
-    var t2 = events.Single(e => e.Id == "t2");
-    var t3 = events.Single(e => e.Id == "t3");
-    AssertTrue(t2.T == 10_900 && t3.T == 10_900, "结果一起回填的一批并发调用共享开始时间");
-    AssertEqual(24_050L, events.Single(e => e.Type == "turn" && e.Turn == 2).T, "上一回合交付后 39 秒的空闲剪成 3 秒");
-    var t5 = events.Single(e => e.Id == "t5");
-    AssertTrue(t5.Category == "terminal" && t5.Place == "inside" && t5.Path == "网站", "终端只留类别和工作目录，命令不进回放");
-    var t6 = events.Single(e => e.Id == "t6");
-    AssertTrue(t6.Category == "web" && t6.Place == "none" && t6.Path is null, "没有路径的调用：地点为 none");
-    AssertEqual("下载/报价单.pdf", events.Single(e => e.Id == "t7").Path, "下载类工具的地点取产出路径");
-    AssertEqual(3, events.Single(e => e.Id == "t10").Agents ?? -1, "派发子代理只留侍女人数");
-    var t11 = events.Single(e => e.Id == "t11");
-    AssertTrue(t11.Place == "outside" && t11.Path is null && t11.Ok == false, "工作区外的路径只说城外，不带路径；失败如实记下");
-    AssertEqual("账本/2026预算.xlsx", events.Single(e => e.Id == "t12").Path, "~ 开头的路径按主目录展开后落进工作区");
-    var lastThink = events[^2];
-    var deliver = events[^1];
-    AssertTrue(lastThink.Type == "think" && lastThink.Estimated == true && lastThink.End - lastThink.T == 4_800, "气泡没记总时长时，收尾按 4.8 秒估，并标明是估的");
-    AssertTrue(deliver.Type == "deliver" && deliver.Turn == 3 && deliver.T == 84_000, "最后一次交付");
-
-    // 回放里没有任何正文：参数里的内容、查询词、命令都不出现；字段只来自固定的集合
-    var json = JsonSerializer.Serialize(replay, PolisFixture.JsonOptions);
-    foreach (var secret in new[] { "正文不进回放", "查询词不进回放", "统计.py", "python3", "example.invalid", "上次的预算", "diffContent", "/Users/demo" })
-    {
-        AssertFalse(json.Contains(secret, StringComparison.Ordinal), $"回放 JSON 不应包含「{secret}」");
-    }
-    var allowed = new HashSet<string>(StringComparer.Ordinal) { "t", "type", "end", "turn", "id", "tool", "category", "place", "path", "building", "ok", "reasoning", "estimated", "agents" };
-    using (var doc = JsonDocument.Parse(json))
-    {
-        foreach (var e in doc.RootElement.GetProperty("events").EnumerateArray())
-        {
-            foreach (var property in e.EnumerateObject())
-            {
-                AssertTrue(allowed.Contains(property.Name), $"回放事件出现了白名单之外的字段 {property.Name}");
-            }
-        }
-    }
-
-    // 路径 → 地点
     const string root = "/Users/demo/我的工作区";
-    AssertEqual(("inside", (string?)string.Empty), PolisReplayConverter.ResolvePath(root + "/", root, null), "工作区根目录本身是广场（空串）");
-    AssertEqual(("inside", (string?)"合同/a.md"), PolisReplayConverter.ResolvePath(root + "/../我的工作区/./合同/a.md", root, null), "'.' 与 '..' 先规范化再比较");
-    AssertEqual(("outside", (string?)null), PolisReplayConverter.ResolvePath(root + "2/x.md", root, null), "前缀相同的兄弟目录不算工作区内");
-    AssertEqual(("inside", (string?)"合同"), PolisReplayConverter.ResolvePath("/users/DEMO/我的工作区/合同", root, null), "默认忽略大小写");
-    AssertEqual(("outside", (string?)null), PolisReplayConverter.ResolvePath("/users/DEMO/我的工作区/合同", root, null, ignoreCase: false), "区分大小写时大小写不同就不算");
-    AssertEqual(("outside", (string?)null), PolisReplayConverter.ResolvePath("合同/a.md", root, null), "相对路径不是工作区（文件工具解析到知识库）");
-    AssertEqual(("outside", (string?)null), PolisReplayConverter.ResolvePath("~/x", root, null), "没有主目录时 ~ 无从展开");
-    AssertEqual(("inside", (string?)"src/a.cs"), PolisReplayConverter.ResolvePath(@"C:\Work\Proj\src\a.cs", "c:/work/proj", null), "Windows 路径：盘符与分隔符都规范化");
-    AssertEqual(("none", (string?)null), PolisReplayConverter.ResolvePath("  ", root, null), "空路径：none");
+    AssertEqual(("inside", (string?)string.Empty), PolisToolTargets.ResolvePath(root + "/", root, null), "工作区根目录本身是广场（空串）");
+    AssertEqual(("inside", (string?)"合同/a.md"), PolisToolTargets.ResolvePath(root + "/../我的工作区/./合同/a.md", root, null), "'.' 与 '..' 先规范化再比较");
+    AssertEqual(("outside", (string?)null), PolisToolTargets.ResolvePath(root + "2/x.md", root, null), "前缀相同的兄弟目录不算工作区内");
+    AssertEqual(("inside", (string?)"合同"), PolisToolTargets.ResolvePath("/users/DEMO/我的工作区/合同", root, null), "默认忽略大小写");
+    AssertEqual(("outside", (string?)null), PolisToolTargets.ResolvePath("/users/DEMO/我的工作区/合同", root, null, ignoreCase: false), "区分大小写时大小写不同就不算");
+    AssertEqual(("outside", (string?)null), PolisToolTargets.ResolvePath("合同/a.md", root, null), "相对路径不是工作区（文件工具解析到知识库）");
+    AssertEqual(("outside", (string?)null), PolisToolTargets.ResolvePath("~/x", root, null), "没有主目录时 ~ 无从展开");
+    AssertEqual(("inside", (string?)"账本/2026预算.xlsx"), PolisToolTargets.ResolvePath("~/我的工作区/账本/2026预算.xlsx", root, "/Users/demo"), "~ 开头的路径按主目录展开后落进工作区");
+    AssertEqual(("inside", (string?)"src/a.cs"), PolisToolTargets.ResolvePath(@"C:\Work\Proj\src\a.cs", "c:/work/proj", null), "Windows 路径：盘符与分隔符都规范化");
+    AssertEqual(("none", (string?)null), PolisToolTargets.ResolvePath("  ", root, null), "空路径：none");
 
-    AssertEqual("b", PolisReplayConverter.ExtractTargetPath("{\"path\":\"a\",\"outputPath\":\"b\"}"), "产出路径优先于输入路径");
-    AssertEqual<string?>(null, PolisReplayConverter.ExtractTargetPath("{\"command\":\"rm -rf /tmp/x\"}"), "command 从不当作路径读");
-    AssertEqual<string?>(null, PolisReplayConverter.ExtractTargetPath("{not json"), "参数 JSON 坏了：没有地点");
-    AssertEqual<string?>(null, PolisReplayConverter.ExtractTargetPath("[\"/a\"]"), "参数不是对象：没有地点");
-
-    // 坏数据不拖垮回放：载体 JSON 损坏、调用没有结果（被打断）、时钟回拨、没有用户消息
-    var t0 = new DateTimeOffset(2026, 10, 1, 8, 0, 0, TimeSpan.Zero);
-    var messy = new List<PolisReplayMessage>
-    {
-        new("user", t0, false, null, null, null, null, 0),
-        new("assistant", t0.AddSeconds(2), true, "{oops", null, null, null, 0),
-        new("assistant", t0.AddSeconds(3), true, "[{\"Id\":\"c1\",\"FunctionName\":\"read_system_file\",\"Arguments\":\"{\\\"path\\\":\\\"/w/a.md\\\"}\"}]", null, null, null, 0),
-        new("assistant", t0.AddSeconds(1), true, "[{\"Id\":\"c2\",\"FunctionName\":\"no_such_tool\",\"Arguments\":\"{}\"}]", null, null, null, 0),
-        new("tool", t0.AddSeconds(0.5), false, null, "c2", true, null, 0),
-        new("assistant", t0.AddSeconds(0.1), false, null, null, null, 9_000, 0),
-    };
-    var messyReplay = PolisReplayConverter.Convert(messy, "/w", null);
-    var interrupted = messyReplay.Events.Single(e => e.Tool == "read_system_file");
-    AssertTrue(interrupted.Ok == false && interrupted.End == interrupted.T, "没有结果的调用算被打断：失败、零时长");
-    AssertEqual("workshop", messyReplay.Events.Single(e => e.Tool == "no_such_tool").Category, "没登记的工具归工坊");
-    AssertTrue(messyReplay.Events.Zip(messyReplay.Events.Skip(1)).All(p => p.First.T <= p.Second.T), "时间戳乱序时事件仍不倒退");
-    AssertEqual(9_100L, messyReplay.Events[^1].T, "交付时间 = 气泡开始 + 回合总时长");
-    AssertEqual(0, PolisReplayConverter.Convert(new[] { messy[1] }, "/w", null).Events.Count, "没有用户消息就没有回放");
-
+    AssertEqual("b", PolisToolTargets.ExtractTargetPath("{\"path\":\"a\",\"outputPath\":\"b\"}"), "产出路径优先于输入路径");
+    AssertEqual<string?>(null, PolisToolTargets.ExtractTargetPath("{\"command\":\"rm -rf /tmp/x\"}"), "command 从不当作路径读");
+    AssertEqual<string?>(null, PolisToolTargets.ExtractTargetPath("{not json"), "参数 JSON 坏了：没有地点");
+    AssertEqual<string?>(null, PolisToolTargets.ExtractTargetPath("[\"/a\"]"), "参数不是对象：没有地点");
     return Task.CompletedTask;
 }
 
@@ -10721,6 +10652,9 @@ static Task TestPolisSyntheticFixtureCommittedAsync()
     var committed = File.ReadAllText(path).Replace("\r\n", "\n");
     AssertTrue(committed == generated,
         "提交的合成夹具与管线生成的结果不一致：改了 Services/GameMode 或 Tools/GameMode/Polis 之后要重新生成（PolisExport synthetic --out Tools/GameMode/web/fixtures/synthetic.json），网页和测试读的才是同一份数据");
+
+    // 回放连同直播拿掉了（2026-10-13）：夹具只是城邦快照，不再带回放事件
+    AssertFalse(generated.Contains("\"replay\"", StringComparison.Ordinal), "合成夹具里不该再有 replay");
 
     var fixture = PolisSyntheticFixture.Build();
     var plots = fixture.Buildings.Select(b => b.Plot).ToList();
@@ -11105,7 +11039,8 @@ static Task TestPolisIntentValidationAsync()
 
 // 事件推导（设计稿 12.3）：从气泡的渲染模型推导雅典娜的事件，不给聊天服务加回调。切到一个会话不重演历史，
 // 只把正在进行的那一回合报出来；之后按状态变化报新增；交付在气泡停止流式输出时；归属用的"她碰过的地方"随回合清空。
-static Task TestPolisEventProjectorAsync()
+// 交付与归属（2026-10-13：直播拿掉之后，渲染模型里只读这两样——气泡停了就是一件成果，这一回合的工具目标是她碰过的地方）
+static Task TestPolisDeliveriesAsync()
 {
     const string root = "/Users/demo/我的工作区";
     var t0 = new DateTimeOffset(2026, 10, 11, 9, 0, 0, TimeSpan.Zero);
@@ -11124,75 +11059,55 @@ static Task TestPolisEventProjectorAsync()
         return group;
     }
 
-    var oldRead = Tool("old", "read_system_file", root + "/合同/旧.docx", ToolCallStatus.Success);
-    var reasoning = new ChatMessageSegment { Kind = ChatMessageSegmentKind.Reasoning, Text = new string('想', 300) };
+    var oldWrite = Tool("old", "write_system_file", root + "/合同/旧.md", ToolCallStatus.Success);
     var read = Tool("r1", "read_system_file", root + "/合同/租赁合同.docx", ToolCallStatus.Success);
     var write = Tool("w1", "write_system_file", root + "/合同/摘要.md", ToolCallStatus.Running);
     var terminal = Tool("x1", "execute_terminal_command", null, ToolCallStatus.Running, "\"command\": \"ls\"");
     var maidens = Tool("s1", "dispatch_subagents", null, ToolCallStatus.Running, "\"tasks\": [{}, {}, {}]");
     var outside = Tool("o1", "read_system_file", "/etc/hosts", ToolCallStatus.Failed);
-    var running = Bubble(true, reasoning, Group(read, write, terminal, maidens, outside));
+    var running = Bubble(true, new ChatMessageSegment { Kind = ChatMessageSegmentKind.Reasoning, Text = "想一想" }, Group(read, write, terminal, maidens, outside));
+    var finished = Bubble(false, Group(oldWrite), new ChatMessageSegment { Kind = ChatMessageSegmentKind.Markdown, Text = "做完了" });
     var messages = new List<ChatMessage>
     {
         new() { Role = "user", Content = "第一件事" },
-        Bubble(false, Group(oldRead), new ChatMessageSegment { Kind = ChatMessageSegmentKind.Markdown, Text = "做完了" }),
+        finished,
+        // 隐藏的工具调用载体：不是气泡，永远不算交付
+        new() { Role = "assistant", IsHidden = true, ToolCallsJson = "[]" },
         new() { Role = "user", Content = "整理合同" },
         running,
     };
 
-    var keys = new HashSet<string>(new[] { "合同" }, StringComparer.Ordinal);
-    var projector = new PolisEventProjector(root, "/Users/demo", keys);
-    var baseline = projector.Baseline(messages, t0);
-    CollectionAssert(new[] { "turn", "think", "tool-start", "tool-end", "tool-start", "tool-start", "tool-start", "tool-start", "tool-end" },
-        baseline.Select(e => e.Type), "切到一个正在进行的会话：只报这一回合（开场、推理、工具），不重演上一回合");
-    AssertFalse(baseline.Any(e => e.Id == "old"), "上一回合的工具算演过");
-    AssertEqual(2, baseline[0].Turn ?? 0, "回合号按用户消息数");
-    var readStart = baseline.Single(e => e.Type == "tool-start" && e.Id == "r1");
-    AssertEqual("read", readStart.Category, "读文件是读");
-    AssertEqual("inside", readStart.Place, "工作区里的路径是城内");
-    AssertEqual("合同/租赁合同.docx", readStart.Path, "路径换成工作区相对路径（'/' 分隔）");
-    AssertEqual("合同", readStart.Building, "所在建筑由 C# 按城里的建筑算好");
-    AssertEqual("terminal", baseline.Single(e => e.Id == "x1").Category, "终端去锻炉");
-    AssertEqual("none", baseline.Single(e => e.Id == "x1").Place, "终端命令本身不读（command 可能带任何东西）");
-    AssertEqual(3, baseline.Single(e => e.Id == "s1").Agents ?? 0, "派发子代理带侍女人数");
-    var outsideStart = baseline.Single(e => e.Type == "tool-start" && e.Id == "o1");
-    AssertTrue(outsideStart.Place == "outside" && outsideStart.Path == null, "工作区外的路径只说城外，不带路径");
-    AssertFalse(baseline.Single(e => e.Type == "tool-end" && e.Id == "o1").Ok ?? true, "失败的调用 ok = false");
-    AssertTrue(projector.Touches.Any(t => t.RelativePath == "合同/摘要.md" && t.End == null), "正在写的文件是她碰过的地方，时间窗还开着");
-    AssertTrue(projector.Touches.Any(t => t.WholeWorkspace), "派发子代理期间整座城都算她的");
+    var deliveries = new PolisDeliveries(root, "/Users/demo");
+    deliveries.Baseline(messages, t0);
+    AssertFalse(deliveries.Touches.Any(t => t.RelativePath == "合同/旧.md"), "上一回合的工具不算她这一回合碰过的");
+    AssertTrue(deliveries.Touches.Any(t => t.RelativePath == "合同/摘要.md" && t.End == null), "正在写的文件是她碰过的地方，时间窗还开着");
+    AssertTrue(deliveries.Touches.Any(t => t.RelativePath == "合同/租赁合同.docx" && t.End == t0), "已经读完的文件：时间窗收口在看到它的那一刻");
+    AssertTrue(deliveries.Touches.Any(t => t.WholeWorkspace), "派发子代理期间整座城都算她的");
+    AssertFalse(deliveries.Touches.Any(t => t.RelativePath == null && !t.WholeWorkspace), "终端命令与城外的读不是城里的地方");
+    AssertEqual(0, deliveries.Observe(messages, t0).Count, "切到一个会话：历史回合不再交付（不造成果）");
 
     var t1 = t0.AddSeconds(3);
     write.Status = ToolCallStatus.Success;
-    reasoning.Text += new string('想', PolisEventProjector.ReasoningStep);
-    var next = projector.Project(messages, t1);
-    CollectionAssert(new[] { "think", "tool-end" }, next.Select(e => e.Type), "推理涨够一步、写完了：各报一次");
-    AssertTrue(next.Single(e => e.Type == "tool-end").Ok == true, "写成功");
-    AssertTrue(projector.Touches.Single(t => t.RelativePath == "合同/摘要.md").End == t1, "工具做完，时间窗收口");
-    AssertEqual(0, projector.Project(messages, t1.AddSeconds(1)).Count, "没有变化就没有事件");
-    reasoning.Text += "多想一点";
-    AssertEqual(0, projector.Project(messages, t1.AddSeconds(2)).Count, "推理只多了几个字：不逐字报");
+    AssertEqual(0, deliveries.Observe(messages, t1).Count, "还在流式输出：没有交付");
+    AssertTrue(deliveries.Touches.Single(t => t.RelativePath == "合同/摘要.md").End == t1, "工具做完，时间窗收口");
 
     running.IsStreaming = false;
-    var delivered = projector.Project(messages, t1.AddSeconds(4));
-    AssertEqual("deliver", delivered.Single().Type, "气泡停止流式输出：交付");
-    AssertEqual(running.Id, delivered.Single().MessageId, "交付带着那一回合的气泡");
-    AssertEqual(0, projector.Project(messages, t1.AddSeconds(5)).Count, "交付只报一次");
-    CollectionAssert(new[] { "合同/摘要.md" }, projector.WrittenFiles(running).Select(w => w.RelativePath), "这一回合写进工作区且成功的文件（交付成果用）");
+    CollectionAssert(new[] { running.Id }, deliveries.Observe(messages, t1.AddSeconds(1)), "气泡停止流式输出：这一回合交付");
+    AssertEqual(0, deliveries.Observe(messages, t1.AddSeconds(2)).Count, "交付只报一次");
+    CollectionAssert(new[] { "合同/摘要.md" }, deliveries.WrittenFiles(running).Select(w => w.RelativePath), "这一回合写进工作区且成功的文件（交付成果用）");
 
     messages.Add(new ChatMessage { Role = "user", Content = "再来一件" });
-    var turn = projector.Project(messages, t1.AddSeconds(6));
-    AssertTrue(turn.Single().Type == "turn" && turn.Single().Turn == 3, "新的用户消息：新回合");
-    AssertEqual(0, projector.Touches.Count, "新回合开始：归属只看这一回合的工具");
+    deliveries.Observe(messages, t1.AddSeconds(3));
+    AssertEqual(0, deliveries.Touches.Count, "新回合开始：归属只看这一回合的工具");
 
-    var last = projector.LastPlace(messages, t1);
-    AssertTrue(last?.Building == null && last?.Place == "outside", "最后一次工具调用的去处（她出现在那里）：这里是城外那次读");
-
-    var sanctuary = new PolisEventProjector(null, "/Users/demo", new HashSet<string>(StringComparer.Ordinal));
-    var global = sanctuary.Baseline(new List<ChatMessage> { new() { Role = "user", Content = "x" }, Bubble(true, Group(Tool("g1", "read_system_file", root + "/合同/a.docx", ToolCallStatus.Running))) }, t0);
-    AssertEqual("outside", global.Single(e => e.Type == "tool-start").Place, "神殿（全局对话）里的文件操作一律算城外（9.1）");
-
-    var idle = new PolisEventProjector(root, null, keys);
-    AssertEqual(0, idle.Baseline(messages, t0).Count, "切到一个空闲的会话：什么都不重演");
+    var sanctuary = new PolisDeliveries(null, "/Users/demo");
+    var globalBubble = Bubble(false, Group(Tool("g1", "write_system_file", root + "/合同/a.md", ToolCallStatus.Success)));
+    var global = new List<ChatMessage> { new() { Role = "user", Content = "x" } };
+    sanctuary.Baseline(global, t0);
+    global.Add(globalBubble);
+    CollectionAssert(new[] { globalBubble.Id }, sanctuary.Observe(global, t0), "神殿里的回合照样交付（成果是回答本身）");
+    AssertEqual(0, sanctuary.Touches.Count, "神殿（全局对话）里的文件操作一律算城外，不是她在城里碰过的地方（9.1）");
+    AssertEqual(0, sanctuary.WrittenFiles(globalBubble).Count, "神殿里没有写进工作区的文件");
     return Task.CompletedTask;
 }
 
