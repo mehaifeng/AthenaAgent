@@ -20,6 +20,15 @@ export const PLAYER_SPEED = 6;
 /** 码头石岸的外沿离码头大街中线多远（world.mjs 在这里砌岸；再往南是海）。 */
 export const SHORE_OFFSET = STREET / 2 + 0.2;
 
+/**
+ * 整张地图是一块有限的矩形（2026-10-12，用户：地图是有限面积的矩形，随工作区规模自适应；矩形外是跟着主题的纯色）。
+ * 陆地三面在城的范围（最外一圈街道、码头大街向西接长到橄榄林）之外再留 MAP_MARGIN——城外那一圈散种的橄榄与柏树
+ * 落在最外一条街外 0.35 个地块之内，树冠再宽两米；南边带一片海，到码头大街以南 SEA_REACH：船出海最远到码头以南 41.5 米，
+ * 船身半长 3.6 米，场馆的石台到码头以南 15 米。
+ */
+export const MAP_MARGIN = 8;
+export const SEA_REACH = 50;
+
 /** 港口的栈桥：码头正南、宽 3.2 米、伸出 14 米（art/civic.mjs 的 buildHarbor）。 */
 export const PIER = Object.freeze({ halfWidth: 1.45, length: 14 });
 
@@ -311,6 +320,10 @@ export function createLayout(fixture) {
   return {
     plots, ring, gate, harborPoint, quayZ, seaZ, shoreZ, wanderSpots, groveOrigin,
     quayRange: { minX: X(qMin), maxX: X(qMax) },
+    mapRect: {
+      minX: walkBounds.minX - MAP_MARGIN, maxX: walkBounds.maxX + MAP_MARGIN,
+      minZ: walkBounds.minZ - MAP_MARGIN, maxZ: quayZ + SEA_REACH,
+    },
     bounds: { minX: X(iMin) - BLOCK / 2, maxX: X(iMax) + BLOCK / 2, minZ: Z(jMin) - BLOCK / 2, maxZ: quayZ + 30 },
     sitePoint, route, travelMs, walkable, floor, setObstacles, plotObstacles, addBuildingPlot,
     get obstacles() { return obstacles; },

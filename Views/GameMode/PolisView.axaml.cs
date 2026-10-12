@@ -19,8 +19,8 @@ public partial class PolisView : UserControl
     private IPolisPage? _page;
     private string? _pageUrl;
 
-    // 页面出来之前（加载中、失败面板后面）的底色：和城里的白天 / 夜里同色，切模式时不闪一块别的颜色
-    private static readonly IBrush DayBackground = new SolidColorBrush(Color.Parse("#C8C5BF"));
+    // 页面出来之前（加载中、失败面板后面）的底色：和城里地图外的纯色同一对值（render.mjs 的 FILL），切模式时不闪一块别的颜色
+    private static readonly IBrush DayBackground = new SolidColorBrush(Color.Parse("#E4DFD6"));
     private static readonly IBrush NightBackground = new SolidColorBrush(Color.Parse("#15181D"));
     private static readonly IBrush DayText = new SolidColorBrush(Color.Parse("#4A433D"));
     private static readonly IBrush NightText = new SolidColorBrush(Color.Parse("#B8B0A2"));

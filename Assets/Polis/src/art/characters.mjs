@@ -1,7 +1,7 @@
 // 人物表：雅典娜、你（玩家）、十一位居民（与 C# 的 PolisResidentKind 一一对应，名字是 camelCase）。
 // 黑白的画面里人和人靠剪影与明暗分开，所以每位居民都有一样远看认得出的东西：帽子（尖毡帽、宽檐帽、面纱、头巾）、
 // 衣长（长衣 / 只遮一边肩的短衣）、手里的长家什（权杖、测杆、锤子）。雅典娜最亮、周身有光（第 8 节"光属于雅典娜"）；
-// 你穿深色兜帽斗篷，没有光。半身像（busts.mjs）用同一套设定。
+// 你是一位长发的年轻女子，穿深蓝的希顿，没有光。半身像（busts.mjs）用同一套设定。
 import * as THREE from '../../vendor/three.bundle.mjs';
 import { buildFigure } from './rig.mjs';
 
@@ -20,7 +20,7 @@ export const RESIDENT_ROLES = Object.freeze({
   scribe: { work: 'write', site: 'archive', spot: [-3.2, 3.4], facing: 0.3 },
   accountant: { work: 'count', site: 'vault', spot: [3.0, 3.4], facing: -0.4 },
   smith: { work: 'forge', site: 'forge', spot: [1.6, 1.6], facing: -1.2, station: { in: 'forge', key: 'forge' } },   // 隔着铁砧面朝南（M3 第三轮：第一版背对铁砧朝空气抡锤）
-  sailor: { work: 'haul', site: 'harbor', spot: [-2.4, 2.0], facing: 0.4 },
+  sailor: { work: 'haul', site: 'harbor', spot: [0.98, 19], facing: Math.PI / 2, station: { in: 'harbor', key: 'haul' } },   // 栈桥东沿、面朝泊着的船收缆（第一版站在港前广场上，缆绳拴在空气里）
   librarian: { work: 'shelve', site: 'library', spot: [2.2, 6.1], facing: 0.2 },   // 圆形图书馆最下一级台阶（半径 6.0、高 0.25）外面半米：第一版离圆心 6.02，脚陷在台阶边上
   maiden: { work: 'read', site: 'temple', spot: [-3.4, 6.2], facing: 0.5 },
   herald: { work: 'announce', site: 'agora', spot: [-4.4, -2.05], facing: 0.6, fixed: true },   // 站在讲台上（你站不上去，M3）
@@ -36,20 +36,21 @@ export const RESIDENT_ROLES = Object.freeze({
  */
 export const CHARACTER_SPECS = Object.freeze({
   // 雅典娜做事的样子按工具类别（workVariantFor）：读、写、锻、召唤、收缆（取网页）——每样手里都有对应的东西，收缆也有一根缆。
-  // M3：她走路（3.2 米 / 秒、步幅 1.6），不再滑行
-  athena: { height: 1.9, garment: 'peplos', cloth: 'cloth', hair: 'bun', headgear: 'fillet', glow: true, stride: 1.6, face: { female: true, age: 'young', jaw: 0.3, nose: 0.95 }, props: ['scrollOpen', 'tablet', 'stylus', 'hammer', 'gift', 'sealed', 'scroll', 'rope'] },
-  player: { height: 1.75, garment: 'himation', cloth: 'playerCloth', hair: 'hidden', headgear: 'hood', face: { age: 'adult', jaw: 0.45 }, props: [] },
-  surveyor: { height: 1.76, garment: 'himation', cloth: 2, hair: 'short', beard: 'short', headgear: 'petasos', face: { age: 'adult', jaw: 0.55, nose: 1.08 }, props: ['rod'], carry: { side: 'R', grip: 'staff', prop: 'rod' } },
-  scribe: { height: 1.7, garment: 'chiton', cloth: 1, hair: 'short', headgear: 'headband', face: { age: 'young', jaw: 0.4, nose: 0.95 }, props: ['tablet', 'stylus', 'gift'], carry: { side: 'L', grip: 'hug', prop: 'tablet' } },
-  accountant: { height: 1.68, garment: 'himation', cloth: 2, hair: 'receding', beard: 'short', hairMat: 'greyHair', face: { age: 'old', jaw: 0.5, nose: 1.05 }, props: ['abacus'], carry: { side: 'L', grip: 'hug', prop: 'abacus' } },
-  smith: { height: 1.74, garment: 'exomis', cloth: 4, hair: 'short', beard: 'full', headgear: 'pilos', build: 1.12, apron: true, face: { age: 'adult', jaw: 0.8, nose: 1.12 }, props: ['hammer', 'tongs'] },
-  sailor: { height: 1.72, garment: 'exomis', cloth: 3, hair: 'short', beard: 'stubble', headgear: 'pilosTilted', face: { age: 'adult', jaw: 0.6, nose: 1.0 }, props: ['rope'] },
-  librarian: { height: 1.66, garment: 'himation', cloth: 0, hair: 'receding', beard: 'long', hairMat: 'greyHair', face: { age: 'old', jaw: 0.45, nose: 1.1 }, props: ['scroll'], carry: { side: 'R', grip: 'hug', prop: 'scroll' } },
-  maiden: { height: 1.55, garment: 'peplos', cloth: 'maiden', hair: 'braids', headgear: 'diadem', gold: true, faceless: true, props: ['scrollOpen'] },
-  herald: { height: 1.78, garment: 'chlamys', cloth: 2, hair: 'short', beard: 'short', headgear: 'petasosBack', face: { age: 'adult', jaw: 0.55, nose: 1.0 }, props: ['staff'], carry: { side: 'R', grip: 'staff', prop: 'staff' } },
-  painter: { height: 1.65, garment: 'chiton', cloth: 1, hair: 'bun', headgear: 'sakkos', face: { female: true, age: 'young', jaw: 0.3, nose: 0.9 }, props: ['brush', 'palette'], carry: { side: 'L', grip: 'hug', prop: 'palette' } },
-  artisan: { height: 1.73, garment: 'exomis', cloth: 3, hair: 'short', beard: 'full', headgear: 'headband', build: 1.08, apron: true, face: { age: 'adult', jaw: 0.7, nose: 1.05 }, props: ['chisel', 'mallet'] },
-  priestess: { height: 1.72, garment: 'peplos', cloth: 0, hair: 'bun', headgear: 'veil', face: { female: true, age: 'adult', jaw: 0.3, nose: 0.95 }, props: ['phiale'] },
+  // M3：她走路（3.2 米 / 秒、步幅 1.6），不再滑行。bearing：抬着下巴、挺着胸（rig.mjs）
+  athena: { height: 1.9, bearing: { head: -0.03, spine: -0.035 }, garment: 'peplos', cloth: 'cloth', hair: 'athena', headgear: 'fillet', glow: true, sandals: 'tyrrhenian', stride: 1.6, face: { female: true, age: 'young', jaw: 0.3, nose: 0.95 }, props: ['scrollOpen', 'tablet', 'stylus', 'hammer', 'gift', 'sealed', 'scroll', 'rope'] },
+  // 你：一位年轻女子，中分的长发披到背上（弹簧骨），女式的希顿（2026-10-12：不再戴兜帽、穿斜披的外衣）
+  player: { height: 1.68, garment: 'chiton', cloth: 'playerCloth', hair: 'player', build: 0.94, face: { female: true, age: 'young', jaw: 0.28, nose: 0.92 }, props: [] },
+  surveyor: { height: 1.76, garment: 'himation', cloth: 2, hair: 'surveyor', beard: 'short', headgear: 'petasos', face: { age: 'adult', jaw: 0.55, nose: 1.08 }, props: ['rod'], carry: { side: 'R', grip: 'staff', prop: 'rod' } },
+  scribe: { height: 1.7, garment: 'chiton', cloth: 1, hair: 'scribe', headgear: 'headband', face: { age: 'young', jaw: 0.4, nose: 0.95 }, props: ['tablet', 'stylus', 'gift'], carry: { side: 'L', grip: 'hug', prop: 'tablet' } },
+  accountant: { height: 1.68, garment: 'himation', cloth: 2, hair: 'accountant', beard: 'short', hairMat: 'greyHair', face: { age: 'old', jaw: 0.5, nose: 1.05 }, props: ['abacus'], carry: { side: 'L', grip: 'hug', prop: 'abacus' } },
+  smith: { height: 1.74, garment: 'exomis', cloth: 4, hair: 'smith', beard: 'full', headgear: 'pilos', build: 1.12, apron: true, face: { age: 'adult', jaw: 0.8, nose: 1.12 }, props: ['hammer', 'tongs'] },
+  sailor: { height: 1.72, garment: 'exomis', cloth: 3, hair: 'sailor', beard: 'stubble', headgear: 'pilosTilted', face: { age: 'adult', jaw: 0.6, nose: 1.0 }, props: ['rope'] },
+  librarian: { height: 1.66, garment: 'himation', cloth: 0, hair: 'librarian', beard: 'long', hairMat: 'greyHair', face: { age: 'old', jaw: 0.45, nose: 1.1 }, props: ['scroll'], carry: { side: 'R', grip: 'hug', prop: 'scroll' } },
+  maiden: { height: 1.55, garment: 'peplos', cloth: 'maiden', hair: 'maiden', headgear: 'diadem', gold: true, faceless: true, props: ['scrollOpen'] },
+  herald: { height: 1.78, garment: 'chlamys', cloth: 2, hair: 'herald', beard: 'short', headgear: 'petasosBack', face: { age: 'adult', jaw: 0.55, nose: 1.0 }, props: ['staff'], carry: { side: 'R', grip: 'staff', prop: 'staff' } },
+  painter: { height: 1.65, garment: 'chiton', cloth: 1, hair: 'painter', headgear: 'sakkos', face: { female: true, age: 'young', jaw: 0.3, nose: 0.9 }, props: ['brush', 'palette'], carry: { side: 'L', grip: 'hug', prop: 'palette' } },
+  artisan: { height: 1.73, garment: 'exomis', cloth: 3, hair: 'artisan', beard: 'full', headgear: 'headband', build: 1.08, apron: true, face: { age: 'adult', jaw: 0.7, nose: 1.05 }, props: ['chisel', 'mallet'] },
+  priestess: { height: 1.72, garment: 'peplos', cloth: 0, hair: 'priestess', headgear: 'veil', face: { female: true, age: 'adult', jaw: 0.3, nose: 0.95 }, props: ['phiale'] },
 });
 
 export const CHARACTER_IDS = Object.freeze(Object.keys(CHARACTER_SPECS));

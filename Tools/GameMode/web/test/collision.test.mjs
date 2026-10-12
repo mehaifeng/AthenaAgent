@@ -253,3 +253,57 @@ test('city collision: holding a key against a house slides you along its wall, a
   for (let i = 0; i < 80; i++) p = slide(p, { x: -0.03, z: -0.03 }, layout.walkable);
   assert.ok(Math.hypot(p.x - 5.6, p.z - (-2.4)) > 1.2, `绕过柱子继续走了（${p.x.toFixed(2)}, ${p.z.toFixed(2)}）`);
 });
+
+test('map: a finite rectangle that holds the whole city, a strip of sea, every walkable point and the boat; it grows with the city', async () => {
+  // 2026-10-12，用户：地图是有限面积的矩形（随工作区规模自适应），包括一部分海洋，矩形外是纯色
+  const { BOAT_MOORING } = await import('../../../../Assets/Polis/src/art/civic.mjs');
+  const { world, layout } = buildCity();
+  const r = layout.mapRect;
+  assert.ok(r && r.maxX > r.minX && r.maxZ > r.minZ, '有一块矩形');
+  assert.equal(world.mapRect, r);
+  const inside = (x, z, eps = 1e-6) => x >= r.minX - eps && x <= r.maxX + eps && z >= r.minZ - eps && z <= r.maxZ + eps;
+  // 地面与海正好铺满矩形：陆地到岸线，海从岸线到南边
+  world.root.updateMatrixWorld(true);
+  const boxOf = (o) => new THREE.Box3().setFromObject(o);
+  const meshes = world.root.children.filter((o) => o.isMesh);
+  const land = meshes.find((o) => o.material.name === 'earth');
+  const sea = meshes.find((o) => o.material.name === 'water');
+  const lb = boxOf(land), sb = boxOf(sea);
+  for (const [b, name] of [[lb, '陆地'], [sb, '海']]) {
+    assert.ok(Math.abs(b.min.x - r.minX) < 1e-3 && Math.abs(b.max.x - r.maxX) < 1e-3, `${name}东西两边贴着矩形`);
+  }
+  assert.ok(Math.abs(lb.min.z - r.minZ) < 1e-3 && Math.abs(lb.max.z - layout.shoreZ) < 1e-3, '陆地从北边到岸线');
+  assert.ok(Math.abs(sb.min.z - layout.shoreZ) < 1e-3 && Math.abs(sb.max.z - r.maxZ) < 1e-3, '海从岸线到南边');
+  assert.ok(r.maxZ - layout.shoreZ > 30, '矩形里带着一片海');
+  // 城里每一样东西（建筑、树、公共建筑、场馆、人）都站在矩形里；底座与切面也不出矩形
+  for (const o of world.root.children) {
+    if (o === land || o === sea) continue;
+    const p = o.getWorldPosition(new THREE.Vector3());
+    assert.ok(inside(p.x, p.z), `${o.name || o.userData.asset || o.type} 在 (${p.x.toFixed(1)}, ${p.z.toFixed(1)})，出了地图`);
+  }
+  for (const entry of world.buildings.values()) {
+    const b = boxOf(entry.group);
+    assert.ok(inside(b.min.x, b.min.z) && inside(b.max.x, b.max.z), '建筑整座在地图里');
+  }
+  // 能走的地方都在矩形里（外面一圈 2 米一个点抽查），海岸的白沫矩形也不出界
+  for (let x = r.minX - 20; x <= r.maxX + 20; x += 2) {
+    for (const z of [r.minZ - 1, r.maxZ + 1]) assert.ok(!W(layout, x, z), `(${x}, ${z}) 在地图外，不能走`);
+  }
+  for (let z = r.minZ - 20; z <= r.maxZ + 20; z += 2) {
+    for (const x of [r.minX - 1, r.maxX + 1]) assert.ok(!W(layout, x, z), `(${x}, ${z}) 在地图外，不能走`);
+  }
+  for (const [x0, z0, x1, z1] of world.waterShores) assert.ok(inside(x0, z0) && inside(x1, z1), '岸线在地图里');
+  // 船出海最远（game.applyEffects：泊位往南 32 米、东西摆 2.5 米），连船身半长 3.6 米也还在海里
+  const far = { x: world.boatHome.x + 2.5, z: world.boatHome.z + 32 + 3.6 };
+  assert.ok(inside(far.x, far.z) && far.z < r.maxZ, '船出海最远的地方还在地图里');
+  assert.ok(Math.abs(world.boatHome.z - (layout.quayZ + BOAT_MOORING[2])) < 1e-9);
+  // 随工作区规模：多一圈文件夹，矩形四面都大一圈街区
+  const base = createLayout(fixture), ring = base.ring;
+  const bigger = createLayout({ ...fixture, buildings: [...fixture.buildings, { ...fixture.buildings[0], key: '新的一圈', plot: { x: ring + 1, z: -ring - 1 } }] });
+  const R = bigger.mapRect;
+  assert.equal(bigger.ring, ring + 1);
+  const b0 = base.mapRect;
+  assert.ok(R.maxX - R.minX >= b0.maxX - b0.minX + BLOCK * 2 - 1e-6, '东西宽了两个街区');
+  assert.ok(R.minZ <= b0.minZ - BLOCK + 1e-6, '往北长了一个街区');
+  assert.ok(Math.abs((R.maxZ - bigger.shoreZ) - (b0.maxZ - base.shoreZ)) < 1e-6, '海的那一条不变');
+});

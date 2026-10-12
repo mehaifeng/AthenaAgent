@@ -222,6 +222,22 @@ test('rule 5: a delivery is never dropped when she catches up', () => {
   assert.equal(deliver.at, 'pt:5,5', '交付去玩家此刻所在的地方');
 });
 
+test('a delivered item is awaited from the event until she hands it over, never before or after', () => {
+  // 实时模式里成果和交付事件同一批到：页面按 awaitingItems 把成果藏到她递出那一刻（不然它先出现在广场南边一排）
+  const o = createOrchestrator({ travelMs: hop(3000), playerSpot: () => 'pt:5,5' });
+  assert.equal(o.awaitingItems().size, 0);
+  o.ingest({ t: 1000, type: 'deliver', turn: 1, itemId: 'item-1' });
+  assert.ok(o.awaitingItems().has('item-1'), '事件收到、时间线还没走到：等着');
+  o.update(1500);
+  assert.equal(o.state(1500).step.kind, 'walk', '走向你');
+  assert.ok(o.awaitingItems().has('item-1'), '正走过去：还等着');
+  o.update(4500);
+  assert.equal(o.state(4500).step.kind, 'deliver');
+  assert.ok(o.awaitingItems().has('item-1'), '正在递：递出那一刻由页面按进度判定');
+  o.update(4000 + DEFAULTS.deliverMs + 100);
+  assert.equal(o.awaitingItems().size, 0, '递完了就不再等');
+});
+
 test('rule 5: a trip longer than maxWalk is a teleport even when she is on time', () => {
   const o = createOrchestrator({ travelMs: hop(DEFAULTS.maxWalkMs + 1) });
   feed(o, [{ t: 0, type: 'turn' }, ...tool(0, 'a', 'A')], 10_000);

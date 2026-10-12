@@ -249,18 +249,30 @@ export function podium(kit, mat, w, d, { steps = 3, stepH = 0.25, stepT = 0.3, z
   return steps * stepH;
 }
 
-/** 门：门洞（深色）+ 门楣；返回门的高度。 */
+/**
+ * 门：门洞（深色；夜里透出屋里的灯火）+ 门楣；返回门的高度。门总是亮的——不少建筑（金库、仓房）只有这一个开口，
+ * 它不亮整座房子夜里就是黑的；明暗的变化交给窗。
+ */
 export function door(kit, M, w, h, x, y, z, { lintel = M.wood, frame = null } = {}) {
-  kit.box(M.dark, w, h, 0.08, x, y + h / 2, z + 0.02);
+  kit.box(M.windowLit ?? M.dark, w, h, 0.08, x, y + h / 2, z + 0.02);
   kit.box(lintel, w + 0.3, 0.14, 0.14, x, y + h + 0.07, z + 0.05);
   if (frame) for (const sx of [-1, 1]) kit.box(frame, 0.12, h, 0.1, x + sx * (w / 2 + 0.06), y + h / 2, z + 0.04);
   return h;
 }
 
-/** 小窗：深色窗洞，带一道窗台。 */
+/**
+ * 小窗：深色窗洞，带一道窗台。夜里窗洞透出灯火（M.windowLit）——按位置定，大约四扇里有一扇不点灯，满城的窗不会一齐亮着。
+ */
 export function window_(kit, M, w, h, x, y, z) {
-  kit.box(M.dark, w, h, 0.06, x, y, z + 0.02);
+  const lit = M.windowLit && windowLitAt(x, y, z);
+  kit.box(lit ? M.windowLit : M.dark, w, h, 0.06, x, y, z + 0.02);
   kit.box(M.stone, w + 0.16, 0.07, 0.16, x, y - h / 2 - 0.035, z + 0.06);
+}
+
+/** 这扇窗夜里点不点灯：只由它在建筑里的位置决定（同一座房子每次重建都一样）。 */
+export function windowLitAt(x, y, z) {
+  const h = Math.sin(x * 12.9898 + y * 78.233 + z * 37.719) * 43758.5453;
+  return h - Math.floor(h) > 0.25;
 }
 
 /**

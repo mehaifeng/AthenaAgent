@@ -12,7 +12,8 @@ import { createAssetLibrary } from '../../../../Assets/Polis/src/art/assets.mjs'
 import { buildWorld } from '../../../../Assets/Polis/src/world.mjs';
 import { demoAccumulation } from '../../../../Assets/Polis/src/demo.mjs';
 import { buildCharacter, CHARACTER_IDS } from '../../../../Assets/Polis/src/art/characters.mjs';
-import { GRIP } from '../../../../Assets/Polis/src/art/rig.mjs';
+import { GRIP, HAIR_STYLES, hairMask, HEAD_RADII } from '../../../../Assets/Polis/src/art/rig.mjs';
+import { restPose } from '../../../../Assets/Polis/src/art/poses.mjs';
 
 const fixture = JSON.parse(readFileSync(new URL('../fixtures/synthetic.json', import.meta.url), 'utf8'));
 
@@ -207,6 +208,63 @@ test('tools: what takes two hands is held by both hands', () => {
   }
 });
 
+test('tools: the sailor hauls the moored boat in from the pier, the rope tied to its rail and running through both fists', () => {
+  // 2026-10-12，用户：水手在错误的位置牵拉绳子。第一版他站在港前广场上，离船 17 米，缆绳的一头"在他身前 2.6 米、离地 0.12 米"——
+  // 落在铺地上，什么也没拴着。现在他站在栈桥东沿的桥面上、面朝泊着的船，缆绳一头拴在船的西舷上（style.ropeTo，每帧跟着船）
+  const assets = createAssetLibrary(M);
+  const acc = demoAccumulation(fixture);
+  const layout = createLayout({ ...fixture, groveTrees: acc.trees.length });
+  const w = buildWorld(new THREE.Scene(), fixture, layout, M, { assets });
+  w.setResidents(acc.residents, (k) => k);
+  const sailor = w.residents.get('sailor');
+  assert.ok(sailor?.station, 'the sailor works at a station');
+  assert.ok(Math.abs(sailor.home.y - (0.1 + 0.012)) < 1e-6, `he stands on the pier deck (${sailor.home.y.toFixed(3)})`);
+  assert.ok(Math.abs(w.groundAt(sailor.home.x, sailor.home.z) - 0.1) < 1e-6, 'the pier deck is a floor: whoever walks it stands on it');
+  assert.ok(w.boatMoored(), 'the boat is moored at home');
+  assert.ok(w.waterShores.length >= 5 && w.waterShores.length <= 8, `the sea knows ${w.waterShores.length} shores (quay, pier, terraces)`);
+  const cleat = w.boatCleat(new THREE.Vector3());
+  const span = Math.hypot(cleat.x - sailor.home.x, cleat.z - sailor.home.z);
+  assert.ok(span > 1 && span < 2.4, `the boat's rail is ${span.toFixed(2)} m from him`);
+  const facing = Math.atan2(cleat.x - sailor.home.x, cleat.z - sailor.home.z) - sailor.home.yaw;
+  assert.ok(Math.abs(Math.atan2(Math.sin(facing), Math.cos(facing))) < 0.35, 'he faces the boat');
+
+  const f = sailor.figure;
+  f.root.position.set(sailor.home.x, sailor.home.y, sailor.home.z);
+  f.root.rotation.y = sailor.home.yaw;
+  f.root.updateMatrixWorld(true);
+  for (const t of [300, 700, 1100]) {
+    poseAt(f, 'haul', t, { ropeTo: cleat });
+    const rope = f.props.get('rope');
+    assert.ok(rope.visible, 'the rope is shown while hauling');
+    const tube = rope.children.find((c) => c.isMesh && c.geometry.attributes.position.usage === THREE.DynamicDrawUsage);
+    const pos = tube.geometry.attributes.position;
+    const radial = 7;   // ropeTube: 6 段一圈、首尾重合 7 个顶点
+    const ringCentre = (i) => {
+      const c = new THREE.Vector3();
+      for (let k = 0; k < radial; k++) c.add(new THREE.Vector3().fromBufferAttribute(pos, i * radial + k));
+      return c.multiplyScalar(1 / radial).applyMatrix4(tube.matrixWorld);
+    };
+    const rings = pos.count / radial;
+    assert.ok(ringCentre(0).distanceTo(cleat) < 0.03, `t=${t}: the rope's far end is on the boat's rail (${ringCentre(0).distanceTo(cleat).toFixed(3)} m off)`);
+    const centres = Array.from({ length: rings }, (_, i) => ringCentre(i));
+    for (const side of ['L', 'R']) {
+      const fist = world(f.joints[`hand${side}`], side === 'L' ? GRIP.fist : [-GRIP.fist[0], GRIP.fist[1], GRIP.fist[2]]);
+      const near = Math.min(...centres.map((c) => c.distanceTo(fist)));
+      assert.ok(near < 0.03, `t=${t}: the rope runs through the ${side} fist (${near.toFixed(3)} m)`);
+    }
+    // 管子的三角形朝外（第一版绕反了：双面材质按背面打光，整根缆是黑的）
+    const idx = tube.geometry.index, P = (i) => new THREE.Vector3().fromBufferAttribute(pos, i), N = (i) => new THREE.Vector3().fromBufferAttribute(tube.geometry.attributes.normal, i);
+    for (let tri = 0; tri < idx.count; tri += 3 * 37) {
+      const [i0, i1, i2] = [idx.getX(tri), idx.getX(tri + 1), idx.getX(tri + 2)];
+      const face = P(i1).sub(P(i0)).cross(P(i2).sub(P(i0)));
+      assert.ok(face.dot(N(i0)) > 0, `t=${t}: rope triangle ${tri / 3} faces outward, along its vertex normals`);
+    }
+    // 船和手之间那一段垂下去，但不垂进水里（海面在 -0.7）
+    const lowest = Math.min(...centres.slice(0, Math.floor(rings / 3)).map((c) => c.y));
+    assert.ok(lowest > -0.4, `t=${t}: the rope sags to ${lowest.toFixed(2)} m, above the water`);
+  }
+});
+
 /**
  * 一点在躯干里陷了多深（米，0 = 没进去）。躯干按身体量、不按衣服量：脊柱坐标系里一根椭圆柱，半轴 0.135 × 0.105（乘体格），
  * 从髋往上到肩下——两肩的关节在 ±0.172，上臂垂着时贴在它外面。radius 是这一段手臂的粗细。
@@ -263,12 +321,30 @@ test('tools: sleeves go with the arm, and the tunic keeps no fixed sleeve where 
   for (const id of CHARACTER_IDS) {
     const f = buildCharacter(M, id);
     const b = f.spec.build ?? 1;
-    // 腋下到肩下（脊柱坐标系 0.30–0.44，身体单位；肩关节在 0.45，再往上是肩头）上衣两侧不比胸宽——垂着手时上臂贴在这里。
-    // 斜披的外衣是另一块，搭在肩上
-    const pos = f.joints.spine.getObjectByName('upperGarment').geometry.attributes.position;
-    let wide = 0;
-    for (let i = 0; i < pos.count; i++) if (pos.getY(i) > 0.3 && pos.getY(i) < 0.44) wide = Math.max(wide, Math.abs(pos.getX(i)));
-    assert.ok(wide < 0.15 * b, `${id}: above the armpit the tunic is no wider than the chest (${(wide / b).toFixed(3)}·build)`);
+    // 挂在脊柱上的每一块布（上衣、斜披的外衣；脊柱坐标系，身体单位，肩关节在 0.45）：
+    //   腋下到肩下（0.30–0.44）不比胸宽——垂着手时上臂贴在这里；
+    //   肩关节以上（0.44–0.56）只到胳膊内侧（肩关节 0.172 减上臂粗 0.041）——肩头归袖子。
+    // 2026-10-12，用户：真假袖子同时存在。第一版只量了上衣的前一段：领口到肩那一块宽 0.165、盖过了肩关节，
+    // 斜披的外衣是一个半径 0.21 的圆环、左肩那一段伸到 0.24——两样都挂在脊柱上，垂着手时叠在袖子上，胳膊一抬留在原地。
+    // 斗篷（传令官的 chlamys）不算：它从两肩披到背后，本来就盖着肩的后面；身体也不算（金色侍女的身体和衣服是同一种材质）
+    f.apply(restPose());
+    f.root.updateMatrixWorld(true);
+    const toSpine = new THREE.Matrix4().copy(f.joints.spine.matrixWorld).invert();
+    const cloth = f.joints.spine.getObjectByName('upperGarment').material;
+    const pieces = f.joints.spine.children.filter((o) => o.isMesh && o.material === cloth && o.name !== 'cape' && o.name !== 'torsoSkin');
+    assert.ok(pieces.some((o) => o.name === 'upperGarment'), `${id}: the tunic is measured`);
+    if (['himation', 'chlamys'].includes(f.spec.garment)) assert.ok(pieces.some((o) => o.name === 'sash'), `${id}: the sash is measured`);
+    for (const piece of pieces) {
+      const pos = piece.geometry.attributes.position, v = new THREE.Vector3();
+      let chest = 0, shoulder = 0;
+      for (let i = 0; i < pos.count; i++) {
+        v.fromBufferAttribute(pos, i).applyMatrix4(piece.matrixWorld).applyMatrix4(toSpine);   // 脊柱的局部坐标就是身体单位
+        if (v.y > 0.3 && v.y < 0.44) chest = Math.max(chest, Math.abs(v.x));
+        if (v.y >= 0.44 && v.y < 0.56) shoulder = Math.max(shoulder, Math.abs(v.x));
+      }
+      assert.ok(chest < 0.15 * b, `${id} ${piece.name}: above the armpit no wider than the chest (${(chest / b).toFixed(3)}·build)`);
+      assert.ok(shoulder < (0.172 - 0.041) * b, `${id} ${piece.name}: over the shoulder only as far as the inside of the arm (${(shoulder / b).toFixed(3)}·build)`);
+    }
     for (const side of ['L', 'R']) assert.ok(f.joints[`shoulder${side}`].getObjectByName(`sleeve${side}`), `${id}: the ${side} sleeve hangs on the shoulder joint`);
   }
   // 把手臂举起来（挥手、平举、抡锤举到肩后、手搭在额前）：袖子的每一点都还裹在上臂周围
@@ -291,4 +367,115 @@ test('tools: sleeves go with the arm, and the tunic keeps no fixed sleeve where 
     }
     assert.ok(far < 0.075 * b * s, `${id} ${action}: the ${side} sleeve stays wrapped round the raised upper arm (${far.toFixed(3)} m from it)`);
   }
+});
+
+test('hair: every character has a hairstyle of its own, and wherever there is hair it stands off the scalp', () => {
+  // 2026-10-12，用户：头发不应该是贴着头皮的一层，雅典娜的头发有时破皮、能看到下面的头皮；每个角色都有不同的发型。
+  // 第一版的头发是另套的一个球，头是雕过的（后脑放大、额头压平）——两样形状对不上，头皮从头发里钻出来。
+  // 从头的中心朝发区里的头皮顶点打一条射线：穿出头发的那一点至少高出头皮 2.5 毫米
+  const styles = new Set();
+  for (const id of CHARACTER_IDS) {
+    const f = buildCharacter(M, id);
+    const style = HAIR_STYLES[f.spec.hair];
+    assert.ok(style, `${id}: has a hairstyle`);
+    styles.add(JSON.stringify(style));
+    const hair = f.joints.head.getObjectByName('hair');
+    assert.ok(hair, `${id}: the hair is on the head`);
+    if (f.spec.faceless) continue;   // 金色侍女的头是一个椭球，同一套外推；五官的头才有接缝和起伏要查
+    const head = f.joints.head.getObjectByName('head');
+    const hp = head.geometry.attributes.position;
+    f.root.updateMatrixWorld(true);
+    const centre = head.localToWorld(new THREE.Vector3());
+    // 射线从头里往外打，碰到的是头发的背面：单面材质的背面不参与射线检测，换一个双面的探测网格
+    const probe = new THREE.Mesh(hair.geometry, new THREE.MeshBasicMaterial({ side: THREE.DoubleSide }));
+    probe.matrixAutoUpdate = false;
+    probe.matrixWorld.copy(hair.matrixWorld);
+    const ray = new THREE.Raycaster();
+    const v = new THREE.Vector3(), u = new THREE.Vector3(), origin = new THREE.Vector3();
+    let checked = 0, worst = Infinity;
+    for (let i = 0; i < hp.count; i += 5) {
+      v.fromBufferAttribute(hp, i);
+      u.set(v.x / HEAD_RADII[0], v.y / HEAD_RADII[1], v.z / HEAD_RADII[2]).normalize();
+      if (hairMask(style, u) < 0.95) continue;
+      // 稍微偏开一点（不到 1 毫米）：射线正好压在球面接缝那条边上时，两边的三角形都判不中（接缝两侧的顶点是重合的，见 sculptHairShell）
+      const scalp = head.localToWorld(v.clone().add(new THREE.Vector3(0.0007, 0.0003, 0.0009)));
+      const toScalp = scalp.distanceTo(centre);
+      ray.set(origin.copy(centre), scalp.clone().sub(centre).normalize());
+      ray.far = 0.3;
+      // 射线从里往外穿出头发的那一面（最远的交点）离头皮多远（世界坐标按人物的缩放，换回头的尺度）
+      const hit = ray.intersectObject(probe, false).sort((a, b) => b.distance - a.distance)[0];
+      const standoff = hit ? (hit.distance - toScalp) / f.root.getWorldScale(new THREE.Vector3()).x / (f.joints.hips.parent.scale.x || 1) : -1;
+      worst = Math.min(worst, standoff);
+      checked++;
+    }
+    assert.ok(checked > 40, `${id}: the scalp under the hair is checked (${checked} rays)`);
+    // 头发沿椭球法线至少推出 HAIR_MIN（4 毫米）；射线从头的中心斜着穿过去，量到的比法线方向短一些（铁匠的平头最薄处 2.9）
+    assert.ok(worst >= 0.0025, `${id}: the hair stands at least 2.5 mm off the scalp everywhere it grows (worst ${(worst * 1000).toFixed(1)} mm)`);
+  }
+  assert.equal(styles.size, CHARACTER_IDS.length, 'no two characters share a hairstyle');
+});
+
+test('hair: your long hair hangs at rest, trails a little when you walk and more when you run — it never streams flat behind you', () => {
+  // 2026-10-12：长发挂在弹簧骨上。第一版照着面纱调，你走路（6 米/秒）时偏 43°、跑起来 60° 顶在最大偏角上，一直横着飞
+  const tip = (speed, action, stride) => {
+    const f = buildCharacter(M, 'player');
+    const hair = f.joints.head.getObjectByName('hairLong');
+    assert.ok(hair, 'your long hair hangs from the head');
+    const chains = f.cloth.filter((st) => { let o = st.root; while (o && o !== hair) o = o.parent; return !!o; });
+    assert.equal(chains.length, 4, 'four chains carry the long hair');
+    let clock = 0, z = 0;
+    const angles = [];
+    for (let k = 0; k < 240; k++) {
+      clock += 16; z += (speed * 16) / 1000;
+      f.root.position.z = z;
+      f.pose(action, clock, { clock, speed, stride });
+      if (k < 120) continue;
+      for (const st of chains) {
+        const n = st.chain.nodes, d = n[n.length - 1].pos.clone().sub(st.chain.anchor);
+        angles.push(Math.atan2(Math.hypot(d.x, d.z), -d.y) * 180 / Math.PI);
+      }
+    }
+    return Math.max(...angles);
+  };
+  const still = tip(0, 'idle', 1.3), walking = tip(6, 'walk', 2.0), running = tip(10.5, 'run', 2.2);
+  // 站着时搭在背上（背上的碰撞体把它托住，约 10°）——2026-10-12 之前是 < 5°：那时它直直垂进上衣的背里
+  assert.ok(still < 15, `standing, the hair rests on the back (${still.toFixed(0)}°)`);
+  assert.ok(walking > still && walking > 8 && walking < 25, `walking, the hair trails a little (${walking.toFixed(0)}°)`);
+  assert.ok(running > walking && running < 40, `running, it trails more but never streams flat (${running.toFixed(0)}°)`);
+});
+
+// 2026-10-12，用户：玩家脑后披散的头发和衣服穿模。背上没有弹簧骨的碰撞体，长发静止时直直垂进上衣的背里——
+// 231 个顶点里 151 个在衣服里面、最深 2.7 厘米。现在站、走、跑都量：从脊柱轴往外打一条水平射线，穿过上衣奇数次就是在衣服里面
+test('hair: your long hair lies on your back, never inside your tunic — standing, walking or running', () => {
+  const f = buildCharacter(M, 'player');
+  const garment = f.joints.spine.getObjectByName('upperGarment');
+  const probe = new THREE.Mesh(garment.geometry, new THREE.MeshBasicMaterial({ side: THREE.DoubleSide }));
+  const hair = f.joints.head.getObjectByName('hairLong');
+  const ray = new THREE.Raycaster();
+  const inside = () => {
+    f.root.updateMatrixWorld(true);
+    hair.skeleton.update();
+    const inv = garment.matrixWorld.clone().invert();
+    const pos = hair.geometry.attributes.position, v = new THREE.Vector3();
+    let n = 0, measured = 0;
+    for (let i = 0; i < pos.count; i++) {
+      v.fromBufferAttribute(pos, i);
+      hair.applyBoneTransform(i, v);
+      v.applyMatrix4(hair.matrixWorld).applyMatrix4(inv);
+      if (v.y < -0.1 || v.y > 0.5) continue;
+      measured++;
+      ray.set(v, new THREE.Vector3(v.x, 0, v.z).normalize());
+      ray.far = 0.3;
+      if (ray.intersectObject(probe).length % 2 === 1) n++;
+    }
+    assert.ok(measured > 100, `the hair over the tunic is measured (${measured} vertices)`);
+    return n;
+  };
+  let clock = 0;
+  for (let k = 0; k < 60; k++) { clock += 16; f.pose('idle', clock, { clock }); }
+  assert.equal(inside(), 0, 'standing: no hair inside the tunic');
+  for (let k = 0; k < 90; k++) { clock += 16; f.pose('walk', clock, { clock }); f.root.position.z += 3.2 * 0.016; }
+  assert.equal(inside(), 0, 'walking: no hair inside the tunic');
+  for (let k = 0; k < 60; k++) { clock += 16; f.pose('run', clock, { clock }); f.root.position.z += 6 * 0.016; }
+  assert.equal(inside(), 0, 'running: no hair inside the tunic');
 });

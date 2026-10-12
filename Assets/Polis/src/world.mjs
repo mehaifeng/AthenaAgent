@@ -13,6 +13,7 @@ import { rng, hashSeed } from './art/noise.mjs';
 import { oliveGeometries, OLIVE_STAGES } from './art/plants.mjs';
 import { buildSlotMarker } from './art/items.mjs';
 import { RESIDENT_ROLES } from './art/characters.mjs';
+import { BOAT_MOORING, BOAT_CLEAT } from './art/civic.mjs';
 import { BLOCK, STREET, PLOT } from './layout.mjs';
 import { venueSlotLocal, groveSpot, VENUES, SLOTS_PER_VENUE } from './civic-layout.mjs';
 import { createOccupancy, footprintOf, footprintOfGeometry, BLOCKING_HEIGHT } from './footprint.mjs';
@@ -22,6 +23,9 @@ export const PUBLIC_NAMES = Object.freeze({
   agora: '广场', temple: '神庙', library: '图书馆', forge: '锻炉', harbor: '港口', market: '市集', gate: '城门',
   sanctuary: '雅典娜的神殿', paintedStoa: '彩绘柱廊', archive: '书库', vault: '金库', grove: '橄榄林',
 });
+
+/** 地图边缘切下去的底座有多深（米）。 */
+export const PLINTH_DEPTH = 2.4;
 
 const shadowed = (o) => { o.castShadow = true; o.receiveShadow = true; return o; };
 
@@ -118,11 +122,11 @@ export function buildWorld(scene, city, layout, M, options) {
    */
   function stationFor(role) {
     if (!role?.station) return null;
-    const host = role.station.in === 'forge' ? world.forge : world.venues.get(role.station.in)?.group;
+    const host = role.station.in === 'forge' ? world.forge : role.station.in === 'harbor' ? world.harbor : world.venues.get(role.station.in)?.group;
     const st = host?.userData.stations?.[role.station.key];
     if (!st) return null;
     host.updateMatrixWorld(true);
-    return { stand: st.stand.clone().applyMatrix4(host.matrixWorld), at: st.at.clone().applyMatrix4(host.matrixWorld), yaw: (st.yaw ?? 0) + host.rotation.y };
+    return { stand: st.stand.clone().applyMatrix4(host.matrixWorld), at: st.at.clone().applyMatrix4(host.matrixWorld), yaw: (st.yaw ?? 0) + host.rotation.y, rope: st.rope ?? null };
   }
   world.stationFor = stationFor;
 
@@ -152,20 +156,38 @@ export function buildWorld(scene, city, layout, M, options) {
     layout.setObstacles(obstacles);
   };
 
-  // —— 地面与海 ——
+  // —— 地面与海：整张地图是一块有限的矩形（layout.mapRect，随城的圈数变大），南边带一片海；矩形外是跟着主题的纯色
+  // （render.mjs 的 uFill）。边缘切下去一层底座，陆地下是土、海下是深蓝，读起来是一块沙盘 ——
   const shoreZ = layout.shoreZ;   // 与键盘走路的边界（layout.walkable）是同一条岸线
-  const landDepth = 600;
-  const land = new THREE.Mesh(groundPlane(600, landDepth, 15), M.earth);
-  land.position.set(0, 0, shoreZ - landDepth / 2);
+  const map = layout.mapRect;
+  const mapW = map.maxX - map.minX, mapCX = (map.minX + map.maxX) / 2;
+  const landD = shoreZ - map.minZ, seaD = map.maxZ - shoreZ;
+  world.mapRect = map;
+  const land = new THREE.Mesh(groundPlane(mapW, landD, 15), M.earth);
+  land.position.set(mapCX, 0, map.minZ + landD / 2);
   land.receiveShadow = true;
   add(land);
-  const sea = new THREE.Mesh(groundPlane(600, 400, 8), M.water);
-  sea.position.set(0, -0.7, shoreZ + 200);
+  // 海面细分过（约 1.7 米一格）：顶点上叠着涌浪（art/water.mjs）。法线在片元里按同一组波算，格子粗一点看不出来
+  const sea = new THREE.Mesh(new THREE.PlaneGeometry(mapW, seaD, Math.ceil(mapW / 1.7), Math.ceil(seaD / 1.7)).rotateX(-Math.PI / 2), M.water);
+  sea.position.set(mapCX, -0.7, shoreZ + seaD / 2);
   sea.receiveShadow = true;
   add(sea);
   const quay = new Kit();
-  quay.box(M.stone, 600, 1.2, 1.6, 0, -0.55, shoreZ + 0.6);
+  quay.box(M.stone, mapW, 1.2, 1.6, mapCX, -0.55, shoreZ + 0.6);
   add(quay.build());
+  const plinth = new Kit();
+  const base = PLINTH_DEPTH;
+  plinth.box(M.plinthEarth, mapW, base, landD, mapCX, -0.02 - base / 2, map.minZ + landD / 2);
+  // 海底那一块的顶面在涌浪的波谷之下；三面的边沿高出它，一直到平均水面略下，侧面看不到水和底座之间的缝
+  plinth.box(M.plinthSea, mapW, base - 0.8, seaD, mapCX, -0.82 - (base - 0.8) / 2, shoreZ + seaD / 2);
+  const rim = base - 0.68, rimY = -0.68 - rim / 2, t = 0.06;
+  plinth.box(M.plinthSea, t, rim, seaD, map.minX + t / 2, rimY, shoreZ + seaD / 2);
+  plinth.box(M.plinthSea, t, rim, seaD, map.maxX - t / 2, rimY, shoreZ + seaD / 2);
+  plinth.box(M.plinthSea, mapW, rim, t, mapCX, rimY, map.maxZ - t / 2);
+  const plinthGroup = plinth.build();
+  plinthGroup.traverse((o) => { o.castShadow = false; });
+  add(plinthGroup);
+  const insideMap = (x, z, pad = 0) => x >= map.minX + pad && x <= map.maxX - pad && z >= map.minZ + pad && z <= map.maxZ - pad;
 
   // —— 街道：横街、竖街铺石板，广场整块铺地；码头大街接长到港前的石台 ——
   const b = layout.bounds;
@@ -246,12 +268,18 @@ export function buildWorld(scene, city, layout, M, options) {
 
   const harbor = assets.object('civic.harbor', { quayLocalZ: layout.quayZ, pierLength: 14, plotCenterZ: pub('harbor').cz });
   add(harbor);
+  world.harbor = harbor;
+  world.addFloors(harbor);   // 栈桥的桥面
   world.labels.push({ text: names.harbor, kind: 'public', key: 'harbor', anchor: new THREE.Vector3(0, 2.6, layout.quayZ + 6) });
   const boat = assets.object('civic.boat');
-  world.boatHome = new THREE.Vector3(3.8, -0.05, layout.quayZ + 9.5);
+  world.boatHome = new THREE.Vector3(BOAT_MOORING[0], BOAT_MOORING[1], layout.quayZ + BOAT_MOORING[2]);
   boat.position.copy(world.boatHome);
   add(boat);
   world.boat = boat;
+  // 船上拴缆的那一点（世界坐标，跟着船起伏、出海）与船是不是泊在家里：水手只在船泊着的时候收缆
+  const cleat = new THREE.Vector3(...BOAT_CLEAT);
+  world.boatCleat = (out) => { boat.updateMatrixWorld(); return out.copy(cleat).applyMatrix4(boat.matrixWorld); };
+  world.boatMoored = () => Math.hypot(boat.position.x - world.boatHome.x, boat.position.z - world.boatHome.z) < 0.3;
 
   const gate = assets.object('civic.gate');
   gate.position.set(layout.gate.x, 0, layout.gate.z - 1.5);
@@ -266,11 +294,14 @@ export function buildWorld(scene, city, layout, M, options) {
     archive: [['prop.scrollCase', -3.4, -0.1, 0], ['prop.scrollCase', 3.4, -0.1, 0], ['prop.lekythos', -5.7, 5.9, 0]],
     vault: [['prop.chest', -3.2, 0.2, 0.2], ['prop.chest', 3.2, 0.2, -0.2]],
   };
+  const seaTerraces = [];   // 伸进海里的台地：海面的白沫绕着它们（world.waterShores）
   for (const [venue, site] of Object.entries(VENUES)) {
     const plot = pub(site);
     if (!plot) continue;
     const group = new THREE.Group();
-    group.add(assets.object('civic.terrace'));
+    const terraceObj = assets.object('civic.terrace');
+    group.add(terraceObj);
+    seaTerraces.push(terraceObj);
     const building = assets.object(venueBuilders[venue]);
     group.add(building);
     for (const [id, x, z, yaw] of venueDecor[venue] ?? []) {
@@ -316,7 +347,7 @@ export function buildWorld(scene, city, layout, M, options) {
     if (plot.grove == null) continue;
     const terrace = assets.object('civic.terrace', { surface: 'earth' });
     placeAt(terrace, plot);
-    groveTerraces.push({ key, plot });
+    groveTerraces.push({ key, plot, object: terrace });
     if (plot.grove === 0) {
       const marker = assets.object('civic.groveMarker');
       marker.position.set(plot.cx + PLOT / 2 - 1.0, 0, plot.cz - PLOT / 2 + 1.0);
@@ -386,6 +417,7 @@ export function buildWorld(scene, city, layout, M, options) {
           : assets.object('plant.cypress', { height: 6 + tr() * 3, seed: 3 + k });
         tree.position.set(x * BLOCK + (tr() - 0.5) * PLOT * 0.7, 0, z * BLOCK + (tr() - 0.5) * PLOT * 0.7);
         tree.rotation.y = tr() * 6;
+        if (!insideMap(tree.position.x, tree.position.z, 1.5)) continue;   // 树干落在地图边上就不种（树冠探出切面像是悬空）
         add(tree);
       }
     }
@@ -562,6 +594,21 @@ export function buildWorld(scene, city, layout, M, options) {
   };
 
   world.rebuildOccupancy();
+
+  // 海的岸（art/water.mjs）：码头石岸、栈桥、三处场馆的台地、橄榄林的台地（几块连成一排，并成一个矩形）——
+  // 世界坐标里的矩形 [minX, minZ, maxX, maxZ]。白沫贴着它们，离它们越近水越浅；game 每帧连同时间、船一起交给海的材质
+  root.updateMatrixWorld(true);
+  const rectOf = (objects) => {
+    const box = new THREE.Box3();
+    for (const o of objects) box.expandByObject(o);
+    return [box.min.x, box.min.z, box.max.x, box.max.z];
+  };
+  world.waterShores = [
+    [map.minX, shoreZ - 0.2, map.maxX, shoreZ + 1.4],           // 码头石岸（上面 quay.box 的范围）
+    [-1.6, layout.quayZ, 1.6, layout.quayZ + 14],               // 栈桥（civic.buildHarbor 的石台）
+    ...seaTerraces.map((t) => rectOf([t])),
+    ...(groveTerraces.length ? [rectOf(groveTerraces.map((g) => g.object))] : []),
+  ];
   return world;
 }
 

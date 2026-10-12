@@ -25,6 +25,8 @@ export const CLOTH = Object.freeze({
   tetherSlack: 1.06,  // 系绳：离钉住的那个点最多是安放距离的几倍
   maxTilt: 0.95,      // 布离钉住它的那一列最多斜多少（弧度，54°）：厚羊毛不会像旗子一样平飘——10 米 / 秒的冲刺也只是甩到这个角度
   windDrag: 5.0,      // 风：按法线迎风的程度给加速度（米 / 秒² 每单位风）
+  maxTurn: 0.12,      // 一步最多转多少（弧度，约 7°）：猛转身的那一帧按转角拆步，见 stepCloth
+  maxSteps: 32,       // 一帧最多拆几步（180° 的转身 27 步）
   maxDt: 1 / 120,     // 一步最多积分多久；更长的帧拆成几步（60 帧两步、30 帧四步）：一步 1/60 时 6 米 / 秒的步速下结构拉长四成，1/120 时一成以内
   bend: 0.25,         // 弯曲约束的刚度（0 没有、1 和结构约束一样硬）
   floorY: 0.015,      // 地面：下摆不钻进地里
@@ -130,11 +132,15 @@ export function stepCloth(cloth, { dt, frame, colliders = [], body = null, wind 
   cloth.anchor.copy(_a);
   setBody(cloth, frame, body);
   if (!(dt > 0)) return;
-  const steps = Math.min(8, Math.max(1, Math.ceil(dt / CLOTH.maxDt)));
-  const h = dt / steps;
   // 钉住的坐标系按步插值（位置、朝向、缩放）：30 帧拆两步时每一步钉子只挪一半，和 60 帧算出来一样
   _p0.setFromMatrixPosition(cloth.lastFrame); _q0.setFromRotationMatrix(cloth.lastFrame); _s0.setFromMatrixScale(cloth.lastFrame);
   _p1.setFromMatrixPosition(frame); _q1.setFromRotationMatrix(frame); _s1.setFromMatrixScale(frame);
+  // 步数也按这一帧转了多少来定：一步最多转 CLOTH.maxTurn（2026-10-12，用户：雅典娜移动后偶发裙子剧烈抖动）。
+  // 一帧里猛地转身（停步时朝向从路的方向跳到目的地的朝向，最多 180°）只拆成两步时，每一步腿的胶囊扫过 90°，
+  // 布点记的"在身体哪一边"（side）还是上一步的，被径向推到错的一边，之后一秒多都在抖
+  const turn = 2 * Math.acos(Math.min(1, Math.abs(_q0.dot(_q1))));
+  const steps = Math.min(CLOTH.maxSteps, Math.max(1, Math.ceil(dt / CLOTH.maxDt), Math.ceil(turn / CLOTH.maxTurn)));
+  const h = dt / steps;
   for (let s = 0; s < steps; s++) {
     const u = (s + 1) / steps;
     _pm.lerpVectors(_p0, _p1, u); _qm.slerpQuaternions(_q0, _q1, u); _sm.lerpVectors(_s0, _s1, u);

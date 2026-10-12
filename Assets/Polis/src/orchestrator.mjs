@@ -324,10 +324,24 @@ export function createOrchestrator(options = {}) {
     };
   }
 
+  /**
+   * 还没递到你手里的成果（itemId）：收到了交付事件、时间线还没走到的；排着队的；正走过去递的。
+   * 实时模式里 C# 在同一批里先推成果、再推交付事件——页面据此把成果藏到她递出的那一刻（不然它先出现在广场南边一排）。
+   * 正在演的交付这一步也算（递出那一刻由调用方判定）。
+   */
+  function awaitingItems() {
+    const ids = new Set();
+    for (const e of inbox) if (e.type === 'deliver' && e.itemId) ids.add(e.itemId);
+    for (const v of queue) if (v.kind === 'deliver' && v.itemId) ids.add(v.itemId);
+    if (currentVisit?.kind === 'deliver' && currentVisit.itemId) ids.add(currentVisit.itemId);
+    return ids;
+  }
+
   return {
     ingest,
     update,
     state,
+    awaitingItems,
     get steps() { return steps; },
     get ingested() { return ingested; },
     get tools() { return tools; },

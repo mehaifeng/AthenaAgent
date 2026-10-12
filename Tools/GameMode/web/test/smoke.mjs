@@ -147,6 +147,29 @@ async function liveCheck(name, browser) {
     await page.waitForTimeout(800);
     const landedFirst = await page.evaluate(() => window.__polis.voyage ?? null);
 
+    // 交付的成果藏到她递出那一刻（2026-10-12，用户：卷轴先刷在广场附近，她走到你跟前放下时广场那卷才消失）。
+    // C# 在同一批里先推成果、再推交付事件，这里照样一批送进去
+    await page.evaluate((batch) => window.polis.receive(JSON.stringify(batch)), [
+      { type: 'items', items: [
+        { id: 'item-1', kind: 'scroll', title: '摘要', state: 'accepted', path: '合同/摘要.md', createdAt: '2026-10-11T09:00:00Z' },
+        { id: 'item-2', kind: 'scroll', title: '第二卷', state: 'pending', createdAt: '2026-10-11T09:05:00Z' },
+      ] },
+      { type: 'events', events: [{ type: 'turn', turn: 2 }, { type: 'deliver', turn: 2, itemId: 'item-2' }] },
+    ]);
+    const deliverySeen = [];
+    const deliveryStarted = Date.now();
+    while (Date.now() - deliveryStarted < 45_000) {   // 机器忙时她走过来要二三十秒
+      const s = await page.evaluate(() => ({ step: window.__polis.step, player: window.__polis.player, shown: (window.__polis.shownItems ?? []).find((i) => i.id === 'item-2') ?? null }));
+      deliverySeen.push(s);
+      if (s.shown) break;
+      await page.waitForTimeout(60);
+    }
+    const firstShown = deliverySeen.find((s) => s.shown);
+    const deliveryHidden = deliverySeen.length > 1 && deliverySeen.slice(0, -1).every((s) => !s.shown);
+    // 第一次出现就在你脚边（她递到你跟前），不是广场那一排。不按 step === 'deliver' 认：机器忙时一次取样之间整段交付已经走完、回到 idle
+    const shownOnlyAtHandover = !!firstShown && ['deliver', 'idle'].includes(firstShown.step)
+      && Math.hypot(firstShown.shown.x - firstShown.player.x, firstShown.shown.z - firstShown.player.z) < 2.5;
+
     // 航海过场的上限（9.2）：新城只来了顶层（partial），完整测绘迟迟不到——到上限先靠岸，不卡在海上
     await page.evaluate(() => document.getElementById('reader').hidden = true);
     await send({ type: 'depart', caption: '驶向另一座城' });
@@ -157,6 +180,7 @@ async function liveCheck(name, browser) {
     const inbox = await page.evaluate(() => window.__hostInbox.map((m) => m.type));
     const checks = {
       readySent: inbox[0] === 'ready',
+      deliveredItemHiddenUntilHandover: deliveryHidden && shownOnlyAtHandover,
       cityLoaded: awaiting.city?.buildings === city.buildings.length && awaiting.city.key === 'ws-1',
       awaitsApproval: awaiting.step === 'await',
       nonEmptyFrame: awaiting.pixels.std > 8 && awaiting.pixels.distinct >= 16,
@@ -170,7 +194,7 @@ async function liveCheck(name, browser) {
       voyageWaitsForPartial: stillSailing === 'sailing',
       noProblems: problems.length === 0,
     };
-    Object.assign(result, { checks, inbox, problems, seconds: +((Date.now() - started) / 1000).toFixed(1) });
+    Object.assign(result, { checks, inbox, delivery: { samples: deliverySeen.length, first: firstShown ?? null, last: deliverySeen.at(-1) }, problems, seconds: +((Date.now() - started) / 1000).toFixed(1) });
     await page.close();
     console.log(JSON.stringify(result, null, 2));
     return Object.values(checks).every(Boolean);
@@ -450,6 +474,22 @@ async function controlsCheck(name, browser) {
       return window.__polis.closeUp == null && Math.abs(g.camera.zoom - v.zoom) < 0.01 && Math.abs(g.cameraAngles().elevation - v.elevation) < 0.5;
     }, viewBefore, { timeout: 8000 }).catch(() => {});
     const afterClose = await page.evaluate(() => ({ kind: window.__polis.closeUp, zoom: window.__polisGame.camera.zoom, elevation: window.__polisGame.cameraAngles().elevation }));
+    // 退回的半路上滚轮：远近归你，镜头不再把它拽回开口前的值；俯角照样退回去（2026-10-12：滚轮像失灵，只有往回滚或停手等才恢复）。
+    // 滚轮在一次 evaluate 里同步派发、当场读远近——不靠这台机器的帧率赶上某个时间窗
+    await page.keyboard.press('Enter');
+    await page.waitForFunction(() => window.__polis.closeUp === 'talk', null, { timeout: 5000 }).catch(() => {});
+    await page.waitForFunction(() => window.__polisGame.camera.zoom > 3, null, { timeout: 8000 }).catch(() => {});
+    await page.keyboard.press('Escape');
+    await page.waitForFunction(() => window.__polis.closeUp == null, null, { timeout: 2000 }).catch(() => {});
+    const wheel = await page.evaluate(() => {
+      const g = window.__polisGame, canvas = document.querySelector('canvas');
+      const before = g.camera.zoom, elevation = g.cameraAngles().elevation;
+      canvas.dispatchEvent(new WheelEvent('wheel', { deltaY: -200, clientX: innerWidth / 2, clientY: innerHeight / 2, bubbles: true, cancelable: true }));
+      return { before, after: g.camera.zoom, elevation };
+    });
+    // 俯角接着退：这台机器一帧几百毫秒、帧间隔又封顶 100 毫秒，镜头走得比墙钟慢几倍，所以只要求它还在往回走、没走完也行
+    await page.waitForFunction((v) => Math.abs(window.__polisGame.cameraAngles().elevation - v.elevation) < 0.5, viewBefore, { timeout: 8000 }).catch(() => {});
+    const wheeledDuringRestore = await page.evaluate(() => ({ kind: window.__polis.closeUp, zoom: window.__polisGame.camera.zoom, elevation: window.__polisGame.cameraAngles().elevation }));
     // 预填（委托板、退回……）：带着字展开、聚焦，不发送
     const saysBeforePrefill = (await inbox()).filter((m) => m.type === 'say').length;
     await send({ type: 'composer', conversationId: 'c-2', busy: false, queued: false, waiting: false, compressing: false, canSend: true, attachments: [], draft: '关于《摘要》，请修改：', open: true });
@@ -487,6 +527,7 @@ async function controlsCheck(name, browser) {
       runsWithShift: idleAction === 'idle' && runAction === 'run' && Math.hypot(r1.x - r0.x, r1.z - r0.z) > 3.5,
       talksAtTheBar: talkAction.player === 'talk',
       closeUpWhileTalking: closeUp.kind === 'talk' && closeUp.zoom > 3.5 && closeUp.elevation < 32,
+      wheelTakesOverRestore: wheeledDuringRestore.kind == null && wheel.before > viewBefore.zoom + 0.3 && wheel.after > wheel.before && Math.abs(wheeledDuringRestore.zoom - wheel.after) < 1e-6 && Math.abs(wheeledDuringRestore.elevation - viewBefore.elevation) < Math.abs(wheel.elevation - viewBefore.elevation) / 2,
       zoomRestoredAfterClose: reopened && afterClose.kind == null && Math.abs(afterClose.zoom - viewBefore.zoom) < 0.01 && Math.abs(afterClose.elevation - viewBefore.elevation) < 0.5,
       savesWhenStopped: !!saved && Math.abs(saved.x - p1.x) < 0.05 && Math.abs(saved.z - p1.z) < 0.05,
       clickingDoesNotInteract: clickedOpen === false,
@@ -503,7 +544,7 @@ async function controlsCheck(name, browser) {
       neverApproves: !all.some((m) => /approv|allow|grant/i.test(m.type)),
       noProblems: problems.length === 0,
     };
-    Object.assign(result, { checks, angles: { before: a0, after: a1 }, walked: { from: p0, to: p1 }, closeUp: { before: viewBefore, during: closeUp, reopened, afterClose }, problems, seconds: +((Date.now() - started) / 1000).toFixed(1) });
+    Object.assign(result, { checks, angles: { before: a0, after: a1 }, walked: { from: p0, to: p1 }, closeUp: { before: viewBefore, during: closeUp, reopened, afterClose, wheel, wheeledDuringRestore }, problems, seconds: +((Date.now() - started) / 1000).toFixed(1) });
     await page.close();
     console.log(JSON.stringify(result, null, 2));
     return Object.values(checks).every(Boolean);
