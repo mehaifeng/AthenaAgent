@@ -134,13 +134,27 @@ async function deliveryCheck(name, browser) {
     await send({ type: 'composer', conversationId: 'c-1', busy: false, queued: false, waiting: false, compressing: false, canSend: true, attachments: [] });
     const unsealed = await page.evaluate(() => !document.getElementById('talk').classList.contains('waiting'));
 
-    // 刚做完的一回合：C# 推来整份清单，里面多了一件待收的——它直接出现在你脚下（不再等她走过来递）
+    // 刚做完的一回合：C# 推来整份清单，里面多了一件待收的——雅典娜拿着它跑过来递给你（2026-10-13，用户）；
+    // 你走开了她就跟着（从她此刻的位置改道），等你停下再递，卷轴落在你脚下。你先站到港口：离她远，她得跑过来
+    await page.evaluate(() => { const g = window.__polisGame, h = g.layout.sitePoint('harbor'); g.placePlayer(h.x, h.z - 1.2, Math.PI); });
+    await page.waitForTimeout(600);
     await send({ type: 'items', items: [
       { id: 'item-0', kind: 'scroll', title: '旧卷', state: 'pending', createdAt: '2026-10-10T09:00:00Z' },
       { id: 'item-1', kind: 'scroll', title: '<img src=x onerror=alert(1)>', state: 'pending', path: '合同/摘要.md', createdAt: '2026-10-11T09:00:00Z' },
     ] });
-    await page.waitForFunction(() => (window.__polis.shownItems ?? []).some((i) => i.id === 'item-1'), null, { timeout: 5000 });
-    const delivered = await page.evaluate(() => ({ player: window.__polis.player, shown: window.__polis.shownItems.find((i) => i.id === 'item-1'), action: window.__polis.playerAction }));
+    await page.waitForTimeout(300);
+    const handing = await page.evaluate(() => ({ handover: window.__polis.handover, shown: (window.__polis.shownItems ?? []).some((i) => i.id === 'item-1'), step: window.__polisGame.athenaSim.state().step }));
+    const chaseTo = handing.step?.to ?? null;
+    // 你走开几步（挑一个能站、周围也能站的地方——placePlayer 不管能不能站，真人走不进海里）
+    await page.evaluate(() => {
+      const g = window.__polisGame, p = g.player, w = g.layout.walkable;
+      const ok = (x, z) => w({ x, z }) && [0, 1, 2, 3].every((k) => w({ x: x + Math.sin(k * Math.PI / 2) * 1.2, z: z + Math.cos(k * Math.PI / 2) * 1.2 }));
+      for (const [dx, dz] of [[-4, -3], [4, -3], [0, -4], [-4, -6], [4, -6], [0, -7]]) if (ok(p.x + dx, p.z + dz)) { g.placePlayer(p.x + dx, p.z + dz, 0); return; }
+    });
+    await page.waitForTimeout(900);
+    const followed = await page.evaluate(() => { const st = window.__polisGame.athenaSim.state().step; return { to: st.to ?? st.at, kind: st.kind, reason: st.reason ?? null }; });
+    const handedOver = await page.waitForFunction(() => window.__polis.handed === 'item-1' && (window.__polis.shownItems ?? []).some((i) => i.id === 'item-1'), null, { timeout: 45_000 }).then(() => true, () => false);
+    const delivered = await page.evaluate(() => ({ player: window.__polis.player, shown: window.__polis.shownItems.find((i) => i.id === 'item-1'), action: window.__polis.playerAction, athena: { x: window.__polisGame.world.athena.position.x, z: window.__polisGame.world.athena.position.z } }));
 
     // 收下：打开卡片、点"收下"（按钮画在 canvas 上，这里直接走同一个处理函数）
     await page.evaluate(() => { window.__polisGame.openCard('item-1'); window.__polisGame.onButton('card-accept'); });
@@ -184,7 +198,11 @@ async function deliveryCheck(name, browser) {
     const checks = {
       readySent: inbox[0] === 'ready',
       existingItemWaitsOnTheRow: !!loaded.row && Math.hypot(loaded.row.x - loaded.player.x, loaded.row.z - loaded.player.z) > 2.5,
-      freshItemAtYourFeet: !!delivered.shown && Math.hypot(delivered.shown.x - delivered.player.x, delivered.shown.z - delivered.player.z) < 1.5,
+      freshItemHandedByAthena: handing.handover?.itemId === 'item-1' && !handing.shown && handing.step?.kind === 'run' && handing.step?.reason === 'chase'
+        && followed.to !== chaseTo && followed.reason === 'chase'
+        && handedOver && !!delivered.shown && Math.hypot(delivered.shown.x - delivered.player.x, delivered.shown.z - delivered.player.z) < 1.5
+        && Math.hypot(delivered.athena.x - delivered.player.x, delivered.athena.z - delivered.player.z) < 2.4
+        && Math.hypot(delivered.athena.x - delivered.player.x, delivered.athena.z - delivered.player.z) > 0.5,   // 站在你跟前，不是站进你身体里
       cityLoaded: loaded.city?.buildings === city.buildings.length && loaded.city.key === 'ws-1',
       approvalOnlyOnTheBar: loaded.sealed && loaded.placeholder === waitingText && unsealed,
       noLiveMirror: loaded.errors.some((e) => e.includes('unknown host message: events')) && loaded.errors.some((e) => e.includes('unknown host message: focus'))
@@ -200,7 +218,7 @@ async function deliveryCheck(name, browser) {
       voyageWaitsForPartial: stillSailing === 'sailing',
       noProblems: problems.length === 0,
     };
-    Object.assign(result, { checks, inbox, delivery: { row: loaded.row, fresh: delivered }, problems, seconds: +((Date.now() - started) / 1000).toFixed(1) });
+    Object.assign(result, { checks, inbox, delivery: { row: loaded.row, handing, chaseTo, followed, handedOver, fresh: delivered }, problems, seconds: +((Date.now() - started) / 1000).toFixed(1) });
     await page.close();
     console.log(JSON.stringify(result, null, 2));
     return Object.values(checks).every(Boolean);

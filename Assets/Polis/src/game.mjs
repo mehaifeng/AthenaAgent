@@ -48,6 +48,12 @@ export const SPEAK_RADIUS = 6;
 /** 接你话的那一位站定朝你多久（等他想、他说完之后再留 HEARD_AFTER_MS）。 */
 const HEARD_HOLD_MS = 30_000;
 const HEARD_AFTER_MS = 5000;
+/**
+ * 递卷轴（2026-10-13，用户：一个任务完成时，雅典娜跑向你、递出卷轴；你在走动她就跟着，直到你停下）。
+ * 她追到你身前 reach 以内、你站定 stillMs，就递；你还在走，每 rechaseMs 看一次，你走开了 rechaseMove 就从她此刻的位置改道追。
+ * 递的那一下 giveMs（poses 的 deliver），走到 dropAt 卷轴落在你脚下；递到一半你走开了，接着追。
+ */
+export const HANDOVER = Object.freeze({ reach: 1.6, aim: 1.0, stillMs: 400, rechaseMs: 350, rechaseMove: 0.8, giveMs: 1800, dropAt: 0.6 });
 /** 跑的速度（米 / 秒）：她走的速度除以 athena.mjs 的 runFactor。 */
 const RUN_SPEED = SPEED / ATHENA.runFactor;
 /** 你离她这么近，她就不再走开（闲逛暂停，athena.mjs 的 hold）。 */
@@ -327,6 +333,10 @@ export function createGame({ params, status, send, onTalk = null, onUiBlocked = 
   const talkingToAthena = () => talkOpen() && talkMode() === 'talk' && !convo && !lentToDebate();
   // 你自己说话（2026-10-13）：接你话的那一位（他站定、转身朝你，直到说完再留一会儿）；有一段写好的话在雅典娜那里等你
   let heard = null;                  // { id, until }
+  // 递卷轴：排着的成果（id），此刻在递的那一件 { itemId, phase: 'chase'|'give', target, chasedAt, giveAt }，你上次动的时刻
+  let handovers = [];
+  let handover = null;
+  let playerMovedAt = 0;
   let athenaHasWords = false;
   // 讲台前的辩论（M-E）：C# 推来的这一场（没有就是 null）、战绩、舞台站位（这座城算一次）、围过来的陪审团
   let debate = null;                 // { state, id, motion, round, rounds, jury, transcript, verdict, record }
@@ -490,6 +500,9 @@ export function createGame({ params, status, send, onTalk = null, onUiBlocked = 
         greeting = null;
         citizenTiers = new Map();
         if (convo) { convo = null; status.chatting = null; onLendEnd?.('chat'); }
+        handovers = [];
+        handover = null;
+        status.handover = null;
         sayings.clear();
         mine = null;
         if (debate || motionPending) onLendEnd?.('debate');
@@ -652,9 +665,69 @@ export function createGame({ params, status, send, onTalk = null, onUiBlocked = 
 
   /** 留住她：你离她 2.5 米以内、或者对话栏开着——她不再走开（athena.mjs 的 hold）。 */
   function athenaHeld() {
-    if (talkingToAthena() || debateActive()) return true;
+    if (talkingToAthena() || debateActive() || handover) return true;
     const a = world?.athena;
     return !!a && a.visible && Math.hypot(a.position.x - player.pos.x, a.position.z - player.pos.z) < NEAR_ATHENA;
+  }
+
+  /**
+   * 她跑到哪儿：你身边 HANDOVER.aim 米一圈上能站的点里，离她最近的那一个（先试朝她那一侧，再往两边转）；
+   * 一圈都站不了才是你脚下——不然她会站进你身体里（港口边朝她那一侧是海，第一版就这样站到了你身上）。
+   */
+  function handoverTarget() {
+    const a = world.athena.position, p = player.pos;
+    const toward = Math.atan2(a.x - p.x, a.z - p.z);
+    for (const turn of [0, 0.5, -0.5, 1, -1, 1.6, -1.6, 2.3, -2.3, Math.PI]) {
+      const t = { x: p.x + Math.sin(toward + turn) * HANDOVER.aim, z: p.z + Math.cos(toward + turn) * HANDOVER.aim };
+      if (layout.walkable(t)) return t;
+    }
+    return { x: p.x, z: p.z };
+  }
+
+  /**
+   * 递卷轴（HANDOVER）：排着的成果一件一件递。追：跑向你身前；你动了就从她此刻的位置改道（athena.mjs 的 chase，规则 6）。
+   * 到了跟前、你站定了：递（deliver），递到 dropAt 卷轴落在你脚下、你伸手接；递完放开她。递到一半你走开了，接着追。
+   */
+  function stepHandover(now, wall) {
+    if (!world || !athenaSim || voyage || reveal) return;
+    if (player.moving) playerMovedAt = wall;
+    if (!handover) {
+      const next = handovers.shift();
+      if (!next || !items.get(next)?.awaitingHandover) return;
+      handover = { itemId: next, phase: 'chase', target: null, chasedAt: -Infinity, giveAt: 0 };
+    }
+    const record = items.get(handover.itemId);
+    if (!record) { handover = null; return; }
+    const a = world.athena.position;
+    const d = Math.hypot(a.x - player.pos.x, a.z - player.pos.z);
+    const still = !player.moving && wall - playerMovedAt >= HANDOVER.stillMs;
+    if (handover.phase === 'give') {
+      const f = (wall - handover.giveAt) / HANDOVER.giveMs;
+      if (f < HANDOVER.dropAt && (!still || d > HANDOVER.reach + 0.6)) { handover.phase = 'chase'; handover.target = null; }
+      else if (f >= HANDOVER.dropAt && record.awaitingHandover) {
+        record.awaitingHandover = false;
+        record.spot = { x: player.pos.x + 0.4, z: player.pos.z + 0.25 };
+        status.handed = handover.itemId;
+      }
+      if (f >= 1) { handover = null; status.handover = null; return; }
+    }
+    if (handover.phase === 'chase') {
+      const moving = athenaSim.state().moving;
+      if (d <= HANDOVER.reach && still && !moving) {
+        handover.phase = 'give';
+        handover.giveAt = wall;
+        anim.playerOneShot = { action: 'receive', start: wall + HANDOVER.giveMs * 0.3 };
+      } else if (d > HANDOVER.reach || (!moving && !still)) {
+        const t = handoverTarget();
+        const drifted = !handover.target || Math.hypot(t.x - handover.target.x, t.z - handover.target.z) > HANDOVER.rechaseMove;
+        if (drifted && wall - handover.chasedAt >= HANDOVER.rechaseMs && Math.hypot(t.x - a.x, t.z - a.z) > 0.3) {
+          athenaSim.chase(`pt:${t.x.toFixed(2)},${t.z.toFixed(2)}`, `pt:${a.x.toFixed(2)},${a.z.toFixed(2)}`, now);
+          handover.target = t;
+          handover.chasedAt = wall;
+        }
+      }
+    }
+    status.handover = handover ? { itemId: handover.itemId, phase: handover.phase } : null;
   }
 
   function applyAthena(pose, line = null, dt = 16) {
@@ -671,8 +744,20 @@ export function createGame({ params, status, send, onTalk = null, onUiBlocked = 
     // M3：停着的时候，旁白气泡在说就做"说"的手势，对话栏开着、你在旁边就侧耳听；离你近就看着你（做事和交付时不看）
     let action = pose.action;
     const style = { ...pose.style, seed: 7 };
+    // 递卷轴（HANDOVER）：跑过来时卷轴抱在手里；递的那一下面朝你、俯身递出
+    if (handover) {
+      if (handover.phase === 'give') {
+        action = 'deliver';
+        pose.t = performance.now() - handover.giveAt;
+        style.duration = HANDOVER.giveMs;
+        athenaYaw = turnToward(athenaYaw, Math.atan2(player.pos.x - pose.x, player.pos.z - pose.z), 1 - Math.exp(-dt / 120));
+        a.rotation.y = athenaYaw;
+      } else {
+        style.carry = { side: 'R', grip: 'hug', prop: 'scroll' };
+      }
+    }
     const dp = Math.hypot(pose.x - player.pos.x, pose.z - player.pos.z);
-    if (action === 'idle' && !pose.teleport) {
+    if (action === 'idle' && !pose.teleport && !handover) {
       if (line && line.alpha > 0.3) { action = 'talk'; style.speaker = true; }
       else if (talkingToAthena() && dp < 7) { action = 'talk'; style.speaker = false; }
     }
@@ -1175,6 +1260,11 @@ export function createGame({ params, status, send, onTalk = null, onUiBlocked = 
         continue;
       }
       if (record.display) { record.display.parent?.remove(record.display); record.display = null; }
+      // 她还拿在手里（递卷轴，HANDOVER）：城里还没有它
+      if (record.awaitingHandover) {
+        if (record.object) record.object.visible = false;
+        continue;
+      }
       const visibleState = item.state === 'pending' || record.collectedAt != null;
       if (!visibleState && !item.lost) {
         if (record.object) record.object.visible = false;
@@ -1454,7 +1544,8 @@ export function createGame({ params, status, send, onTalk = null, onUiBlocked = 
     setClothWind(windAt(wall));   // 海上吹来的风：全城的衣摆、面纱、斗篷都吃它（M3）
     stepNight(dt);
     updatePlayer(wall, dt);
-    // 2026-10-13：远处开口不再把她叫过来——要和她说话，走到她身边（talk.openAthena）
+    // 2026-10-13：远处开口不再把她叫过来——要和她说话，走到她身边（talk.openAthena）；一回合做完了，她跑过来递卷轴
+    stepHandover(now, wall);
     const state = athenaSim.update(now, { hold: athenaHeld() });
     const line = currentLine(now);
     const pose = athenaPose(state, now);
@@ -2364,6 +2455,8 @@ export function createGame({ params, status, send, onTalk = null, onUiBlocked = 
     endAmbient,
     speak,
     prefillWaiting,
+    /** 此刻在递的那一件（测试用）。 */
+    get handover() { return handover ? { ...handover } : null; },
     /** 接你话的那一位（测试用）。 */
     get heard() { return heard ? { ...heard } : null; },
     /** 让两位居民马上聊（冒烟测试用：走和挑人时一样的那条路——发 ambient-chat、先开口的那位头顶一串点）。 */
@@ -2399,7 +2492,6 @@ export function createGame({ params, status, send, onTalk = null, onUiBlocked = 
     setItems(list) {
       const seen = new Set();
       const wall = performance.now();
-      let handed = false;
       for (const item of list ?? []) {
         seen.add(item.id);
         const record = items.get(item.id);
@@ -2409,13 +2501,14 @@ export function createGame({ params, status, send, onTalk = null, onUiBlocked = 
           if (wasPending && item.state !== 'pending' && record.collectedAt == null) record.collectedAt = wall;
         } else {
           const fresh = itemsPrimed && world != null && item.state === 'pending' && !item.lost && !item.placement;
-          const spot = fresh ? { x: player.pos.x + 0.4, z: player.pos.z + 0.25 } : null;
-          items.set(item.id, { item, object: null, display: null, spot, revealAt: null, collectedAt: null });
-          handed = handed || fresh;
+          // 刚做完的一回合（2026-10-13）：她拿着它跑过来递给你（HANDOVER）；递到之前城里没有它
+          items.set(item.id, { item, object: null, display: null, spot: null, revealAt: null, collectedAt: null, awaitingHandover: fresh });
+          if (fresh) handovers.push(item.id);
         }
       }
       if (world) itemsPrimed = true;
-      if (handed && !player.moving) anim.playerOneShot = { action: 'receive', start: wall };
+      handovers = handovers.filter((id) => items.has(id));
+      if (handover && !items.has(handover.itemId)) handover = null;
       for (const [id, record] of items) {
         if (seen.has(id)) continue;
         if (record.object && world) world.root.remove(record.object);
