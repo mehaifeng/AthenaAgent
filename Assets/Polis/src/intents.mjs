@@ -13,8 +13,10 @@ export const INTENT_TYPES = Object.freeze([
   'meet-resident', 'try-resident',
   // 对话栏
   'say', 'draft',
-  // M-C：问一位居民他那场会话的事（回答只回到页面，不进任何会话）
-  'ask-citizen',
+  // 和城里的一个人说一句话（2026-10-13，原来 M-C 的问话；他的回答只回到页面——他头顶的气泡，不进任何会话）
+  'chat',
+  // 两位居民在街上碰上了，请他们聊两句（只用模型，不预置台词；他们的话只回到页面）
+  'ambient-chat',
   // 看看一位居民那场会话（只回你和雅典娜看得见的话，进卷轴阅读器）
   'citizen-transcript',
   // M-E：讲台前的辩论（提议题、一轮的论点、不辩了）

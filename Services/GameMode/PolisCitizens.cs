@@ -340,47 +340,4 @@ public static class PolisCitizens
         kept.Reverse();
         return (kept, visible.Count - kept.Count);
     }
-
-    /// <summary>
-    /// 他说的那几句（2–3 句，按种子挑说法）：那件事办到哪一步了、他常去哪个文件夹（没有就说来回谈了几次）、过去多久了。
-    /// <paramref name="localize"/> 给 (locale 键, 回退)；句子里只填文件夹名、数字——<b>正文永远不进台词</b>。
-    /// </summary>
-    public static IReadOnlyList<string> Lines(PolisCitizen citizen, Func<string, string, string> localize)
-    {
-        ArgumentNullException.ThrowIfNull(citizen);
-        ArgumentNullException.ThrowIfNull(localize);
-        string Line(string key, int salt, params object[] args)
-            => string.Format(CultureInfo.CurrentCulture, Pick(localize(key, LineFallbacks[key]), citizen.Seed, salt), args);
-        var lines = new List<string>();
-        lines.Add(citizen.Outcome switch
-        {
-            PolisCitizenOutcome.Running => Line("Polis.Citizen.Line.Running", 1),
-            PolisCitizenOutcome.Scheduled => Line("Polis.Citizen.Line.Scheduled", 1),
-            PolisCitizenOutcome.Interrupted => Line("Polis.Citizen.Line.Interrupted", 1),
-            PolisCitizenOutcome.Completed => Line("Polis.Citizen.Line.Completed", 1),
-            _ => Line("Polis.Citizen.Line.Open", 1),
-        });
-        if (citizen.Folders.Count > 0)
-            lines.Add(Line("Polis.Citizen.Line.Folder", 2, citizen.Folders[0]));
-        else if (citizen.Turns > 1)
-            lines.Add(Line("Polis.Citizen.Line.Turns", 2, citizen.Turns));
-        lines.Add(citizen.AgeDays < 1
-            ? Line("Polis.Citizen.Line.Today", 3)
-            : Line("Polis.Citizen.Line.Days", 3, citizen.AgeDays));
-        return lines;
-    }
-
-    /// <summary>他那几句的 locale 键与中文回退（"|" 分隔几种说法；{0} 是文件夹名或数字）。</summary>
-    public static IReadOnlyDictionary<string, string> LineFallbacks { get; } = new Dictionary<string, string>(StringComparer.Ordinal)
-    {
-        ["Polis.Citizen.Line.Running"] = "雅典娜正替我办着事呢。|我的事还在办。",
-        ["Polis.Citizen.Line.Scheduled"] = "我是到了时辰就来报信的。|我每到时辰来一趟。",
-        ["Polis.Citizen.Line.Interrupted"] = "那件事做到一半停下了。|还差一点没做完。",
-        ["Polis.Citizen.Line.Completed"] = "那件事已经办完了。|托付的事办妥了。",
-        ["Polis.Citizen.Line.Open"] = "我的事还没开头。|还没说上几句呢。",
-        ["Polis.Citizen.Line.Folder"] = "我常去「{0}」那边。|「{0}」那一片我熟。|我住在「{0}」附近。",
-        ["Polis.Citizen.Line.Turns"] = "那件事我们来回说了 {0} 回。|前前后后谈了 {0} 次。",
-        ["Polis.Citizen.Line.Today"] = "就是今天的事。|今天刚来过。",
-        ["Polis.Citizen.Line.Days"] = "那是 {0} 天前的事了。|一晃 {0} 天了。",
-    };
 }

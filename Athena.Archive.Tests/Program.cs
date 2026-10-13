@@ -237,8 +237,9 @@ var tests = new (string Name, Func<Task> Run)[]
     ("polis attribution: only Athena's tool targets inside their time window are hers; batches group by building and flood into a full rescan", TestPolisChangeAttributionAsync),
     ("polis intents: a closed set checked in C#; escaping paths, links out of the workspace and 'approve' are rejected", TestPolisIntentValidationAsync),
     ("polis deliveries: a turn is delivered once when its bubble stops streaming, history is never re-delivered, and only the running turn's tool targets count as hers", TestPolisDeliveriesAsync),
-    ("polis citizens: one citizen per conversation, seeded by its id, living where it worked most; the 32 most recent on the street, elders on steles, and no message text in any line", TestPolisCitizensAsync),
-    ("polis citizen answers: a citizen answers from his own conversation's visible passages only, within budget, through the companion (or title) role, one question at a time and 30 an hour; the page can only ask this city's citizens", TestPolisCitizenAnswersAsync),
+    ("polis citizens: one citizen per conversation, seeded by its id, living where it worked most; the 32 most recent on the street, elders on steles, whole Greek names unique per city, the transcript only visible words, and no title or message text in what the city says unprompted", TestPolisCitizensAsync),
+    ("polis citizen answers: what a citizen remembers is his own conversation's visible passages only, within budget; the page can only chat with this city's citizens", TestPolisCitizenAnswersAsync),
+    ("polis talk: a citizen talks with a seeded temperament and trade, the city as his world and only his own passages as memory; the reply streams through the companion (or title) role without temperature, one line per pool at a time and an hourly cap per pool", TestPolisTalkAsync),
     ("polis debate: three rounds of you then Athena, a strict jury verdict where anything less is a tie, a global record kept atomically, the main model for Athena and the companion (or title) role for the jury, ten an hour, and bounded motions and arguments", TestPolisDebateAsync),
     ("polis households: citizens with no folder gather into households by title or month, at most six to a house and sixteen houses, keyed by the founder and placed in the same ledger as folders, never moved, never counted against the folder cap, and kept across a reconcile", TestPolisHouseholdsAsync),
     ("polis collection: accepted items are placed, moved and taken down in the save only; a lost item keeps its pedestal and only a click removes it; v2 saves migrate", TestPolisCollectionAsync),
@@ -11322,23 +11323,17 @@ static Task TestPolisCitizensAsync()
         var (huge, _) = PolisCitizens.Transcript(new List<ChatMessage> { new() { Role = "user", Content = new string('长', 50) } }, maxChars: 10);
         AssertEqual(new string('长', 10), huge.Single().Text, "最新的一条也放不下：留开头，不是一条都没有");
     }
-    string Fallback(string key, string fallback) => fallback;
-    var lines = PolisCitizens.Lines(contract, Fallback);
-    AssertTrue(lines.Count is >= 2 and <= 3, "两到三句");
-    AssertTrue(lines.Any(l => l.Contains("合同", StringComparison.Ordinal)), "提到他常去的文件夹");
+    // 没有本地台词了（2026-10-13：卡片上是那场会话的信息，闲聊只用模型）；城里自己闲聊时说起的身份只有"那件事办到哪一步"——
+    // 不带标题、文件夹、任何原话（没人按回车也会发出去的调用）
     foreach (var c in derived.Concat(town))
     {
-        foreach (var line in PolisCitizens.Lines(c, Fallback))
+        foreach (var lang in new[] { "zh-CN", "en-US" })
         {
-            AssertFalse(line.Contains(secret, StringComparison.Ordinal) || line.Contains("租赁", StringComparison.Ordinal) || line.Contains("摘要", StringComparison.Ordinal),
-                $"台词里没有正文、没有文件名：{line}");
-            AssertFalse(line.Contains('{'), $"格式都填上了：{line}");
+            var calling = PolisTalk.AmbientCalling(c, lang);
+            AssertFalse(calling.Contains(secret, StringComparison.Ordinal) || calling.Contains("合同", StringComparison.Ordinal) || calling.Contains("租赁", StringComparison.Ordinal)
+                || (!string.IsNullOrEmpty(c.Title) && calling.Contains(c.Title, StringComparison.Ordinal)), $"闲聊里的身份不带标题、文件夹、原话：{calling}");
         }
     }
-    AssertTrue(PolisCitizens.Lines(idle, Fallback).Any(l => l.Contains('天')), "说过去了多少天");
-    CollectionAssert(lines, PolisCitizens.Lines(contract, Fallback), "同一个人说同一套话");
-    var localized = PolisCitizens.Lines(contract, (key, fallback) => key == "Polis.Citizen.Line.Completed" ? "Done." : fallback);
-    AssertEqual("Done.", localized[0], "台词取 locale（回退是中文）");
     return Task.CompletedTask;
 }
 
@@ -11401,57 +11396,130 @@ static async Task TestPolisCitizenAnswersAsync()
         "十二段一样多：第一句请求（锚点）加最新的七段，按先后排");
     AssertEqual(0, PolisCitizenAnswers.SelectExcerpts(new List<ChatMessage>(), "合同").Count, "空会话没有片段");
 
-    // —— 提示词：只凭片段、一到三句、不记得就说不记得、用提问的语言 ——
-    var zh = PolisCitizenAnswers.BuildPrompt("整理合同的阿里斯通", "请帮我整理租赁合同", new DateTimeOffset(2026, 10, 1, 9, 0, 0, TimeSpan.Zero),
-        new[] { "合同" }, picked, "  租期多久？ ", "zh-CN");
-    foreach (var part in new[] { "整理合同的阿里斯通", "请帮我整理租赁合同", "2026-10-01", "「合同」", "只凭", "一到三句", "不记得", "不要编", "提问者用的语言" })
-        AssertTrue(zh.System.Contains(part, StringComparison.Ordinal), $"中文系统提示含「{part}」");
-    AssertTrue(zh.User.Contains("[1] 用户", StringComparison.Ordinal) && zh.User.TrimEnd().EndsWith("提问：租期多久？", StringComparison.Ordinal), $"用户提示：编号的片段，问题在最后：{zh.User}");
-    var en = PolisCitizenAnswers.BuildPrompt("Ariston", "Tidy the lease", DateTimeOffset.UnixEpoch, Array.Empty<string>(), Array.Empty<PolisCitizenExcerpt>(), "How long?", "en-US");
-    AssertTrue(en.System.Contains("do not remember", StringComparison.Ordinal) && en.System.Contains("never invent", StringComparison.Ordinal) && en.User.Contains("(none)", StringComparison.Ordinal), "英文提示同样的规则；没有片段也说清楚");
     AssertEqual("好的，三年。", PolisCitizenAnswers.Sanitize("  \"好的，**三年**。\"  "), "去掉引号与粗体");
     AssertEqual("第一句 第二句", PolisCitizenAnswers.Sanitize("第一句\n\n第二句"), "换行收成空格");
     AssertTrue(PolisCitizenAnswers.Sanitize(null) == null && PolisCitizenAnswers.Sanitize("  \n ") == null, "空的算没有回答");
     AssertEqual(11, PolisCitizenAnswers.Sanitize(new string('长', 50), 10)!.Length, "太长的截断加省略号");
 
-    // —— 意图：只问得到这座城里的居民；问题去空白后 1–300 字，超长整条拒绝 ——
+    // —— 意图：只和这座城里的居民说话；一句去空白后 1–300 字，超长整条拒绝 ——
     var context = new PolisIntentContext(null, new HashSet<string> { "c1", "c2" }, new HashSet<string>())
     {
         KnownCitizenIds = new HashSet<string> { "c1" }
     };
     var preview = PolisIntents.Validate("""{"v":1,"type":"citizen-transcript","conversationId":"c1"}""", context);
     AssertTrue(preview.Accepted && preview.Intent!.Type == PolisIntentType.CitizenTranscript && preview.Intent.ConversationId == "c1", "这座城的居民可以预览");
-    var ok = PolisIntents.Validate("""{"v":1,"type":"ask-citizen","conversationId":"c1","question":"  租期多久？ "}""", context);
-    AssertTrue(ok.Accepted && ok.Intent!.Type == PolisIntentType.AskCitizen && ok.Intent.ConversationId == "c1" && ok.Intent.Text == "租期多久？", "问这座城的居民：问题去掉首尾空白");
-    AssertTrue(PolisIntents.Validate($$"""{"v":1,"type":"ask-citizen","conversationId":"c1","question":"{{new string('问', 300)}}"}""", context).Accepted, "300 字正好");
+    var pair = PolisIntents.Validate("""{"v":1,"type":"ambient-chat","a":"c1","b":"c3"}""", context with { KnownCitizenIds = new HashSet<string> { "c1", "c3" } });
+    AssertTrue(pair.Accepted && pair.Intent!.ConversationId == "c1" && pair.Intent.OtherId == "c3", "这座城的两位居民可以闲聊");
+    var ok = PolisIntents.Validate("""{"v":1,"type":"chat","who":"c1","text":"  今天风大吗？ "}""", context);
+    AssertTrue(ok.Accepted && ok.Intent!.Type == PolisIntentType.Chat && ok.Intent.ConversationId == "c1" && ok.Intent.Text == "今天风大吗？", "和这座城的居民说话：去掉首尾空白");
+    AssertTrue(PolisIntents.Validate($$"""{"v":1,"type":"chat","who":"c1","text":"{{new string('话', 300)}}"}""", context).Accepted, "300 字正好");
     foreach (var (body, why) in new[]
     {
-        ("""{"v":1,"type":"ask-citizen","conversationId":"c2","question":"别的城"}""", "会话存在但不是这座城的居民"),
-        ("""{"v":1,"type":"ask-citizen","conversationId":"nope","question":"谁"}""", "编造的会话"),
-        ("""{"v":1,"type":"ask-citizen","conversationId":"c1","question":"   "}""", "空问题"),
-        ("""{"v":1,"type":"ask-citizen","conversationId":"c1"}""", "没有问题"),
-        ("""{"v":1,"type":"ask-citizen","conversationId":"c1","question":42}""", "问题不是字符串"),
-        ($$"""{"v":1,"type":"ask-citizen","conversationId":"c1","question":"{{new string('问', 301)}}"}""", "301 字：整条拒绝，不截断"),
+        ("""{"v":1,"type":"chat","who":"c2","text":"别的城"}""", "会话存在但不是这座城的居民"),
+        ("""{"v":1,"type":"chat","who":"nope","text":"谁"}""", "编造的会话"),
+        ("""{"v":1,"type":"chat","who":"c1","text":"   "}""", "空的一句"),
+        ("""{"v":1,"type":"chat","who":"c1"}""", "没有话"),
+        ("""{"v":1,"type":"chat","who":"c1","text":42}""", "话不是字符串"),
+        ($$"""{"v":1,"type":"chat","who":"c1","text":"{{new string('话', 301)}}"}""", "301 字：整条拒绝，不截断"),
+        ("""{"v":1,"type":"ask-citizen","conversationId":"c1","question":"旧的问话"}""", "旧的 ask-citizen 已经没有了"),
+        ("""{"v":1,"type":"ambient-chat","a":"c1","b":"c1"}""", "闲聊：自己和自己"),
+        ("""{"v":1,"type":"ambient-chat","a":"c1","b":"c2"}""", "闲聊：另一位不是这座城的居民"),
+        ("""{"v":1,"type":"ambient-chat","a":"c1"}""", "闲聊：只有一位"),
         ("""{"v":1,"type":"citizen-transcript","conversationId":"c2"}""", "预览：会话存在但不是这座城的居民"),
         ("""{"v":1,"type":"citizen-transcript","conversationId":"nope"}""", "预览：编造的会话"),
         ("""{"v":1,"type":"citizen-transcript"}""", "预览：没有会话"),
     })
         AssertFalse(PolisIntents.Validate(body, context).Accepted, $"拒绝：{why}");
+}
 
-    // —— 服务：没配模型不发请求；真实 SDK 走一个脚本端点（陪伴角色，没配就借标题生成）；单飞、每小时上限、推理块剥掉 ——
+static async Task TestPolisTalkAsync()
+{
+    var t0 = new DateTime(2026, 10, 1, 9, 0, 0, DateTimeKind.Local);
     var citizen = PolisCitizens.Derive(new[] { new PolisCitizenSource(new PolisCommission("c1", null, "请帮我整理租赁合同",
-        new DateTimeOffset(t0), new DateTimeOffset(t0.AddMinutes(6)), 1, false, false, false, null), messages) },
-        null, null, new HashSet<string>(), new HashSet<string>(), new DateTimeOffset(t0.AddDays(2))).Single();
-    var question = new CitizenQuestion(citizen, "整理合同的阿里斯通", messages, "租期多久？", "zh-CN");
+        new DateTimeOffset(t0), new DateTimeOffset(t0.AddMinutes(6)), 3, false, false, false, null), new List<ChatMessage>()) },
+        null, null, new HashSet<string>(), new HashSet<string>(), new DateTimeOffset(t0.AddDays(2))).Single() with { Folders = new[] { "合同" } };
+
+    // —— 规则 1：性子从种子挑，同一个人永远同一副脾气；两种语言一一对应；职业不和十位职业居民撞 ——
+    var zhPersona = PolisTalk.PersonaFor(citizen.Seed, "zh-CN");
+    AssertEqual(zhPersona, PolisTalk.PersonaFor(citizen.Seed, "zh-CN"), "同一个种子同一副脾气");
+    var trades = new HashSet<string>(StringComparer.Ordinal);
+    var temperaments = new HashSet<string>(StringComparer.Ordinal);
+    for (uint seed = 0; seed < 4000; seed += 7)
+    {
+        var zh = PolisTalk.PersonaFor(seed * 2654435761u, "zh-CN");
+        var english = PolisTalk.PersonaFor(seed * 2654435761u, "en-US");
+        AssertFalse(PolisTalk.ResidentTrades.Contains(zh.Trade) || PolisTalk.ResidentTrades.Contains(english.Trade), $"职业不和职业居民撞：{zh.Trade}/{english.Trade}");
+        AssertTrue(english.Trade.All(c => c < 128) && english.Temperament.All(c => c < 128), $"英文的性子是英文：{english}");
+        trades.Add(zh.Trade);
+        temperaments.Add(zh.Temperament);
+    }
+    var sizes = PolisTalk.TableSizes;
+    AssertEqual(sizes.Trades, trades.Count, "种子用得上每一种职业");
+    AssertEqual(sizes.Temperaments, temperaments.Count, "种子用得上每一种脾气");
+
+    // —— 规则 2、3：世界观、他是谁、规矩、记得的；没有任何别的消息正文 ——
+    var world = new PolisWorldFacts("我的工作区", Sanctuary: false, Night: true, Population: 12, Buildings: new[] { "合同", "账本" });
+    var speaker = new PolisSpeaker("阿里斯通", false, PolisCitizenAge.Adult, zhPersona, PolisTalk.CitizenCalling(citizen, "zh-CN"));
+    var memory = new[] { new PolisCitizenExcerpt(1, "user", t0, "请帮我整理租赁合同"), new PolisCitizenExcerpt(2, "assistant", t0, "租期定在三年。") };
+    var history = new[] { new PolisTalkTurn("你好", "日安。"), new PolisTalkTurn("忙吗", "还行。") };
+    var prompt = PolisTalk.BuildChat(world, speaker, memory, history, "  租期多久？ ", "zh-CN");
+    foreach (var part in new[] { "「我的工作区」", "合同、账本", "雅典娜", "12 位居民", "夜里", "「阿里斯通」", zhPersona.Trade, zhPersona.Temperament, zhPersona.Manner, zhPersona.Pastime,
+                 "请帮我整理租赁合同", "2026-10-01", "「合同」", "已经办完，来回了 3 回", "一到三句", $"{PolisTalk.MaxReplyChars} 个字", "记不清", "不要编", "AI", "租期定在三年" })
+        AssertTrue(prompt.System.Contains(part, StringComparison.Ordinal), $"系统提示含「{part}」");
+    CollectionAssert(new[] { "user:你好", "assistant:日安。", "user:忙吗", "assistant:还行。", "user:租期多久？" }, prompt.Messages.Select(m => $"{m.Role}:{m.Text}"), "之前的来回在前，你这一句（去掉空白）在最后");
+    var sanctuary = PolisTalk.BuildChat(world with { Sanctuary = true, Night = false }, speaker, Array.Empty<PolisCitizenExcerpt>(), Array.Empty<PolisTalkTurn>(), "你好", "zh-CN");
+    AssertTrue(sanctuary.System.Contains("神殿岛", StringComparison.Ordinal) && sanctuary.System.Contains("白天", StringComparison.Ordinal) && sanctuary.System.Contains("几乎什么都不记得", StringComparison.Ordinal),
+        "神殿、白天、什么都不记得也说清楚");
+    var en = PolisTalk.BuildChat(world, speaker with { Persona = PolisTalk.PersonaFor(citizen.Seed, "en-US"), Calling = PolisTalk.CitizenCalling(citizen, "en-US") }, memory, history, "How long?", "en-US");
+    AssertTrue(en.System.Contains("never invent", StringComparison.Ordinal) && en.System.Contains("Never say you are an AI", StringComparison.Ordinal) && en.System.Contains("\"我的工作区\"", StringComparison.Ordinal), "英文提示同样的规矩");
+    // 规则 4：最多记 6 轮，旧的先忘
+    IReadOnlyList<PolisTalkTurn> remembered = Array.Empty<PolisTalkTurn>();
+    for (var i = 0; i < 9; i++) remembered = PolisTalk.Remember(remembered, $"问{i}", $"答{i}");
+    CollectionAssert(Enumerable.Range(3, 6).Select(i => $"问{i}"), remembered.Select(t => t.You), "最多记 6 轮，旧的先忘");
+    var longHistory = Enumerable.Range(0, 10).Select(i => new PolisTalkTurn($"问{i}", $"答{i}")).ToList();
+    AssertEqual(2 * PolisTalk.MaxHistoryTurns + 1, PolisTalk.BuildChat(world, speaker, memory, longHistory, "再问", "zh-CN").Messages.Count, "提示词里也只带最近 6 轮");
+
+    // —— 规则 5：两位居民街头闲聊：世界观、两人的名字与性子、那件事办到哪一步；不带标题、日期、文件夹、任何原话 ——
+    var other = new PolisSpeaker("达芙妮", true, PolisCitizenAge.Young, PolisTalk.PersonaFor(12345u, "zh-CN"), PolisTalk.AmbientCalling(citizen with { Outcome = PolisCitizenOutcome.Running }, "zh-CN"));
+    var ambientSelf = speaker with { Calling = PolisTalk.AmbientCalling(citizen, "zh-CN") };
+    var opening = PolisTalk.BuildAmbientLine(world, ambientSelf, other, null, "zh-CN");
+    foreach (var part in new[] { "「我的工作区」", "「阿里斯通」", "「达芙妮」", other.Persona.Trade, "已经办完了", $"不超过 {PolisTalk.MaxAmbientChars} 个字", "AI" })
+        AssertTrue(opening.System.Contains(part, StringComparison.Ordinal), $"闲聊的系统提示含「{part}」");
+    foreach (var secretPart in new[] { "请帮我整理租赁合同", "2026-10-01", "租期定在三年", "「合同」" })
+        AssertFalse(opening.System.Contains(secretPart, StringComparison.Ordinal) || opening.Messages.Any(m => m.Text.Contains(secretPart, StringComparison.Ordinal)), $"闲聊不带标题、日期、文件夹和原话：{secretPart}");
+    AssertTrue(opening.Messages.Single().Text.Contains("先开口", StringComparison.Ordinal), "先开口的那位：一句提示");
+    var replyLine = PolisTalk.BuildAmbientLine(world, other, ambientSelf, "今天海上风大。", "zh-CN");
+    AssertEqual("阿里斯通说：今天海上风大。", replyLine.Messages.Single().Text, "接话的那位：带着对方刚说的");
+    AssertTrue(PolisTalk.BuildAmbientLine(world, ambientSelf, other, null, "en-US").System.Contains("in English", StringComparison.Ordinal), "英文界面用英文聊");
+
+    // —— 流式看得见的字：思考块没合上一个字都不给，合上之后只给后面的；半个开标签也不露 ——
+    AssertEqual(string.Empty, PolisTalk.VisibleSoFar("<think>想一想租"), "思考块没合上：什么都不给");
+    AssertEqual(string.Empty, PolisTalk.VisibleSoFar("<th"), "半个开标签：先别露");
+    AssertEqual("租期是三年", PolisTalk.VisibleSoFar("<think>想一想</think>\n租期是三年"), "合上之后只给后面的");
+    AssertEqual("第一句 第二句", PolisTalk.VisibleSoFar("第一句\n第二句"), "换行收成空格");
+    AssertEqual("三年", PolisTalk.VisibleSoFar("**三年**"), "粗体去掉");
+
+    // —— 服务：没配模型不发请求；真实 SDK 走一个脚本端点（陪伴角色，没配就借标题生成）；两种协议都流式；按用途分池单飞、每小时上限 ——
     var clock = new TestSystemClock(new DateTimeOffset(2026, 10, 13, 0, 0, 0, TimeSpan.Zero));
     var silentLogger = new LoggerConfiguration().CreateLogger();
+    static string ChatSse(params string[] deltas)
     {
-        var noModelHandler = new JudgeHttpHandler(HttpStatusCode.OK, JudgeChatReply("stop", "不该被调用", 5, 0));
-        using var http = new HttpClient(noModelHandler);
-        using var service = CitizenAnswerService.CreateWithTransport(new OpenAiModelRuntimeFactory(new TestConfigService(new AppConfig())), clock, silentLogger, new HttpClientPipelineTransport(http));
-        var answer = await service.AskAsync(question);
-        AssertEqual(CitizenAnswerStatus.NoModel, answer.Status, "陪伴与标题生成角色都没配：NoModel");
-        AssertEqual(0, noModelHandler.RequestBodies.Count, "没配模型不发请求");
+        var sb = new StringBuilder();
+        foreach (var d in deltas)
+            sb.Append("data: ").Append(new JsonObject { ["id"] = "1", ["object"] = "chat.completion.chunk", ["created"] = 0, ["model"] = "m",
+                ["choices"] = new JsonArray(new JsonObject { ["index"] = 0, ["delta"] = new JsonObject { ["content"] = d }, ["finish_reason"] = null }) }.ToJsonString()).Append("\n\n");
+        sb.Append("data: {\"id\":\"1\",\"object\":\"chat.completion.chunk\",\"created\":0,\"model\":\"m\",\"choices\":[{\"index\":0,\"delta\":{},\"finish_reason\":\"stop\"}]}\n\n");
+        sb.Append("data: [DONE]\n\n");
+        return sb.ToString();
+    }
+    static string ResponsesSse(params string[] deltas)
+    {
+        var sb = new StringBuilder();
+        var n = 0;
+        foreach (var d in deltas)
+            sb.Append(SseEvent("response.output_text.delta", new JsonObject { ["type"] = "response.output_text.delta", ["sequence_number"] = n++, ["item_id"] = "msg_1", ["output_index"] = 0, ["content_index"] = 0, ["delta"] = d }.ToJsonString()));
+        sb.Append(SseEvent("response.completed", """{"type":"response.completed","sequence_number":""" + n + ""","response":{"id":"resp_1","object":"response","status":"completed","output":[],"usage":{"input_tokens":10,"output_tokens":5,"total_tokens":15}}}"""));
+        return sb.ToString();
     }
     AppConfig RoleConfig(ProviderProtocol protocol, bool companion)
     {
@@ -11464,55 +11532,71 @@ static async Task TestPolisCitizenAnswersAsync()
         return config;
     }
     {
-        var handler = new JudgeHttpHandler(HttpStatusCode.OK, JudgeChatReply("stop", "<think>想一想租期</think>\n租期是三年，押金两个月。", 40, 10));
+        using var handler = new SseHttpHandler(ChatSse("不该被调用"));
         using var http = new HttpClient(handler);
-        using var service = CitizenAnswerService.CreateWithTransport(new OpenAiModelRuntimeFactory(new TestConfigService(RoleConfig(ProviderProtocol.ChatCompletions, companion: false))), clock, silentLogger, new HttpClientPipelineTransport(http));
-        var answer = await service.AskAsync(question);
-        AssertEqual(CitizenAnswerStatus.Ok, answer.Status, "陪伴角色没配：借标题生成角色答");
-        AssertEqual("租期是三年，押金两个月。", answer.Text, "推理块剥掉");
-        using var request = JsonDocument.Parse(handler.RequestBodies.Single());
-        var root = request.RootElement;
-        AssertEqual("title-model", root.GetProperty("model").GetString(), "用的是标题生成角色的模型");
-        AssertFalse(root.TryGetProperty("temperature", out _), "辅助角色不发 temperature");
-        var sent = root.GetProperty("messages").EnumerateArray().ToList();
-        AssertTrue(sent.Count == 2 && sent[0].GetProperty("content").GetString()!.Contains("不记得", StringComparison.Ordinal)
-            && sent[1].GetProperty("content").GetString()!.Contains("租期定在三年", StringComparison.Ordinal)
-            && sent[1].GetProperty("content").GetString()!.Contains("提问：租期多久？", StringComparison.Ordinal), "发出去的是提示词与那场会话的片段");
-        AssertFalse(request.RootElement.GetRawText().Contains("推理里的秘密", StringComparison.Ordinal) || request.RootElement.GetRawText().Contains("工具结果", StringComparison.Ordinal),
-            "推理与工具结果不出本机");
-        var cap = root.TryGetProperty("max_completion_tokens", out var mct) ? mct.GetInt32() : root.GetProperty("max_tokens").GetInt32();
-        AssertEqual(CitizenAnswerService.MaxOutputTokens, cap, "输出上限");
+        using var service = PolisTalkService.CreateWithTransport(new OpenAiModelRuntimeFactory(new TestConfigService(new AppConfig())), clock, silentLogger, new HttpClientPipelineTransport(http));
+        AssertEqual(PolisTalkStatus.NoModel, (await service.TalkAsync(PolisTalkPurpose.Player, prompt)).Status, "陪伴与标题生成角色都没配：NoModel");
+        AssertTrue(handler.LastRequestBody == null, "没配模型不发请求");
     }
     {
-        var handler = new JudgeHttpHandler(HttpStatusCode.OK, JudgeResponsesReply("completed", "我记得是三年。", 30, 5));
-        using var http = new HttpClient(new ResponsesCompatibilityHandler(handler));
-        using var service = CitizenAnswerService.CreateWithTransport(new OpenAiModelRuntimeFactory(new TestConfigService(RoleConfig(ProviderProtocol.Responses, companion: true))), clock, silentLogger, new HttpClientPipelineTransport(http));
-        var answer = await service.AskAsync(question);
-        AssertTrue(answer.Status == CitizenAnswerStatus.Ok && answer.Text == "我记得是三年。", $"Responses 协议同样答：{answer}");
-        AssertTrue(handler.RequestBodies.Single().Contains("companion-model", StringComparison.Ordinal), "配了陪伴角色就用它");
+        using var handler = new SseHttpHandler(ChatSse("<think>想一想", "租期</think>\n", "租期是", "三年，", "押金两个月。"));
+        using var http = new HttpClient(handler);
+        using var service = PolisTalkService.CreateWithTransport(new OpenAiModelRuntimeFactory(new TestConfigService(RoleConfig(ProviderProtocol.ChatCompletions, companion: false))), clock, silentLogger, new HttpClientPipelineTransport(http));
+        var seen = new List<string>();
+        var reply = await service.TalkAsync(PolisTalkPurpose.Player, prompt, v => seen.Add(v));
+        AssertEqual(PolisTalkStatus.Ok, reply.Status, "陪伴角色没配：借标题生成角色说");
+        AssertEqual("租期是三年，押金两个月。", reply.Text, "推理块剥掉");
+        CollectionAssert(new[] { "租期是", "租期是三年，", "租期是三年，押金两个月。" }, seen, "边收边给看得见的字；思考块里的一个字都不露");
+        using var request = JsonDocument.Parse(handler.LastRequestBody!);
+        var root = request.RootElement;
+        AssertEqual("title-model", root.GetProperty("model").GetString(), "用的是标题生成角色的模型");
+        AssertTrue(root.GetProperty("stream").GetBoolean(), "流式请求");
+        AssertFalse(root.TryGetProperty("temperature", out _), "辅助角色不发 temperature");
+        var sent = root.GetProperty("messages").EnumerateArray().ToList();
+        AssertEqual(1 + prompt.Messages.Count, sent.Count, "系统提示 + 之前的来回 + 你这一句");
+        AssertTrue(sent[0].GetProperty("role").GetString() == "system" && sent[0].GetProperty("content").GetString()!.Contains("租期定在三年", StringComparison.Ordinal), "系统提示里有他记得的");
+        AssertTrue(sent[2].GetProperty("role").GetString() == "assistant" && sent[^1].GetProperty("content").GetString() == "租期多久？", "他之前说的是 assistant，你这一句在最后");
+        var cap = root.TryGetProperty("max_completion_tokens", out var mct) ? mct.GetInt32() : root.GetProperty("max_tokens").GetInt32();
+        AssertEqual(PolisTalkService.MaxOutputTokens, cap, "输出上限");
+    }
+    {
+        using var handler = new SseHttpHandler(ResponsesSse("我记得", "是三年。"));
+        using var http = new HttpClient(handler);
+        using var service = PolisTalkService.CreateWithTransport(new OpenAiModelRuntimeFactory(new TestConfigService(RoleConfig(ProviderProtocol.Responses, companion: true))), clock, silentLogger, new HttpClientPipelineTransport(http));
+        var seen = new List<string>();
+        var reply = await service.TalkAsync(PolisTalkPurpose.Ambient, prompt, v => seen.Add(v));
+        AssertTrue(reply.Status == PolisTalkStatus.Ok && reply.Text == "我记得是三年。", $"Responses 协议同样流式地说：{reply}");
+        CollectionAssert(new[] { "我记得", "我记得是三年。" }, seen, "Responses 的增量也边收边给");
+        AssertTrue(handler.LastRequestBody!.Contains("companion-model", StringComparison.Ordinal) && !handler.LastRequestBody.Contains("\"temperature\"", StringComparison.Ordinal), "配了陪伴角色就用它，不发 temperature");
     }
     {
         var handler = new JudgeHttpHandler(HttpStatusCode.BadRequest, """{"error":{"message":"bad"}}""");
         using var http = new HttpClient(handler);
-        using var service = CitizenAnswerService.CreateWithTransport(new OpenAiModelRuntimeFactory(new TestConfigService(RoleConfig(ProviderProtocol.ChatCompletions, companion: true))), clock, silentLogger, new HttpClientPipelineTransport(http));
-        AssertEqual(CitizenAnswerStatus.Failed, (await service.AskAsync(question)).Status, "供应商报错：Failed（一句话，不是异常）");
+        using var service = PolisTalkService.CreateWithTransport(new OpenAiModelRuntimeFactory(new TestConfigService(RoleConfig(ProviderProtocol.ChatCompletions, companion: true))), clock, silentLogger, new HttpClientPipelineTransport(http));
+        AssertEqual(PolisTalkStatus.Failed, (await service.TalkAsync(PolisTalkPurpose.Player, prompt)).Status, "供应商报错：Failed（一句话，不是异常）");
+        using var empty = new SseHttpHandler(ChatSse("<think>只想不说</think>"));
+        using var http2 = new HttpClient(empty);
+        using var service2 = PolisTalkService.CreateWithTransport(new OpenAiModelRuntimeFactory(new TestConfigService(RoleConfig(ProviderProtocol.ChatCompletions, companion: true))), clock, silentLogger, new HttpClientPipelineTransport(http2));
+        AssertEqual(PolisTalkStatus.Failed, (await service2.TalkAsync(PolisTalkPurpose.Player, prompt)).Status, "只有思考没有话：Failed");
     }
     {
-        var gate = new GatedChatHandler(JudgeChatReply("stop", "三年。", 5, 0));
+        var gate = new GatedChatHandler(ChatSse("三年。"));
         using var http = new HttpClient(gate);
-        using var service = CitizenAnswerService.CreateWithTransport(new OpenAiModelRuntimeFactory(new TestConfigService(RoleConfig(ProviderProtocol.ChatCompletions, companion: true))), clock, silentLogger, new HttpClientPipelineTransport(http));
-        var first = service.AskAsync(question);
+        using var service = PolisTalkService.CreateWithTransport(new OpenAiModelRuntimeFactory(new TestConfigService(RoleConfig(ProviderProtocol.ChatCompletions, companion: true))), clock, silentLogger, new HttpClientPipelineTransport(http));
+        var first = service.TalkAsync(PolisTalkPurpose.Player, prompt);
         await gate.Entered.Task.WaitAsync(TimeSpan.FromSeconds(10));
-        AssertEqual(CitizenAnswerStatus.Busy, (await service.AskAsync(question)).Status, "上一个问题还在路上：Busy（同一时刻只问一位）");
+        AssertEqual(PolisTalkStatus.Busy, (await service.TalkAsync(PolisTalkPurpose.Player, prompt)).Status, "你这一句还在路上：Busy（同一个池子同一时刻只说一句）");
+        AssertTrue(service.TryReserveSlot(PolisTalkPurpose.Ambient), "别的池子不受影响（城里的闲聊不挤你的那一句）");
         gate.Release.SetResult();
-        AssertEqual(CitizenAnswerStatus.Ok, (await first).Status, "第一问照常答完");
-        AssertEqual(1, gate.Calls, "Busy 的那一问没有发请求");
-        // 每小时上限：已经用掉 1 次，再占 29 次满 30；第 31 次拒绝；过了一小时又可以
-        for (var i = 0; i < CitizenAnswerService.MaxCallsPerHour - 1; i++) AssertTrue(service.TryReserveSlot(), $"第 {i + 2} 次在上限内");
-        AssertFalse(service.TryReserveSlot(), "每小时最多 30 次");
-        AssertEqual(CitizenAnswerStatus.Limited, (await service.AskAsync(question)).Status, "超限：Limited");
+        AssertEqual(PolisTalkStatus.Ok, (await first).Status, "第一句照常说完");
+        AssertEqual(1, gate.Calls, "Busy 的那一句没有发请求");
+        // 每小时上限：Player 已经用掉 1 次，再占 59 次满 60；第 61 次拒绝；过了一小时又可以
+        for (var i = 0; i < PolisTalkService.MaxCallsPerHour(PolisTalkPurpose.Player) - 1; i++) AssertTrue(service.TryReserveSlot(PolisTalkPurpose.Player), $"第 {i + 2} 次在上限内");
+        AssertFalse(service.TryReserveSlot(PolisTalkPurpose.Player), "你开的口每小时最多 60 次");
+        AssertEqual(PolisTalkStatus.Limited, (await service.TalkAsync(PolisTalkPurpose.Player, prompt)).Status, "超限：Limited");
+        AssertEqual(60, PolisTalkService.MaxCallsPerHour(PolisTalkPurpose.Ambient), "城里的闲聊每小时 60 次（用户定的）");
         clock.Advance(TimeSpan.FromMinutes(61));
-        AssertTrue(service.TryReserveSlot(), "一小时之后又可以问");
+        AssertTrue(service.TryReserveSlot(PolisTalkPurpose.Player), "一小时之后又可以说");
     }
 }
 

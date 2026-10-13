@@ -9,13 +9,13 @@ import { buildCitizen, CHARACTER_SPECS } from '../../../../Assets/Polis/src/art/
 import { HAIR_STYLES } from '../../../../Assets/Polis/src/art/rig.mjs';
 import { bust, CHARACTERS } from '../../../../Assets/Polis/src/art/busts.mjs';
 import {
-  TOWN, DESTINATIONS, planCitizen, routeClear, citizenAt, newScheduleClock, scheduleClock, holdSchedule, resumeSchedule, separate, assignTiers, pickChat, chatLineAt, chatLines, greetLine,
+  TOWN, DESTINATIONS, planCitizen, routeClear, citizenAt, newScheduleClock, scheduleClock, holdSchedule, resumeSchedule, separate, assignTiers, pickChat, nextChatAfter, greetLine,
 } from '../../../../Assets/Polis/src/citizens.mjs';
 import { createLayout } from '../../../../Assets/Polis/src/layout.mjs';
 import { createAssetLibrary } from '../../../../Assets/Polis/src/art/assets.mjs';
 import { buildWorld } from '../../../../Assets/Polis/src/world.mjs';
 import { demoAccumulation, demoCitizens } from '../../../../Assets/Polis/src/demo.mjs';
-import { CITIZEN_ZH, UI_ZH, citizenInfoLines, transcriptMarkdown } from '../../../../Assets/Polis/src/game.mjs';
+import { CITIZEN_ZH, UI_ZH, citizenInfoLines, transcriptMarkdown, speechAlpha, thinkingDots, SPEECH } from '../../../../Assets/Polis/src/game.mjs';
 import { parseMarkdown } from '../../../../Assets/Polis/src/reader.mjs';
 
 const fixture = JSON.parse(readFileSync(new URL('../fixtures/synthetic.json', import.meta.url), 'utf8'));
@@ -275,36 +275,30 @@ test('tiers: out of view is C, the nearest four within 6 m are A, the rest B, an
   assert.equal(t2.get('p5'), 'B');
 });
 
-test('small talk: one pair at a time, only idle people with enough time left, near you and each other, with a cooldown; two lines in turn', () => {
-  const chat = { ...CITIZEN_ZH };
-  const base = { inView: true, seed: 7, lines: ['那件事已经办完了。'] };
+test('small talk (2026-10-13: model only, no preset lines): one pair at a time, idle people near you and each other, a cooldown per pair, and a back-off when the model is missing or busy', () => {
   const people = [
-    { ...base, id: 'a', x: 0, z: 0, idleLeft: 30_000 },
-    { ...base, id: 'b', x: 1.5, z: 0, idleLeft: 30_000, seed: 9 },
-    { ...base, id: 'c', x: 1.6, z: 0.3, idleLeft: 1000 },          // 马上要动身：不挑
-    { ...base, id: 'd', x: 40, z: 0, idleLeft: 30_000 },           // 离你太远
+    { id: 'a', x: 0, z: 0, idleLeft: 30_000, inView: true },
+    { id: 'b', x: 1.5, z: 0, idleLeft: 30_000, inView: true },
+    { id: 'c', x: 1.6, z: 0.3, idleLeft: 1000, inView: true },           // 马上要动身：不挑
+    { id: 'd', x: 40, z: 0, idleLeft: 30_000, inView: true },            // 离你太远
   ];
   const cooldown = new Map();
-  const talk = pickChat(people, { x: 0, z: 2 }, cooldown, 10_000, chat);
-  assert.ok(talk && talk.a === 'a' && talk.b === 'b', `挑中离得最近、都闲着的一对：${JSON.stringify(talk)}`);
-  assert.equal(talk.lines.length, 2);
+  const talk = pickChat(people, { x: 0, z: 2 }, cooldown, 10_000);
+  assert.deepEqual(talk, { a: 'a', b: 'b', key: 'a|b', start: 10_000 }, '挑中离得最近、都闲着的一对；只挑人，没有台词');
   cooldown.set(talk.key, 10_000);
-  assert.equal(pickChat(people, { x: 0, z: 2 }, cooldown, 10_000 + 60_000, chat), null, '这一对三分钟里不再说');
-  assert.ok(pickChat(people, { x: 0, z: 2 }, cooldown, 10_000 + TOWN.chatPairCooldownMs + 1, chat), '过了三分钟又能说');
-  const l0 = chatLineAt(talk, talk.start + 100), l1 = chatLineAt(talk, talk.start + TOWN.chatLineMs + 100);
-  assert.equal(l0.speaker, 'a');
-  assert.equal(l0.listener, 'b');
-  assert.equal(l1.speaker, 'b');
-  assert.equal(chatLineAt(talk, talk.start + 2 * TOWN.chatLineMs + 1), null, '说完两句就散');
-  // 三分之二闲聊、三分之一各说自己那件事：两种都出现，夜里才说夜里的那一对
-  const kinds = new Set();
-  for (let w = 0; w < 60; w++) {
-    const [x] = chatLines({ ...base, id: 'a', seed: w * 7 + 1, lines: ['我的事。'] }, { ...base, id: 'b', seed: w * 13 + 5, lines: ['他的事。'] }, w * TOWN.chatPairCooldownMs, chat, false);
-    kinds.add(x === '我的事。' ? 'own' : 'small');
-    assert.ok(!chat['chat.night'].startsWith(x), '白天不说夜里的话');
-  }
-  assert.deepEqual([...kinds].sort(), ['own', 'small']);
-  assert.ok(chat.greet.split('|').includes(greetLine(42, chat.greet, 0)), '打招呼的话来自表里');
+  assert.equal(pickChat(people, { x: 0, z: 2 }, cooldown, 10_000 + 60_000), null, '这一对三分钟里不再说');
+  assert.ok(pickChat(people, { x: 0, z: 2 }, cooldown, 10_000 + TOWN.chatPairCooldownMs + 1), '过了三分钟又能说');
+  assert.equal(pickChat(people.map((p) => ({ ...p, idleLeft: TOWN.chatNeedMs - 1 })), { x: 0, z: 2 }, new Map(), 0), null, '正要动身的人不挑');
+  // 结束之后多久再挑：没配模型就不再挑（没有本地台词可退）；超限五分钟；正忙半分钟；失败一分钟；说完照常
+  assert.equal(nextChatAfter('nomodel', 0), Number.POSITIVE_INFINITY);
+  assert.equal(nextChatAfter('limited', 0), 5 * 60_000);
+  assert.equal(nextChatAfter('busy', 0), 30_000);
+  assert.equal(nextChatAfter('failed', 0), 60_000);
+  assert.equal(nextChatAfter('ok', 0), 500);
+  assert.ok(TOWN.chatMaxMs >= 2 * 25_000, '一对最多聊这么久，够两句各 25 秒的超时');
+  // 打招呼仍是本地的
+  assert.ok(CITIZEN_ZH.greet.split('|').includes(greetLine(42, CITIZEN_ZH.greet, 0)), '打招呼的话来自表里');
+  assert.deepEqual(Object.keys(CITIZEN_ZH), ['greet'], '没有闲聊的本地台词了');
 });
 
 test('card (2026-10-13): the citizen\'s card shows that conversation\'s facts, and the preview is a reader document of only your and Athena\'s words', () => {
@@ -317,4 +311,17 @@ test('card (2026-10-13): the citizen\'s card shows that conversation\'s facts, a
   assert.ok(md.startsWith('*（更早的 4 条没有列出）*'), '告诉你前面还有几条');
   assert.ok(md.includes('第一问') && md.includes('**答**了'), '正文原样交给阅读器（Markdown 由阅读器解析、只经 textContent 进 DOM）');
   assert.equal(transcriptMarkdown({ entries: [] }, UI_ZH), UI_ZH.transcriptEmpty);
+});
+
+test('speech over a head (2026-10-13): thinking is a looping row of dots, a streaming or kept line stays, a finished one holds by its length then fades', () => {
+  assert.deepEqual([0, SPEECH.dotMs, 2 * SPEECH.dotMs, 3 * SPEECH.dotMs].map(thinkingDots), ['·', '··', '···', '·'], '一、二、三个点，循环');
+  assert.equal(speechAlpha({ text: '', typing: true }, 99_999), 1, '还在想：一直在');
+  assert.equal(speechAlpha({ text: '半句', typing: false, doneAt: null }, 99_999), 1, '还在说（流式）：一直在');
+  const done = { text: '风是不小。', typing: false, doneAt: 1000 };
+  const hold = SPEECH.holdMs + SPEECH.perCharMs * 5;
+  assert.equal(speechAlpha(done, 1000 + hold - SPEECH.fadeMs), 1, '说完之后按字数留一阵');
+  assert.ok(speechAlpha(done, 1000 + hold - SPEECH.fadeMs / 2) < 1, '然后淡出');
+  assert.equal(speechAlpha(done, 1000 + hold + 1), 0, '淡完了');
+  assert.equal(speechAlpha(done, 1000 + hold + 60_000, true), 1, '你还在和他聊：他最近那一句一直留着');
+  assert.ok(SPEECH.holdMs + SPEECH.perCharMs * 80 > SPEECH.holdMs + SPEECH.perCharMs * 5, '长的话留得久');
 });

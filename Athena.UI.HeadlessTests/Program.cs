@@ -4469,7 +4469,7 @@ static void TestGameModeSwitchAndFailures()
         // 两个计时都留足余量：就绪计时从创建页面起算，到测试替页面报 ready 之间隔着一次调度；
         // 保留期要盖过切回对话时整棵气泡树的重建——CI 机器比开发机慢得多，几百毫秒的余量会偶发失败
         gameMode = new GameModeViewModel(session, previewHost, new PolisSaveStore(paths, Log.Logger), watcher, localization,
-            new HeadlessCronTaskReader(), new PolisAssetStore(Path.Combine(root, "AthenaData", "Game", "assets"), Log.Logger), new HeadlessCitizenAnswerService(), new HeadlessPolisDebateService())
+            new HeadlessCronTaskReader(), new PolisAssetStore(Path.Combine(root, "AthenaData", "Game", "assets"), Log.Logger), new HeadlessPolisTalkService(), new HeadlessPolisDebateService())
         {
             ReadyTimeout = TimeSpan.FromSeconds(2),
             ReleaseDelay = TimeSpan.FromSeconds(2)
@@ -4804,7 +4804,7 @@ static void TestGameModeCityLifecycle()
     GameModeViewModel Start(Action<GameModeViewModel>? configure = null)
     {
         var vm = new GameModeViewModel(session, previewHost, store, watcher, localization,
-            cronReader, new PolisAssetStore(Path.Combine(root, "AthenaData", "Game", "assets"), Log.Logger), new HeadlessCitizenAnswerService(), new HeadlessPolisDebateService());
+            cronReader, new PolisAssetStore(Path.Combine(root, "AthenaData", "Game", "assets"), Log.Logger), new HeadlessPolisTalkService(), new HeadlessPolisDebateService());
         configure?.Invoke(vm);
         shell = new MainWindowViewModel(
             chatService: null, configService: null, promptService: null, logService: null, knowledgeBaseService: null,
@@ -5161,7 +5161,7 @@ static void TestGameModeAccumulation()
     Window? window = null;
     try
     {
-        gameMode = new GameModeViewModel(session, previewHost, store, watcher, localization, cronReader, new PolisAssetStore(assetsDir, Log.Logger), new HeadlessCitizenAnswerService(), new HeadlessPolisDebateService());
+        gameMode = new GameModeViewModel(session, previewHost, store, watcher, localization, cronReader, new PolisAssetStore(assetsDir, Log.Logger), new HeadlessPolisTalkService(), new HeadlessPolisDebateService());
         var structural = typeof(GameModeViewModel).GetConstructors().SelectMany(c => c.GetParameters()).Select(p => p.ParameterType)
             .Concat(typeof(GameModeViewModel).GetFields(System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Public).Select(f => f.FieldType))
             .ToList();
@@ -5350,7 +5350,7 @@ static void TestGameModeCitizens()
     var wsA = new WorkspaceProfile { Name = "我的工作区", DirectoryPath = rootA, CreatedAt = DateTime.Now.AddDays(-60) };
     var workspaceService = new HeadlessWorkspaceService(new List<WorkspaceProfile> { wsA });
     const string secret = "机密口令-91c4";
-    var answers = new HeadlessCitizenAnswerService();
+    var answers = new HeadlessPolisTalkService();
     var sink = new CapturingLogSink();
     var previousLogger = Log.Logger;
     var capturingLogger = new LoggerConfiguration().MinimumLevel.Verbose().WriteTo.Sink(sink).CreateLogger();
@@ -5453,43 +5453,96 @@ static void TestGameModeCitizens()
         if (seed != PolisCitizens.SeedOf(here[0].ConversationId) || first.GetProperty("female").GetBoolean() != PolisCitizens.IsFemale(seed))
             throw new InvalidOperationException("居民的种子与男女由会话 Id 定（页面按它生成长相）。");
 
-        // —— 问话（M-C）：问一位居民，他只拿到他那一场会话的消息；回答只推回页面，不进任何会话 ——
+        // —— 和一位居民聊天（2026-10-13，原来 M-C 的问话）：他的提示词是这座城、他自己和他那一场会话里挑的几段；
+        //    看得见的字边收边推（talk / done: false），说完推最后一版；只推回页面，不进任何会话 ——
         int Rejections() => sink.Events.Count(e => e.Level == Serilog.Events.LogEventLevel.Warning && e.RenderMessage().StartsWith("Rejected a polis page intent", StringComparison.Ordinal));
         var messagesBefore = here.Sum(h => h.Chat.Messages.Count);
-        page.Send($$"""{"v":1,"type":"ask-citizen","conversationId":"{{here[0].ConversationId}}","question":"  那份合同最后定了几年？  "}""");
-        PumpTimers(() => Of("citizen-answer").Count > 0, 5000, "问话要把回答推回页面（citizen-answer）。");
-        var asked = answers.Questions.Single();
-        if (asked.Question != "那份合同最后定了几年？" || asked.Citizen.ConversationId != here[0].ConversationId)
-            throw new InvalidOperationException($"问的是这位居民、问题去掉首尾空白：实际「{asked.Question}」问 {asked.Citizen.ConversationId}。");
-        if (!asked.Messages.SequenceEqual(here[0].Chat.Messages))
-            throw new InvalidOperationException("问话只拿那一场会话的消息（不读别的会话）。");
-        if (asked.CitizenName != first.GetProperty("name").GetString())
-            throw new InvalidOperationException($"问话带着他在城里的名字：{asked.CitizenName}");
-        var reply = Of("citizen-answer")[^1];
-        if (reply.GetProperty("conversationId").GetString() != here[0].ConversationId || reply.GetProperty("status").GetString() != "ok"
+        List<JsonElement> Talks(bool done) => Of("talk").Where(t => t.GetProperty("done").GetBoolean() == done).ToList();
+        answers.Partials = new[] { "我记得，", "我记得，那份合同" };
+        answers.HoldFinal = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        page.Send($$"""{"v":1,"type":"chat","who":"{{here[0].ConversationId}}","text":"  那份合同最后定了几年？  "}""");
+        PumpTimers(() => Talks(false).Any(t => t.GetProperty("text").GetString() == "我记得，那份合同"), 5000, "流式的半句话要推给页面（talk，done: false）。");
+        answers.HoldFinal.SetResult();
+        answers.HoldFinal = null;
+        PumpTimers(() => Talks(true).Count > 0, 5000, "聊天要把他的话推回页面（talk）。");
+        var asked = answers.Calls.Single();
+        var system = asked.Prompt.System;
+        if (asked.Purpose != PolisTalkPurpose.Player || asked.Prompt.Messages[^1].Text != "那份合同最后定了几年？" || asked.Prompt.Messages.Count != 1)
+            throw new InvalidOperationException($"你开的口走 Player 池，你这一句去掉首尾空白放在最后：{string.Join(" / ", asked.Prompt.Messages)}");
+        if (!system.Contains(first.GetProperty("name").GetString()!, StringComparison.Ordinal) || !system.Contains("「我的工作区」", StringComparison.Ordinal)
+            || !system.Contains("请帮我整理合同", StringComparison.Ordinal) || !system.Contains("看完了 " + secret, StringComparison.Ordinal))
+            throw new InvalidOperationException($"提示词里有他的名字、这座城、他托付过的那件事和他那场会话里的话：{system}");
+        if (here.Skip(1).Any(h => system.Contains("「" + h.Title + "」", StringComparison.Ordinal)))
+            throw new InvalidOperationException("提示词只带他那一场会话，不读别的会话。");
+        var partials = Talks(false).Where(t => t.GetProperty("who").GetString() == here[0].ConversationId).Select(t => t.GetProperty("text").GetString()).ToList();
+        if (partials.Count == 0 || partials[^1] != "我记得，那份合同")
+            throw new InvalidOperationException($"流式的半句话推给页面（每次攒批只带最新的一版）：{string.Join(" / ", partials)}");
+        var reply = Talks(true)[^1];
+        if (reply.GetProperty("who").GetString() != here[0].ConversationId || reply.GetProperty("status").GetString() != "ok"
             || reply.GetProperty("text").GetString() != "我记得，那份合同最后定在三年。")
-            throw new InvalidOperationException($"回答原样推给页面：{reply}");
+            throw new InvalidOperationException($"说完的那一版原样推给页面：{reply}");
         if (here.Sum(h => h.Chat.Messages.Count) != messagesBefore || here.Any(h => h.Chat.InputText.Contains("合同最后", StringComparison.Ordinal)))
-            throw new InvalidOperationException("问话不进任何会话：没有新消息，也不写进输入框。");
+            throw new InvalidOperationException("聊天不进任何会话：没有新消息，也不写进输入框。");
+        // 接着说：上一轮的来回进了提示词
+        answers.Partials = Array.Empty<string>();
+        answers.Reply = _ => new PolisTalkReply(PolisTalkStatus.Ok, "押金两个月。");
+        page.Send($$"""{"v":1,"type":"chat","who":"{{here[0].ConversationId}}","text":"押金呢？"}""");
+        PumpTimers(() => Talks(true).Count > 1, 5000, "第二句也要推回去。");
+        var again = answers.Calls[^1].Prompt.Messages.Select(m => $"{m.Role}:{m.Text}").ToList();
+        if (!again.SequenceEqual(new[] { "user:那份合同最后定了几年？", "assistant:我记得，那份合同最后定在三年。", "user:押金呢？" }))
+            throw new InvalidOperationException($"他记得刚才聊过什么：{string.Join(" / ", again)}");
         // 没配模型：他说一句本地化的话，不是错误框
-        answers.Reply = _ => new CitizenAnswer(CitizenAnswerStatus.NoModel);
-        page.Send($$"""{"v":1,"type":"ask-citizen","conversationId":"{{here[1].ConversationId}}","question":"你还记得什么？"}""");
-        PumpTimers(() => Of("citizen-answer").Count > 1, 5000, "没配模型也要推一句话回去。");
-        var noModel = Of("citizen-answer")[^1];
+        answers.Reply = _ => new PolisTalkReply(PolisTalkStatus.NoModel);
+        page.Send($$"""{"v":1,"type":"chat","who":"{{here[1].ConversationId}}","text":"你还记得什么？"}""");
+        PumpTimers(() => Talks(true).Count > 2, 5000, "没配模型也要推一句话回去。");
+        var noModel = Talks(true)[^1];
         if (noModel.GetProperty("status").GetString() != "nomodel" || !noModel.GetProperty("text").GetString()!.Contains("城里的居民", StringComparison.Ordinal))
             throw new InvalidOperationException($"没配模型时他说「先在设置的模型角色里给『虚拟宠物与城里的居民』……选一个模型」：{noModel}");
-        answers.Reply = _ => new CitizenAnswer(CitizenAnswerStatus.Ok, "好的。");
-        // 校验：别的城的会话、不存在的会话、空问题、超长问题一律拒绝，一次也不调用
+        answers.Reply = _ => new PolisTalkReply(PolisTalkStatus.Ok, "好的。");
+        // 校验：别的城的会话、不存在的会话、空的一句、超长的一句一律拒绝，一次也不调用
         var rejectedBefore = Rejections();
-        var askedBefore = answers.Questions.Count;
-        page.Send($$"""{"v":1,"type":"ask-citizen","conversationId":"{{globals[0].ConversationId}}","question":"别的城的人"}""");
-        page.Send("""{"v":1,"type":"ask-citizen","conversationId":"made-up","question":"谁"}""");
-        page.Send($$"""{"v":1,"type":"ask-citizen","conversationId":"{{here[0].ConversationId}}","question":"   "}""");
-        page.Send($$"""{"v":1,"type":"ask-citizen","conversationId":"{{here[0].ConversationId}}","question":"{{new string('问', 301)}}"}""");
-        PumpTimers(() => Rejections() >= rejectedBefore + 4, 3000, "四条越界的问话都要被拒并记 Warning。");
+        var askedBefore = answers.Calls.Count;
+        page.Send($$"""{"v":1,"type":"chat","who":"{{globals[0].ConversationId}}","text":"别的城的人"}""");
+        page.Send("""{"v":1,"type":"chat","who":"made-up","text":"谁"}""");
+        page.Send($$"""{"v":1,"type":"chat","who":"{{here[0].ConversationId}}","text":"   "}""");
+        page.Send($$"""{"v":1,"type":"chat","who":"{{here[0].ConversationId}}","text":"{{new string('问', 301)}}"}""");
+        PumpTimers(() => Rejections() >= rejectedBefore + 4, 3000, "四条越界的话都要被拒并记 Warning。");
         PumpTimersFor(150);
-        if (answers.Questions.Count != askedBefore)
-            throw new InvalidOperationException("被拒的问话一次也不调用模型。");
+        if (answers.Calls.Count != askedBefore)
+            throw new InvalidOperationException("被拒的话一次也不调用模型。");
+
+        // —— 两位居民街头闲聊（2026-10-13：只用模型，不预置台词）：一人一句，两次调用都走 Ambient 池；
+        //    提示词只有世界观、两人的名字与性子、那件事办到哪一步——不带标题、不带任何原话 ——
+        var callsBefore = answers.Calls.Count;
+        var endsBefore = Of("ambient-end").Count;
+        var talksBefore = Of("talk").Count;
+        answers.Reply = p => new PolisTalkReply(PolisTalkStatus.Ok, p.Messages[^1].Text.Contains("先开口", StringComparison.Ordinal) ? "今天港口的风真大。" : "船都早早靠岸了。");
+        page.Send($$"""{"v":1,"type":"ambient-chat","a":"{{here[0].ConversationId}}","b":"{{here[2].ConversationId}}"}""");
+        PumpTimers(() => Of("ambient-end").Count > endsBefore, 5000, "闲聊说完要推 ambient-end。");
+        var ambientCalls = answers.Calls.Skip(callsBefore).ToList();
+        if (ambientCalls.Count != 2 || ambientCalls.Any(c => c.Purpose != PolisTalkPurpose.Ambient))
+            throw new InvalidOperationException($"闲聊一人一句，两次调用都走 Ambient 池：{ambientCalls.Count}");
+        foreach (var (_, prompt) in ambientCalls)
+        {
+            var all = prompt.System + string.Join("\n", prompt.Messages.Select(m => m.Text));
+            if (all.Contains(secret, StringComparison.Ordinal) || all.Contains("请帮我整理合同", StringComparison.Ordinal) || all.Contains("第2件事", StringComparison.Ordinal) || all.Contains("「合同」", StringComparison.Ordinal))
+                throw new InvalidOperationException($"闲聊的提示词不带标题、文件夹、原话：{all}");
+        }
+        if (!ambientCalls[1].Prompt.Messages[^1].Text.EndsWith("今天港口的风真大。", StringComparison.Ordinal))
+            throw new InvalidOperationException($"接话的那位带着对方刚说的：{ambientCalls[1].Prompt.Messages[^1].Text}");
+        var ambientTalks = Of("talk").Skip(talksBefore).Select(t => $"{(t.GetProperty("who").GetString() == here[0].ConversationId ? "a" : "b")}:{t.GetProperty("done").GetBoolean()}:{t.GetProperty("text").GetString()}").ToList();
+        if (!ambientTalks.SequenceEqual(new[] { "a:True:今天港口的风真大。", "b:False:", "b:True:船都早早靠岸了。" }))
+            throw new InvalidOperationException($"先开口的说完，另一位头顶一串点，再接一句：{string.Join(" / ", ambientTalks)}");
+        if (Of("ambient-end")[^1].GetProperty("status").GetString() != "ok")
+            throw new InvalidOperationException("说完了：ambient-end ok。");
+        // 没配模型：一句也不说（没有本地台词可退），只推 ambient-end nomodel
+        answers.Reply = _ => new PolisTalkReply(PolisTalkStatus.NoModel);
+        var talksBeforeNoModel = Of("talk").Count;
+        page.Send($$"""{"v":1,"type":"ambient-chat","a":"{{here[0].ConversationId}}","b":"{{here[2].ConversationId}}"}""");
+        PumpTimers(() => Of("ambient-end").Count > endsBefore + 1, 5000, "没配模型也要推 ambient-end。");
+        if (Of("ambient-end")[^1].GetProperty("status").GetString() != "nomodel" || Of("talk").Count != talksBeforeNoModel)
+            throw new InvalidOperationException("没配模型：不说任何话，ambient-end nomodel。");
+        answers.Reply = _ => new PolisTalkReply(PolisTalkStatus.Ok, "好的。");
 
         // —— 居民卡片上的「去看那次委托」= 选中那场会话（会话树的同一条路径） ——
         page.Send($$"""{"v":1,"type":"select-conversation","conversationId":"{{here[5].ConversationId}}"}""");
@@ -5591,7 +5644,7 @@ static void TestGameModeDebate()
     try
     {
         gameMode = new GameModeViewModel(session, previewHost, store, watcher, localization, new HeadlessCronTaskReader(),
-            new PolisAssetStore(Path.Combine(root, "assets"), Log.Logger), new HeadlessCitizenAnswerService(), debates);
+            new PolisAssetStore(Path.Combine(root, "assets"), Log.Logger), new HeadlessPolisTalkService(), debates);
         shell = new MainWindowViewModel(
             chatService: null, configService: null, promptService: null, logService: null, knowledgeBaseService: null,
             localizationService: localization, fileSystemService: null, platformPathService: null, functionRegistry: null,
@@ -13772,15 +13825,21 @@ sealed class HeadlessPolisDebateService : IPolisDebateService
 }
 
 /// <summary>问话（M-C）的替身：记下每一次问了谁、拿到的是哪一场会话的消息，按 <see cref="Reply"/> 回答。</summary>
-sealed class HeadlessCitizenAnswerService : ICitizenAnswerService
+sealed class HeadlessPolisTalkService : IPolisTalkService
 {
-    public List<CitizenQuestion> Questions { get; } = new();
-    public Func<CitizenQuestion, CitizenAnswer> Reply { get; set; } = _ => new CitizenAnswer(CitizenAnswerStatus.Ok, "我记得，那份合同最后定在三年。");
+    public List<(PolisTalkPurpose Purpose, PolisTalkPrompt Prompt)> Calls { get; } = new();
+    public Func<PolisTalkPrompt, PolisTalkReply> Reply { get; set; } = _ => new PolisTalkReply(PolisTalkStatus.Ok, "我记得，那份合同最后定在三年。");
+    /// <summary>说完之前依次给出的半句话（流式）。</summary>
+    public IReadOnlyList<string> Partials { get; set; } = Array.Empty<string>();
+    /// <summary>设了就在给完半句话之后等它放行，再说完（真实的流要几秒；不等的话，说完的那一版会盖掉还没推出去的半句话——那是对的）。</summary>
+    public TaskCompletionSource? HoldFinal { get; set; }
 
-    public Task<CitizenAnswer> AskAsync(CitizenQuestion question, CancellationToken cancellationToken = default)
+    public async Task<PolisTalkReply> TalkAsync(PolisTalkPurpose purpose, PolisTalkPrompt prompt, Action<string>? onVisible = null, CancellationToken cancellationToken = default)
     {
-        lock (Questions) Questions.Add(question);
-        return Task.FromResult(Reply(question));
+        lock (Calls) Calls.Add((purpose, prompt));
+        foreach (var partial in Partials) onVisible?.Invoke(partial);
+        if (HoldFinal != null) await HoldFinal.Task.WaitAsync(cancellationToken).ConfigureAwait(false);
+        return Reply(prompt);
     }
 }
 

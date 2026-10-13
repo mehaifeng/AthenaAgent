@@ -117,8 +117,7 @@ public static class PolisAccumulation
                 outcome = c.Outcome.ToString().ToLowerInvariant(),
                 folders = c.Folders,
                 turns = c.Turns,
-                days = c.AgeDays,
-                lines = PolisCitizens.Lines(c, localize)
+                days = c.AgeDays
             }).ToList(),
             elders = citizens.Where(c => c.Elder).Take(MaxElderNames).Select(c => new
             {

@@ -86,7 +86,8 @@ async function main() {
     topInset: live ? 52 : 0,
     defaultView: 'free',
     talkOpen: () => !!talk?.isOpen,
-    onAsk: talk ? (target) => { talk.openAsk(target); } : null,
+    onChat: talk ? (target) => { talk.openChat(target); } : null,
+    onChatReplied: talk ? (id) => { if (talk.lentTo?.kind === 'chat' && talk.lentTo.id === id) talk.resumeLent(); } : null,
     // 讲台前的辩论（M-E）：栏借给辩论（提议题、一轮轮的论点）；办完了还回来——只还给借它的那一种（问话不受辩论影响）
     onDebate: talk ? (options) => { talk.openDebate(options); } : null,
     onLendEnd: (kind) => { if (talk?.lentTo?.kind === kind) talk.endLent(); },
@@ -181,7 +182,8 @@ function liveHandlers() {
     citizens: whenReady((m) => { liveGame.setCitizens(m.citizens ?? null); wake(); }),
     // 问话的回答（M-C）：{ conversationId, status, text }——放进他的卡片，对话栏还给雅典娜
     // 先还对话栏、再放回答：栏还开着时，城里会以为你又在和雅典娜说话，不把卡片打开
-    'citizen-answer': whenReady((m) => { if (talk?.lentTo?.kind === 'ask') talk.endLent(); liveGame.setCitizenAnswer(m); wake(); }),
+    'talk': whenReady((m) => { liveGame.setTalk(m); wake(); }),
+    'ambient-end': whenReady((m) => { liveGame.endAmbient(m); wake(); }),
     'citizen-transcript': whenReady((m) => { liveGame.showCitizenTranscript(m); wake(); }),
     // 讲台前的辩论（M-E）：{ state, id, motion, round, rounds, jury, transcript, verdict, record, notice }
     debate: whenReady((m) => { liveGame.setDebate(m.debate ?? null); wake(); }),

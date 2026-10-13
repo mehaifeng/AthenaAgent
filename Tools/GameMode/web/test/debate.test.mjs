@@ -6,7 +6,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import * as THREE from '../../../../Assets/Polis/vendor/three.bundle.mjs';
 import { debateStage, assignAudience, supportersCount, bubbleExcerpt, nearestStandable, DEBATE } from '../../../../Assets/Polis/src/debate.mjs';
-import { lentView, debateLend, askLend, MAX_MOTION_CHARS, MAX_ARGUMENT_CHARS } from '../../../../Assets/Polis/src/talk.mjs';
+import { lentView, debateLend, chatLend, MAX_MOTION_CHARS, MAX_ARGUMENT_CHARS } from '../../../../Assets/Polis/src/talk.mjs';
 import { UI_ZH } from '../../../../Assets/Polis/src/game.mjs';
 import { createLayout } from '../../../../Assets/Polis/src/layout.mjs';
 import { createAssetLibrary } from '../../../../Assets/Polis/src/art/assets.mjs';
@@ -127,7 +127,7 @@ test('the bar lent to the debate: a motion of 1–200 characters sends debate-st
   assert.equal(waiting.disabled, true, '她在想：输入框停用');
   assert.equal(waiting.canSend, false);
   assert.equal(waiting.status, ui.debateAthenaThinking);
-  assert.notEqual(askLend({ conversationId: 'c', name: 'x' }, ui).kind, argue.kind, '问话与辩论是两种借法');
+  assert.notEqual(chatLend({ conversationId: 'c', name: 'x' }, ui).kind, argue.kind, '聊天与辩论是两种借法');
   for (const key of ['interactBema', 'bemaTitle', 'bemaBody', 'bemaRecord', 'bemaPropose', 'debateName', 'debateMotionStatus', 'debateMotionPlaceholder',
     'debateArguePlaceholder', 'debateArgueStatus', 'debateSend', 'debateHint', 'debateAthenaThinking', 'debateJudging', 'debateRound', 'debateYou',
     'debateAthena', 'debateVotes', 'debateYouWin', 'debateAthenaWins', 'debateTie', 'debateClose']) {

@@ -12,7 +12,7 @@
 //   才出现，Enter 托付（say 带会话 Id）、草稿同步（draft）、她在办事时"请她停下"（stop-turn）；在对话栏里按 W 是字不是脚步，
 //   输入法选字时的 Enter 不托付；预填（composer open）展开并聚焦；你在远处开口，她过来（远了化作一道光）。
 //   居民即会话（M-B）：街上最多 32 位、最近的不超过 4 位全套；走到一位跟前按 E 开他的卡片，卡片的按钮选中那场会话；碑上刻着老居民。
-//   问话（M-C）：卡片上的"问他那件事"把对话栏借给他，回车只发 ask-citizen；回答回到卡片（长的读全文），对话栏还给雅典娜；页面从不自己发问。
+//   聊天（2026-10-13）：卡片上的"聊几句"把对话栏借给他，回车只发 chat；他的话流式进他头顶的气泡，栏回到"你在写"，Esc 告辞；页面从不自己开口。
 //   辩论（M-E）：讲台前按 E 开讲台的卡片；议题与论点在借给辩论的对话栏里写，回车只发 debate-start / debate-say；判票时居民围过来，判完按票数挥手；"结束"与 Esc 发 debate-end。
 //   户与民居（M-D）：居民先到、民居后到时城一变就从民居门前重新出门；民居的名牌写户名；新立的一户雅典娜说一句；户名变了名牌跟着换。
 //   bin/Debug/net10.0/.playwright/node/darwin-arm64/node Tools/GameMode/web/test/smoke.mjs [chromium,webkit]
@@ -25,6 +25,9 @@ import { launch, openPage } from './playwright.mjs';
 import { mannequinGlb } from './mannequin.mjs';
 
 const browsers = (process.argv[2] ?? 'chromium,webkit').split(',');
+// 迭代时只跑其中几组：SMOKE_ONLY=chatCheck,debateCheck（函数名，逗号分隔）。正式运行不设。
+const only = process.env.SMOKE_ONLY ? new Set(process.env.SMOKE_ONLY.split(',').map((x) => x.trim())) : null;
+const wanted = (check) => !only || only.has(check.name);
 const fixture = JSON.parse(readFileSync(new URL('../fixtures/synthetic.json', import.meta.url), 'utf8'));
 const city = fixture;
 const assetsDir = mkdtempSync(path.join(tmpdir(), 'polis-assets-'));
@@ -42,18 +45,13 @@ try {
   for (const name of browsers) {
     const browser = await launch(name);
     try {
-      failed = !(await fixtureCheck(name, browser)) || failed;
-      failed = !(await deliveryCheck(name, browser)) || failed;
-      failed = !(await accumulationCheck(name, browser)) || failed;
-      failed = !(await citizensCheck(name, browser)) || failed;
-      failed = !(await askCheck(name, browser)) || failed;
-      failed = !(await debateCheck(name, browser)) || failed;
-      failed = !(await householdCheck(name, browser)) || failed;
-      failed = !(await controlsCheck(name, browser)) || failed;
+      for (const check of [fixtureCheck, deliveryCheck, accumulationCheck, citizensCheck, chatCheck, debateCheck, householdCheck, controlsCheck]) {
+        if (wanted(check)) failed = !(await check(name, browser)) || failed;
+      }
     } finally {
       await browser.close();
     }
-    if (name === 'chromium') failed = !(await noWebglCheck()) || failed;
+    if (name === 'chromium' && wanted(noWebglCheck)) failed = !(await noWebglCheck()) || failed;
   }
 } finally {
   await server.close();
@@ -385,7 +383,6 @@ async function citizensCheck(name, browser) {
     const street = Array.from({ length: 40 }, (_, i) => ({
       id: `conv-${i}`, seed: (Math.imul(i + 7, 2654435761) >>> 0), female: i % 2 === 1, name: `第${i}位`, title: `委托 ${i}`,
       home: homes[i % homes.length], age: ['young', 'adult', 'old'][i % 3], outcome: 'completed', folders: [], turns: 2,
-      lines: ['那件事已经办完了。', `那是 ${i} 天前的事了。`],
     }));
     await send({ type: 'citizens', citizens: { street, elders: [{ id: 'old-1', name: '老居民甲', home: 'agora:0' }, { id: 'old-2', name: '老居民乙', home: 'agora:0' }], census: { total: 42, street: 32, indoors: 8, elders: 2 } } });
     await page.waitForFunction(() => {
@@ -472,13 +469,13 @@ async function citizensCheck(name, browser) {
 }
 
 /**
- * 问话（M-C）：居民卡片上的"问他那件事"把对话栏借给他——你写给雅典娜的半句话收着；回车只发 ask-citizen（不是 say、也不同步草稿），
- * 他站定、镜头留在你们两个身上、雅典娜不被叫过来；C# 推回答之后卡片上是那一问一答，太长的给"读全文"（阅读器里是字），
- * 对话栏还给雅典娜、半句话还在；Esc 不问了；页面从不自己发问。
+ * 和一位居民聊天（2026-10-13，原来 M-C 的问话）：卡片上的"聊几句"把对话栏借给他——你写给雅典娜的半句话收着；回车只发 chat（不是 say、
+ * 也不同步草稿），你的话在你头顶，他头顶一串循环的点；他站定、镜头留在你们两个身上、雅典娜不被叫过来。C# 流式推他的话：半句话
+ * 边到边换，说完的定下来（晚到的半句不覆盖），栏回到"你在写"、接着说第二句；Esc 告辞，栏还给雅典娜、半句话还在；页面从不自己开口。
  */
-async function askCheck(name, browser) {
+async function chatCheck(name, browser) {
   const started = Date.now();
-  const result = { browser: `${name} ${browser.version()}`, mode: 'live, asking a citizen' };
+  const result = { browser: `${name} ${browser.version()}`, mode: 'live, chatting with a citizen' };
   try {
     const page = await browser.newPage({ viewport: { width: 1600, height: 1000 } });
     const problems = [];
@@ -494,7 +491,6 @@ async function askCheck(name, browser) {
     const street = Array.from({ length: 6 }, (_, i) => ({
       id: `conv-${i}`, seed: (Math.imul(i + 11, 2654435761) >>> 0), female: i % 2 === 1, name: `整理合同的第${i}位`, title: `委托 ${i}`,
       home: ['agora:0', 'agora:2', 'agora:4', 'market', 'harbor', 'library'][i], age: 'adult', outcome: 'completed', folders: [], turns: 2,
-      lines: ['那件事已经办完了。', '那是 3 天前的事了。'],
     }));
     await send({ type: 'citizens', citizens: { street, elders: [], census: { total: 6, street: 6, indoors: 0, elders: 0 } } });
     await send({ type: 'composer', conversationId: 'c-1', busy: false, queued: false, waiting: false, compressing: false, canSend: true, attachments: [], draft: '写给雅典娜的半句话' });
@@ -502,7 +498,7 @@ async function askCheck(name, browser) {
     await page.waitForTimeout(300);
     const summonedBefore = await page.evaluate(() => window.__polis.summoned ?? 0);
 
-    // 走到一位闲着、还要待一阵的居民跟前按 E，卡片上有"问他那件事"
+    // 走到一位闲着、还要待一阵的居民跟前按 E，卡片上有"聊几句"
     const target = await page.evaluate(() => {
       const g = window.__polisGame;
       const c = [...g.world.citizens.values()].find((x) => x.at?.action === 'idle' && x.at.idleLeft > 15000 && x.figure.root.visible);
@@ -516,63 +512,104 @@ async function askCheck(name, browser) {
     await page.keyboard.press('KeyE');
     await page.waitForTimeout(150);
     const card = await page.evaluate(() => ({ view: window.__polisGame.panelView(), regions: window.__polisGame.regions.map((r) => r.id) }));
-    await page.evaluate(() => window.__polisGame.onButton('citizen-ask'));
+    await page.evaluate(() => window.__polisGame.onButton('citizen-chat'));
     await page.waitForTimeout(200);
     const lent = await page.evaluate(() => ({
-      talk: window.__polisTalk.state, value: window.__polisTalk.value, asking: window.__polisGame.asking,
+      talk: window.__polisTalk.state, value: window.__polisTalk.value, chatting: window.__polisGame.chatting,
       focused: document.activeElement?.classList.contains('talk-input'), name: document.querySelector('#talk .talk-name').textContent,
       placeholder: document.querySelector('#talk .talk-input').placeholder, closeUp: window.__polis.closeUp,
     }));
     const n = (await inbox()).length;
-    await page.keyboard.type('租期多久？');
+    await page.keyboard.type('今天风大吗？');
+    await page.keyboard.press('Enter');
+    await page.waitForTimeout(250);
+    const sentNow = (await inbox()).slice(n);
+    const bubblesNow = () => page.evaluate(() => (window.__polisGame.used?.citizenBubbles ?? []).map((b) => ({ id: b.id, text: b.text, typing: !!b.typing, alpha: b.alpha })));
+    const waiting = await page.evaluate(() => ({ talk: window.__polisTalk.state, chatting: window.__polisGame.chatting, disabled: document.querySelector('#talk .talk-input').disabled, closeUp: window.__polis.closeUp, summoned: window.__polis.summoned ?? 0 }));
+    const thinkingBubbles = await bubblesNow();
+
+    // C# 流式推他的话：半句话边到边换，说完的那一版定下来，栏回到"你在写"（可以接着说）；说完之后才到的半句话不覆盖它
+    await send({ type: 'talk', who: target?.id, text: '风是不小，', done: false });
+    await page.waitForTimeout(150);
+    const partial = await bubblesNow();
+    const finalLine = '风是不小，船都早早靠了岸。你也出来走走？';
+    await send({ type: 'talk', who: target?.id, text: finalLine, done: true, status: 'ok' });
+    await send({ type: 'talk', who: target?.id, text: '风是', done: false });
+    await page.waitForTimeout(250);
+    const replied = await page.evaluate(() => ({
+      talk: window.__polisTalk.state, chatting: window.__polisGame.chatting, focused: document.activeElement?.classList.contains('talk-input'),
+      disabled: document.querySelector('#talk .talk-input').disabled, panel: window.__polisGame.panelView(), closeUp: window.__polis.closeUp,
+    }));
+    const repliedBubbles = await bubblesNow();
+    // 接着说第二句
+    const n1 = (await inbox()).length;
+    await page.keyboard.type('那我去港口看看');
     await page.keyboard.press('Enter');
     await page.waitForTimeout(200);
-    const sentNow = (await inbox()).slice(n);
-    const waiting = await page.evaluate(() => ({ talk: window.__polisTalk.state, asking: window.__polisGame.asking, disabled: document.querySelector('#talk .talk-input').disabled, closeUp: window.__polis.closeUp, summoned: window.__polis.summoned ?? 0 }));
+    const second = (await inbox()).slice(n1);
 
-    // C# 推回答（很长）：卡片上是那一问一答，太长的给"读全文"；对话栏还给雅典娜，半句话还在
-    const long = `我记得那份合同最后定在三年。${'押金两个月，租金每季度付一次，到期前一个月要提前说。'.repeat(14)}`;
-    await send({ type: 'citizen-answer', conversationId: target?.id, status: 'ok', text: long });
-    await page.waitForTimeout(300);
-    const answered = await page.evaluate(() => ({
-      view: window.__polisGame.panelView(), regions: window.__polisGame.regions.map((r) => r.id), talk: window.__polisTalk.state,
-      value: window.__polisTalk.value, asking: window.__polisGame.asking, closeUp: window.__polis.closeUp,
-    }));
-    await page.evaluate(() => window.__polisGame.onButton('citizen-read'));
+    // Esc 告辞：什么也不发，对话栏还回来（写给雅典娜的半句话还在）
+    await send({ type: 'talk', who: target?.id, text: '去吧。', done: true, status: 'ok' });
     await page.waitForTimeout(200);
-    const reader = await page.evaluate(() => {
-      const el = document.getElementById('reader');
-      return { open: !el.hidden, text: el.textContent, scripts: el.querySelectorAll('script, img, iframe').length };
-    });
-    await page.keyboard.press('Escape');
-    await page.waitForTimeout(150);
-
-    // Esc 不问了：再借一次，按 Esc——什么也不发，对话栏还回来
-    await page.evaluate(() => window.__polisGame.onButton('citizen-ask'));
-    await page.waitForTimeout(150);
     const n2 = (await inbox()).length;
     await page.keyboard.type('算了');
     await page.keyboard.press('Escape');
     await page.waitForTimeout(200);
-    const cancelled = await page.evaluate(() => ({ talk: window.__polisTalk.state, value: window.__polisTalk.value, asking: window.__polisGame.asking }));
+    const cancelled = await page.evaluate(() => ({ talk: window.__polisTalk.state, value: window.__polisTalk.value, chatting: window.__polisGame.chatting }));
     const afterCancel = (await inbox()).slice(n2);
+    // 两位居民街头闲聊（只用模型）：发 ambient-chat；先开口的那位头顶一串点，C# 流式推他的话，说完另一位头顶一串点再接一句；
+    // ambient-end 散场。没配模型（nomodel）：头顶的点收起，这座城里不再挑
+    const pairIds = street.map((c) => c.id).filter((id) => id !== target?.id).slice(0, 2);
+    const nAmb = (await inbox()).length;
+    const startedAmbient = await page.evaluate(([a, b]) => window.__polisGame.ambientNow(a, b), pairIds);
+    await page.waitForTimeout(150);
+    const ambientSent = (await inbox()).slice(nAmb);
+    const ambientDots = await bubblesNow();
+    await send({ type: 'talk', who: pairIds[0], n: 7, text: '今天港口', done: false });
+    await page.waitForTimeout(120);
+    const ambientPartial = await bubblesNow();
+    await send({ type: 'talk', who: pairIds[0], n: 7, text: '今天港口的风真大。', done: true, status: 'ok' });
+    await send({ type: 'talk', who: pairIds[1], n: 0, text: '', done: false });
+    await page.waitForTimeout(150);
+    const ambientSecond = await bubblesNow();
+    await send({ type: 'talk', who: pairIds[1], n: 8, text: '船都早早靠岸了。', done: true, status: 'ok' });
+    await send({ type: 'ambient-end', a: pairIds[0], b: pairIds[1], status: 'ok' });
+    await page.waitForTimeout(150);
+    const ambientDone = await page.evaluate(() => ({ chat: window.__polis.chat, ambient: window.__polis.ambient, next: window.__polisGame.nextChatPickAt, now: performance.now() }));
+    const ambientDoneBubbles = await bubblesNow();
+    // 没配模型：先开口的那位还在想就散了，点收起；不再挑
+    await page.evaluate(([a, b]) => window.__polisGame.ambientNow(b, a), pairIds);
+    await page.waitForTimeout(100);
+    await send({ type: 'ambient-end', a: pairIds[1], b: pairIds[0], status: 'nomodel' });
+    await page.waitForTimeout(150);
+    const noModel = await page.evaluate(() => ({ chat: window.__polis.chat, never: window.__polisGame.nextChatPickAt === Infinity }));
+    const noModelBubbles = await bubblesNow();
+
     const all = await inbox();
-    const asks = all.filter((m) => m.type === 'ask-citizen');
+    const chats = all.filter((m) => m.type === 'chat');
     const checks = {
-      cardOffersAsk: card.view?.type === 'citizen' && card.view.askable === true && card.regions.includes('citizen-ask'),
-      barLentToCitizen: lent.talk.mode === 'ask' && lent.focused && lent.name === target?.name && lent.placeholder.includes(target?.name ?? '?') && lent.value === '',
-      citizenHeldInCloseUp: lent.asking?.id === target?.id && lent.closeUp === 'citizen',
-      onlyAskCitizenSent: sentNow.length === 1 && sentNow[0].type === 'ask-citizen' && sentNow[0].conversationId === target?.id && sentNow[0].question === '租期多久？',
-      waitsForTheAnswer: waiting.talk.mode === 'asking' && waiting.disabled && waiting.asking?.status === 'waiting' && waiting.closeUp === 'citizen',
+      cardOffersChat: card.view?.type === 'citizen' && card.view.askable === true && card.regions.includes('citizen-chat') && card.regions.includes('citizen-transcript'),
+      barLentToCitizen: lent.talk.mode === 'chat' && lent.focused && lent.name === target?.name && lent.placeholder.includes(target?.name ?? '?') && lent.value === '',
+      citizenHeldInCloseUp: lent.chatting?.id === target?.id && lent.closeUp === 'citizen',
+      onlyChatSent: sentNow.length === 1 && sentNow[0].type === 'chat' && sentNow[0].who === target?.id && sentNow[0].text === '今天风大吗？',
+      waitsForHim: waiting.talk.mode === 'chatting' && waiting.disabled && waiting.chatting?.status === 'waiting' && waiting.closeUp === 'citizen',
+      thinkingDotsOverHisHead: thinkingBubbles.some((b) => b.id === target?.id && b.typing && /^·+$/.test(b.text)),
+      yourLineOverYourHead: thinkingBubbles.some((b) => b.id === 'player' && b.text === '今天风大吗？'),
+      streamsIntoHisBubble: partial.some((b) => b.id === target?.id && !b.typing && b.text === '风是不小，'),
+      finalLineStays: repliedBubbles.some((b) => b.id === target?.id && b.text === finalLine && b.alpha === 1),
+      barResumesForTheNextLine: replied.talk.mode === 'chat' && replied.focused && !replied.disabled && replied.chatting?.status === 'typing' && replied.panel == null && replied.closeUp === 'citizen',
+      keepsChatting: second.length === 1 && second[0].type === 'chat' && second[0].text === '那我去港口看看',
       athenaNotSummoned: waiting.summoned === summonedBefore,
-      answerOnTheCard: answered.view?.type === 'citizen' && answered.view.answer?.text === long && answered.view.answer.question.includes('租期多久'),
-      longAnswerReadable: answered.regions.includes('citizen-read') && reader.open && reader.text.includes('押金两个月') && reader.scripts === 0,
-      barGivenBack: answered.talk.mode === 'talk' && answered.value === '写给雅典娜的半句话' && answered.asking === null,
-      escCancels: cancelled.talk.mode === 'talk' && cancelled.asking === null && cancelled.value === '写给雅典娜的半句话' && afterCancel.length === 0,
-      neverAsksByItself: asks.length === 1 && !all.some((m) => m.type === 'say' || (m.type === 'draft' && /租期|算了/.test(m.text ?? ''))),
+      escTakesLeave: cancelled.talk.mode === 'talk' && cancelled.chatting === null && cancelled.value === '写给雅典娜的半句话' && afterCancel.length === 0,
+      neverSpeaksByItself: chats.length === 2 && !all.some((m) => m.type === 'say' || m.type === 'ask-citizen' || (m.type === 'draft' && /风|港口|算了/.test(m.text ?? ''))),
+      ambientAsksTheModel: startedAmbient === true && ambientSent.length === 1 && ambientSent[0].type === 'ambient-chat' && ambientSent[0].a === pairIds[0] && ambientSent[0].b === pairIds[1],
+      ambientDotsThenStream: ambientDots.some((b) => b.id === pairIds[0] && b.typing) && ambientPartial.some((b) => b.id === pairIds[0] && b.text === '今天港口'),
+      ambientSecondThinks: ambientSecond.some((b) => b.id === pairIds[0] && b.text === '今天港口的风真大。') && ambientSecond.some((b) => b.id === pairIds[1] && b.typing),
+      ambientEnds: ambientDone.chat === null && ambientDone.ambient?.status === 'ok' && ambientDoneBubbles.some((b) => b.id === pairIds[1] && b.text === '船都早早靠岸了。'),
+      noModelNoLinesNoMorePicks: noModel.chat === null && noModel.never === true && !noModelBubbles.some((b) => b.id === pairIds[1] && b.typing),
       noProblems: problems.length === 0,
     };
-    Object.assign(result, { checks, target, lent, sentNow, waiting, answered: { ...answered, view: answered.view ? { ...answered.view, bust: undefined } : null }, reader: { open: reader.open, scripts: reader.scripts }, cancelled, afterCancel, problems, seconds: +((Date.now() - started) / 1000).toFixed(1) });
+    Object.assign(result, { checks, pairIds, ambientSent, ambientDone, noModel, target, lent, sentNow, waiting, thinkingBubbles, partial, replied: { ...replied, panel: undefined }, repliedBubbles, second, cancelled, afterCancel, problems, seconds: +((Date.now() - started) / 1000).toFixed(1) });
     await page.close();
     console.log(JSON.stringify(result, null, 2));
     return Object.values(checks).every(Boolean);
@@ -606,7 +643,6 @@ async function debateCheck(name, browser) {
     const street = Array.from({ length: 10 }, (_, i) => ({
       id: `conv-${i}`, seed: (Math.imul(i + 21, 2654435761) >>> 0), female: false, name: `第${i}位`, title: `委托 ${i}`,
       home: ['agora:0', 'agora:1', 'agora:2', 'agora:3', 'agora:4', 'agora:5', 'market', 'agora:0', 'agora:2', 'agora:4'][i], age: 'adult', outcome: 'completed', folders: [], turns: 2,
-      lines: ['那件事已经办完了。'],
     }));
     await send({ type: 'citizens', citizens: { street, elders: [], census: { total: 10, street: 10, indoors: 0, elders: 0 } } });
     await send({ type: 'composer', conversationId: 'c-1', busy: false, queued: false, waiting: false, compressing: false, canSend: true, attachments: [], draft: '写给雅典娜的半句话' });
@@ -751,7 +787,7 @@ async function householdCheck(name, browser) {
     await send({ type: 'city', key: 'ws-1', city });
     const street = Array.from({ length: 3 }, (_, i) => ({
       id: `conv-h${i}`, seed: (Math.imul(i + 41, 2654435761) >>> 0), female: false, name: `整理合同的第${i}位`, title: '整理合同',
-      home: 'b:household:abcd1234', age: 'adult', outcome: 'completed', folders: [], turns: 1, lines: ['那件事已经办完了。'],
+      home: 'b:household:abcd1234', age: 'adult', outcome: 'completed', folders: [], turns: 1,
     }));
     await send({ type: 'citizens', citizens: { street, elders: [], census: { total: 3, street: 3, indoors: 0, elders: 0 } } });
     await page.waitForFunction(() => { const g = window.__polisGame; return g.world.citizens.size === 3 && [...g.world.citizens.values()].every((c) => c.figure && c.plan); }, null, { timeout: 60_000 });

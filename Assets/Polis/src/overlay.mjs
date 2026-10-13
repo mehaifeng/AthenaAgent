@@ -8,6 +8,9 @@
 import { drawBust } from './art/busts.mjs';
 import { drawVoyage, VOYAGE_PALETTES } from './voyage.mjs';
 
+/** 头顶的话最多几行（再多最后一行带省略号）。 */
+export const BUBBLE_LINES = 5;
+
 const FONT = '"PingFang SC", "Hiragino Sans GB", "Noto Sans CJK SC", "Microsoft YaHei", sans-serif';
 const ACCENT = '#b9572f';
 
@@ -126,12 +129,24 @@ export function createOverlay(canvas) {
     ctx.restore();
   }
 
-  function bubble({ text, x, y, alpha }) {
+  /**
+   * 头顶的话：一行放得下就是一行；放不下折成几行（最多 BUBBLE_LINES 行，再多的最后一行带省略号——提示词要一句话不超过 80 字，
+   * 很少用到）。还在想（typing）时字是一串循环的点，气泡宽度按三个点定，点数变了气泡不跳。锚点 (x, y) 是尾巴尖，运动自检逐帧核对它。
+   */
+  function bubble({ text, x, y, alpha, typing = false }) {
     ctx.font = `500 15px ${FONT}`;
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    const w = Math.min(ctx.measureText(text).width + 24, 420);
-    const h = 30;
+    const maxText = 300;
+    let lines = typing ? [String(text ?? '')] : wrap(text, maxText, BUBBLE_LINES + 1);
+    if (lines.length > BUBBLE_LINES) {
+      lines = lines.slice(0, BUBBLE_LINES);
+      lines[BUBBLE_LINES - 1] = `${lines[BUBBLE_LINES - 1].slice(0, -1)}…`;
+    }
+    const widest = typing ? ctx.measureText('···').width : Math.max(...lines.map((l) => ctx.measureText(l).width));
+    const w = Math.min(widest + 24, maxText + 24);
+    const lineH = 21;
+    const h = 30 + (lines.length - 1) * lineH;
     const bx = x - w / 2, by = y - h - 12;
     ctx.globalAlpha = alpha;
     ctx.fillStyle = palette.bubble;
@@ -147,7 +162,7 @@ export function createOverlay(canvas) {
     ctx.closePath();
     ctx.fill();
     ctx.fillStyle = palette.bubbleInk;
-    ctx.fillText(text, x, by + h / 2 + 0.5, w - 16);
+    lines.forEach((line, k) => ctx.fillText(line, x, by + 15 + k * lineH + 0.5, w - 16));
     ctx.globalAlpha = 1;
   }
 
@@ -387,20 +402,8 @@ export function createOverlay(canvas) {
     ctx.font = `400 13px ${FONT}`;
     const textX = x + 22 + bustW, textW = w - bustW - 40;
     const body = [];
-    const strong = new Set();   // 用深色画的行（居民的回答）
     for (const l of view.lines ?? []) body.push(...wrap(l, textW, 4));
     if (view.hint) body.push(...wrap(view.hint, textW, 2));
-    // 问话（M-C）：你问的那句（浅色，最多两行）+ 他的回答（深色，最多 maxLines 行，再长给"读全文"）
-    let truncated = false;
-    if (view.answer) {
-      if (view.answer.question) body.push(...wrap(view.answer.question, textW, 2));
-      const max = view.answer.maxLines ?? 8;
-      const all = wrap(view.answer.text, textW, max + 1);
-      truncated = all.length > max;
-      const shown = all.slice(0, max);
-      if (truncated && shown.length) shown[shown.length - 1] = `${shown[shown.length - 1].slice(0, -1)}…`;
-      for (const line of shown) { strong.add(body.length); body.push(line); }
-    }
     // 每一行条目：左边一段折好的字，右边一个按钮
     const rowButtonW = view.type === 'board' ? 110 : 100;
     const rowTextW = textW - rowButtonW - 14;
@@ -424,7 +427,7 @@ export function createOverlay(canvas) {
     };
     text(view.title, textX, y + 16, textW, `600 15px ${FONT}`, palette.ink);
     let ly = y + 44;
-    for (const [i, l] of body.entries()) { text(l, textX, ly, textW, `400 13px ${FONT}`, strong.has(i) ? palette.ink : palette.inkSoft); ly += 20; }
+    for (const l of body) { text(l, textX, ly, textW, `400 13px ${FONT}`, palette.inkSoft); ly += 20; }
     if (view.type === 'venue') {
       text(view.stored.length ? view.storedTitle : view.empty, textX, ly + 6, textW, `600 13px ${FONT}`, palette.ink);
       ly += 30;
@@ -439,10 +442,9 @@ export function createOverlay(canvas) {
     const by = y + h - 44;
     let bx = textX;
     if (view.type === 'resident') bx += button(view.tryLabel, bx, by, 'resident-try') + 8;
-    // 居民即会话（M-B）：问他那件事（M-C，对话栏借给他）、回答太长时读全文、去看他那份委托（走会话树的同一条路径）
+    // 居民即会话（M-B）：聊几句（对话栏借给他，他的话在他头顶）、看看那场会话、去看他那份委托（走会话树的同一条路径）
     if (view.type === 'citizen') {
-      if (view.askable) bx += button(view.answer ? ui.citizenAskAgain : ui.citizenAsk, bx, by, 'citizen-ask', { minWidth: 100 }) + 8;
-      if (truncated) bx += button(ui.citizenRead, bx, by, 'citizen-read') + 8;
+      if (view.askable) bx += button(ui.citizenChat, bx, by, 'citizen-chat', { minWidth: 90 }) + 8;
       bx += button(ui.citizenTranscript, bx, by, 'citizen-transcript', { minWidth: 100 }) + 8;
       bx += button(ui.citizenOpen, bx, by, 'citizen-open', { minWidth: 110 }) + 8;
     }

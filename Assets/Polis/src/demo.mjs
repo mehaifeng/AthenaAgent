@@ -80,18 +80,17 @@ export function demoCitizens(fixture, n = 24) {
     const title = titles[i % titles.length];
     const folder = keys.length && i % 3 !== 2 ? keys[i % keys.length] : null;
     const isFemale = (seed & 1) === 1;
-    const name = `${title}的${(isFemale ? female : male)[(seed >>> 8) % 8]}`;
+    const name = (isFemale ? female : male)[(seed >>> 8) % 8];
     street.push({
       id: `demo-citizen-${i}`, seed, female: isFemale, name, title,
       home: folder ? `b:${folder}` : publicHomes[(seed >>> 4) % publicHomes.length],
       age: ages[i % ages.length], outcome: i % 5 === 3 ? 'interrupted' : 'completed',
       folders: folder ? [folder] : [], turns: 1 + (i % 6),
-      lines: [i % 5 === 3 ? '那件事做到一半停下了。' : '那件事已经办完了。', folder ? `我常去「${folder}」那边。` : `前前后后谈了 ${2 + (i % 5)} 次。`, `那是 ${1 + i * 3} 天前的事了。`],
     });
   }
   const elders = [
-    { id: 'demo-elder-0', name: '旧账的赫蒙', home: keys[0] ? `b:${keys[0]}` : 'agora:0' },
-    { id: 'demo-elder-1', name: '老照片的米尔托', home: keys[0] ? `b:${keys[0]}` : 'agora:0' },
+    { id: 'demo-elder-0', name: '赫蒙', home: keys[0] ? `b:${keys[0]}` : 'agora:0' },
+    { id: 'demo-elder-1', name: '米尔托', home: keys[0] ? `b:${keys[0]}` : 'agora:0' },
   ];
   return { street, elders, census: { total: count + 9, street: count, indoors: 7, elders: elders.length } };
 }

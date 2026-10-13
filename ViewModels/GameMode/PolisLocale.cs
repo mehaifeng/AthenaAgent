@@ -102,18 +102,14 @@ public static class PolisLocale
         ("interactStele", "Polis.Ui.InteractStele", "读碑上的名字"),
         ("steleTitle", "Polis.Ui.SteleTitle", "老居民"),
         ("steleBody", "Polis.Ui.SteleBody", "一年多没出门的居民，名字刻在这里："),
-        // M-C（2026-10-13）：问话
-        ("citizenAsk", "Polis.Ui.CitizenAsk", "问他那件事"),
-        ("citizenAskAgain", "Polis.Ui.CitizenAskAgain", "再问一句"),
-        ("citizenRead", "Polis.Ui.CitizenRead", "读全文"),
-        ("askYou", "Polis.Ui.AskYou", "你问："),
-        ("askStatus", "Polis.Ui.AskStatus", "问他那场会话里的事"),
-        ("askPlaceholder", "Polis.Ui.AskPlaceholder", "问{name}那件事……"),
-        ("askWaiting", "Polis.Ui.AskWaiting", "{name}在想……"),
-        ("askSend", "Polis.Ui.AskSend", "问"),
-        ("askHint", "Polis.Ui.AskHint", "Enter 问 · Esc 不问了"),
+        // 和一位居民聊天（2026-10-13，原来 M-C 的问话）
+        ("citizenChat", "Polis.Ui.CitizenChat", "聊几句"),
+        ("chatStatus", "Polis.Ui.ChatStatus", "和{name}聊天"),
+        ("chatPlaceholder", "Polis.Ui.ChatPlaceholder", "对{name}说……"),
+        ("chatWaiting", "Polis.Ui.ChatWaiting", "{name}在想……"),
+        ("chatSend", "Polis.Ui.ChatSend", "说"),
+        ("chatHint", "Polis.Ui.ChatHint", "Enter 说 · Esc 告辞"),
         ("askTimeout", "Polis.Ui.AskTimeout", "他想了想，没说出来。"),
-        ("askReaderTitle", "Polis.Ui.AskReaderTitle", "{name}说"),
         // 居民卡片上那场会话的信息与预览（2026-10-13）
         ("citizenTranscript", "Polis.Ui.CitizenTranscript", "看看那场会话"),
         ("citizenInfoCommission", "Polis.Ui.CitizenInfoCommission", "委托：{title}"),
@@ -184,8 +180,8 @@ public static class PolisLocale
     };
 
     /// <summary>
-    /// 居民（M-B，2026-10-13）：希腊名表（男女各一份，各 PolisCitizens.NamesPerSex 个，中英一一对应）、重名时的序号拼法（C# 用来起名字），跟你打招呼的话与两个人碰上时的闲聊
-    /// （页面挑；每条闲聊是"甲说|乙答"一对）。他自己的那几句（办到哪一步、常去哪儿）在 C# 里按事实填好，见 <see cref="Services.GameMode.PolisCitizens.LineFallbacks"/>。
+    /// 居民（M-B，2026-10-13）：希腊名表（男女各一份，各 PolisCitizens.NamesPerSex 个，中英一一对应）、重名时的序号拼法（C# 用来起名字），跟你打招呼的话（页面挑）。
+    /// 两位居民碰上时的闲聊 2026-10-13 起只用模型（<see cref="Services.GameMode.PolisTalk.BuildAmbientLine"/>），没有本地台词。
     /// </summary>
     public static IReadOnlyList<(string JsKey, string Key, string Fallback)> Citizen { get; } = new[]
     {
@@ -196,15 +192,6 @@ public static class PolisLocale
         // M-D：户名（{0} 是立户那一位的名字）
         ("householdName", "Polis.Household.NamePattern", "{0}一家"),
         ("greet", "Polis.Citizen.Greet", "你好呀。|日安。|又见面了。|今天天气不错。|你也出来走走？"),
-        ("chat.wind", "Polis.Citizen.Chat.Wind", "今天海上风大。|是啊，船都早早靠了岸。"),
-        ("chat.olives", "Polis.Citizen.Chat.Olives", "林子里的橄榄又多了几棵。|一件事一棵，日子就这么长起来了。"),
-        ("chat.harbor", "Polis.Citizen.Chat.Harbor", "港口那条船又出海了。|水手说外头的消息多着呢。"),
-        ("chat.market", "Polis.Citizen.Chat.Market", "市集上今天人多。|摊子都摆到街口了。"),
-        ("chat.athena", "Polis.Citizen.Chat.Athena", "你见过雅典娜走路吗？|见过，她走得可快了。"),
-        ("chat.ivy", "Polis.Citizen.Chat.Ivy", "那边的老房子爬满了常春藤。|好久没人进去过了。"),
-        ("chat.temple", "Polis.Citizen.Chat.Temple", "神庙的台阶真白。|早上去最好，人少。"),
-        ("chat.sun", "Polis.Citizen.Chat.Sun", "太阳晒得石头都暖了。|坐一会儿再走吧。"),
-        ("chat.night", "Polis.Citizen.Chat.Night", "夜里城里真安静。|窗子里的灯都亮起来了。"),
     };
 
     public static IReadOnlyList<(string JsKey, string Key, string Fallback)> Places { get; } = new[]
@@ -335,7 +322,6 @@ public static class PolisLocale
         .Concat(Citizen.Select(c => c.Key))
         .Concat(CitizenAsk.Select(c => c.Key))
         .Concat(Debate.Select(d => d.Key))
-        .Concat(Services.GameMode.PolisCitizens.LineFallbacks.Keys)
         .Distinct(StringComparer.Ordinal);
 
     /// <summary>按当前语言组装给页面的 <c>init</c> 表。</summary>

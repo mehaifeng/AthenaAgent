@@ -10,12 +10,9 @@ namespace Athena.UI.Services.GameMode;
 /// <summary>那场会话里的一段话：谁说的、什么时候、说了什么（太长的只留头尾）。</summary>
 public sealed record PolisCitizenExcerpt(int Index, string Role, DateTime Timestamp, string Text);
 
-/// <summary>问一位居民的那一次调用要发的两段话。</summary>
-public sealed record PolisCitizenPrompt(string System, string User);
-
 /// <summary>
-/// 问话（M-C，2026-10-13）：走到一位居民跟前，问他那场会话的事——他只凭那场会话里的几段话回答。纯函数，
-/// <c>Athena.Archive.Tests</c> 的 <c>polis citizen answers</c> 覆盖。
+/// 一位居民记得的事（M-C 起；2026-10-13 起是 <see cref="PolisTalk"/> 提示词里"你记得的"那一段）：你和他说话时，
+/// 按你这一句从他那场会话里挑几段。纯函数，<c>Athena.Archive.Tests</c> 的 <c>polis citizen answers</c> 覆盖。
 ///
 /// 规则：
 /// 1. 只取那一场会话里你看得见的话：用户与雅典娜的气泡（隐藏的工具调用载体、工具结果、系统消息都不要）。
@@ -23,7 +20,7 @@ public sealed record PolisCitizenPrompt(string System, string User);
 /// 2. 按问题挑：问题拆成词（汉字两两一组、拉丁词、数字），一段话里出现的词越多越先挑，同样多挑新的；
 ///    第一句请求和最后一句回答永远在候选里（问"办成了吗"这种不带关键词的问题，靠它们答）。最多 8 段、总共 ≤ 6000 字，
 ///    太长的一段只留头尾各 400 字。挑出来按原来的先后排。
-/// 3. 提示词要他只凭这些片段答，一到三句，用提问的语言；片段里没有的就说不记得——不编。
+/// 3. 提示词（<see cref="PolisTalk.BuildChat"/>）要他说到那件事时只凭这些片段，片段里没有的就说记不清——不编。
 /// </summary>
 public static class PolisCitizenAnswers
 {
@@ -31,8 +28,6 @@ public static class PolisCitizenAnswers
     public const int MaxExcerpts = 8;
     /// <summary>一段话太长时头尾各留多少字。</summary>
     public const int KeepEachEnd = 400;
-    /// <summary>问题去掉首尾空白后最多多少字（页面的输入框同一个上限）。</summary>
-    public const int MaxQuestionChars = 300;
 
     /// <summary>一条消息在气泡里看得见的正文：用户消息是它的内容；雅典娜的回答是正文段（没有段的旧消息用内容）。</summary>
     public static string VisibleText(ChatMessage message)
@@ -142,49 +137,6 @@ public static class PolisCitizenAnswers
         if (char.IsLowSurrogate(tail[0])) tail = tail[1..];
         var omitted = text.Length - head.Length - tail.Length;
         return $"{head} … [{omitted.ToString(CultureInfo.InvariantCulture)} chars omitted] … {tail}";
-    }
-
-    /// <summary>
-    /// 规则 3：系统提示（他是谁、只凭片段、一到三句、不记得就说不记得）与用户提示（片段 + 问题）。
-    /// <paramref name="language"/> 是界面语言（zh-CN / en-US），只决定提示词本身用哪种语言；回答用提问的语言。
-    /// </summary>
-    public static PolisCitizenPrompt BuildPrompt(
-        string citizenName,
-        string title,
-        DateTimeOffset startedAt,
-        IReadOnlyList<string> folders,
-        IReadOnlyList<PolisCitizenExcerpt> excerpts,
-        string question,
-        string language)
-    {
-        ArgumentNullException.ThrowIfNull(excerpts);
-        ArgumentNullException.ThrowIfNull(folders);
-        var chinese = language.StartsWith("zh", StringComparison.OrdinalIgnoreCase);
-        var date = startedAt.ToLocalTime().ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
-        var where = folders.Count == 0 ? null : string.Join(chinese ? "、" : ", ", folders);
-        var system = chinese
-            ? $"你是古希腊城邦里的一位居民，名叫「{citizenName}」。你是用户和 AI 助手雅典娜的一场对话化成的人"
-              + $"（那场对话的标题是「{title}」，{date} 开始{(where == null ? string.Empty : $"，常在「{where}」一带")}），只记得那场对话里的事。"
-              + "下面给你那场对话里的几段话。只凭这几段话回答用户的提问：一到三句，口语，像在街上被人叫住时那样说；用提问者用的语言回答。"
-              + "这几段话里没有的，就说你不记得了，不要编，不要猜。不要提「片段」「摘录」「对话记录」这些词，不要用 Markdown，不要列表。"
-            : $"You are a citizen of an ancient Greek polis named \"{citizenName}\". You are a conversation between the user and the AI assistant Athena, "
-              + $"turned into a person (its title is \"{title}\", it began on {date}{(where == null ? string.Empty : $", mostly around \"{where}\"")}), and you remember only that conversation. "
-              + "Below are a few passages from it. Answer the user's question from these passages alone: one to three plain spoken sentences, as if stopped in the street; "
-              + "answer in the language the question is asked in. If the passages do not say, say you do not remember - never invent or guess. "
-              + "Do not mention passages, excerpts or transcripts; no Markdown, no lists.";
-        var user = new StringBuilder();
-        user.AppendLine(chinese ? "那场对话里的几段话：" : "Passages from the conversation:");
-        if (excerpts.Count == 0) user.AppendLine(chinese ? "（没有）" : "(none)");
-        for (var i = 0; i < excerpts.Count; i++)
-        {
-            var e = excerpts[i];
-            var who = e.Role == "user" ? (chinese ? "用户" : "User") : (chinese ? "雅典娜" : "Athena");
-            user.Append(CultureInfo.InvariantCulture, $"[{i + 1}] {who}（{e.Timestamp.ToString("MM-dd HH:mm", CultureInfo.InvariantCulture)}）：");
-            user.AppendLine(e.Text);
-        }
-        user.AppendLine();
-        user.Append(chinese ? "提问：" : "Question: ").Append(question.Trim());
-        return new PolisCitizenPrompt(system, user.ToString());
     }
 
     /// <summary>

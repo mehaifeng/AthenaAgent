@@ -7,15 +7,15 @@
 // stop-turn（请她停下），都带着这份委托的 Id，C# 只认此刻显示的那一份（PolisIntents）。整块界面的文字都用 textContent，
 // 输入框的内容只经 .value 读写——没有任何 HTML 拼接（12.4）。
 //
-// 借用（M-C 问话、M-E 辩论）：这条栏可以借出去——问一位居民（左边换成他的半身像，Enter 发 ask-citizen）、在讲台前辩论
-// （先提议题发 debate-start，再一轮轮发 debate-say）。借出去的时候 Enter 发的是那一种意图，不是 say：问话和辩论都不进任何会话、
-// 不替你对雅典娜托付一个字。借用期间你写给雅典娜的草稿原样收着、不同步，Esc（不问了 / 不辩了）或者事情办完就还回去。
+// 借用（和居民聊天、M-E 辩论）：这条栏可以借出去——和一位居民聊几句（左边换成他的半身像，Enter 发 chat；他答完栏回到"你在写"，
+// 可以接着说，Esc 告辞）、在讲台前辩论（先提议题发 debate-start，再一轮轮发 debate-say）。借出去的时候 Enter 发的是那一种意图，
+// 不是 say：聊天和辩论都不进任何会话、不替你对雅典娜托付一个字。借用期间你写给雅典娜的草稿原样收着、不同步，Esc 或者事情办完就还回去。
 import { drawBust } from './art/busts.mjs';
 
 /** 一次托付最多多少字（与 C# 的 PolisIntents.MaxSayChars 一致；超过的输入框本身就打不进去）。 */
 export const MAX_SAY_CHARS = 16000;
-/** 一个问题最多多少字（与 C# 的 PolisCitizenAnswers.MaxQuestionChars 一致）。 */
-export const MAX_QUESTION_CHARS = 300;
+/** 对一位居民说的一句话最多多少字（与 C# 的 PolisTalk.MaxLineChars 一致）。 */
+export const MAX_LINE_CHARS = 300;
 /** 辩论的议题与一轮论点最多多少字（与 C# 的 PolisDebate.MaxMotionChars / MaxArgumentChars 一致）。 */
 export const MAX_MOTION_CHARS = 200;
 export const MAX_ARGUMENT_CHARS = 600;
@@ -55,7 +55,7 @@ export function talkView(state, draft, ui, open = false) {
 }
 
 /**
- * 借出去的栏这一刻显示什么（纯逻辑，Node 单测）。mode：'lent' 在写、'waiting' 发出去了在等。lent 是 askLend / debateLend 给的那一份。
+ * 借出去的栏这一刻显示什么（纯逻辑，Node 单测）。mode：'lent' 在写、'waiting' 发出去了在等。lent 是 chatLend / debateLend 给的那一份。
  */
 export function lentView(mode, lent, text) {
   const t = String(text ?? '').trim();
@@ -71,15 +71,15 @@ export function lentView(mode, lent, text) {
   };
 }
 
-/** 借给一位居民问话（M-C）：他的半身像与名字，Enter 发 ask-citizen。 */
-export function askLend(target, ui) {
+/** 借给一位居民聊天：他的半身像与名字，Enter 发 chat（who 是他的会话 Id）；他答完了栏回到"你在写"（resumeLent）。 */
+export function chatLend(target, ui) {
   const name = String(target?.name ?? '');
   const id = target?.conversationId ? String(target.conversationId) : null;
   return {
-    kind: 'ask', waitingKind: 'asking', id, name, bust: target?.bust ?? null,
-    status: ui.askStatus ?? '', waitingStatus: fill(ui.askWaiting, { name }), placeholder: fill(ui.askPlaceholder, { name }),
-    sendLabel: ui.askSend ?? '', hint: ui.askHint ?? '', maxChars: MAX_QUESTION_CHARS,
-    intent: (text) => ['ask-citizen', { conversationId: id, question: text }],
+    kind: 'chat', waitingKind: 'chatting', id, name, bust: target?.bust ?? null,
+    status: fill(ui.chatStatus, { name }), waitingStatus: fill(ui.chatWaiting, { name }), placeholder: fill(ui.chatPlaceholder, { name }),
+    sendLabel: ui.chatSend ?? '', hint: ui.chatHint ?? '', maxChars: MAX_LINE_CHARS,
+    intent: (text) => ['chat', { who: id, text }],
   };
 }
 
@@ -96,9 +96,9 @@ export function debateLend({ stage, round = 1, rounds = 3, motion = '', id = 'de
   };
 }
 
-/** 问话时这条栏显示什么（M-C 的说法，保留给测试）：mode 'ask' 在写问题、'asking' 问出去了在等他答。 */
-export function askView(mode, target, question, ui) {
-  return lentView(mode === 'asking' ? 'waiting' : mode === 'ask' ? 'lent' : mode, askLend(target, ui), question);
+/** 聊天时这条栏显示什么（测试用）：mode 'chat' 在写、'chatting' 说出去了在等他答。 */
+export function chatView(mode, target, text, ui) {
+  return lentView(mode === 'chatting' ? 'waiting' : mode === 'chat' ? 'lent' : mode, chatLend(target, ui), text);
 }
 
 /**
@@ -128,7 +128,7 @@ export function createTalk(root, { send, onOpen = null, onLent = null }) {
   let lastDraft = null;      // 最近一次同步给 C# 的草稿（相同的不再发）
   let drawn = '';
   let mode = 'talk';         // 'talk' 和雅典娜说话；'lent' 借出去了（在写）；'waiting' 发出去了，在等
-  let lent = null;           // askLend / debateLend 给的那一份
+  let lent = null;           // chatLend / debateLend 给的那一份
   let savedDraft = '';       // 借出去期间收着的、你写给雅典娜的草稿
   let focusWhenShown = false;
 
@@ -252,7 +252,18 @@ export function createTalk(root, { send, onOpen = null, onLent = null }) {
     if (cancelled && was) onLent?.('cancel', { kind: was.kind, id: was.id });
   }
 
-  /** 发出去：只发借用者那一种意图（ask-citizen / debate-start / debate-say），然后等。 */
+  /** 他答完了（聊天）：栏回到"你在写"，输入框聚焦，接着说。不是在等的时候什么也不做。 */
+  function resumeLent() {
+    if (mode !== 'waiting') return false;
+    mode = 'lent';
+    input.disabled = false;
+    render();
+    if (suppressed) focusWhenShown = true;
+    else input.focus();
+    return true;
+  }
+
+  /** 发出去：只发借用者那一种意图（chat / debate-start / debate-say），然后等。 */
   function submitLent() {
     const text = input.value.trim();
     if (!lentView(mode, lent, text).canSend) return false;
@@ -343,8 +354,8 @@ export function createTalk(root, { send, onOpen = null, onLent = null }) {
   // 焦点离开整条对话栏（点回城里、点了别的窗口）：草稿立刻同步，栏收成一行；正在写问题时就是不问了
   root.addEventListener('focusout', (e) => {
     if (e.relatedTarget && root.contains(e.relatedTarget)) return;
-    // 问话写到一半点回城里：就是不问了。辩论不这样——你会转头看一眼陪审团，焦点回来还接着辩
-    if (mode === 'lent' && lent?.kind === 'ask') { endLent(true); return; }
+    // 聊天时点回城里（去走动了）：就是告辞了。辩论不这样——你会转头看一眼陪审团，焦点回来还接着辩
+    if (mode === 'lent' && lent?.kind === 'chat') { endLent(true); return; }
     // 借出去时（尤其发出去之后输入框停用、焦点自己掉了）：栏留着展开，状态行写着在等什么
     if (mode !== 'talk') return;
     flushDraft();
@@ -385,7 +396,7 @@ export function createTalk(root, { send, onOpen = null, onLent = null }) {
         autosize();
       }
       available = !!state.conversationId;
-      // 预填（委托板、居民的示范、退回）要的是和雅典娜说话：正在写的问题让位
+      // 预填（委托板、居民的示范、退回）要的是和雅典娜说话：正在聊的那一位让位
       if (message.open && mode !== 'talk') endLent(true);
       render();
       if (message.open) openTalk({ focus: true });
@@ -394,14 +405,15 @@ export function createTalk(root, { send, onOpen = null, onLent = null }) {
     close,
     submit,
     flushDraft,
-    /** 借给一位居民问话（M-C）。 */
-    openAsk: (target) => lend(askLend(target, ui)),
+    /** 借给一位居民聊天。 */
+    openChat: (target) => lend(chatLend(target, ui)),
+    /** 他答完了：回到"你在写"。 */
+    resumeLent,
     /** 借给讲台前的辩论（M-E）：{ stage: 'motion' | 'argue', round, rounds, motion, id }。 */
     openDebate: (options) => lend(debateLend(options, ui)),
-    /** 事情办完（回答到了、辩论进了裁决、等太久了）：还回来。 */
+    /** 事情办完（辩论进了裁决、换了城）：还回来。 */
     endLent: () => endLent(false),
-    endAsk: () => endLent(false),
-    /** 'talk'，或者借出去时借用者的说法：'ask' / 'asking'、'debate' / 'debating'。 */
+    /** 'talk'，或者借出去时借用者的说法：'chat' / 'chatting'、'debate' / 'debating'。 */
     get mode() { return mode === 'talk' ? 'talk' : mode === 'lent' ? lent.kind : lent.waitingKind; },
     get lentTo() { return lent ? { kind: lent.kind, id: lent.id } : null; },
     setTables(table) { ui = { ...table }; drawn = ''; render(); },
@@ -419,7 +431,7 @@ export function createTalk(root, { send, onOpen = null, onLent = null }) {
     set value(text) { input.value = String(text ?? ''); autosize(); render(); scheduleDraft(); },
     get state() {
       const exposed = mode === 'talk' ? 'talk' : mode === 'lent' ? lent.kind : lent.waitingKind;
-      return { ...state, open, suppressed, available, mode: exposed, asking: lent?.kind === 'ask' ? lent.id : null, lentTo: lent?.kind ?? null };
+      return { ...state, open, suppressed, available, mode: exposed, chatting: lent?.kind === 'chat' ? lent.id : null, lentTo: lent?.kind ?? null };
     },
   };
 }

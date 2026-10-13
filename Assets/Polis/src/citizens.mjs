@@ -10,8 +10,9 @@
 //   3. 分档：离你最近的 tierA 位全套（布料、弹簧骨），画面里其余的只摆姿势、布料停着，画面外的不摆也不画。
 //      进出 A 档有 1 米的滞回，不在边界上来回跳。
 //   4. 闲聊：两位都闲着、相距 chatRadius 以内、都在画面里、离你 chatPlayerRadius 以内、这一对 chatPairCooldownMs 里没说过——
-//      全城同时只有一组在说，一人一句，每句 chatLineMs；两人在这段时间里都不会动身（挑的时候就算好了）。
-//      三分之二是闲聊（风、橄榄、港口……），三分之一各说一句自己那件事（C# 填好的，正文永远不进台词）。
+//      全城同时只有一组在说，一人一句。2026-10-13 起（用户：NPC 之间的对话只用模型，不预置台词）这里只挑人：说什么由 C# 的模型定
+//      （ambient-chat），先开口的那位头顶一串循环的点、然后流式出字，另一位接一句；他们说着话时站定（日程钟停下，规则 5），
+//      一对最多 chatMaxMs，说完就散。
 //   5. 站定不吃日程（2026-10-13，用户：走着的人被叫住，Esc 之后他会飞快地"滑"到本该走到的地方）：被叫住、当陪审团的那段时间
 //      从他自己的日程钟里扣掉（scheduleClock / holdSchedule / resumeSchedule），松开后从站定的那一刻接着走。
 
@@ -35,7 +36,9 @@ export const TOWN = Object.freeze({
   chatRadius: 2.5,
   chatPlayerRadius: 15,
   chatPairCooldownMs: 180_000,
-  chatLineMs: 2600,
+  chatLineMs: 2600,      // 打招呼那一句留多久
+  chatNeedMs: 8000,      // 挑的时候两人都还要再闲着这么久（说着话时日程钟停着，这只是别挑正要动身的人）
+  chatMaxMs: 60_000,     // 一对最多聊这么久：C# 那边卡住了也散（两句各 25 秒超时）
   greetRadius: 2.5,
   greetCooldownMs: 120_000,
   labelRadius: 6,
@@ -260,12 +263,11 @@ export function assignTiers(list, current = new Map(), { tierA = TOWN.tierA, rad
 }
 
 /**
- * 挑一对来聊天（规则 4）。candidates：[{ id, x, z, idleLeft, inView, seed, lines }]（只放此刻闲着的）；player：{x, z}；
- * cooldown：Map pairKey → 上次说话的时刻；wall：此刻。返回 { a, b, key, start, lines: [la, lb] } 或 null。
+ * 挑一对来聊天（规则 4）。candidates：[{ id, x, z, idleLeft, inView }]（只放此刻闲着的）；player：{x, z}；
+ * cooldown：Map pairKey → 上次说话的时刻；wall：此刻。返回 { a, b, key, start }（a 先开口）或 null。说什么由 C# 的模型定。
  */
-export function pickChat(candidates, player, cooldown, wall, chat, { night = false } = {}) {
-  const need = 2 * TOWN.chatLineMs + 500;
-  const ok = candidates.filter((c) => c.inView && c.idleLeft >= need && Math.hypot(c.x - player.x, c.z - player.z) <= TOWN.chatPlayerRadius);
+export function pickChat(candidates, player, cooldown, wall) {
+  const ok = candidates.filter((c) => c.inView && c.idleLeft >= TOWN.chatNeedMs && Math.hypot(c.x - player.x, c.z - player.z) <= TOWN.chatPlayerRadius);
   let best = null;
   for (let i = 0; i < ok.length; i++) for (let j = i + 1; j < ok.length; j++) {
     const a = ok[i], b = ok[j];
@@ -278,29 +280,21 @@ export function pickChat(candidates, player, cooldown, wall, chat, { night = fal
   }
   if (!best) return null;
   const [first, second] = best.a.id < best.b.id ? [best.a, best.b] : [best.b, best.a];
-  return { a: first.id, b: second.id, key: best.key, start: wall, lines: chatLines(first, second, wall, chat, night) };
+  return { a: first.id, b: second.id, key: best.key, start: wall };
 }
 
-/** 这一对说哪两句：三分之二闲聊（chat 表里"甲说|乙答"的一对，夜里有夜里的那一对），三分之一各说一句自己那件事。 */
-export function chatLines(a, b, wall, chat, night = false) {
-  const r = seeded((a.seed ^ (b.seed * 31)) + Math.floor(wall / TOWN.chatPairCooldownMs));
-  const own = r() < 1 / 3 && (a.lines?.length ?? 0) > 0 && (b.lines?.length ?? 0) > 0;
-  if (own) return [a.lines[Math.floor(r() * a.lines.length)], b.lines[Math.floor(r() * b.lines.length)]];
-  const keys = Object.keys(chat ?? {}).filter((k) => k.startsWith('chat.') && (night || k !== 'chat.night'));
-  const pick = night && chat['chat.night'] && r() < 0.5 ? 'chat.night' : keys[Math.floor(r() * keys.length)];
-  const pair = String(chat?.[pick] ?? '').split('|').map((s) => s.trim()).filter(Boolean);
-  return pair.length >= 2 ? [pair[0], pair[1]] : [a.lines?.[0] ?? '', b.lines?.[0] ?? ''];
-}
-
-/** 聊天进行到哪一句了：返回 { speaker, text, alpha } 或 null（说完了）。 */
-export function chatLineAt(talk, wall) {
-  if (!talk) return null;
-  const t = wall - talk.start;
-  const k = Math.floor(t / TOWN.chatLineMs);
-  if (t < 0 || k > 1) return null;
-  const local = t - k * TOWN.chatLineMs;
-  const alpha = Math.min(1, local / 150, (TOWN.chatLineMs - local) / 300);
-  return { speaker: k === 0 ? talk.a : talk.b, listener: k === 0 ? talk.b : talk.a, text: talk.lines[k], alpha: Math.max(0, alpha) };
+/**
+ * C# 说闲聊结束了（ambient-end）之后，多久再挑下一对：没配模型——这座城里不再挑（没有本地台词可退）；超限——五分钟；
+ * 正忙、失败——半分钟、一分钟；说完了（ok）——照常（半秒后再看，同一对有三分钟的冷却）。返回下一次挑的时刻，Infinity 是不再挑。
+ */
+export function nextChatAfter(status, wall) {
+  switch (status) {
+    case 'nomodel': return Number.POSITIVE_INFINITY;
+    case 'limited': return wall + 5 * 60_000;
+    case 'busy': return wall + 30_000;
+    case 'failed': return wall + 60_000;
+    default: return wall + 500;
+  }
 }
 
 /** 跟你打招呼的那一句（按种子挑一种说法）。 */

@@ -20,7 +20,7 @@ import {
   VIEW, VIEW_MODES, RUN_FACTOR, MOVE_KEYS, nextView, moveDirection, slide, orbitAngles, deadZoneShift, turnToward, isTypingTarget,
 } from './controls.mjs';
 import { createAthena, stepProgress } from './athena.mjs';
-import { planCitizen, citizenAt, newScheduleClock, scheduleClock, holdSchedule, resumeSchedule, separate, assignTiers, pickChat, chatLineAt, greetLine, TOWN } from './citizens.mjs';
+import { planCitizen, citizenAt, newScheduleClock, scheduleClock, holdSchedule, resumeSchedule, separate, assignTiers, pickChat, nextChatAfter, greetLine, TOWN } from './citizens.mjs';
 import { debateStage, assignAudience, supportersCount, bubbleExcerpt, DEBATE } from './debate.mjs';
 import { createRenderer } from './render.mjs';
 import { createOverlay } from './overlay.mjs';
@@ -145,18 +145,14 @@ export const UI_ZH = Object.freeze({
   interactStele: '读碑上的名字',
   steleTitle: '老居民',
   steleBody: '一年多没出门的居民，名字刻在这里：',
-  // 问话（M-C）
-  citizenAsk: '问他那件事',
-  citizenAskAgain: '再问一句',
-  citizenRead: '读全文',
-  askYou: '你问：',
-  askStatus: '问他那场会话里的事',
-  askPlaceholder: '问{name}那件事……',
-  askWaiting: '{name}在想……',
-  askSend: '问',
-  askHint: 'Enter 问 · Esc 不问了',
+  // 和一位居民聊天（2026-10-13，原来 M-C 的问话：他的话出现在他头顶）
+  citizenChat: '聊几句',
+  chatStatus: '和{name}聊天',
+  chatPlaceholder: '对{name}说……',
+  chatWaiting: '{name}在想……',
+  chatSend: '说',
+  chatHint: 'Enter 说 · Esc 告辞',
   askTimeout: '他想了想，没说出来。',
-  askReaderTitle: '{name}说',
   // 居民卡片上那场会话的信息与预览（2026-10-13）
   citizenTranscript: '看看那场会话',
   citizenInfoCommission: '委托：{title}',
@@ -202,12 +198,28 @@ export const UI_ZH = Object.freeze({
   householdFounded: '「{name}」在城里安了家。',
 });
 
-/** 问出去之后最多等多久（C# 那边一次调用 20 秒就放弃；多留 5 秒给排队和回传）。 */
-export const ASK_TIMEOUT_MS = 25_000;
-/** 他的回答在卡片上留多久：这么久之内再走过去按 E，卡片上还是这一问一答。 */
-export const ANSWER_KEEP_MS = 10 * 60_000;
-/** 卡片上的回答最多几行（再长给"读全文"）。 */
-export const ANSWER_LINES = 8;
+/** 说出去之后最多等多久（C# 那边一次调用 25 秒就放弃；多留 5 秒给排队和回传）。 */
+export const ASK_TIMEOUT_MS = 30_000;
+
+/**
+ * 头顶的话留多久（2026-10-13：居民的回答出现在他头顶的气泡里，不在卡片上）：说完之后 4 秒，再按字数每字加 90 毫秒，最后 400 毫秒淡出。
+ * 你还在和他聊（对话栏借给了他）时，他最近的那一句一直留着，直到下一句。
+ */
+export const SPEECH = Object.freeze({ holdMs: 4000, perCharMs: 90, fadeMs: 400, dotMs: 360 });
+
+/** 一句话此刻的透明度：还在想、还在说（流式）是 1；说完之后按 SPEECH 留一阵再淡出。keep 为真时一直留着。 */
+export function speechAlpha(saying, now, keep = false) {
+  if (!saying) return 0;
+  if (saying.typing || saying.doneAt == null || keep) return 1;
+  const hold = SPEECH.holdMs + SPEECH.perCharMs * [...String(saying.text ?? '')].length;
+  const left = saying.doneAt + hold - now;
+  return Math.max(0, Math.min(1, left / SPEECH.fadeMs));
+}
+
+/** 还在想的那一会儿，气泡里是一串循环的点（"·" "··" "···"）。 */
+export function thinkingDots(now) {
+  return '·'.repeat(1 + (Math.floor(now / SPEECH.dotMs) % 3));
+}
 
 /** 居民打招呼与闲聊的话（"|" 分隔；闲聊是"甲说|乙答"一对）。实时模式下由 C# 按界面语言覆盖（Polis.Citizen.*）。 */
 const fillText = (template, vars) => String(template ?? '').replace(/\{(\w+)\}/g, (_, k) => vars[k] ?? '');
@@ -237,17 +249,9 @@ export function transcriptMarkdown(m, ui) {
   return parts.join('\n\n');
 }
 
+/** 居民对你打招呼的话（本地的；两位居民之间的闲聊 2026-10-13 起只用模型，没有本地台词）。 */
 export const CITIZEN_ZH = Object.freeze({
   greet: '你好呀。|日安。|又见面了。|今天天气不错。|你也出来走走？',
-  'chat.wind': '今天海上风大。|是啊，船都早早靠了岸。',
-  'chat.olives': '林子里的橄榄又多了几棵。|一件事一棵，日子就这么长起来了。',
-  'chat.harbor': '港口那条船又出海了。|水手说外头的消息多着呢。',
-  'chat.market': '市集上今天人多。|摊子都摆到街口了。',
-  'chat.athena': '你见过雅典娜走路吗？|见过，她走得可快了。',
-  'chat.ivy': '那边的老房子爬满了常春藤。|好久没人进去过了。',
-  'chat.temple': '神庙的台阶真白。|早上去最好，人少。',
-  'chat.sun': '太阳晒得石头都暖了。|坐一会儿再走吧。',
-  'chat.night': '夜里城里真安静。|窗子里的灯都亮起来了。',
 });
 
 /**
@@ -263,7 +267,7 @@ export const CITIZEN_ZH = Object.freeze({
  * @param {string} [options.defaultView] 缺省视角：自由（你是主角）
  * @param {() => boolean} [options.talkOpen] 对话栏此刻是不是展开着（M3：你站着和她说话、她听着；托付之后你比划两秒）
  */
-export function createGame({ params, status, send, onTalk = null, onUiBlocked = null, onViewChange = null, modalOpen = () => false, topInset = 0, defaultView = 'free', talkOpen = () => false, onAsk = null, onLendEnd = null, onDebate = null, onRead = null }) {
+export function createGame({ params, status, send, onTalk = null, onUiBlocked = null, onViewChange = null, modalOpen = () => false, topInset = 0, defaultView = 'free', talkOpen = () => false, onChat = null, onChatReplied = null, onLendEnd = null, onDebate = null, onRead = null }) {
   const R = createRenderer({
     canvas: document.getElementById('scene'),
     ao: params.get('ao') !== '0', shadows: params.get('shadows') !== '0',
@@ -293,16 +297,18 @@ export function createGame({ params, status, send, onTalk = null, onUiBlocked = 
   // 居民即会话（M-B）：C# 推来街上的（≤ 32 位）、老居民（名字刻在碑上）与人口
   let citizens = { street: [], elders: [], census: null };
   let citizenTiers = new Map();      // id → 'A' | 'B' | 'C'（citizens.assignTiers）
-  let chatTalk = null;               // 此刻在聊天的那一对（citizens.pickChat）
+  let chatTalk = null;               // 此刻在聊天的那一对（citizens.pickChat；说什么由 C# 的模型定，ambient-chat → talk → ambient-end）
   const chatCooldown = new Map();    // 一对人上次聊天的时刻
   let nextChatPickAt = 0;
   let greeting = null;               // { id, start, line }：此刻跟你打招呼的那一位
   const greetedAt = new Map();       // 每一位上次跟你打招呼的时刻
-  // 问话（M-C）：此刻在问的那一位（对话栏借给了他：'typing' 在写问题、'waiting' 问出去了），和每一位最近的一问一答
-  let ask = null;                    // { id, status, question, sentAt }
-  const answers = new Map();         // id → { question, text, status, at }
+  // 和一位居民聊天（2026-10-13，原来 M-C 的问话）：对话栏借给了他（'typing' 你在写、'waiting' 说出去了等他答）；
+  // 他的话在他头顶（sayings：id → { text, typing, at, doneAt }，流式的半句话边到边换），你的话在你头顶（mine）
+  let convo = null;                  // { id, status, sentAt }
+  const sayings = new Map();
+  let mine = null;                   // { text, at }
   /** 对话栏开着、而且是在和雅典娜说话（不是借给了一位居民）。 */
-  const talkingToAthena = () => talkOpen() && !ask && !lentToDebate();
+  const talkingToAthena = () => talkOpen() && !convo && !lentToDebate();
   // 讲台前的辩论（M-E）：C# 推来的这一场（没有就是 null）、战绩、舞台站位（这座城算一次）、围过来的陪审团
   let debate = null;                 // { state, id, motion, round, rounds, jury, transcript, verdict, record }
   let debateRecord = { wins: 0, losses: 0, ties: 0 };
@@ -462,10 +468,12 @@ export function createGame({ params, status, send, onTalk = null, onUiBlocked = 
       if (switchingCity) {
         citizens = { street: [], elders: [], census: null };
         chatTalk = null;
+        nextChatPickAt = 0;   // 换了城：上一座城"没配模型、不再挑"的结论不带过来（设置可能改过了）
         greeting = null;
         citizenTiers = new Map();
-        if (ask) { ask = null; status.asking = null; onLendEnd?.('ask'); }
-        answers.clear();
+        if (convo) { convo = null; status.chatting = null; onLendEnd?.('chat'); }
+        sayings.clear();
+        mine = null;
         if (debate || motionPending) onLendEnd?.('debate');
         debate = null;
         motionPending = false;
@@ -829,7 +837,7 @@ export function createGame({ params, status, send, onTalk = null, onUiBlocked = 
     if (!st || !world) return;
     const candidates = [];
     for (const c of world.citizens.values()) {
-      if (!c.figure?.root.visible || ask?.id === c.id || (panel?.type === 'citizen' && panel.id === c.id)) continue;
+      if (!c.figure?.root.visible || convo?.id === c.id || (panel?.type === 'citizen' && panel.id === c.id)) continue;
       const p = c.figure.root.position;
       if (Math.hypot(p.x - st.stage.x, p.z - st.stage.z) > DEBATE.gatherRadius) continue;
       candidates.push({ id: c.id, x: p.x, z: p.z });
@@ -972,13 +980,14 @@ export function createGame({ params, status, send, onTalk = null, onUiBlocked = 
       }
       // 被叫住（卡片、问话）或当陪审团的这段时间不算进他的日程：松开后从站定的地方接着走，而不是滑到墙钟上本该到的地方
       c.schedule ??= newScheduleClock();
-      if ((panel?.type === 'citizen' && panel.id === c.id) || ask?.id === c.id || audienceOf.has(c.id)) holdSchedule(c.schedule, wall);
+      if ((panel?.type === 'citizen' && panel.id === c.id) || convo?.id === c.id || audienceOf.has(c.id)
+        || (chatTalk && (chatTalk.a === c.id || chatTalk.b === c.id))) holdSchedule(c.schedule, wall);
       else resumeSchedule(c.schedule, wall);
       c.at = citizenAt(c.plan, scheduleClock(c.schedule, wall));
       live.push(c);
     }
     // 避让：居民之间互相让；雅典娜与十一位居民是站在那儿的人（不被推），你是推不动的石头——挡在你面前的人侧身让开
-    const people = live.map((c) => ({ id: c.id, x: c.at.x, z: c.at.z, nudge: c.nudge, movable: !((panel?.type === 'citizen' && panel.id === c.id) || ask?.id === c.id || audienceOf.has(c.id)) }));
+    const people = live.map((c) => ({ id: c.id, x: c.at.x, z: c.at.z, nudge: c.nudge, movable: !((panel?.type === 'citizen' && panel.id === c.id) || convo?.id === c.id || audienceOf.has(c.id)) }));
     for (const r of world.residents.values()) people.push({ id: `resident:${r.kind}`, x: r.figure.root.position.x, z: r.figure.root.position.z, movable: false });
     if (world.athena.visible) people.push({ id: 'athena', x: world.athena.position.x, z: world.athena.position.z, movable: false });
     const nudges = separate(people, player.pos, layout.walkable);
@@ -998,17 +1007,17 @@ export function createGame({ params, status, send, onTalk = null, onUiBlocked = 
     };
     tierPeople(live.map((c) => [c.id, posOf(c)]));
 
-    // 闲聊：半秒挑一次，全城同时只有一组（citizens.pickChat 已经算好两人在这段时间里都不会动身）
-    if (chatTalk && wall - chatTalk.start > 2 * TOWN.chatLineMs) chatTalk = null;
+    // 闲聊：半秒挑一次，全城同时只有一组；挑中了就请 C# 让他们说（ambient-chat）——先开口的那位头顶马上是一串点。
+    // 聊着的时候两人站定（日程钟停着，见上面）；C# 说结束了（ambient-end）或者聊得太久（卡住了）就散
+    if (chatTalk && wall - chatTalk.start > TOWN.chatMaxMs) endAmbient({ a: chatTalk.a, b: chatTalk.b, status: 'failed' });
     if (!chatTalk && wall >= nextChatPickAt) {
       nextChatPickAt = wall + 500;
       const candidates = live
-        .filter((c) => c.at.action === 'idle' && !c.hold && citizenTiers.get(c.id) !== 'C' && greeting?.id !== c.id && !audienceOf.has(c.id))
-        .map((c) => { const p = posOf(c); return { id: c.id, x: p.x, z: p.z, idleLeft: c.at.idleLeft, inView: true, seed: c.data.seed, lines: c.data.lines ?? [] }; });
-      chatTalk = pickChat(candidates, player.pos, chatCooldown, wall, citizenWords, { night: nightK > 0.5 });
-      if (chatTalk) chatCooldown.set(chatTalk.key, wall);
+        .filter((c) => c.at.action === 'idle' && !c.hold && convo?.id !== c.id && citizenTiers.get(c.id) !== 'C' && greeting?.id !== c.id && !audienceOf.has(c.id))
+        .map((c) => { const p = posOf(c); return { id: c.id, x: p.x, z: p.z, idleLeft: c.at.idleLeft, inView: true }; });
+      const pick = pickChat(candidates, player.pos, chatCooldown, wall);
+      if (pick) startAmbient(pick, wall);
     }
-    const chatLine = chatLineAt(chatTalk, wall);
     // 打招呼：你走到一位闲着的居民跟前（2.5 米内），两分钟里没跟你打过招呼——他转身、挥手、说一句
     if (greeting && wall - greeting.start > TOWN.chatLineMs) greeting = null;
     if (!greeting) {
@@ -1035,8 +1044,8 @@ export function createGame({ params, status, send, onTalk = null, onUiBlocked = 
       c.tier = tier;
       counts[tier]++;
       const root = c.figure.root;
-      // 卡片开着、或者你正在问他（对话栏借给了他）：他都站定、面朝你
-      const asked = ask?.id === c.id;
+      // 卡片开着、或者你正在和他聊（对话栏借给了他）：他都站定、面朝你
+      const asked = convo?.id === c.id;
       const panelOpen = (panel?.type === 'citizen' && panel.id === c.id) || asked;
       // 卡片开着：他站定、面朝你；收起时记下站定的地方，再慢慢回到日程上的位置
       if (panelOpen && !c.hold) c.hold = posOf(c);
@@ -1054,7 +1063,7 @@ export function createGame({ params, status, send, onTalk = null, onUiBlocked = 
       let yaw = c.at.yaw;
       const style = { speed: TOWN.speed, stride: 1.25, seed: c.data.seed % 9973, cloth: tier === 'A' || panelOpen };
       const greetingNow = greeting?.id === c.id;
-      const inChat = !!chatLine && (chatLine.speaker === c.id || chatLine.listener === c.id);
+      const inChat = !!chatTalk && (chatTalk.a === c.id || chatTalk.b === c.id);
       const aud = audienceOf.get(c.id);
       if (aud && !panelOpen) {
         // 陪审团：走过来（比平时快一点），到了面朝舞台；判完之后为你投票的人隔一会儿挥一次手
@@ -1079,9 +1088,13 @@ export function createGame({ params, status, send, onTalk = null, onUiBlocked = 
         const since = wall - (greetingNow ? greeting.start : c.cardAt);
         if (since < ONE_SHOT_MS.wave) { action = 'wave'; t = since; } else { action = 'talk'; t = since; style.speaker = !asked; }
         style.lookAt = playerHead.set(player.pos.x, 1.5, player.pos.z);
-        if (greetingNow) bubbles.push({ id: c.id, text: greeting.line, alpha: Math.max(0, Math.min(1, since / 150, (TOWN.chatLineMs - since) / 300)) });
+        // 聊天时他在想、在说：说话的手势；还在想（流式还没出字）时只是听着
+        const saying = sayings.get(c.id);
+        if (asked && saying && !saying.typing) style.speaker = saying.doneAt == null || wall - saying.doneAt < 2500;
+        if (greetingNow && !saying) bubbles.push({ id: c.id, text: greeting.line, alpha: Math.max(0, Math.min(1, since / 150, (TOWN.chatLineMs - since) / 300)) });
       } else if (inChat) {
-        const other = world.citizens.get(chatLine.speaker === c.id ? chatLine.listener : chatLine.speaker);
+        // 面对面站着；正在说（流式出字、或刚说完两秒半内）的那位打手势，另一位听着
+        const other = world.citizens.get(chatTalk.a === c.id ? chatTalk.b : chatTalk.a);
         if (other?.at) {
           const o = posOf(other);
           yaw = Math.atan2(o.x - x, o.z - z);
@@ -1089,11 +1102,21 @@ export function createGame({ params, status, send, onTalk = null, onUiBlocked = 
         }
         action = 'talk';
         t = wall - chatTalk.start;
-        style.speaker = chatLine.speaker === c.id;
-        if (chatLine.speaker === c.id) bubbles.push({ id: c.id, text: chatLine.text, alpha: chatLine.alpha });
+        const saying = sayings.get(c.id);
+        style.speaker = !!saying && !saying.typing && (saying.doneAt == null || wall - saying.doneAt < 2500);
       } else {
         c.cardAt = null;
         if (action === 'idle' && Math.hypot(player.pos.x - x, player.pos.z - z) < 4) style.lookAt = playerHead.set(player.pos.x, 1.5, player.pos.z);
+      }
+      // 他头顶的话（你和他聊天时他说的）：在想时是一串循环的点，流式的字边到边换，说完留一阵再淡出；你还在和他聊就一直留着
+      const saying = sayings.get(c.id);
+      if (saying) {
+        const alpha = speechAlpha(saying, wall, convo?.id === c.id);
+        if (alpha <= 0) sayings.delete(c.id);
+        else {
+          for (let k = bubbles.length - 1; k >= 0; k--) if (bubbles[k].id === c.id) bubbles.splice(k, 1);
+          bubbles.push({ id: c.id, text: saying.typing ? thinkingDots(wall) : saying.text, alpha, typing: !!saying.typing });
+        }
       }
       c.yawNow = c.yawNow == null ? yaw : turnToward(c.yawNow, yaw, 1 - Math.exp(-dt / 180));
       const y = world.groundAt(x, z);
@@ -1103,7 +1126,7 @@ export function createGame({ params, status, send, onTalk = null, onUiBlocked = 
       c.label.anchor.set(x, y + (root.userData.height ?? 1.75) + 0.55, z);
     }
     status.citizenTiers = counts;
-    status.chat = chatLine ? { speaker: chatLine.speaker, listener: chatLine.listener, text: chatLine.text } : null;
+    status.chat = chatTalk ? { a: chatTalk.a, b: chatTalk.b } : null;
     status.greeting = greeting?.id ?? null;
     return bubbles;
   }
@@ -1300,8 +1323,8 @@ export function createGame({ params, status, send, onTalk = null, onUiBlocked = 
   /** 此刻该不该是近景、看着谁：对话栏开着看你和雅典娜；居民的卡片开着看你和他。 */
   function closeUpWanted() {
     if (!world || voyage || reveal || fogInfo) return null;
-    // 问一位居民（M-C）：对话栏借给了他，镜头看你和他，不看她
-    if (ask && world.citizens.get(ask.id)?.figure) return { kind: 'citizen', id: ask.id };
+    // 和一位居民聊天：对话栏借给了他，镜头看你和他，不看她
+    if (convo && world.citizens.get(convo.id)?.figure) return { kind: 'citizen', id: convo.id };
     // 讲台前辩论时：对话栏借给了辩论，镜头看你和她（和平时开口一样的近景）；判票与判完看整个舞台和围过来的陪审团
     if (lentToDebate() && talkOpen()) return { kind: 'debate', id: null };
     if (debate && (debate.state === 'judging' || debate.state === 'done') && stageInfo) return { kind: 'jury', id: null };
@@ -1422,12 +1445,9 @@ export function createGame({ params, status, send, onTalk = null, onUiBlocked = 
     applyAthena(pose, line, dt);
     // 居民先排（他们和十一位居民一起分档，见 tierPeople），十一位居民在 applyEffects 里按同一份分档摆
     const citizenSaying = animateCitizens(wall, dt);
-    // 问出去太久没有回音（C# 那边一次调用 20 秒就放弃）：他想了想，没说出来
-    if (ask?.status === 'waiting' && wall - ask.sentAt > ASK_TIMEOUT_MS) {
-      const id = ask.id;
-      // 先把对话栏还回去（它还开着，卡片就会以为你又在和雅典娜说话、不打扰），再把这句放进他的卡片
-      onLendEnd?.('ask');
-      setCitizenAnswer({ conversationId: id, status: 'timeout', text: ui.askTimeout });
+    // 说出去太久没有回音（C# 那边一次调用 25 秒就放弃）：他想了想，没说出来——这一句放进他头顶，你接着说
+    if (convo?.status === 'waiting' && wall - convo.sentAt > ASK_TIMEOUT_MS) {
+      setTalk({ who: convo.id, text: ui.askTimeout, done: true, status: 'timeout' });
     }
     // 辩论（M-E）：你走开太远、或者判完很久了——散场
     if (debate) {
@@ -1460,9 +1480,13 @@ export function createGame({ params, status, send, onTalk = null, onUiBlocked = 
 
     const bubbleCss = R.projectCss(headWorld);
     // 居民头顶的话（M-B）：和她的那一句一样按这一帧的矩阵投影（运动自检逐帧核对）
-    const citizenBubbles = citizenSaying.map((b) => {
-      const c = world.citizens.get(b.id);
-      const head = c.figure.root.userData.headTop.clone().applyMatrix4(c.figure.root.matrixWorld);
+    // 你头顶的话（2026-10-13）：你对一位居民说的那一句，说完留一阵（他开口之后淡得快一点）
+    const mineAlpha = mine ? speechAlpha({ text: mine.text, doneAt: mine.at }, wall) : 0;
+    if (mine && mineAlpha <= 0) mine = null;
+    const sayingNow = mine ? [...citizenSaying, { id: 'player', text: mine.text, alpha: mineAlpha }] : citizenSaying;
+    const citizenBubbles = sayingNow.map((b) => {
+      const root = b.id === 'player' ? world.player : world.citizens.get(b.id).figure.root;
+      const head = (root.userData.headTop?.clone() ?? new THREE.Vector3(0, 1.75, 0)).applyMatrix4(root.matrixWorld);
       return { ...b, world: head, ...R.projectCss(head) };
     });
     const flashNow = performance.now();
@@ -1665,13 +1689,7 @@ export function createGame({ params, status, send, onTalk = null, onUiBlocked = 
       case 'citizen': {
         const c = world?.citizens.get(panel.id);
         if (!c) return null;
-        const askable = !!onAsk;
-        // 刚问过他（十分钟内）：卡片上是那一问一答；不然是他自己的那几句和人口
-        const a = answers.get(panel.id);
-        if (a && performance.now() - a.at < ANSWER_KEEP_MS) {
-          return { type: 'citizen', bust: c.look.bust, expression: 'speak', title: c.data.name ?? '', lines: [], askable,
-            answer: { question: a.question ? `${ui.askYou}${a.question}` : '', text: a.text, status: a.status, maxLines: ANSWER_LINES } };
-        }
+        const askable = !!onChat;
         // 那场会话的信息（标题、办到哪一步、多久前动过、常去哪儿）和人口；"看看那场会话"打开预览
         const lines = citizenInfoLines(c.data, ui);
         if (citizens.census) lines.push(fill(ui.censusLine, { total: citizens.census.total, street: citizens.census.street }));
@@ -1933,17 +1951,49 @@ export function createGame({ params, status, send, onTalk = null, onUiBlocked = 
     status.panel = next.type;
   }
 
-  /** C# 推来的回答（citizen-answer，M-C）：记下，卡片重新打开在这一问一答上。 */
-  function setCitizenAnswer(m) {
-    const id = m?.conversationId;
-    const asked = ask?.id === id ? ask : null;
-    if (ask?.id === id) { ask = null; status.asking = null; }
+  /** 挑中了一对：记下冷却，先开口的那位头顶马上是一串点，请 C# 让他们说（ambient-chat）。 */
+  function startAmbient(pick, wall) {
+    chatTalk = pick;
+    chatCooldown.set(pick.key, wall);
+    sayings.set(pick.a, { text: '', typing: true, at: wall, doneAt: null });
+    send('ambient-chat', { a: pick.a, b: pick.b });
+  }
+
+  /**
+   * C# 说这一对的闲聊结束了（ambient-end：{ a, b, status }）：散了，还在想的那位头顶的点收起来；按结局决定多久之后再挑下一对
+   * （citizens.nextChatAfter：没配模型就这座城里不再挑——没有本地台词可退）。
+   */
+  function endAmbient(m) {
+    if (!chatTalk || chatTalk.a !== m?.a || chatTalk.b !== m?.b) return;
+    for (const id of [chatTalk.a, chatTalk.b]) if (sayings.get(id)?.typing) sayings.delete(id);
+    chatTalk = null;
+    nextChatPickAt = nextChatAfter(String(m.status ?? 'ok'), performance.now());
+    status.ambient = { a: m.a, b: m.b, status: String(m.status ?? 'ok') };
+  }
+
+  /**
+   * C# 推来的一句话（talk，2026-10-13）：{ who, text, done, status }。流式的半句话（done 为假）边到边换；说完的那一版定下来，
+   * 你还在和他聊的话，对话栏回到"你在写"（onChatReplied → talk.resumeLent）。只认这座城里此刻有的居民。
+   */
+  function setTalk(m) {
+    const id = m?.who;
     if (!world?.citizens.has(id)) return;
-    const a = { question: asked?.question ?? '', text: String(m.text ?? ''), status: String(m.status ?? 'ok'), at: performance.now() };
-    answers.set(id, a);
-    status.answer = { id, status: a.status, text: a.text };
-    // 你还在等他（没按 Esc）、也没在做别的（和雅典娜说话、开着别的面板）才把卡片打开；不然回答留在他的卡片上，十分钟内走过去按 E 还看得到
-    if (asked && !panel && !card && !talkingToAthena()) { openPanel({ type: 'citizen', id }); status.citizenOpened = id; }
+    const now = performance.now();
+    const text = String(m.text ?? '');
+    const prev = sayings.get(id);
+    const n = Number(m.n ?? 0);
+    if (!m.done) {
+      // 说完了才到的半句话（同一句——编号相同——攒批里排在后面）：不覆盖说完的那一版；空的半句话是新的一句开头了（头顶一串点）
+      if (text.length > 0 && prev?.doneAt != null && prev.n === n) return;
+      sayings.set(id, { text, typing: text.length === 0, at: text.length === 0 ? now : prev?.at ?? now, doneAt: null, n });
+      return;
+    }
+    sayings.set(id, { text, typing: false, at: prev?.at ?? now, doneAt: now, n });
+    status.talk = { id, status: String(m.status ?? 'ok'), text };
+    if (convo?.id === id && convo.status === 'waiting') {
+      convo = { ...convo, status: 'typing' };
+      onChatReplied?.(id);
+    }
   }
 
   /** C# 推来的那场会话预览（citizen-transcript）：进卷轴阅读器。只认这座城里此刻有的居民。 */
@@ -2079,25 +2129,18 @@ export function createGame({ params, status, send, onTalk = null, onUiBlocked = 
       case 'debate-close':
         endDebateFromPage();
         break;
-      case 'citizen-ask': {
-        // 问话（M-C）：卡片收起，对话栏借给他（main.mjs 的 onAsk → talk.openAsk）；他站定面朝你，镜头留在你们两个身上
-        if (panel?.type !== 'citizen' || !onAsk) break;
+      case 'citizen-chat': {
+        // 和他聊几句：卡片收起，对话栏借给他（main.mjs 的 onChat → talk.openChat）；他站定面朝你，镜头留在你们两个身上，
+        // 他的话出现在他头顶。Esc 告辞
+        if (panel?.type !== 'citizen' || !onChat) break;
         const c = world?.citizens.get(panel.id);
         if (!c) break;
-        ask = { id: c.id, status: 'typing', question: '', sentAt: 0 };
-        status.asking = c.id;
+        convo = { id: c.id, status: 'typing', sentAt: 0 };
+        status.chatting = c.id;
         panel = null;
         // 卡片收起要先让对话栏不再让位（不等下一帧），借给他的那一下输入框才拿得到焦点
         syncUiBlocked();
-        onAsk({ conversationId: c.id, name: c.data.name ?? '', bust: c.look.bust });
-        break;
-      }
-      case 'citizen-read': {
-        // 回答太长：整段放进卷轴阅读器（模型写的字只经 textContent 进 DOM，见 reader.mjs）
-        if (panel?.type !== 'citizen') break;
-        const a = answers.get(panel.id);
-        const c = world?.citizens.get(panel.id);
-        if (a && onRead) onRead({ title: fill(ui.askReaderTitle, { name: c?.data.name ?? '' }), markdown: `${a.question ? `> ${ui.askYou}${a.question}\n\n` : ''}${a.text}` });
+        onChat({ conversationId: c.id, name: c.data.name ?? '', bust: c.look.bust });
         break;
       }
       case 'oracle-request': send('request-oracle'); panel = null; break;
@@ -2206,13 +2249,20 @@ export function createGame({ params, status, send, onTalk = null, onUiBlocked = 
      * 辩论——'cancel' 是不辩了（提议题时按 Esc 什么也不发；辩到一半按 Esc 发 debate-end）。
      */
     lentEvent(event, info = {}) {
-      if (info.kind === 'ask') {
-        if (!ask) return;
-        if (event === 'sent' && info.id === ask.id) {
-          ask = { ...ask, status: 'waiting', question: String(info.text ?? ''), sentAt: performance.now() };
+      if (info.kind === 'chat') {
+        if (!convo) return;
+        if (event === 'sent' && info.id === convo.id) {
+          const now = performance.now();
+          convo = { ...convo, status: 'waiting', sentAt: now };
+          // 你的话在你头顶；他开始想（头顶一串点），之前那一句换掉
+          mine = { text: String(info.text ?? ''), at: now };
+          sayings.set(convo.id, { text: '', typing: true, at: now, doneAt: null });
         } else if (event === 'cancel') {
-          ask = null;
-          status.asking = null;
+          // 告辞：他最近的那一句照常留一阵再淡出（还在想的就不想了）
+          const s = sayings.get(convo.id);
+          if (s?.typing) sayings.delete(convo.id);
+          convo = null;
+          status.chatting = null;
         }
       } else if (info.kind === 'debate') {
         if (event === 'cancel') {
@@ -2226,10 +2276,23 @@ export function createGame({ params, status, send, onTalk = null, onUiBlocked = 
     get debate() { return debate ? { ...debate } : null; },
     get audience() { return new Map(audienceOf); },
     get stage() { return stage(); },
-    setCitizenAnswer,
+    setTalk,
+    endAmbient,
+    /** 让两位居民马上聊（冒烟测试用：走和挑人时一样的那条路——发 ambient-chat、先开口的那位头顶一串点）。 */
+    ambientNow(a, b) {
+      if (!world?.citizens.has(a) || !world?.citizens.has(b) || a === b) return false;
+      if (chatTalk) endAmbient({ a: chatTalk.a, b: chatTalk.b, status: 'ok' });   // 城里自己挑的那一对先散
+      const wall = performance.now();
+      startAmbient({ a, b, key: a < b ? `${a}|${b}` : `${b}|${a}`, start: wall }, wall);
+      return true;
+    },
+    /** 下一次挑一对的时刻（测试用：没配模型之后是 Infinity）。 */
+    get nextChatPickAt() { return nextChatPickAt; },
     showCitizenTranscript,
-    /** 此刻在问的那一位（测试用）。 */
-    get asking() { return ask ? { ...ask } : null; },
+    /** 此刻在和谁聊（测试用）。 */
+    get chatting() { return convo ? { ...convo } : null; },
+    /** 头顶此刻的话（测试用）：id → { text, typing, doneAt }。 */
+    get sayings() { return new Map(sayings); },
     /** 让一位居民向你打招呼（运动自检用：保证走路那一段有居民头顶的话要逐帧核对）。 */
     greetCitizen(id) {
       const c = world?.citizens.get(id);

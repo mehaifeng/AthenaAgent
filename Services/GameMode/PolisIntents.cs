@@ -64,10 +64,15 @@ public enum PolisIntentType
     /// <summary>对话栏的草稿：同步进这份委托自己的输入框（切回对话模式，写了一半的话还在）。不发送。</summary>
     Draft,
     /// <summary>
-    /// 问一位居民那场会话的事（M-C）：只认这座城里此刻有的居民，问题去掉首尾空白后 1–300 字，超长整条拒绝。
-    /// 不替你说任何话：回答只回到页面（居民的卡片），不进任何会话。
+    /// 和城里的一个人说一句话（2026-10-13，原来 M-C 的"问他那件事"）：<c>who</c> 只认这座城里此刻有的居民，一句话去掉首尾空白后
+    /// 1–<see cref="PolisTalk.MaxLineChars"/> 字，超长整条拒绝。不替你说任何话：他的回答只回到页面（他头顶的气泡），不进任何会话。
     /// </summary>
-    AskCitizen,
+    Chat,
+    /// <summary>
+    /// 两位居民在街上碰上了，请他们聊两句（2026-10-13，用户：NPC 之间的对话只用模型，不预置台词）。页面挑人、挑时机；
+    /// <c>a</c>、<c>b</c> 都得是这座城里此刻有的居民，而且不是同一位。他们的话只回到页面（头顶的气泡），不进任何会话。
+    /// </summary>
+    AmbientChat,
     /// <summary>
     /// 看看一位居民那场会话（2026-10-13）：只认这座城里此刻有的居民。C# 回 <c>citizen-transcript</c>——你和雅典娜看得见的那些话，
     /// 工具、推理一概不带；只回到页面的卷轴阅读器（模型写的字只经 textContent 进 DOM）。
@@ -99,6 +104,8 @@ public sealed record PolisIntent(PolisIntentType Type)
     public string? SuggestionId { get; init; }
     public string? IslandId { get; init; }
     public PolisResidentKind? Resident { get; init; }
+    /// <summary>两个人的那一种意图里的另一位（<see cref="PolisIntentType.AmbientChat"/> 的 b）。</summary>
+    public string? OtherId { get; init; }
 }
 
 /// <summary>校验时需要知道的现场：当前城邦的根目录（神殿为 null）、有哪些会话、有哪些藏品。</summary>
@@ -173,7 +180,8 @@ public static class PolisIntents
         ["try-resident"] = PolisIntentType.TryResident,
         ["say"] = PolisIntentType.Say,
         ["draft"] = PolisIntentType.Draft,
-        ["ask-citizen"] = PolisIntentType.AskCitizen,
+        ["chat"] = PolisIntentType.Chat,
+        ["ambient-chat"] = PolisIntentType.AmbientChat,
         ["citizen-transcript"] = PolisIntentType.CitizenTranscript,
         ["debate-start"] = PolisIntentType.DebateStart,
         ["debate-say"] = PolisIntentType.DebateSay,
@@ -285,19 +293,29 @@ public static class PolisIntents
                     return new PolisIntentResult(new PolisIntent(type) { ConversationId = id, Text = text }, null);
                 }
 
-                case PolisIntentType.AskCitizen:
+                case PolisIntentType.Chat:
                 {
-                    var id = ReadString(root, "conversationId");
-                    if (string.IsNullOrEmpty(id) || !context.KnownCitizenIds.Contains(id))
+                    var who = ReadString(root, "who");
+                    if (string.IsNullOrEmpty(who) || !context.KnownCitizenIds.Contains(who))
+                        return PolisIntentResult.Reject("unknown speaker");
+                    var raw = ReadString(root, "text");
+                    if (raw == null) return PolisIntentResult.Reject("missing text");
+                    var line = Clean(raw.Trim(), int.MaxValue)!;
+                    if (line.Length == 0) return PolisIntentResult.Reject("empty text");
+                    // 一句话也不截断：截掉半句再说，说的就是另一回事了（页面的输入框本来就打不进更多）
+                    if (line.Length > PolisTalk.MaxLineChars)
+                        return PolisIntentResult.Reject($"text longer than {PolisTalk.MaxLineChars} characters");
+                    return new PolisIntentResult(new PolisIntent(type) { ConversationId = who, Text = line }, null);
+                }
+
+                case PolisIntentType.AmbientChat:
+                {
+                    var a = ReadString(root, "a");
+                    var b = ReadString(root, "b");
+                    if (string.IsNullOrEmpty(a) || string.IsNullOrEmpty(b) || !context.KnownCitizenIds.Contains(a) || !context.KnownCitizenIds.Contains(b))
                         return PolisIntentResult.Reject("unknown citizen");
-                    var raw = ReadString(root, "question");
-                    if (raw == null) return PolisIntentResult.Reject("missing question");
-                    var question = Clean(raw.Trim(), int.MaxValue)!;
-                    if (question.Length == 0) return PolisIntentResult.Reject("empty question");
-                    // 问题也不截断：截掉半句再问，问的就是另一件事了（页面的输入框本来就打不进更多）
-                    if (question.Length > PolisCitizenAnswers.MaxQuestionChars)
-                        return PolisIntentResult.Reject($"question longer than {PolisCitizenAnswers.MaxQuestionChars} characters");
-                    return new PolisIntentResult(new PolisIntent(type) { ConversationId = id, Text = question }, null);
+                    if (string.Equals(a, b, StringComparison.Ordinal)) return PolisIntentResult.Reject("a citizen cannot chat with himself");
+                    return new PolisIntentResult(new PolisIntent(type) { ConversationId = a, OtherId = b }, null);
                 }
 
                 case PolisIntentType.CitizenTranscript:
