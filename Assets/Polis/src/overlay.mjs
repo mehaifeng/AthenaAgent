@@ -8,6 +8,9 @@
 import { drawBust } from './art/busts.mjs';
 import { drawVoyage, VOYAGE_PALETTES } from './voyage.mjs';
 
+/** 头顶的话最多几行（再多最后一行带省略号）。 */
+export const BUBBLE_LINES = 5;
+
 const FONT = '"PingFang SC", "Hiragino Sans GB", "Noto Sans CJK SC", "Microsoft YaHei", sans-serif';
 const ACCENT = '#b9572f';
 
@@ -28,6 +31,9 @@ export const OVERLAY_PALETTES = Object.freeze({
     fogInner: 'rgba(24,27,31,0.8)', fogOuter: 'rgba(14,16,19,0.95)',
   }),
 });
+
+/** 不放在行首的标点（避头）。 */
+const NO_LINE_START = '。，、；：！？）」』”’》〉．,.;:!?)]';
 
 export function createOverlay(canvas) {
   const ctx = canvas.getContext('2d');
@@ -123,12 +129,24 @@ export function createOverlay(canvas) {
     ctx.restore();
   }
 
-  function bubble({ text, x, y, alpha }) {
+  /**
+   * 头顶的话：一行放得下就是一行；放不下折成几行（最多 BUBBLE_LINES 行，再多的最后一行带省略号——提示词要一句话不超过 80 字，
+   * 很少用到）。还在想（typing）时字是一串循环的点，气泡宽度按三个点定，点数变了气泡不跳。锚点 (x, y) 是尾巴尖，运动自检逐帧核对它。
+   */
+  function bubble({ text, x, y, alpha, typing = false }) {
     ctx.font = `500 15px ${FONT}`;
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    const w = Math.min(ctx.measureText(text).width + 24, 420);
-    const h = 30;
+    const maxText = 300;
+    let lines = typing ? [String(text ?? '')] : wrap(text, maxText, BUBBLE_LINES + 1);
+    if (lines.length > BUBBLE_LINES) {
+      lines = lines.slice(0, BUBBLE_LINES);
+      lines[BUBBLE_LINES - 1] = `${lines[BUBBLE_LINES - 1].slice(0, -1)}…`;
+    }
+    const widest = typing ? ctx.measureText('···').width : Math.max(...lines.map((l) => ctx.measureText(l).width));
+    const w = Math.min(widest + 24, maxText + 24);
+    const lineH = 21;
+    const h = 30 + (lines.length - 1) * lineH;
     const bx = x - w / 2, by = y - h - 12;
     ctx.globalAlpha = alpha;
     ctx.fillStyle = palette.bubble;
@@ -144,7 +162,7 @@ export function createOverlay(canvas) {
     ctx.closePath();
     ctx.fill();
     ctx.fillStyle = palette.bubbleInk;
-    ctx.fillText(text, x, by + h / 2 + 0.5, w - 16);
+    lines.forEach((line, k) => ctx.fillText(line, x, by + 15 + k * lineH + 0.5, w - 16));
     ctx.globalAlpha = 1;
   }
 
@@ -352,12 +370,15 @@ export function createOverlay(canvas) {
     ctx.stroke();
   }
 
-  /** 把一段话按宽度折成几行（面板里的说明文字；名字与模型写的话一样画在 canvas 上）。 */
+  /**
+   * 把一段话按宽度折成几行（面板里的说明文字；名字与模型写的话一样画在 canvas 上）。
+   * 句末与收尾的标点不放到行首（避头）：多出半个字宽也挤在上一行末尾——辩论牌上一行只剩一个"。"的截图审查。
+   */
   function wrap(text, maxWidth, maxLines = 4) {
     const out = [];
     let line = '';
     for (const ch of String(text ?? '')) {
-      if (ctx.measureText(line + ch).width > maxWidth && line) {
+      if (ctx.measureText(line + ch).width > maxWidth && line && !NO_LINE_START.includes(ch)) {
         out.push(line);
         line = '';
         if (out.length === maxLines) break;
@@ -420,12 +441,72 @@ export function createOverlay(canvas) {
     }
     const by = y + h - 44;
     let bx = textX;
-    if (view.type === 'resident') bx += button(view.tryLabel, bx, by, 'resident-try') + 8;
+    // 职业居民（2026-10-13）：聊几句（工具能力撤下了，没有"请雅典娜试试"）
+    if (view.type === 'resident' && view.askable) bx += button(ui.citizenChat, bx, by, 'resident-chat', { minWidth: 90 }) + 8;
+    // 居民即会话（M-B）：聊几句（对话栏借给他，他的话在他头顶）、看看那场会话、去看他那份委托（走会话树的同一条路径）
+    if (view.type === 'citizen') {
+      if (view.askable) bx += button(ui.citizenChat, bx, by, 'citizen-chat', { minWidth: 90 }) + 8;
+      bx += button(ui.citizenTranscript, bx, by, 'citizen-transcript', { minWidth: 100 }) + 8;
+      bx += button(ui.citizenOpen, bx, by, 'citizen-open', { minWidth: 110 }) + 8;
+    }
+    // 讲台（M-E）：提一个议题（对话栏借给辩论）
+    if (view.type === 'bema') bx += button(ui.bemaPropose, bx, by, 'bema-propose', { minWidth: 110 }) + 8;
     if (view.type === 'oracle') {
       if (view.exists && view.latest) bx += button(ui.latestScroll, bx, by, 'oracle-latest') + 8;
       if (!view.exists) bx += button(ui.requestOracle, bx, by, 'oracle-request', { minWidth: 120 }) + 8;
     }
-    button(view.type === 'resident' ? ui.dismiss : ui.close, x + w - 16 - 84, by, 'panel-close');
+    button(view.type === 'resident' || view.type === 'citizen' || view.type === 'bema' ? ui.dismiss : ui.close, x + w - 16 - 84, by, 'panel-close');
+  }
+
+  /**
+   * 顶上的辩论牌（M-E）：议题、第几轮（或在想 / 在商议）、最近的一来一回（谁说的 + 折成最多三行）、裁决（谁赢、票数、一句理由）、
+   * 战绩，右上角"结束"。不挡对话栏：它在顶上，栏在底下，同时都在。
+   */
+  function debateBoard(view, ui, top = 0) {
+    const W = window.innerWidth;
+    const w = Math.min(620, W - 40);
+    const x = (W - w) / 2;
+    const textW = w - 32;
+    ctx.font = `400 13px ${FONT}`;
+    const rows = [];
+    for (const l of view.lines ?? []) rows.push({ who: l.who, parts: wrap(l.text, textW - 56, 3) });
+    const reason = view.verdict?.reason ? wrap(view.verdict.reason, textW, 2) : [];
+    const h = 22 + 22 + (view.state ? 20 : 0) + rows.reduce((n, r) => n + r.parts.length * 18 + 6, 0)
+      + (view.verdict ? 26 + 20 + reason.length * 18 : 0) + (view.record ? 22 : 0) + 12;
+    const y0 = 18 + top;
+    paper(x, y0, w, h);
+    const text = (str, tx, ty, maxW, font, color) => {
+      ctx.font = font;
+      ctx.fillStyle = color;
+      ctx.textAlign = 'left';
+      ctx.textBaseline = 'top';
+      ctx.fillText(str, tx, ty, maxW);
+    };
+    text(view.title, x + 16, y0 + 14, w - 32 - 90, `600 15px ${FONT}`, palette.ink);
+    let ly = y0 + 40;
+    if (view.state) { text(view.state, x + 16, ly, textW, `400 13px ${FONT}`, palette.inkSoft); ly += 20; }
+    for (const r of rows) {
+      text(r.who, x + 16, ly, 50, `600 13px ${FONT}`, palette.ink);
+      r.parts.forEach((part, k) => text(part, x + 16 + 56, ly + k * 18, textW - 56, `400 13px ${FONT}`, palette.ink));
+      ly += r.parts.length * 18 + 6;
+    }
+    if (view.verdict) {
+      // 胜负都用墨色、靠字说：点缀红只属于"轮到你了"
+      text(view.verdict.headline, x + 16, ly + 4, textW, `600 15px ${FONT}`, palette.ink);
+      ly += 26;
+      text(view.verdict.votes, x + 16, ly, textW, `400 13px ${FONT}`, palette.ink);
+      ly += 20;
+      for (const part of reason) { text(part, x + 16, ly, textW, `400 13px ${FONT}`, palette.inkSoft); ly += 18; }
+    }
+    if (view.record) text(view.record, x + 16, ly + 2, textW, `400 12px ${FONT}`, palette.inkSoft);
+    let bx = x + w - 16;
+    for (const b of [...(view.buttons ?? [])].reverse()) {
+      ctx.font = `600 13px ${FONT}`;
+      const bw = Math.max(64, ctx.measureText(b.label).width + 26);   // 与 button() 的量法一致
+      bx -= bw;
+      button(b.label, bx, y0 + 10, b.id, { minWidth: 64 });
+      bx -= 8;
+    }
   }
 
   /** 摆放时顶上的提示：点一个空底座；或者直接放进默认的场馆；或者取消。 */
@@ -578,11 +659,11 @@ export function createOverlay(canvas) {
     if (item.state === 'pending' && !item.lost) {
       bx += button(ui.accept, bx, by, 'card-accept', { primary: true }) + 8;
       button(ui.return, bx, by, 'card-return');
-    } else if (item.state === 'accepted' && !item.local) {
+    } else if (item.state === 'accepted') {
       if (!item.lost) bx += button(item.placed ? ui.move : ui.place, bx, by, 'card-place') + 8;
       if (item.placed) bx += button(ui.takeDown, bx, by, 'card-unplace') + 8;
     }
-    if (item.lost && !item.local) button(ui.remove, bx, by, 'card-remove');
+    if (item.lost) button(ui.remove, bx, by, 'card-remove');
     regions.push({ id: 'card-close', x: x + w - 34, y: y + 6, w: 28, h: 28 });
     ctx.fillStyle = palette.inkFaint;
     ctx.font = `600 16px ${FONT}`;
@@ -615,6 +696,8 @@ export function createOverlay(canvas) {
       return regions;
     }
     for (const l of frame.labels) label(l);
+    // 居民的话（M-B：两个人闲聊、跟你打招呼）在雅典娜的那一句底下——她的话最后画，永远在最上面
+    for (const b of frame.bubbles ?? []) bubble(b);
     if (frame.bubble) bubble(frame.bubble);
     if (frame.athenaEdge) athenaMarker(frame.athenaEdge, frame.time);
     for (const e of frame.edges) edgeMarker(e, frame.time);
@@ -622,6 +705,7 @@ export function createOverlay(canvas) {
     if (frame.notices && !frame.placing) notices(frame.notices, frame.ui, top);
     if (frame.fog) fog(frame.fog, frame.ui);
     else if (frame.herald) herald(frame.herald, frame.ui, top);
+    else if (frame.debate) debateBoard(frame.debate, frame.ui, top);
     if (frame.placing && !frame.fog) placingHint(frame.placing, frame.ui, top);
     if (frame.card && !frame.fog) card(frame.card, frame.ui);
     else if (frame.panel && !frame.fog) dialog(frame.panel, frame.ui);

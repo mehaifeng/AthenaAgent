@@ -88,6 +88,7 @@ public partial class PolisView : UserControl
         _pageUrl = url;
         page.NavigationCompleted += OnNavigationCompleted;
         page.MessageReceived += OnMessageReceived;
+        page.ProcessTerminated += OnProcessTerminated;
         if (page is NativeWebViewPolisPage native) native.AttachFailed += OnAttachFailed;
         host.Child = page.Control;
         _viewModel.AttachPage(page);
@@ -101,6 +102,7 @@ public partial class PolisView : UserControl
         _pageUrl = null;
         page.NavigationCompleted -= OnNavigationCompleted;
         page.MessageReceived -= OnMessageReceived;
+        page.ProcessTerminated -= OnProcessTerminated;
         if (page is NativeWebViewPolisPage native) native.AttachFailed -= OnAttachFailed;
         var host = this.FindControl<Border>("PolisPageHost");
         if (host != null) host.Child = null;
@@ -113,6 +115,9 @@ public partial class PolisView : UserControl
 
     private void OnMessageReceived(object? sender, string? body)
         => OnUiThread(() => { if (ReferenceEquals(sender, _page)) _viewModel?.OnPageMessage(body); });
+
+    private void OnProcessTerminated(object? sender, string reason)
+        => OnUiThread(() => { if (ReferenceEquals(sender, _page)) _viewModel?.OnPageProcessGone(reason); });
 
     private void OnAttachFailed(object? sender, Exception error)
         => OnUiThread(() => { if (ReferenceEquals(sender, _page)) _viewModel?.OnPageCreateFailed(error); });

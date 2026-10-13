@@ -65,32 +65,78 @@ public static class PolisAccumulation
             scheduled = t.Scheduled
         }).ToList();
 
-    /// <summary>居民：名字、他讲的话（按日期在几种说法里轮换）、示范请求，以及你和他说过话没有。</summary>
-    public static IReadOnlyList<object> Residents(IReadOnlyList<PolisResident> residents, IReadOnlyCollection<string> met, Func<string, string, string> localize, DateTimeOffset now)
+    /// <summary>
+    /// 十位职业居民（2026-10-13 起每座城一开始就都在）：职业、希腊名、称呼（职业加名字）、他讲的话（按日期在几种说法里轮换），
+    /// 以及你和他说过话没有。没有示范请求了——工具能力撤下了。
+    /// </summary>
+    public static IReadOnlyList<object> Residents(IReadOnlyCollection<string> met, Func<string, string, string> localize, DateTimeOffset now)
     {
-        var table = PolisLocale.Residents.ToDictionary(r => r.Kind, StringComparer.Ordinal);
         var day = now.LocalDateTime.DayOfYear;
-        return residents.Select(r =>
+        var titlePattern = localize("Polis.Ui.ResidentTitle", "{trade}{name}");
+        return PolisResidents.All.Select(kind =>
         {
-            var slug = PolisResidents.Slug(r.Kind);
-            var entry = table[slug];
+            var entry = ResidentEntry(kind);
             var variants = localize(entry.IntroKey, entry.IntroFallback).Split('|', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+            var trade = localize(entry.NameKey, entry.NameFallback);
+            var greek = localize(entry.GreekKey, entry.GreekFallback);
+            var slug = PolisResidents.Slug(kind);
             return (object)new
             {
                 kind = slug,
                 met = met.Contains(slug, StringComparer.Ordinal),
-                name = localize(entry.NameKey, entry.NameFallback),
-                intro = variants.Length == 0 ? string.Empty : variants[day % variants.Length],
-                tryLabel = localize("Polis.Ui.ResidentTry", "Ask Athena to try")
+                name = titlePattern.Replace("{trade}", trade, StringComparison.Ordinal).Replace("{name}", greek, StringComparison.Ordinal),
+                trade,
+                greekName = greek,
+                intro = variants.Length == 0 ? string.Empty : variants[day % variants.Length]
             };
         }).ToList();
     }
 
-    /// <summary>居民的示范请求（"请雅典娜试试"预填的那一句）。</summary>
-    public static string ResidentPrompt(PolisResidentKind kind, Func<string, string, string> localize)
+    /// <summary>一位职业居民在 locale 表里的那一行。</summary>
+    public static (string Kind, string NameKey, string NameFallback, string GreekKey, string GreekFallback, string IntroKey, string IntroFallback, string PersonaKey, string PersonaFallback) ResidentEntry(PolisResidentKind kind)
+        => PolisLocale.Residents.First(r => r.Kind == PolisResidents.Slug(kind));
+
+    /// <summary>老居民的碑最多列这么多名字（再多的只在人口里数得到）。</summary>
+    public const int MaxElderNames = 200;
+
+    /// <summary>
+    /// 居民即会话（M-B）推给页面的那一份：街上的（最多 <see cref="PolisCitizens.StreetCap"/> 位，带名字、家、长相的种子、
+    /// 他那几句话）、老居民（只有名字和家，刻在碑上）、人口。没有任何消息正文——只有标题、文件夹名、数字。
+    /// </summary>
+    public static object Citizens(IReadOnlyList<PolisCitizen> citizens, Func<string, string, string> localize)
     {
-        var entry = PolisLocale.Residents.First(r => r.Kind == PolisResidents.Slug(kind));
-        return localize(entry.TryKey, entry.TryFallback);
+        ArgumentNullException.ThrowIfNull(citizens);
+        ArgumentNullException.ThrowIfNull(localize);
+        var table = PolisLocale.Citizen.ToDictionary(c => c.JsKey, StringComparer.Ordinal);
+        string L(string jsKey) => localize(table[jsKey].Key, table[jsKey].Fallback);
+        var male = L("namesMale");
+        var female = L("namesFemale");
+        var nth = L("nameNth");
+        var census = PolisCitizens.Census(citizens);
+        return new
+        {
+            street = citizens.Where(c => c.OnStreet).Select(c => new
+            {
+                id = c.ConversationId,
+                seed = c.Seed,
+                female = c.Female,
+                name = PolisCitizens.NameFor(c, male, female, nth),
+                title = c.Title,
+                home = c.Home,
+                age = c.Age.ToString().ToLowerInvariant(),
+                outcome = c.Outcome.ToString().ToLowerInvariant(),
+                folders = c.Folders,
+                turns = c.Turns,
+                days = c.AgeDays
+            }).ToList(),
+            elders = citizens.Where(c => c.Elder).Take(MaxElderNames).Select(c => new
+            {
+                id = c.ConversationId,
+                name = PolisCitizens.NameFor(c, male, female, nth),
+                home = c.Home
+            }).ToList(),
+            census = new { total = census.Total, street = census.OnStreet, indoors = census.Indoors, elders = census.Elders }
+        };
     }
 
     /// <summary>委托板：每条建议在板上的一句话，以及采纳时预填的请求（Id → 请求；神谕那一条走神谕的请求）。</summary>

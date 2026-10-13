@@ -8,7 +8,7 @@
 import * as THREE from '../../vendor/three.bundle.mjs';
 import {
   Kit, m4, podium, door, window_, gabledRoof, frontGabledRoof, shedRoof, flatRoof, colonnade, entablature, enclosure,
-  chimney, rubble, ivy, groundPlane, gable, palmette, triglyphGeometry, column, sideGable, ruinShell,
+  chimney, rubble, ivy, groundPlane, gable, palmette, triglyphGeometry, column, sideGable, ruinShell, lantern,
 } from './kit.mjs';
 import { amphoraBody } from './props.mjs';
 import { leafClump } from './plants.mjs';
@@ -100,11 +100,15 @@ export function buildStoaLibrary(M, b, r) {
     kit.box(M.darkWood, (W - 2.0) / cols - 0.12, 0.62, 0.3, x, y + 0.31, -D / 2 + 0.6);
     for (let s2 = 0; s2 < 3; s2++) kit.cylinder(M.papyrus, 0.07, 0.07, 0.26, x - 0.2 + s2 * 0.2, y + 0.18 + (s2 % 2) * 0.17, -D / 2 + 0.78, 8, Math.PI / 2);
   }
-  // 柱廊里吊两盏油灯（挂在额枋后面、柱子之间）：长廊没有门窗，夜里靠它们透出光来。挂在后墙上的第一版被檐口挡住，镜头看不见
-  if (!ruin && M.windowLit) for (const sx of [-1, 1]) {
-    const lx = sx * W / 4, lz = front - 0.6, ly = y0 + H - 1.1;
-    kit.box(M.bronze, 0.03, 0.9, 0.03, lx, ly + 0.65, lz);
-    kit.cylinder(M.windowLit, 0.24, 0.17, 0.42, lx, ly, lz, 10);
+  // 柱廊里吊两盏青铜灯笼（kit.lantern）：长廊没有门窗，夜里靠它们透出光来。挂在后墙上的第一版被檐口挡住，镜头看不见；
+  // 挂在柱列后 0.6 米、x = ±W/4 的第二版正好躲在一根柱子后面，盖和链子被额枋挡住。现在吊在离 ±W/4 最近的两根柱子之间、
+  // 正在柱列上、额枋底下（吊在柱列后面，45° 方位角下视差把它推到柱子后面），链子 0.62 米——33° 俯角下灯盖露在额枋底下
+  if (!ruin && M.lanternPane) {
+    const step = (colX1 - colX0) / (n - 1);
+    for (const sx of [-1, 1]) {
+      const gap = Math.min(n - 2, Math.max(0, Math.round((sx * W / 4 - colX0) / step - 0.5)));
+      lantern(kit, M, colX0 + (gap + 0.5) * step, y0 + H, front, { drop: 0.62, scale: 1.3 });
+    }
   }
   colonnade(kit, M.marble, { n, x0: colX0, x1: colX1, y: y0, z: front, height: H, key: 'stoa', skip: ruin ? (i) => i % 2 === 1 : null });
   if (ruin) {
@@ -178,7 +182,7 @@ export function buildHouse(M, b, r) {
       continue;
     }
     kit.box(shade, uw, uh, D, ux, 0.25 + uh / 2, 0);
-    door(kit, M, 1.05, 2.05, doorX, 0.25, D / 2);
+    door(kit, M, 1.05, 2.05, doorX, 0.25, D / 2, { lantern: doorX >= ux ? -1 : 1 });   // 壁灯挂在朝屋子中间那一侧，避开窗
     for (let s2 = 0; s2 < (uh > 4 ? 2 : 1); s2++) {
       for (const wx of [ux - uw * 0.34, ux + uw * 0.34]) {
         if (Math.abs(wx - doorX) < 1.2 && s2 === 0) continue;
@@ -398,7 +402,7 @@ export function buildTreasury(M, b, r) {
     ruinShell(kit, M.wall, r, { w: W - 0.4, h: wallH, d: L - 2.4, y: y0, z: -1.0, t: 0.4, floor: M.earth, gaps: [{ x: 0, w: 1.4 }] });
   } else {
     kit.box(M.wall, W - 0.4, wallH, L - 2.4, 0, y0 + wallH / 2, -1.0);
-    door(kit, M, 1.4, 2.8, 0, y0, L / 2 - 2.24, { lintel: M.marble });
+    door(kit, M, 1.4, 2.8, 0, y0, L / 2 - 2.24, { lintel: M.marble, lantern: 'both' });
   }
   for (const sx of [-1, 1]) {
     const antaH = ruin ? wallH * (0.5 + r() * 0.4) : wallH;
@@ -449,7 +453,7 @@ export function buildWarehouse(M, b, r) {
       ruinShell(kit, M.stone, r, { w: W, h: H * 0.7, d: D, z: -0.4, t: 0.4, floor: M.earth, gaps: [{ x: 0, w: 2.6 }] });
     } else {
       kit.box(M.stone, W, H, D, 0, H / 2, -0.4);
-      door(kit, M, 2.6, 2.6, 0, 0, D / 2 - 0.4, { lintel: M.darkWood });
+      door(kit, M, 2.6, 2.6, 0, 0, D / 2 - 0.4, { lintel: M.darkWood, lantern: 1 });
       gabledRoof(kit, M.tile, M.stone, W, D, 1.1, H, -0.4, 0.3);
     }
     for (let i = 0; i < 5; i++) {

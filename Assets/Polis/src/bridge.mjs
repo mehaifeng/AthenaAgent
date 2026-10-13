@@ -3,8 +3,8 @@
 //             一个字符串字面量（<、>、&、'、U+2028/2029 全部转义），页面这里再 JSON.parse——数据从不被当成脚本拼接。
 //   页面 → C#：window.invokeCSharpAction(JSON)（NativeWebView 在每个平台注入的同名函数）。C# 只接受封闭集合里的意图，
 //             逐条校验（PolisIntents.cs）；这里的 send 只是把形状写对。
-// 没有宿主时（普通浏览器里的回放、冒烟测试），发出的意图记在 window.__polisSent 里，测试可以读。
-import { intent } from './live.mjs';
+// 没有宿主时（普通浏览器里的夹具、冒烟测试），发出的意图记在 window.__polisSent 里，测试可以读。
+import { intent } from './intents.mjs';
 
 export function connectHost(handlers) {
   const sent = [];

@@ -41,13 +41,19 @@ public enum PolisFailureStage
     /// <summary>页面自检失败（没有 WebGL 2、脚本出错、运行时出错）。</summary>
     Page,
     /// <summary>页面迟迟不报"就绪"。</summary>
-    Timeout
+    Timeout,
+    /// <summary>
+    /// 跑着跑着，承载页面的浏览器进程没了（崩溃、超出内存上限被 WebKit 终止）。此后画面是白的、脚本推不进去，
+    /// 不报出来就是一个永远白着、切工作区也救不回来的游戏区。
+    /// </summary>
+    ProcessGone
 }
 
 /// <summary>
 /// 游戏模式（设计稿第 9–12 节）：中间区域的另一种呈现。它不另存"当前会话"——会话树是唯一的选择来源；
 /// 它不另开一个递归文件监听——与工作台共用 <see cref="IWorkspaceWatcherService"/>；它不给聊天服务加回调——
-/// 雅典娜的事件从气泡的渲染模型推导（<see cref="PolisEventProjector"/>）。
+/// 交付与归属从气泡的渲染模型推导（<see cref="PolisDeliveries"/>）。雅典娜不镜像回合（2026-10-13 拿掉了直播）：
+/// 页面收不到工具调用、推理和审批事件，只收到这一回合交出来的成果和对话栏的状态。
 ///
 /// 这里是状态机与编排：模式（存进 <c>MainLayoutSettings.GameMode</c>）、页面的生死（惰性创建、失败、保留一段时间再释放）、
 /// 城邦的装载（先按快照显示，再后台核对）、外部改动、成果与意图。纯规则都在 <c>Services/GameMode</c>，那里有断言。
@@ -131,9 +137,8 @@ public sealed partial class GameModeViewModel : ViewModelBase, IDisposable
     /// </summary>
     private int _surveysInFlight;
     private string? _rescanAfterSurvey;
-    private PolisEventProjector? _projector;
-    private bool _projectionDirty;
-    private bool _wasWaiting;
+    private PolisDeliveries? _deliveries;
+    private bool _deliveriesDirty;
     /// <summary>
     /// 游戏刚替这份委托预填了一段话（委托板、居民、神谕、退回）：它显示出来的那一刻，城里的对话栏展开并聚焦，
     /// 让你看一眼再托付。预填可能落在一份还没换上来的委托里（新开的委托要等会话切换的第二拍），所以记下 Id、到时再开。
@@ -148,6 +153,35 @@ public sealed partial class GameModeViewModel : ViewModelBase, IDisposable
     private IReadOnlyList<PolisCommission> _commissions = Array.Empty<PolisCommission>();
     private IReadOnlyDictionary<string, string> _suggestionPrompts = new Dictionary<string, string>(StringComparer.Ordinal);
     private IReadOnlySet<string> _knownResidents = new HashSet<string>(StringComparer.Ordinal);
+    /// <summary>这座城里的居民（会话 Id）：问话的意图只认他们（M-C）。</summary>
+    private IReadOnlySet<string> _knownCitizens = new HashSet<string>(StringComparer.Ordinal);
+    /// <summary>这座城此刻的居民（会话 Id → 居民）：问话要他的名字、标题、常去的文件夹。</summary>
+    private IReadOnlyDictionary<string, PolisCitizen> _citizensById = new Dictionary<string, PolisCitizen>(StringComparer.Ordinal);
+    /// <summary>这座城此刻的户（M-D）：推给页面的城里合进它们的民居；换城清空。</summary>
+    private IReadOnlyList<PolisHousehold> _households = Array.Empty<PolisHousehold>();
+    /// <summary>这座城的第一遍聚户已经做过：之后新立的户才在页面上闪一下、让雅典娜说一句（第一遍是"本来就住在这儿的"）。</summary>
+    private bool _householdsBaselined;
+    private readonly IPolisTalkService _talk;
+    /// <summary>页面关掉、视图模型释放时，还在路上的话一并取消。</summary>
+    private readonly CancellationTokenSource _askCancel = new();
+    /// <summary>和每个人说过的话（他是谁 → 最近几轮来回，<see cref="PolisTalk.MaxHistoryTurns"/>）：只在内存里，不进存档、不进会话。</summary>
+    private readonly Dictionary<string, IReadOnlyList<PolisTalkTurn>> _talkHistory = new(StringComparer.Ordinal);
+    /// <summary>流式的半句话：每个说话的人只留最新的那一版（连同这一句的编号），下一次攒批推送时带走（一句话几十个增量，不能每个都推一条）。</summary>
+    private readonly Dictionary<string, (int Call, string Text)> _talkPartial = new(StringComparer.Ordinal);
+    /// <summary>每个说话的人此刻在说的那一句（编号）：说完、换了新的一句，晚到的半句话就丢掉。</summary>
+    private readonly Dictionary<string, int> _talkActive = new(StringComparer.Ordinal);
+    private int _talkSeq;
+    /// <summary>城里的闲聊此刻有没有一对在说（全城同时只有一对；页面也这么挑，这里再守一道）。</summary>
+    private bool _ambientRunning;
+    private readonly IPolisDebateService _debates;
+    /// <summary>讲台前此刻的那一场辩论（M-E；讲台只有一座，同一时刻只有一场）。</summary>
+    private PolisDebateSession? _debate;
+    /// <summary>这一场的调用；作废、换城、释放时取消。</summary>
+    private CancellationTokenSource? _debateCancel;
+    private PolisContestSummary _debateRecord = PolisContestSummary.Empty;
+    private bool _debateRecordLoaded;
+    /// <summary>没开成、或者雅典娜 / 裁判没能开口时给页面的一句话（本地化），推一次就清掉。</summary>
+    private string? _debateNotice;
     private IReadOnlySet<string> _knownIslands = new HashSet<string>(StringComparer.Ordinal);
     private DateTimeOffset _cityArrivedAt = DateTimeOffset.MinValue;
     private readonly HashSet<string> _noticedRuns = new(StringComparer.Ordinal);
@@ -159,7 +193,9 @@ public sealed partial class GameModeViewModel : ViewModelBase, IDisposable
         IWorkspaceWatcherService watcher,
         ILocalizationService localization,
         ICronTaskReader cronTasks,
-        PolisAssetStore assetStore)
+        PolisAssetStore assetStore,
+        IPolisTalkService talk,
+        IPolisDebateService debates)
     {
         _configuration = configurationSession ?? throw new ArgumentNullException(nameof(configurationSession));
         _previewHost = previewHost ?? throw new ArgumentNullException(nameof(previewHost));
@@ -168,6 +204,8 @@ public sealed partial class GameModeViewModel : ViewModelBase, IDisposable
         _localization = localization ?? throw new ArgumentNullException(nameof(localization));
         _cronTasks = cronTasks ?? throw new ArgumentNullException(nameof(cronTasks));
         _assetStore = assetStore ?? throw new ArgumentNullException(nameof(assetStore));
+        _talk = talk ?? throw new ArgumentNullException(nameof(talk));
+        _debates = debates ?? throw new ArgumentNullException(nameof(debates));
         _cronTasks.TasksChanged += OnCronTasksChanged;
         _isGameMode = _configuration.Current.MainLayout.GameMode;
         _night = !string.Equals(_configuration.Current.Theme, "Light", StringComparison.OrdinalIgnoreCase);
@@ -400,6 +438,10 @@ public sealed partial class GameModeViewModel : ViewModelBase, IDisposable
     public void OnPageCreateFailed(Exception? error)
         => Fail(PolisFailureStage.Create, L("GameMode.Failure.Create", "The embedded browser (WebView) could not be created on this system"), error?.ToString() ?? string.Empty);
 
+    /// <summary>第 5 处：页面的浏览器进程中途退出（参数：平台给的原因）。</summary>
+    public void OnPageProcessGone(string reason)
+        => Fail(PolisFailureStage.ProcessGone, L("GameMode.Failure.ProcessGone", "The game page's browser process quit unexpectedly"), reason);
+
     /// <summary>第 2 处：页面加载失败。</summary>
     public void OnNavigationCompleted(bool success)
     {
@@ -446,6 +488,7 @@ public sealed partial class GameModeViewModel : ViewModelBase, IDisposable
             KnownSuggestionIds = _suggestionPrompts.Keys.ToHashSet(StringComparer.Ordinal),
             KnownIslandIds = _knownIslands,
             KnownResidentIds = _knownResidents,
+            KnownCitizenIds = _knownCitizens,
         };
         var result = PolisIntents.Validate(body, context);
         if (!result.Accepted)
@@ -552,12 +595,427 @@ public sealed partial class GameModeViewModel : ViewModelBase, IDisposable
                 }
                 break;
             }
-            case PolisIntentType.TryResident:
-                if (_shell != null)
-                    _ = RunIntentAsync(() => OpenCommissionWithPrefillAsync(PolisAccumulation.ResidentPrompt(intent.Resident!.Value, L)), "try-resident");
+            case PolisIntentType.Chat:
+                _ = RunIntentAsync(() => ChatAsync(intent.ConversationId!, intent.Overheard ? PolisTalk.Overheard(intent.Text!, _localization.CurrentLanguage) : intent.Text!), "chat");
+                break;
+            case PolisIntentType.AmbientChat:
+                _ = RunIntentAsync(() => AmbientChatAsync(intent.ConversationId!, intent.OtherId!), "ambient-chat");
+                break;
+            case PolisIntentType.CitizenTranscript:
+                PostCitizenTranscript(intent.ConversationId!);
+                break;
+            case PolisIntentType.DebateStart:
+                _ = RunIntentAsync(() => StartDebateAsync(intent.Text!), "debate-start");
+                break;
+            case PolisIntentType.DebateSay:
+                _ = RunIntentAsync(() => DebateSayAsync(intent.Text!), "debate-say");
+                break;
+            case PolisIntentType.DebateEnd:
+                EndDebate("page");
                 break;
         }
     }
+
+    // —— 城里的竞技：讲台前的辩论（M-E）——
+    // 状态机是 PolisDebate（纯函数），这里只做三件事：调用（线程池上，回 UI 线程推页面）、作废晚到的回答（按这一场的 Id）、记战绩。
+    // 雅典娜说不出来时替她说一句（这一轮让给你），辩论照常往下走；裁判没给出裁决算平局——没有一处会卡住，也没有一处弹错误框。
+
+    /// <summary>开一场：一次只有一场；每小时最多十场（服务占位）。</summary>
+    private async Task StartDebateAsync(string motion)
+    {
+        if (_disposed) return;
+        if (_debate != null && _debate.State != PolisDebateState.Done)
+        {
+            _logger.Information("Polis debate start ignored: a debate is already running");
+            return;
+        }
+        if (!_debates.TryReserveDebate())
+        {
+            _debate = null;
+            _debateNotice = DebateText("Limited");
+            await PostDebateAsync();
+            return;
+        }
+        _debateCancel?.Cancel();
+        _debateCancel?.Dispose();
+        _debateCancel = new CancellationTokenSource();
+        _debate = PolisDebate.Start(motion, DateTimeOffset.Now);
+        _logger.Information("Polis debate started ({Length} chars motion)", motion.Length);
+        await PostDebateAsync();
+    }
+
+    /// <summary>你这一轮：记下 → 她想 → 她说（说不出来替她让一轮）→ 三轮之后裁判。</summary>
+    private async Task DebateSayAsync(string text)
+    {
+        if (_disposed || _debate is not { State: PolisDebateState.AwaitingUser } current || _debateCancel == null) return;
+        var id = current.Id;
+        var token = _debateCancel.Token;
+        _debate = PolisDebate.UserSays(current, text);
+        await PostDebateAsync();
+        var language = _localization.CurrentLanguage;
+        var asked = _debate;
+        PolisDebateReply reply;
+        try
+        {
+            reply = await Task.Run(() => _debates.AthenaRespondAsync(asked, language, token), token);
+        }
+        catch (OperationCanceledException)
+        {
+            return;   // 作废了（你走开了、换城了）：没有人等她这一句
+        }
+        if (_disposed || _debate?.Id != id || _debate.State != PolisDebateState.AthenaSpeaking) return;
+        var line = reply.Status == PolisDebateCallStatus.Ok && !string.IsNullOrWhiteSpace(reply.Text)
+            ? reply.Text!
+            : DebateText(reply.Status == PolisDebateCallStatus.NoModel ? "AthenaNoModel" : "AthenaFailed");
+        _debate = PolisDebate.AthenaSays(_debate, line);
+        await PostDebateAsync();
+        // 围观的人起哄（2026-10-13）：她真说了才有（让给你的那一轮没有可评的）；不等它，裁判照常往下走
+        if (reply.Status == PolisDebateCallStatus.Ok) _ = RunIntentAsync(() => CrowdReactAsync(id, token), "debate-crowd");
+        if (_debate.State == PolisDebateState.Judging) await JudgeDebateAsync(id, token);
+    }
+
+    /// <summary>
+    /// 辩论时围观的人起哄（2026-10-13，用户：NPC 对回复进行简短评价或者喝彩或者嘘声；每轮一次模型调用）。陪伴角色的 Crowd 池；
+    /// 提示词只有世界观、议题和这一轮的两段话（<see cref="PolisTalk.BuildCrowd"/>）。读出两到三句就推 <c>debate-crowd</c>，
+    /// 页面把它们放到围观者的头顶；没配模型、超限、失败、读不出来都是一句也没有——不预置台词。晚到的按这一场的 Id 丢掉。
+    /// </summary>
+    private async Task CrowdReactAsync(string id, CancellationToken token)
+    {
+        var session = _debate;
+        if (_disposed || session == null || session.Id != id) return;
+        var you = session.Transcript.LastOrDefault(t => t.Side == "you")?.Text;
+        var her = session.Transcript.LastOrDefault(t => t.Side == "athena")?.Text;
+        if (you == null || her == null) return;
+        var round = session.Transcript.Count(t => t.Side == "athena");
+        var prompt = PolisTalk.BuildCrowd(WorldFacts(), session.Motion, round, you, her, _localization.CurrentLanguage);
+        PolisTalkReply reply;
+        try
+        {
+            reply = await Task.Run(() => _talk.TalkAsync(PolisTalkPurpose.Crowd, prompt, null, token), token);
+        }
+        catch (OperationCanceledException)
+        {
+            return;
+        }
+        if (_disposed || _debate?.Id != id || reply.Status != PolisTalkStatus.Ok) return;
+        var reactions = PolisTalk.ParseCrowd(reply.Text);
+        if (reactions.Count == 0)
+        {
+            _logger.Debug("Polis debate crowd reply could not be read");
+            return;
+        }
+        Post(new { type = "debate-crowd", id, round, reactions = reactions.Select(r => new { kind = r.Kind, text = r.Text }).ToList() });
+        Flush();
+    }
+
+    private async Task JudgeDebateAsync(string id, CancellationToken token)
+    {
+        var language = _localization.CurrentLanguage;
+        var session = _debate!;
+        var noVerdict = DebateText("NoVerdict");
+        PolisDebateJudgement judgement;
+        try
+        {
+            judgement = await Task.Run(() => _debates.JudgeAsync(session, language, noVerdict, token), token);
+        }
+        catch (OperationCanceledException)
+        {
+            return;
+        }
+        if (_disposed || _debate?.Id != id || _debate.State != PolisDebateState.Judging) return;
+        var verdict = judgement.Status == PolisDebateCallStatus.Ok && judgement.Verdict != null
+            ? judgement.Verdict
+            : PolisDebateVerdict.NoVerdict(DebateText(judgement.Status == PolisDebateCallStatus.NoModel ? "JudgeNoModel" : "NoVerdict"));
+        _debate = PolisDebate.Judge(_debate, verdict);
+        _logger.Information("Polis debate judged: {Votes} of {Jury} for you ({Winner}, judged {Judged})", verdict.VotesForYou, PolisDebate.Jury, verdict.Winner, verdict.Judged);
+        try
+        {
+            _debateRecord = await _debates.RecordAsync(new PolisContestRecord(DateTimeOffset.Now, _debate.Motion, verdict.VotesForYou, verdict.Winner, verdict.Judged), CancellationToken.None);
+            _debateRecordLoaded = true;
+        }
+        catch (Exception ex)
+        {
+            // 战绩没写进去不影响这一场：页面照样看到裁决；下次记的时候从文件里读到的是没有这一场的战绩
+            _logger.Warning(ex, "Could not record the debate result");
+        }
+        await PostDebateAsync();
+    }
+
+    /// <summary>作废这一场（页面说不辩了、你出海了、视图模型释放）。没判完的不记战绩。</summary>
+    private void EndDebate(string why)
+    {
+        if (_debate == null && _debateCancel == null) return;
+        _debateCancel?.Cancel();
+        _debateCancel?.Dispose();
+        _debateCancel = null;
+        var wasRunning = _debate is { State: not PolisDebateState.Done };
+        _debate = null;
+        if (wasRunning) _logger.Information("Polis debate ended before the verdict ({Why})", why);
+        if (!_disposed) _ = RunIntentAsync(PostDebateAsync, "debate-end");
+    }
+
+    /// <summary>把讲台的现状推给页面：这一场（没有就是 idle）、战绩、要说的那一句。</summary>
+    private async Task PostDebateAsync()
+    {
+        if (_disposed) return;
+        if (!_debateRecordLoaded)
+        {
+            try
+            {
+                _debateRecord = await _debates.LoadSummaryAsync(CancellationToken.None);
+            }
+            catch (Exception ex)
+            {
+                _logger.Warning(ex, "Could not load the debate record");
+            }
+            _debateRecordLoaded = true;
+        }
+        if (_disposed) return;
+        var d = _debate;
+        var notice = _debateNotice;
+        _debateNotice = null;
+        Post(new
+        {
+            type = "debate",
+            debate = new
+            {
+                state = d == null ? "idle" : d.State switch
+                {
+                    PolisDebateState.AwaitingUser => "awaiting",
+                    PolisDebateState.AthenaSpeaking => "athena",
+                    PolisDebateState.Judging => "judging",
+                    _ => "done"
+                },
+                id = d?.Id,
+                motion = d?.Motion,
+                round = d?.Round ?? 0,
+                rounds = PolisDebate.Rounds,
+                jury = PolisDebate.Jury,
+                transcript = d?.Transcript.Select(t => new { side = t.Side, text = t.Text }).ToList(),
+                verdict = d?.Verdict == null ? null : new { votesForYou = d.Verdict.VotesForYou, winner = d.Verdict.Winner, reason = d.Verdict.Reason, judged = d.Verdict.Judged },
+                record = new { wins = _debateRecord.Wins, losses = _debateRecord.Losses, ties = _debateRecord.Ties },
+                notice,
+            }
+        });
+        Flush();
+    }
+
+    private string DebateText(string what)
+    {
+        var entry = PolisLocale.Debate.First(d => d.What == what);
+        return L(entry.Key, entry.Fallback);
+    }
+
+    /// <summary>户名（M-D）：立户那一位的名字加"一家"（2026-10-13 起名字是完整的希腊名，不再拿会话标题当称号）。</summary>
+    private string HouseholdLabel(PolisCitizen founder)
+    {
+        var table = PolisLocale.Citizen.ToDictionary(c => c.JsKey, StringComparer.Ordinal);
+        string Text(string jsKey) => L(table[jsKey].Key, table[jsKey].Fallback);
+        var who = PolisCitizens.NameFor(founder, Text("namesMale"), Text("namesFemale"), Text("nameNth"));
+        return string.Format(CultureInfo.CurrentCulture, Text("householdName"), who);
+    }
+
+    /// <summary>户的"样子"（钥匙、户名、人数、新旧）：变了才重推城。</summary>
+    private static string HouseholdShape(IReadOnlyList<PolisHousehold> households, DateTimeOffset now)
+        => string.Join(";", households.Select(h => $"{h.Key}|{h.Label}|{h.Members.Count}|{PolisBuildings.StateFor(h.LastActive, now)}"));
+
+    /// <summary>
+    /// 一位居民那场会话的预览（2026-10-13）：你和雅典娜看得见的那些话（<see cref="PolisCitizens.Transcript"/>），只推给页面的卷轴阅读器。
+    /// 会话的消息在内存里（会话树启动时全部恢复），在 UI 线程上取。
+    /// </summary>
+    private void PostCitizenTranscript(string conversationId)
+    {
+        if (_disposed || !_citizensById.TryGetValue(conversationId, out var citizen)) return;
+        var session = _shell?.AllSessions.FirstOrDefault(s => s.ConversationId == conversationId);
+        if (session == null) return;
+        var (entries, omitted) = PolisCitizens.Transcript(session.Chat.Messages.ToList());
+        Post(new
+        {
+            type = "citizen-transcript",
+            conversationId,
+            title = citizen.Title,
+            entries = entries.Select(e => new { role = e.Role, text = e.Text }).ToList(),
+            omitted
+        });
+        Flush();
+    }
+
+    /// <summary>
+    /// 和城里的一个人说一句话（2026-10-13，原来 M-C 的问话）。他的提示词有这座城（<see cref="WorldFacts"/>）、他自己（名字、性子、托付过的那件事）、
+    /// 和你说过的几轮，以及按你这一句从他那场会话里挑的几段（<see cref="PolisCitizenAnswers.SelectExcerpts"/>）——所以能闲聊，说到那件事只凭记得的。
+    /// 那场会话的消息在内存里（会话树启动时全部恢复，不读库）：在 UI 线程上取一份快照，提示词与调用都在线程池上；
+    /// 看得见的字边收边推（<c>talk</c>，<c>done: false</c>，攒批时每人只带最新一版），说完推最后一版（<c>done: true</c>）。
+    /// 任何结局都有一句话给他说——没配模型、正忙、超限、失败都是一句本地化的话，不是错误框（<see cref="PolisTalkService"/> 的纪律 1）。
+    /// 他的话只回到页面，不进任何会话。
+    /// </summary>
+    private async Task ChatAsync(string who, string line)
+    {
+        if (who.StartsWith(PolisIntents.ResidentSpeakerPrefix, StringComparison.Ordinal))
+        {
+            await ResidentChatAsync(who, line);
+            return;
+        }
+        if (_disposed || !_citizensById.TryGetValue(who, out var citizen)) return;
+        var session = _shell?.AllSessions.FirstOrDefault(s => s.ConversationId == who);
+        if (session == null) return;
+        var messages = session.Chat.Messages.ToList();
+        var table = PolisLocale.Citizen.ToDictionary(c => c.JsKey, StringComparer.Ordinal);
+        string Name(string jsKey) => L(table[jsKey].Key, table[jsKey].Fallback);
+        var language = _localization.CurrentLanguage;
+        var speaker = new PolisSpeaker(
+            PolisCitizens.NameFor(citizen, Name("namesMale"), Name("namesFemale"), Name("nameNth")),
+            citizen.Female, citizen.Age, PolisTalk.PersonaFor(citizen.Seed, language), PolisTalk.CitizenCalling(citizen, language));
+        var world = WorldFacts();
+        _talkHistory.TryGetValue(who, out var history);
+        history ??= Array.Empty<PolisTalkTurn>();
+        var page = _page;
+        var token = _askCancel.Token;
+        var (reply, n) = await StreamLineAsync(who, PolisTalkPurpose.Player,
+            () => PolisTalk.BuildChat(world, speaker, PolisCitizenAnswers.SelectExcerpts(messages, line), history, line, language), token);
+        if (reply == null || _disposed || page == null || !ReferenceEquals(page, _page)) return;
+        if (reply.Status == PolisTalkStatus.Ok && !string.IsNullOrWhiteSpace(reply.Text))
+            _talkHistory[who] = PolisTalk.Remember(history, line, reply.Text!);
+        var text = reply.Status == PolisTalkStatus.Ok && !string.IsNullOrWhiteSpace(reply.Text) ? reply.Text! : TalkFallback(reply.Status);
+        Post(new { type = "talk", who, n, text, done = true, status = reply.Status.ToString().ToLowerInvariant() });
+        Flush();
+    }
+
+    /// <summary>
+    /// 和一位职业居民说一句话（2026-10-13，用户：撤下工具能力，留下职业与他管的那摊事、各自的性子，能像居民一样聊天）。
+    /// 提示词 = 这座城 + 他（职业、希腊名、他管的那摊事与性子，<c>Polis.Resident.*.Persona</c>）+ 规矩（没有"你记得的"——他没托付过事）
+    /// + 和你说过的几轮。他只是聊天：城里没有一个人能动工具，规矩里写着不答应替谁办事。
+    /// </summary>
+    private async Task ResidentChatAsync(string who, string line)
+    {
+        if (_disposed || !PolisResidents.TryParse(who[PolisIntents.ResidentSpeakerPrefix.Length..], out var kind)) return;
+        var language = _localization.CurrentLanguage;
+        var entry = PolisAccumulation.ResidentEntry(kind);
+        var speaker = new PolisSpeaker(
+            L(entry.GreekKey, entry.GreekFallback), PolisResidents.IsFemale(kind), PolisResidents.AgeOf(kind),
+            new PolisPersona(L(entry.NameKey, entry.NameFallback), string.Empty, string.Empty, string.Empty), string.Empty,
+            Portrait: L(entry.PersonaKey, entry.PersonaFallback));
+        var world = WorldFacts();
+        _talkHistory.TryGetValue(who, out var history);
+        history ??= Array.Empty<PolisTalkTurn>();
+        var page = _page;
+        var (reply, n) = await StreamLineAsync(who, PolisTalkPurpose.Player, () => PolisTalk.BuildChat(world, speaker, null, history, line, language), _askCancel.Token);
+        if (reply == null || _disposed || page == null || !ReferenceEquals(page, _page)) return;
+        if (reply.Status == PolisTalkStatus.Ok && !string.IsNullOrWhiteSpace(reply.Text))
+            _talkHistory[who] = PolisTalk.Remember(history, line, reply.Text!);
+        var text = reply.Status == PolisTalkStatus.Ok && !string.IsNullOrWhiteSpace(reply.Text) ? reply.Text! : TalkFallback(reply.Status);
+        Post(new { type = "talk", who, n, text, done = true, status = reply.Status.ToString().ToLowerInvariant() });
+        Flush();
+    }
+
+    /// <summary>
+    /// 说一句话：提示词在线程池上拼、调用在线程池上跑，看得见的字攒批推（<c>talk</c>，<c>done: false</c>）。返回结局；页面没了、取消了返回 null。
+    /// 说完的那一版由调用的人推（聊天要带本地化的兜底，闲聊失败了什么都不说）。
+    /// </summary>
+    private async Task<(PolisTalkReply? Reply, int Call)> StreamLineAsync(string who, PolisTalkPurpose purpose, Func<PolisTalkPrompt> buildPrompt, CancellationToken token)
+    {
+        var call = ++_talkSeq;
+        _talkActive[who] = call;
+        _talkPartial.Remove(who);
+        void OnVisible(string visible) => Dispatcher.UIThread.Post(() => PostTalkPartial(who, call, visible));
+        PolisTalkReply reply;
+        try
+        {
+            reply = await Task.Run(() => _talk.TalkAsync(purpose, buildPrompt(), OnVisible, token), token);
+        }
+        catch (OperationCanceledException)
+        {
+            return (null, call);   // 页面没了（离开游戏太久、视图模型释放）：没有人等这句话
+        }
+        finally
+        {
+            if (_talkActive.TryGetValue(who, out var active) && active == call) _talkActive.Remove(who);
+            _talkPartial.Remove(who);
+        }
+        return (reply, call);
+    }
+
+    /// <summary>
+    /// 两位居民在街上碰上了（2026-10-13，用户：NPC 之间的对话只用模型，不预置台词，响应时气泡里是循环的点，回复流式出现）。
+    /// 先开口的那位说一句（流式进他头顶），说完立刻让另一位头顶出现点，再带着刚才那句让他接一句；两句都走 <see cref="PolisTalkPurpose.Ambient"/> 池。
+    /// 提示词只有世界观、两人的名字与性子、那件事办到哪一步——<b>不带会话标题、不带任何原话</b>（<see cref="PolisTalk.AmbientCalling"/>）。
+    /// 没配模型、正忙、超限、失败都不说话（没有本地台词可退），只推 <c>ambient-end</c> 让页面放开这两人、按结局决定多久之后再挑。
+    /// </summary>
+    private async Task AmbientChatAsync(string a, string b)
+    {
+        if (_disposed || !_citizensById.TryGetValue(a, out var first) || !_citizensById.TryGetValue(b, out var second)) return;
+        var page = _page;
+        if (_ambientRunning)
+        {
+            Post(new { type = "ambient-end", a, b, status = "busy" });
+            Flush();
+            return;
+        }
+        _ambientRunning = true;
+        try
+        {
+            var table = PolisLocale.Citizen.ToDictionary(c => c.JsKey, StringComparer.Ordinal);
+            string Name(string jsKey) => L(table[jsKey].Key, table[jsKey].Fallback);
+            var language = _localization.CurrentLanguage;
+            PolisSpeaker Speaker(PolisCitizen c) => new(
+                PolisCitizens.NameFor(c, Name("namesMale"), Name("namesFemale"), Name("nameNth")),
+                c.Female, c.Age, PolisTalk.PersonaFor(c.Seed, language), PolisTalk.AmbientCalling(c, language));
+            var (sa, sb) = (Speaker(first), Speaker(second));
+            var world = WorldFacts();
+            var token = _askCancel.Token;
+            var (opening, na) = await StreamLineAsync(a, PolisTalkPurpose.Ambient, () => PolisTalk.BuildAmbientLine(world, sa, sb, null, language), token);
+            if (opening == null || _disposed || page == null || !ReferenceEquals(page, _page)) return;
+            if (opening.Status != PolisTalkStatus.Ok || string.IsNullOrWhiteSpace(opening.Text))
+            {
+                Post(new { type = "ambient-end", a, b, status = opening.Status.ToString().ToLowerInvariant() });
+                Flush();
+                return;
+            }
+            var said = Clip(opening.Text!);
+            Post(new { type = "talk", who = a, n = na, text = said, done = true, status = "ok" });
+            // 他还在想：头顶先出现一串点（空的半句话 = 一句新的话开头了）
+            Post(new { type = "talk", who = b, n = 0, text = string.Empty, done = false });
+            Flush();
+            var (answer, nb) = await StreamLineAsync(b, PolisTalkPurpose.Ambient, () => PolisTalk.BuildAmbientLine(world, sb, sa, said, language), token);
+            if (answer == null || _disposed || page == null || !ReferenceEquals(page, _page)) return;
+            if (answer.Status == PolisTalkStatus.Ok && !string.IsNullOrWhiteSpace(answer.Text))
+                Post(new { type = "talk", who = b, n = nb, text = Clip(answer.Text!), done = true, status = "ok" });
+            Post(new { type = "ambient-end", a, b, status = answer.Status.ToString().ToLowerInvariant() });
+            Flush();
+        }
+        finally
+        {
+            _ambientRunning = false;
+        }
+
+        // 闲聊一句话：提示词要它不超过 40 字，模型多说了就截一刀（气泡里放得下）
+        static string Clip(string text) => text.Length <= PolisTalk.MaxAmbientChars * 2 ? text : text[..(PolisTalk.MaxAmbientChars * 2)] + "…";
+    }
+
+    /// <summary>没能好好说出来时他说的那一句（本地化）：没配模型、正忙、超限、失败各一句。</summary>
+    private string TalkFallback(PolisTalkStatus status)
+    {
+        var replies = PolisLocale.CitizenAsk.ToDictionary(r => r.Status, StringComparer.Ordinal);
+        var key = (status == PolisTalkStatus.Ok ? PolisTalkStatus.Failed : status).ToString();
+        return L(replies[key].Key, replies[key].Fallback);
+    }
+
+    /// <summary>流式的半句话：只留最新的一版，攒批推送时带走（<see cref="Flush"/>）。说完了或换了一句，晚到的丢掉。</summary>
+    private void PostTalkPartial(string who, int call, string visible)
+    {
+        if (_disposed || _page == null || !_talkActive.TryGetValue(who, out var active) || active != call) return;
+        _talkPartial[who] = (call, visible);
+        if (!_flushTimer.IsEnabled) _flushTimer.Start();
+    }
+
+    /// <summary>
+    /// 提示词里的这座城（<see cref="PolisTalk.WorldText"/>）：城名、是不是神殿、白天黑夜、人口、建筑（文件夹）名。没有任何消息正文。
+    /// </summary>
+    private PolisWorldFacts WorldFacts() => new(
+        _cityWorkspace?.Name ?? string.Empty,
+        _cityWorkspace == null,
+        _night,
+        _citizensById.Count,
+        (_city?.Buildings.Select(b => b.Key) ?? Enumerable.Empty<string>()).Where(k => !PolisHouseholds.IsHouseholdKey(k)).ToList());
 
     /// <summary>摆放 / 撤下 / 移除：只改存档（7.2"拆方块永远不会变成删文件"），推回页面，落盘。</summary>
     private void ApplyCollection(PolisCollectionResult result, string what)
@@ -678,6 +1136,8 @@ public sealed partial class GameModeViewModel : ViewModelBase, IDisposable
         Post(new { type = "visibility", visible = _windowVisible && IsGameMode });
         // 地址里带过一次主题；创建页面之后主题又变过的话以此刻为准（直接到位，不过渡）
         Post(new { type = "theme", night = _night, instant = true });
+        // 讲台的战绩（全局，不属于哪座城）：页面刚就绪就推一次，讲台的卡片上才有"你 n 胜 m 负"
+        _ = RunIntentAsync(PostDebateAsync, "debate-record");
         _cityKey = null;
         _accumulationKey = null;
         if (_session != null) _ = ActivateSessionAsync(_session, voyage: false);
@@ -735,7 +1195,7 @@ public sealed partial class GameModeViewModel : ViewModelBase, IDisposable
             // 同一座城：不换场景；第一拍可能已经让页面出港（切走又切回），这里让它靠岸
             if (key != _cityKey) await LoadCityAsync(session.Workspace);
             else Post(new { type = "arrive" });
-            SendFocus();
+            FocusSession();
         }
         catch (OperationCanceledException)
         {
@@ -753,7 +1213,7 @@ public sealed partial class GameModeViewModel : ViewModelBase, IDisposable
     /// <summary>换到这份委托：订阅它的渲染模型，已有的一切算"已经演过"。</summary>
     private void AttachSession(ConversationSessionItemViewModel session)
     {
-        if (ReferenceEquals(_session, session) && _projector != null) return;
+        if (ReferenceEquals(_session, session) && _deliveries != null) return;
         DetachSession();
         _session = session;
         session.PropertyChanged += OnSessionPropertyChanged;
@@ -763,7 +1223,6 @@ public sealed partial class GameModeViewModel : ViewModelBase, IDisposable
         session.Chat.PropertyChanged += OnChatPropertyChanged;
         session.Chat.PendingAttachments.CollectionChanged += OnPendingAttachmentsChanged;
         session.Chat.InputFocusRequested += OnChatInputFocusRequested;
-        _wasWaiting = session.IsWaitingForApproval;
     }
 
     private void DetachSession()
@@ -776,7 +1235,7 @@ public sealed partial class GameModeViewModel : ViewModelBase, IDisposable
         _session.Chat.PendingAttachments.CollectionChanged -= OnPendingAttachmentsChanged;
         _session.Chat.InputFocusRequested -= OnChatInputFocusRequested;
         _session = null;
-        _projector = null;
+        _deliveries = null;
     }
 
     // ———————————————————————— 城里的对话栏 ————————————————————————
@@ -824,35 +1283,21 @@ public sealed partial class GameModeViewModel : ViewModelBase, IDisposable
         Flush();
     }
 
-    private void SendFocus()
+    /// <summary>
+    /// 换到这份委托：已有的回合算已经交付（不再造成果），正在进行的那一回合从现在起记归属；
+    /// 对话栏换成这份委托的——带上它输入框里的字，刚替它预填过（新开的委托、退回）就展开。
+    /// 页面那一侧没有"雅典娜转向这份委托"：她不镜像回合，换委托不动她（2026-10-13）。
+    /// </summary>
+    private void FocusSession()
     {
         if (_session == null) return;
-        var now = DateTimeOffset.UtcNow;
-        var messages = _session.Chat.Messages.ToList();
-        _projector = new PolisEventProjector(_fogged ? null : _cityWorkspace?.DirectoryPath, _home, BuildingKeys());
-        var last = _projector.LastPlace(messages, now);
-        Post(new
-        {
-            type = "focus",
-            conversationId = _session.ConversationId,
-            last = last == null ? null : new { category = last.Category, place = last.Place, building = last.Building },
-            interrupted = _session.WasInterrupted
-        });
-        var baseline = _projector.Baseline(messages, now);
-        if (baseline.Count > 0) PostEvents(baseline);
-        if (_session.IsWaitingForApproval) PostEvents(new[] { new PolisLiveEvent("approval") { At = now, Waiting = true } });
-        _wasWaiting = _session.IsWaitingForApproval;
-        // 对话栏换成这份委托的：带上它输入框里的字；刚替它预填过（新开的委托、退回）就展开
+        _deliveries = new PolisDeliveries(_fogged ? null : _cityWorkspace?.DirectoryPath, _home);
+        _deliveries.Baseline(_session.Chat.Messages.ToList(), DateTimeOffset.UtcNow);
         var open = _prefillFor == _session.ConversationId;
         if (open) _prefillFor = null;
         PostComposer(includeDraft: true, open: open);
         Flush();
     }
-
-    private IReadOnlySet<string> BuildingKeys()
-        => (_city?.Buildings.Select(b => b.Key) ?? Enumerable.Empty<string>())
-            .Concat(_city?.Market ?? Enumerable.Empty<string>())
-            .ToHashSet(StringComparer.Ordinal);
 
     /// <summary>
     /// 装一座城（设计稿 10.3"先显示，再核对"）：读存档与索引快照 → 有快照就立刻按快照画出来 → 后台有界、可取消地扫描 →
@@ -861,8 +1306,12 @@ public sealed partial class GameModeViewModel : ViewModelBase, IDisposable
     /// </summary>
     private async Task LoadCityAsync(WorkspaceProfile? workspace)
     {
-        // 离开上一座城：记下离开的时刻（传令官下次只报这之后的事）
-        if (_cityKey != null && _cityKey != (workspace?.Id ?? "sanctuary")) await StampDepartureAsync();
+        // 离开上一座城：记下离开的时刻（传令官下次只报这之后的事）；讲台前没辩完的那一场作废（你已经出海了）
+        if (_cityKey != null && _cityKey != (workspace?.Id ?? "sanctuary"))
+        {
+            if (_debate != null) EndDebate("city-changed");
+            await StampDepartureAsync();
+        }
         _cityLoad?.Cancel();
         _cityLoad?.Dispose();
         var cts = new CancellationTokenSource();
@@ -890,6 +1339,8 @@ public sealed partial class GameModeViewModel : ViewModelBase, IDisposable
         _cityWorkspace = workspace;
         _slot = workspace == null ? PolisSaveSlot.Sanctuary : PolisSaveSlot.ForWorkspace(workspace.Id);
         _cityKey = workspace?.Id ?? "sanctuary";
+        _households = Array.Empty<PolisHousehold>();
+        _householdsBaselined = false;
         _lastScan = null;
         _notices.Clear();
         var slot = _slot;
@@ -1039,11 +1490,50 @@ public sealed partial class GameModeViewModel : ViewModelBase, IDisposable
         Post(new { type = "grove", trees = PolisAccumulation.GroveTrees(trees) });
 
         var oracle = PolisOracle.Find(tasks, workspaceId);
-        var mine = _shell.AllSessions.Where(s => string.Equals(s.Workspace?.Id ?? string.Empty, workspaceId ?? string.Empty, StringComparison.Ordinal))
-            .Select(s => (s.ConversationId, (IReadOnlyList<ChatMessage>)s.Chat.Messages.ToList()));
-        var residents = PolisResidents.Derive(mine, oracle?.CreatedAt);
-        _knownResidents = residents.Select(r => PolisResidents.Slug(r.Kind)).ToHashSet(StringComparer.Ordinal);
-        Post(new { type = "residents", residents = PolisAccumulation.Residents(residents, _save.MetResidents.ToList(), L, now) });
+        var sessionsHere = _shell.AllSessions
+            .Where(s => string.Equals(s.Workspace?.Id ?? string.Empty, workspaceId ?? string.Empty, StringComparison.Ordinal))
+            .Select(s => (Session: s, Messages: (IReadOnlyList<ChatMessage>)s.Chat.Messages.ToList()))
+            .ToList();
+        // 十位职业居民每座城一开始就都在（2026-10-13）；按工具推导的那一份只回答"这项能力用过没有"（下面委托板的记忆建议）
+        var residents = PolisResidents.Derive(sessionsHere.Select(s => (s.Session.ConversationId, s.Messages)), oracle?.CreatedAt);
+        _knownResidents = PolisResidents.All.Select(PolisResidents.Slug).ToHashSet(StringComparer.Ordinal);
+        Post(new { type = "residents", residents = PolisAccumulation.Residents(_save.MetResidents.ToList(), L, now) });
+
+        // 居民即会话（M-B）：这座城的每场会话一位居民，街上最多 32 位，按最近动过的先上街
+        var byId = commissions.ToDictionary(c => c.ConversationId, StringComparer.Ordinal);
+        var citizens = PolisCitizens.Derive(
+            sessionsHere.Where(s => byId.ContainsKey(s.Session.ConversationId)).Select(s => new PolisCitizenSource(byId[s.Session.ConversationId], s.Messages)),
+            _fogged ? null : _cityWorkspace?.DirectoryPath,
+            _home,
+            (_city?.Buildings.Select(b => b.Key) ?? Enumerable.Empty<string>()).ToHashSet(StringComparer.Ordinal),
+            (_city?.Market ?? Enumerable.Empty<string>()).ToHashSet(StringComparer.Ordinal),
+            now,
+            ignoreCase: !OperatingSystem.IsLinux());
+        // 户与民居（M-D）：没有文件夹可归的居民聚成户、住进民居。户的地写进账本（永不挪位），城（合进民居）先推、居民后推——
+        // 居民的家是 b:household:…，页面得先有那座民居才排得出他的日程
+        var households = PolisHouseholds.Derive(citizens, HouseholdLabel);
+        var ledger = PolisHouseholds.Place(_save.Ledger, households);
+        var standingBefore = _save.Ledger.Entries.Where(e => PolisHouseholds.IsHouseholdKey(e.Key) && !e.Vacated).Select(e => e.Key).ToHashSet(StringComparer.Ordinal);
+        var householdsChanged = !PolisHouseholds.SameLedger(ledger, _save.Ledger) || HouseholdShape(households, now) != HouseholdShape(_households, now);
+        _households = households;
+        citizens = PolisHouseholds.Rehome(citizens, households);
+        if (householdsChanged && _city != null)
+        {
+            var founded = households.Where(h => !standingBefore.Contains(h.Key)).Select(h => h.Key).ToList();
+            if (!PolisHouseholds.SameLedger(ledger, _save.Ledger))
+            {
+                _save = _save with { Ledger = ledger };
+                _ = PersistSaveAsync();
+            }
+            // 第一遍（刚到这座城）是本来就住在这儿的人家，不闪、不说；之后新立的户闪一下、雅典娜说一句
+            var origins = _householdsBaselined && founded.Count > 0 ? founded.ToDictionary(k => k, _ => "household", StringComparer.Ordinal) : null;
+            PostCity(_city, sanctuary: _cityWorkspace == null, founding: false, partial: false, origins: origins);
+            if (founded.Count > 0) _logger.Information("Polis households: {Count} new in {City} ({Total} in all)", founded.Count, _cityKey, households.Count);
+        }
+        _householdsBaselined = true;
+        _knownCitizens = citizens.Select(c => c.ConversationId).ToHashSet(StringComparer.Ordinal);
+        _citizensById = citizens.ToDictionary(c => c.ConversationId, StringComparer.Ordinal);
+        Post(new { type = "citizens", citizens = PolisAccumulation.Citizens(citizens, L) });
 
         var suggestions = PolisSuggestions.Generate(new PolisSuggestionInput(
             workspaceId,
@@ -1122,7 +1612,6 @@ public sealed partial class GameModeViewModel : ViewModelBase, IDisposable
         _lastScan = state.Scan;
         PostCity(state.City, sanctuary: false, founding: false, partial: false, origins: null);
         PostItems();
-        if (_projector != null) _projector.BuildingKeys = BuildingKeys();
         Flush();
         await PersistSaveAsync();
         try
@@ -1143,6 +1632,9 @@ public sealed partial class GameModeViewModel : ViewModelBase, IDisposable
     /// 无头测试用它把一次测绘卡在"读过文件夹、还没落地"——外部改动与换城恰好落在这段时间里的那种竞争。
     /// </summary>
     internal Action<string>? SurveyScanned { get; set; }
+
+    /// <summary>她这一回合碰过的地方（测试用：等归属记下了再写盘）。</summary>
+    internal IReadOnlyList<PolisAthenaTouch> AthenaTouches => _deliveries?.Touches ?? Array.Empty<PolisAthenaTouch>();
 
     private async Task RescanAsync(string why)
     {
@@ -1199,12 +1691,14 @@ public sealed partial class GameModeViewModel : ViewModelBase, IDisposable
 
     private void PostCity(PolisFixtureDocument city, bool sanctuary, bool founding, bool partial, IReadOnlyDictionary<string, string>? origins = null)
     {
+        // C# 自己记的城只有文件夹的建筑（委托板、居民的家、外部改动都按它算）；推给页面的那一份合进户的民居（M-D）
         _city = city;
+        var shown = PolisHouseholds.WithHouseholds(city, _households, _save.Ledger, DateTimeOffset.UtcNow);
         Post(new
         {
             type = "city",
             key = _cityKey,
-            city = JsonSerializer.SerializeToElement(city, PolisFixture.JsonOptions),
+            city = JsonSerializer.SerializeToElement(shown, PolisFixture.JsonOptions),
             sanctuary,
             founding,
             partial,
@@ -1258,7 +1752,7 @@ public sealed partial class GameModeViewModel : ViewModelBase, IDisposable
         var old = change.OldFullPath == null ? null : PolisPaths.ToRelative(change.Root, change.OldFullPath, comparison);
         var at = new DateTimeOffset(change.OccurredAtUtc, TimeSpan.Zero);
         _pendingChanges.Add(new PolisFsChange(relative, change.ChangeType, old, at));
-        _pendingOrigins.Add(PolisChanges.Attribute(relative, at, _projector?.Touches ?? Array.Empty<PolisAthenaTouch>(), DateTimeOffset.UtcNow));
+        _pendingOrigins.Add(PolisChanges.Attribute(relative, at, _deliveries?.Touches ?? Array.Empty<PolisAthenaTouch>(), DateTimeOffset.UtcNow));
         _watcherTimer ??= new DispatcherTimer(WatcherDebounce, DispatcherPriority.Background, (_, _) => _ = ApplyPendingChangesAsync());
         _watcherTimer.Stop();
         _watcherTimer.Start();
@@ -1340,7 +1834,6 @@ public sealed partial class GameModeViewModel : ViewModelBase, IDisposable
                 var after = state.City.Buildings.FirstOrDefault(b => b.Key == key);
                 AddNotice(DescribeExternal(key, before, after));
             }
-            if (_projector != null) _projector.BuildingKeys = BuildingKeys();
             Flush();
             await PersistSaveAsync();
             await _store.SaveIndexAsync(slot, state.Index, CancellationToken.None);
@@ -1377,7 +1870,8 @@ public sealed partial class GameModeViewModel : ViewModelBase, IDisposable
                 ? item with { RelativePath = found.RelativePath, Fingerprint = found.Fingerprint, Lost = found.Lost, ModifiedSinceDelivery = found.ModifiedSinceDelivery }
                 : item)
             .ToList();
-        return current with { Ledger = reconciled.Ledger, Items = items };
+        // 核对期间新立的户（M-D）写进了此刻的账本：不被核对的结果冲掉
+        return current with { Ledger = PolisHouseholds.MergeAfterReconcile(reconciled.Ledger, current.Ledger), Items = items };
     }
 
     /// <summary>
@@ -1459,13 +1953,15 @@ public sealed partial class GameModeViewModel : ViewModelBase, IDisposable
         });
     }
 
-    // ———————————————————————— 雅典娜的事件与成果 ————————————————————————
+    // ———————————————————————— 交付与归属 ————————————————————————
+    // 订阅的只是"这一回合交付了没有"（气泡停止流式输出）和"她这一回合碰过哪些路径"（工具调用的起止，外部改动的归属要它：
+    // 不记的话，她写的每个文件都会被当成外部改动挂上公告板）。工具、推理、审批都不再推给页面。
 
     private void OnMessagesChanged(object? sender, NotifyCollectionChangedEventArgs e)
     {
         if (e.NewItems != null) foreach (ChatMessage message in e.NewItems) WatchMessage(message);
         if (e.OldItems != null) foreach (ChatMessage message in e.OldItems) UnwatchMessage(message);
-        MarkProjectionDirty();
+        MarkDeliveriesDirty();
     }
 
     private void WatchMessage(ChatMessage message)
@@ -1484,14 +1980,12 @@ public sealed partial class GameModeViewModel : ViewModelBase, IDisposable
 
     private void WatchSegment(ChatMessageSegment segment)
     {
-        segment.PropertyChanged += OnSegmentPropertyChanged;
         segment.ToolCalls.CollectionChanged += OnToolCallsChanged;
         foreach (var entry in segment.ToolCalls) entry.PropertyChanged += OnToolCallPropertyChanged;
     }
 
     private void UnwatchSegment(ChatMessageSegment segment)
     {
-        segment.PropertyChanged -= OnSegmentPropertyChanged;
         segment.ToolCalls.CollectionChanged -= OnToolCallsChanged;
         foreach (var entry in segment.ToolCalls) entry.PropertyChanged -= OnToolCallPropertyChanged;
     }
@@ -1500,63 +1994,47 @@ public sealed partial class GameModeViewModel : ViewModelBase, IDisposable
     {
         if (e.NewItems != null) foreach (ChatMessageSegment segment in e.NewItems) WatchSegment(segment);
         if (e.OldItems != null) foreach (ChatMessageSegment segment in e.OldItems) UnwatchSegment(segment);
-        MarkProjectionDirty();
+        MarkDeliveriesDirty();
     }
 
     private void OnToolCallsChanged(object? sender, NotifyCollectionChangedEventArgs e)
     {
         if (e.NewItems != null) foreach (ToolCallEntry entry in e.NewItems) entry.PropertyChanged += OnToolCallPropertyChanged;
         if (e.OldItems != null) foreach (ToolCallEntry entry in e.OldItems) entry.PropertyChanged -= OnToolCallPropertyChanged;
-        MarkProjectionDirty();
+        MarkDeliveriesDirty();
     }
 
     private void OnMessagePropertyChanged(object? sender, PropertyChangedEventArgs e)
     {
         if (e.PropertyName is nameof(ChatMessage.IsStreaming) or nameof(ChatMessage.IsLoading) or nameof(ChatMessage.DurationMs))
-            MarkProjectionDirty();
-    }
-
-    private void OnSegmentPropertyChanged(object? sender, PropertyChangedEventArgs e)
-    {
-        if (e.PropertyName == nameof(ChatMessageSegment.Text)) MarkProjectionDirty();
+            MarkDeliveriesDirty();
     }
 
     private void OnToolCallPropertyChanged(object? sender, PropertyChangedEventArgs e)
     {
-        if (e.PropertyName == nameof(ToolCallEntry.Status)) MarkProjectionDirty();
+        if (e.PropertyName == nameof(ToolCallEntry.Status)) MarkDeliveriesDirty();
     }
 
     private void OnSessionPropertyChanged(object? sender, PropertyChangedEventArgs e)
     {
         if (e.PropertyName != nameof(ConversationSessionItemViewModel.IsWaitingForApproval) || _session == null) return;
-        var waiting = _session.IsWaitingForApproval;
-        if (waiting == _wasWaiting) return;
-        _wasWaiting = waiting;
-        // 审批状态镜像（7.1"定"）：雅典娜停在门槛前、封印变红。审批本身照旧在原生审批窗口里——网页没有"批准"。
-        PostEvents(new[] { new PolisLiveEvent("approval") { At = DateTimeOffset.UtcNow, Waiting = waiting } });
-        PostComposer();   // 对话栏的状态行：她在等你点头
+        // 等审批（7.1"定"）只在对话栏上显示：红封印、"她在等你点头"。审批本身照旧在原生审批窗口里——网页没有"批准"。
+        PostComposer();
     }
 
-    private void MarkProjectionDirty()
+    private void MarkDeliveriesDirty()
     {
-        _projectionDirty = true;
+        _deliveriesDirty = true;
         if (_page != null && !_flushTimer.IsEnabled) _flushTimer.Start();
     }
 
-    /// <summary>算出新增事件；交付的那一回合在这里变成一件成果（存进存档，带颜色等你收下）。</summary>
-    private void Project()
+    /// <summary>交付的那一回合在这里变成一件成果（存进存档，带颜色等你收下）：气泡停止流式输出的那一刻它就出现在城里。</summary>
+    private void ObserveDeliveries()
     {
-        if (!_projectionDirty || _projector == null || _session == null) return;
-        _projectionDirty = false;
+        if (!_deliveriesDirty || _deliveries == null || _session == null) return;
+        _deliveriesDirty = false;
         var now = DateTimeOffset.UtcNow;
-        var events = _projector.Project(_session.Chat.Messages.ToList(), now).ToList();
-        for (var i = 0; i < events.Count; i++)
-        {
-            if (events[i].Type != "deliver" || events[i].MessageId is not { } messageId) continue;
-            var item = CreateItem(messageId, now);
-            if (item != null) events[i] = events[i] with { ItemId = item.Id };
-        }
-        if (events.Count > 0) PostEvents(events);
+        foreach (var messageId in _deliveries.Observe(_session.Chat.Messages.ToList(), now)) CreateItem(messageId, now);
     }
 
     /// <summary>
@@ -1565,12 +2043,12 @@ public sealed partial class GameModeViewModel : ViewModelBase, IDisposable
     /// </summary>
     private PolisItem? CreateItem(string messageId, DateTimeOffset now)
     {
-        if (_session == null || _projector == null) return null;
+        if (_session == null || _deliveries == null) return null;
         if (_save.Items.Any(i => i.SourceMessageId == messageId)) return null;
         var bubble = _session.Chat.Messages.FirstOrDefault(m => m.Id == messageId);
         if (bubble == null) return null;
 
-        var written = _projector.WrittenFiles(bubble)
+        var written = _deliveries.WrittenFiles(bubble)
             .Select(w => w.RelativePath)
             .LastOrDefault(path => KindOfFile(path) != null);
         PolisItem item;
@@ -1700,32 +2178,6 @@ public sealed partial class GameModeViewModel : ViewModelBase, IDisposable
 
     // ———————————————————————— 推送 ————————————————————————
 
-    private void PostEvents(IEnumerable<PolisLiveEvent> events)
-    {
-        var flushAt = DateTimeOffset.UtcNow;
-        Post(new
-        {
-            type = "events",
-            events = events.Select(e => new
-            {
-                type = e.Type,
-                ageMs = Math.Max(0, (flushAt - e.At).TotalMilliseconds),
-                turn = e.Turn,
-                id = e.Id,
-                tool = e.Tool,
-                category = e.Category,
-                place = e.Place,
-                path = e.Path,
-                building = e.Building,
-                ok = e.Ok,
-                reasoning = e.Reasoning,
-                agents = e.Agents,
-                itemId = e.ItemId,
-                waiting = e.Waiting
-            }).ToList()
-        });
-    }
-
     private void Post(object message)
     {
         if (_page == null) return;
@@ -1740,7 +2192,12 @@ public sealed partial class GameModeViewModel : ViewModelBase, IDisposable
     private void Flush()
     {
         _flushTimer.Stop();
-        Project();
+        ObserveDeliveries();
+        if (_page != null && _talkPartial.Count > 0)
+        {
+            foreach (var (who, (call, text)) in _talkPartial) _outbox.Add(new { type = "talk", who, n = call, text, done = false });
+            _talkPartial.Clear();
+        }
         if (_page == null || _outbox.Count == 0) return;
         var payload = JsonSerializer.Serialize(_outbox, PageJson);
         _outbox.Clear();
@@ -1789,6 +2246,11 @@ public sealed partial class GameModeViewModel : ViewModelBase, IDisposable
     {
         if (_disposed) return;
         _disposed = true;
+        _askCancel.Cancel();
+        _askCancel.Dispose();
+        _debateCancel?.Cancel();
+        _debateCancel?.Dispose();
+        _debateCancel = null;
         _flushTimer.Stop();
         _readyTimer?.Stop();
         _releaseTimer?.Stop();

@@ -146,10 +146,12 @@ public static class ResponsesCallHelpers
     /// 压缩改流式时复用了非流式工厂，正是这样让 Responses 端点上的压缩全线静默失效。
     /// 服务端 failed/error 事件按异常抛出：静默返回空串会让上层把「供应商拒绝」误报成「模型没输出」。
     /// </summary>
+    /// <param name="onDelta">每来一段 output_text 增量就叫一次（游戏里居民的气泡边收边显示）；不要的传 null。</param>
     public static async Task<(string Text, TokenUsageSnapshot? Usage)> StreamOutputTextAsync(
         ResponsesClient client,
         CreateResponseOptions options,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        Action<string>? onDelta = null)
     {
         ArgumentNullException.ThrowIfNull(client);
         ArgumentNullException.ThrowIfNull(options);
@@ -166,6 +168,7 @@ public static class ResponsesCallHelpers
             {
                 case StreamingResponseOutputTextDeltaUpdate delta:
                     builder.Append(delta.Delta);
+                    onDelta?.Invoke(delta.Delta);
                     break;
                 case StreamingResponseCompletedUpdate done:
                     completed = done.Response;

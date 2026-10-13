@@ -3,17 +3,16 @@
 import { RESIDENTS } from './art/characters.mjs';
 
 const RESIDENT_ZH = {
-  surveyor: ['测绘员', '我替雅典娜量过这座城：哪个文件夹最大、哪里的东西最旧，她都能告诉你。'],
-  scribe: ['抄写员', '报告、说明、清单，她都能替你起草，也能改你写了一半的那份。'],
-  accountant: ['账房', '一堆表格要汇总、对账、出图？交给她，算错的那一格也会指出来。'],
-  smith: ['铁匠', '要跑命令、装工具、批量改名，她在锻炉前就能办——危险的那几步会先问你。'],
-  sailor: ['水手', '船出海就是去网上打听：查资料、下载文件、替你点完一整套网页。'],
-  librarian: ['图书管理员', '你常用的格式、你的偏好，告诉她一次，她就记在图书馆里。'],
-  maiden: ['黄金侍女', '活多的时候，雅典娜会叫上我们几个分头去办，办完一起回来。'],
-  herald: ['传令官', '要定时做的事（每天早上、每周一），交给雅典娜排成定时任务，结果由我来报。'],
-  painter: ['画师', '要一张配图、一幅示意？说清楚画什么，她就画给你。'],
-  artisan: ['工匠', '雅典娜还能接上别的工具和技能——要接什么，问她就行。'],
-  priestess: ['女祭司', '神庙里的每日神谕：每天早上，她替你看一眼这座城的变化。'],
+  surveyor: ['测绘员', '阿那克西曼德', '这座城的每一座房子我都量过：哪一座最大、哪一座最久没人进、里面都放着些什么，问我就对了。'],
+  scribe: ['抄写员', '卡德摩斯', '我在档案馆抄写文书：报告、说明、书信、清单，雅典娜口述，我落笔。'],
+  accountant: ['账房', '帕西昂', '库房里的账册都归我管：哪一笔进、哪一笔出，哪一格对不上，我一眼就看得出来。'],
+  smith: ['铁匠', '赫菲斯提昂', '锻炉这边是干粗活的地方：成百上千件东西要一样样过一遍，交给我，一锤一锤地来。'],
+  sailor: ['水手', '涅阿尔科斯', '船一出港，就是去外头打听消息：远方的新鲜事、别人家的价钱、要带回来的文书，我都捎得回来。'],
+  librarian: ['图书管理员', '泽诺多托斯', '圆形图书馆里收着这座城的记忆：主人说过的偏好、要紧的事，记下一次，以后就不用再说。'],
+  herald: ['传令官', '塔尔提比俄斯', '我站在讲台上：有人提议题，我主持辩论；到了时辰该办的差事，结果出来由我来报。'],
+  painter: ['画师', '卡吕普索', '彩绘柱廊里挂的画都出自我手：配图、示意、封面，说清楚画什么、什么味道，我就画给你。'],
+  artisan: ['工匠', '代达罗斯', '我在锻炉旁凿石头、做器具和机关；城外的手艺和工具要接进城里来，也是我来装。'],
+  priestess: ['女祭司', '忒弥斯托克勒亚', '神庙里每天清晨有一道神谕：雅典娜替主人看一眼城里的变化，写成一卷晨报。'],
 };
 
 export function demoAccumulation(fixture) {
@@ -30,9 +29,10 @@ export function demoAccumulation(fixture) {
   const residents = RESIDENTS.map((kind, i) => ({
     kind,
     met: i % 3 !== 0,
-    name: RESIDENT_ZH[kind][0],
-    intro: RESIDENT_ZH[kind][1],
-    tryLabel: '请雅典娜试试',
+    name: `${RESIDENT_ZH[kind][0]}${RESIDENT_ZH[kind][1]}`,
+    trade: RESIDENT_ZH[kind][0],
+    greekName: RESIDENT_ZH[kind][1],
+    intro: RESIDENT_ZH[kind][2],
   }));
   const first = fixture.buildings?.[0]?.key ?? '文件';
   const suggestions = [
@@ -59,4 +59,38 @@ export function demoAccumulation(fixture) {
     { id: 'demo-g', kind: 'ledger', title: '《流水》', state: 'accepted', createdAt: at(7) },
   ];
   return { trees, residents, suggestions, oracle, islands, items };
+}
+
+/**
+ * 编出来的居民（M-B，夹具模式的 &demo=1 / &citizens=N）：形状和 C# 的 PolisAccumulation.Citizens 推来的一样——
+ * 街上的最多 32 位（种子、名字、家、年纪、他那几句），两位老居民刻在碑上，人口。不来自任何人的会话。
+ */
+export function demoCitizens(fixture, n = 24) {
+  const keys = (fixture.buildings ?? []).map((b) => b.key);
+  const publicHomes = ['agora:0', 'agora:1', 'agora:2', 'agora:3', 'agora:4', 'agora:5', 'market', 'library', 'temple', 'harbor'];
+  const titles = ['整理合同', '写周报', '汇总预算', '照片目录', '回信', '网站文案', '会议纪要', '读书笔记', '报销单', '合同比对', '翻译', '日程', '旅行计划', '读论文', '修脚本'];
+  const male = ['狄米特里', '阿里斯通', '克里同', '斐德若', '吕西斯', '卡尔米德', '美诺', '色诺芬'];
+  const female = ['菲莉丝', '达芙妮', '克莱奥', '海伦娜', '伊瑞涅', '狄俄提玛', '墨利萨', '卡丽丝'];
+  const ages = ['young', 'adult', 'adult', 'old'];
+  const street = [];
+  const count = Math.max(0, Math.min(32, Math.floor(n)));
+  for (let i = 0; i < count; i++) {
+    // 一个确定的种子：同一个 i 永远同一个人（截图可复现）；最低位交替男女
+    const seed = ((Math.imul(i + 1, 2654435761) & ~1) | (i & 1)) >>> 0;
+    const title = titles[i % titles.length];
+    const folder = keys.length && i % 3 !== 2 ? keys[i % keys.length] : null;
+    const isFemale = (seed & 1) === 1;
+    const name = (isFemale ? female : male)[(seed >>> 8) % 8];
+    street.push({
+      id: `demo-citizen-${i}`, seed, female: isFemale, name, title,
+      home: folder ? `b:${folder}` : publicHomes[(seed >>> 4) % publicHomes.length],
+      age: ages[i % ages.length], outcome: i % 5 === 3 ? 'interrupted' : 'completed',
+      folders: folder ? [folder] : [], turns: 1 + (i % 6),
+    });
+  }
+  const elders = [
+    { id: 'demo-elder-0', name: '赫蒙', home: keys[0] ? `b:${keys[0]}` : 'agora:0' },
+    { id: 'demo-elder-1', name: '米尔托', home: keys[0] ? `b:${keys[0]}` : 'agora:0' },
+  ];
+  return { street, elders, census: { total: count + 9, street: count, indoors: 7, elders: elders.length } };
 }

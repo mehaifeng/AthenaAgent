@@ -54,15 +54,34 @@ public enum PolisIntentType
     SelectIsland,
     /// <summary>和一位居民说过话（记进玩家进度"已结识的居民"）。</summary>
     MeetResident,
-    /// <summary>请雅典娜试试这位居民代表的能力：新建一份委托并预填一句示范请求（不发送）。</summary>
-    TryResident,
     /// <summary>
     /// 城里对话栏的"托付"：把你写的这段话发给此刻显示的这份委托——走输入框的同一条路径（SendMessageCommand）。
     /// 只认显示着的那一份（ViewModel 核对），不能替别的会话说话；她在回答时不收。
     /// </summary>
     Say,
     /// <summary>对话栏的草稿：同步进这份委托自己的输入框（切回对话模式，写了一半的话还在）。不发送。</summary>
-    Draft
+    Draft,
+    /// <summary>
+    /// 和城里的一个人说一句话（2026-10-13，原来 M-C 的"问他那件事"）：<c>who</c> 只认这座城里此刻有的居民，一句话去掉首尾空白后
+    /// 1–<see cref="PolisTalk.MaxLineChars"/> 字，超长整条拒绝。不替你说任何话：他的回答只回到页面（他头顶的气泡），不进任何会话。
+    /// </summary>
+    Chat,
+    /// <summary>
+    /// 两位居民在街上碰上了，请他们聊两句（2026-10-13，用户：NPC 之间的对话只用模型，不预置台词）。页面挑人、挑时机；
+    /// <c>a</c>、<c>b</c> 都得是这座城里此刻有的居民，而且不是同一位。他们的话只回到页面（头顶的气泡），不进任何会话。
+    /// </summary>
+    AmbientChat,
+    /// <summary>
+    /// 看看一位居民那场会话（2026-10-13）：只认这座城里此刻有的居民。C# 回 <c>citizen-transcript</c>——你和雅典娜看得见的那些话，
+    /// 工具、推理一概不带；只回到页面的卷轴阅读器（模型写的字只经 textContent 进 DOM）。
+    /// </summary>
+    CitizenTranscript,
+    /// <summary>在讲台前提一个议题，开一场辩论（M-E）：议题去掉首尾空白后 1–200 字，超长整条拒绝。</summary>
+    DebateStart,
+    /// <summary>你这一轮的论点（1–600 字，超长整条拒绝）。只在等你说的时候收（ViewModel 核对状态）。</summary>
+    DebateSay,
+    /// <summary>不辩了 / 辩完离开：这场作废（没判完的不记战绩）。</summary>
+    DebateEnd
 }
 
 /// <summary>校验通过的一条意图。路径已换算成磁盘上的绝对路径（<see cref="FullPath"/>）。</summary>
@@ -83,6 +102,10 @@ public sealed record PolisIntent(PolisIntentType Type)
     public string? SuggestionId { get; init; }
     public string? IslandId { get; init; }
     public PolisResidentKind? Resident { get; init; }
+    /// <summary>两个人的那一种意图里的另一位（<see cref="PolisIntentType.AmbientChat"/> 的 b）。</summary>
+    public string? OtherId { get; init; }
+    /// <summary>chat：你不是在对他说，是你自己说了一句、他在旁边听见了（2026-10-13，平时的对话栏）。</summary>
+    public bool Overheard { get; init; }
 }
 
 /// <summary>校验时需要知道的现场：当前城邦的根目录（神殿为 null）、有哪些会话、有哪些藏品。</summary>
@@ -99,6 +122,9 @@ public sealed record PolisIntentContext(
 
     /// <summary>这座城里此刻出现了的居民（camelCase 名）。</summary>
     public IReadOnlySet<string> KnownResidentIds { get; init; } = new HashSet<string>(StringComparer.Ordinal);
+
+    /// <summary>这座城的居民（M-B：每场会话一位，会话 Id）——问话只问得到这座城里的人。</summary>
+    public IReadOnlySet<string> KnownCitizenIds { get; init; } = new HashSet<string>(StringComparer.Ordinal);
 }
 
 public sealed record PolisIntentResult(PolisIntent? Intent, string? Rejection)
@@ -122,6 +148,8 @@ public static class PolisIntents
     public const int MaxSayChars = 16000;
     public const int MaxDetailChars = 4000;
     public const int ProtocolVersion = 1;
+    /// <summary>和职业居民说话时 <c>who</c> 的前缀（<c>resident:scribe</c>）。</summary>
+    public const string ResidentSpeakerPrefix = "resident:";
 
     /// <summary>看起来像"审批"的类型名：单独点名拒绝，日志里一眼能认出这是一次越权尝试。</summary>
     private static readonly HashSet<string> ApprovalLikeTypes = new(StringComparer.OrdinalIgnoreCase)
@@ -151,9 +179,14 @@ public static class PolisIntents
         ["request-oracle"] = PolisIntentType.RequestOracle,
         ["select-island"] = PolisIntentType.SelectIsland,
         ["meet-resident"] = PolisIntentType.MeetResident,
-        ["try-resident"] = PolisIntentType.TryResident,
         ["say"] = PolisIntentType.Say,
         ["draft"] = PolisIntentType.Draft,
+        ["chat"] = PolisIntentType.Chat,
+        ["ambient-chat"] = PolisIntentType.AmbientChat,
+        ["citizen-transcript"] = PolisIntentType.CitizenTranscript,
+        ["debate-start"] = PolisIntentType.DebateStart,
+        ["debate-say"] = PolisIntentType.DebateSay,
+        ["debate-end"] = PolisIntentType.DebateEnd,
     };
 
     /// <summary>页面那一侧用的名字（测试与文档用）。</summary>
@@ -197,7 +230,22 @@ public static class PolisIntents
                 case PolisIntentType.StopTurn:
                 case PolisIntentType.Relocate:
                 case PolisIntentType.RequestOracle:
+                case PolisIntentType.DebateEnd:
                     return new PolisIntentResult(new PolisIntent(type), null);
+
+                case PolisIntentType.DebateStart:
+                case PolisIntentType.DebateSay:
+                {
+                    var field = type == PolisIntentType.DebateStart ? "motion" : "text";
+                    var max = type == PolisIntentType.DebateStart ? PolisDebate.MaxMotionChars : PolisDebate.MaxArgumentChars;
+                    var raw = ReadString(root, field);
+                    if (raw == null) return PolisIntentResult.Reject($"missing {field}");
+                    var text = Clean(raw.Trim(), int.MaxValue)!;
+                    if (text.Length == 0) return PolisIntentResult.Reject($"empty {field}");
+                    // 和托付、问话一样不截断：截掉半句，议题或论点就变了
+                    if (text.Length > max) return PolisIntentResult.Reject($"{field} longer than {max} characters");
+                    return new PolisIntentResult(new PolisIntent(type) { Text = text }, null);
+                }
 
                 case PolisIntentType.Failed:
                     return new PolisIntentResult(new PolisIntent(type)
@@ -246,6 +294,43 @@ public static class PolisIntents
                     return new PolisIntentResult(new PolisIntent(type) { ConversationId = id, Text = text }, null);
                 }
 
+                case PolisIntentType.Chat:
+                {
+                    var who = ReadString(root, "who");
+                    // 居民（会话 Id），或者职业居民（resident:<名字>，2026-10-13）
+                    var known = !string.IsNullOrEmpty(who) && (context.KnownCitizenIds.Contains(who)
+                        || (who.StartsWith(ResidentSpeakerPrefix, StringComparison.Ordinal) && context.KnownResidentIds.Contains(who[ResidentSpeakerPrefix.Length..])
+                            && PolisResidents.TryParse(who[ResidentSpeakerPrefix.Length..], out _)));
+                    if (!known) return PolisIntentResult.Reject("unknown speaker");
+                    var raw = ReadString(root, "text");
+                    if (raw == null) return PolisIntentResult.Reject("missing text");
+                    var line = Clean(raw.Trim(), int.MaxValue)!;
+                    if (line.Length == 0) return PolisIntentResult.Reject("empty text");
+                    // 一句话也不截断：截掉半句再说，说的就是另一回事了（页面的输入框本来就打不进更多）
+                    if (line.Length > PolisTalk.MaxLineChars)
+                        return PolisIntentResult.Reject($"text longer than {PolisTalk.MaxLineChars} characters");
+                    var overheard = root.TryGetProperty("overheard", out var rawOverheard) && rawOverheard.ValueKind == JsonValueKind.True;
+                    return new PolisIntentResult(new PolisIntent(type) { ConversationId = who, Text = line, Overheard = overheard }, null);
+                }
+
+                case PolisIntentType.AmbientChat:
+                {
+                    var a = ReadString(root, "a");
+                    var b = ReadString(root, "b");
+                    if (string.IsNullOrEmpty(a) || string.IsNullOrEmpty(b) || !context.KnownCitizenIds.Contains(a) || !context.KnownCitizenIds.Contains(b))
+                        return PolisIntentResult.Reject("unknown citizen");
+                    if (string.Equals(a, b, StringComparison.Ordinal)) return PolisIntentResult.Reject("a citizen cannot chat with himself");
+                    return new PolisIntentResult(new PolisIntent(type) { ConversationId = a, OtherId = b }, null);
+                }
+
+                case PolisIntentType.CitizenTranscript:
+                {
+                    var id = ReadString(root, "conversationId");
+                    if (string.IsNullOrEmpty(id) || !context.KnownCitizenIds.Contains(id))
+                        return PolisIntentResult.Reject("unknown citizen");
+                    return new PolisIntentResult(new PolisIntent(type) { ConversationId = id }, null);
+                }
+
                 case PolisIntentType.PlaceItem:
                 {
                     var itemId = ReadString(root, "itemId");
@@ -281,7 +366,6 @@ public static class PolisIntents
                 }
 
                 case PolisIntentType.MeetResident:
-                case PolisIntentType.TryResident:
                 {
                     var id = ReadString(root, "residentId");
                     if (string.IsNullOrEmpty(id) || !context.KnownResidentIds.Contains(id) || !PolisResidents.TryParse(id, out var kind))

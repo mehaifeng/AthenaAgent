@@ -307,3 +307,27 @@ test('map: a finite rectangle that holds the whole city, a strip of sea, every w
   assert.ok(R.minZ <= b0.minZ - BLOCK + 1e-6, '往北长了一个街区');
   assert.ok(Math.abs((R.maxZ - bigger.shoreZ) - (b0.maxZ - base.shoreZ)) < 1e-6, '海的那一条不变');
 });
+
+test('street lamps: a lamp post at every crossing that has a free corner, clear of everything, and the crossings are lit', async () => {
+  // 2026-10-13，用户：外面的街道没有被打亮。门窗的光只照到门前（门离街边还有 3 米），街口靠街灯
+  const { lampAt } = await import('../../../../Assets/Polis/src/art/lamps.mjs');
+  const { STREET } = await import('../../../../Assets/Polis/src/layout.mjs');
+  const { world, layout } = buildCity();
+  assert.ok(world.lampPosts.length >= 6, `立了街灯（${world.lampPosts.length}）`);
+  for (const { x, z } of world.lampPosts) {
+    const X = (Math.round(x / BLOCK - 0.5) + 0.5) * BLOCK, Z = (Math.round(z / BLOCK - 0.5) + 0.5) * BLOCK;
+    assert.ok(Math.abs(Math.abs(x - X) - (STREET / 2 + 0.45)) < 1e-6 && Math.abs(Math.abs(z - Z) - (STREET / 2 + 0.45)) < 1e-6, `(${x}, ${z}) 在街角，不占街面`);
+    assert.ok(!layout.walkable({ x, z }), '柱子挡路');
+    assert.ok(W(layout, X, Z), '街口照样能走');
+    // 街灯在街口斜对角 4.5 米处，灯笼往街口伸出半米：街口中心约 0.17（没有灯的地方是 0）
+    assert.ok(lampAt(world.lampField, X, Z) > 0.12, `街口 (${X}, ${Z}) 被照亮（${lampAt(world.lampField, X, Z).toFixed(2)}）`);
+  }
+  // 每处灯火都进了光照图：建筑的门窗、柱廊和门边的灯笼、街灯
+  const lights = world.lights();
+  for (const [key, b] of world.buildings) {
+    if (b.building.state === 'ruin' || !['house', 'workshop', 'treasury', 'stoaLibrary'].includes(b.kind)) continue;
+    const p = b.group.position;
+    assert.ok(lights.some((l) => Math.hypot(l.x - p.x, l.z - p.z) < PLOT / 2 + 1), `${key}（${b.kind}）的灯火进了光照图`);
+  }
+  assert.ok(lights.every((l) => Number.isFinite(l.x) && Number.isFinite(l.z) && Math.hypot(l.nx, l.nz) < 1 + 1e-6), '光源都在世界坐标里');
+});

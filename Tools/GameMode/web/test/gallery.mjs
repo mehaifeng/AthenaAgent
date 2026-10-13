@@ -1,6 +1,7 @@
 // 美术审查的截图（M2 完成标准 c）：每件资产游戏视距与中景各一张（只截资产那一块，按真实像素），
 // 建筑的每个子型、几种状态，橄榄的四个树龄，每个人物的每个动作一张连续帧（上一行游戏视距、下一行中景），
-// 每个人物的半身像（三种神情，大的看线条、小的是对话面板里的实际大小）。截图存进被忽略的 Tools/GameMode/.local/m2-gallery/。
+// 每个人物的半身像（三种神情，大的看线条、小的是对话面板里的实际大小）；居民（M-B）一排排的长相、半身像与走路（--only citizen）。
+// 截图存进被忽略的 Tools/GameMode/.local/m2-gallery/。
 //   bin/Debug/net10.0/.playwright/node/darwin-arm64/node Tools/GameMode/web/test/gallery.mjs [--only building.] [--out <目录>] [--browser chromium]
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
@@ -23,7 +24,7 @@ const SUBTYPES = {
   warehouse: ['store', 'granary', 'jarShed'],
 };
 const ATHENA_WORK = ['read', 'write', 'hammer', 'summon', 'haul', 'await'];
-const BUSTS = ['athena', 'player', 'surveyor', 'scribe', 'accountant', 'smith', 'sailor', 'librarian', 'maiden', 'herald', 'painter', 'artisan', 'priestess'];
+const BUSTS = ['athena', 'player', 'surveyor', 'scribe', 'accountant', 'smith', 'sailor', 'librarian', 'herald', 'painter', 'artisan', 'priestess'];
 
 const server = await startServer();
 const browser = await launch(browserName);
@@ -84,6 +85,18 @@ try {
   }
   if ('bust:'.startsWith(only) || only.startsWith('bust')) {
     for (const c of BUSTS) await shoot(`gallery=bust:${c}`, `bust/${c}.png`, { clip: false });
+  }
+  // 居民（M-B）：一排排比长相（游戏视距、中景，男女老少混着），半身像一张，三位的走路连续帧
+  if ('citizen'.startsWith(only) || only.startsWith('citizen')) {
+    for (const from of [0, 10, 20]) {
+      for (const view of ['game', 'mid']) await shoot(`gallery=citizens&n=10&from=${from}&age=mixed&view=${view}`, `citizen/lineup-${from}.${view}.png`);
+    }
+    await shoot('gallery=citizens&n=10&from=0&age=mixed&view=mid&facing=side', 'citizen/lineup-0.side.png');
+    await shoot('gallery=citizen-busts&n=24&from=0&age=mixed', 'citizen/busts.png', { clip: false });
+    for (const [i, age] of [[0, 'young'], [1, 'adult'], [2, 'old'], [5, 'old']]) {
+      const seed = ((Math.imul(i + 1, 2654435761) & ~1) | (i & 1)) >>> 0;
+      await shoot(`gallery=citizen:${seed}&age=${age}&action=walk&frames=8`, `citizen/walk-${i}-${age}.png`, { clip: false });
+    }
   }
 } finally {
   writeFileSync(path.join(out, 'index.json'), JSON.stringify({ browser: `${browserName} ${browser.version()}`, shots, problems }, null, 2));

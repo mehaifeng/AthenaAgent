@@ -52,7 +52,7 @@ public static class PolisCityBuilder
             Array.Empty<string>(),
             0,
             index.Buildings.Sum(b => b.FileCount));
-        return PolisFixture.Compose(workspaceName, scan, summary, layout, replay: null, now, synthetic: false);
+        return PolisFixture.Compose(workspaceName, scan, summary, layout, now, synthetic: false);
     }
 
     public static PolisCityState Reconcile(
@@ -89,7 +89,7 @@ public static class PolisCityBuilder
             return fingerprintOf(path);
         });
 
-        var city = PolisFixture.Compose(workspaceName, scan, summary, layout, replay: null, now, synthetic: false);
+        var city = PolisFixture.Compose(workspaceName, scan, summary, layout, now, synthetic: false);
         var newSave = save with { Ledger = layout.Ledger, Items = items };
         var index = new PolisIndexDocument
         {

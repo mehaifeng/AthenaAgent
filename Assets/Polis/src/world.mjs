@@ -8,15 +8,17 @@
 // 港前第 z = 2 行加了三处场馆（彩绘柱廊、书库、金库，每处 12 个底座）和橄榄林的台地；广场上加了日晷与传令官的讲台，
 // 委托板上钉着建议的纸条；居民站在各自能力的建筑旁；设立了神谕，神庙前立起三足鼎。
 import * as THREE from '../vendor/three.bundle.mjs';
-import { groundPlane, Kit, m4, buildScaffold } from './art/kit.mjs';
+import { groundPlane, Kit, m4, lampPost } from './art/kit.mjs';
 import { rng, hashSeed } from './art/noise.mjs';
 import { oliveGeometries, OLIVE_STAGES } from './art/plants.mjs';
 import { buildSlotMarker } from './art/items.mjs';
-import { RESIDENT_ROLES } from './art/characters.mjs';
+import { RESIDENT_ROLES, buildCitizen } from './art/characters.mjs';
+import { citizenLook } from './art/citizens.mjs';
 import { BOAT_MOORING, BOAT_CLEAT } from './art/civic.mjs';
 import { BLOCK, STREET, PLOT } from './layout.mjs';
 import { venueSlotLocal, groveSpot, VENUES, SLOTS_PER_VENUE } from './civic-layout.mjs';
 import { createOccupancy, footprintOf, footprintOfGeometry, BLOCKING_HEIGHT } from './footprint.mjs';
+import { lampField, setLampField } from './art/lamps.mjs';
 
 /** 公共建筑的名字。实时模式里由 C# 按界面语言推来（locale 文件），这里是独立打开页面时的默认值。 */
 export const PUBLIC_NAMES = Object.freeze({
@@ -47,7 +49,7 @@ export function buildWorld(scene, city, layout, M, options) {
   root.name = 'polis-world';
   scene.add(root);
   const world = {
-    root, layout, buildings: new Map(), vacant: new Map(), labels: [], maidens: [], scaffolds: new Map(), sanctuary: !!options.sanctuary,
+    root, layout, buildings: new Map(), vacant: new Map(), labels: [], sanctuary: !!options.sanctuary,
     venues: new Map(), residents: new Map(), groveTrees: [], assets,
   };
   const add = (o) => { root.add(o); return o; };
@@ -369,12 +371,8 @@ export function buildWorld(scene, city, layout, M, options) {
       group.add(tree);
     }
     const height = group.userData.height ?? 5;
-    const scaffold = buildScaffold(M, 6.5, Math.min(5.5, height));
-    scaffold.position.set(0, 0, PLOT / 2 - 1.2);
-    scaffold.visible = false;
-    group.add(scaffold);
-    world.scaffolds.set(`b:${bld.key}`, scaffold);
-    const label = labelAt(bld.key, plot, height, 'building', `b:${bld.key}`);
+    // 户的民居（M-D）名牌写户名（"整理合同一家"）；文件夹的建筑写文件夹名
+    const label = labelAt(bld.label ?? bld.key, plot, height, 'building', `b:${bld.key}`);
     const entry = { group, height, kind: bld.kind, building: bld, label };
     world.buildings.set(`b:${bld.key}`, entry);
     return entry;
@@ -438,15 +436,10 @@ export function buildWorld(scene, city, layout, M, options) {
   add(player.root);
   world.playerFigure = player;
   world.player = player.root;
-  for (let k = 0; k < 6; k++) {
-    const maiden = assets.figure('figure.maiden');
-    maiden.root.visible = false;
-    maiden.root.scale.setScalar(0.9);
-    add(maiden.root);
-    world.maidens.push(maiden);
-  }
+  // 派发子代理时飞出去的六位黄金侍女（M1–M3）随直播一起拿掉了（2026-10-13）：她们只为镜像那一次工具调用而建、平时藏着。
+  // 黄金侍女这位居民也随后拿掉了（2026-10-13，职业居民不再和工具挂钩）
 
-  /** 居民：每位站在他那项能力的建筑旁（characters.RESIDENT_ROLES），按 C# 推导出来的名单出现。 */
+  /** 职业居民：每位站在他那门行当的建筑旁（characters.RESIDENT_ROLES）；十位每座城都在（C# 推来的名单，2026-10-13）。 */
   world.setResidents = (list, nameOf = (kind) => kind) => {
     const want = new Map((list ?? []).map((r) => [r.kind, r]));
     for (const [kind, resident] of world.residents) {
@@ -554,7 +547,6 @@ export function buildWorld(scene, city, layout, M, options) {
       disposeGroup(old.group);
       world.labels.splice(world.labels.indexOf(old.label), 1);
       world.buildings.delete(id);
-      world.scaffolds.delete(id);
     }
     const vacant = world.vacant.get(bld.key);
     if (vacant) {
@@ -576,17 +568,139 @@ export function buildWorld(scene, city, layout, M, options) {
       disposeGroup(old.group);
       world.labels.splice(world.labels.indexOf(old.label), 1);
       world.buildings.delete(id);
-      world.scaffolds.delete(id);
     }
     if (!world.vacant.has(v.key)) placeVacant(v);
     world.rebuildOccupancy();
   };
+
+  // —— 居民即会话（M-B，2026-10-13）：一场会话一位居民，长相由种子定（art/citizens.mjs）。人物一位建一次要几十毫秒，
+  // 几十位一起建会卡住一帧，所以 setCitizens 只记下名单，人物由 buildNextCitizen 一位一位建（game 每帧建几位）。 ——
+  world.citizens = new Map();   // id → { id, data, look, figure|null, label, plan|null, nudge, tier, ... }
+  world.setCitizens = (list) => {
+    const want = new Map((list ?? []).map((c) => [c.id, c]));
+    for (const [id, c] of world.citizens) {
+      if (want.has(id)) continue;
+      if (c.figure) {
+        root.remove(c.figure.root);
+        c.figure.root.traverse((o) => {
+          if (o.isMesh && o.geometry && !o.geometry.userData?.shared) o.geometry.dispose();
+          if (o.isSkinnedMesh) o.skeleton?.dispose();   // 骨骼纹理（每个蒙皮网格一张），不释放就留在显存里
+        });
+      }
+      const i = world.labels.indexOf(c.label);
+      if (i >= 0) world.labels.splice(i, 1);
+      world.citizens.delete(id);
+    }
+    for (const [id, data] of want) {
+      const existing = world.citizens.get(id);
+      if (existing) {
+        const moved = existing.data.home !== data.home;
+        existing.data = data;
+        existing.label.text = data.name ?? '';
+        if (moved) existing.plan = null;   // 搬了家（最常碰的文件夹换了）：日程重算
+        continue;
+      }
+      const look = citizenLook(data.seed, { age: data.age ?? 'adult' });
+      const label = { text: data.name ?? '', kind: 'citizen', key: `citizen:${id}`, anchor: new THREE.Vector3() };
+      world.labels.push(label);
+      world.citizens.set(id, { id, data, look, figure: null, label, plan: null, nudge: { x: 0, z: 0 }, tier: 'C', yawNow: null });
+    }
+  };
+  /** 建下一位还没有人物的居民；建了返回 true。 */
+  world.buildNextCitizen = () => {
+    for (const c of world.citizens.values()) {
+      if (c.figure) continue;
+      c.figure = buildCitizen(M, c.look.spec);
+      c.figure.root.name = `figure:citizen:${c.id}`;
+      c.figure.root.visible = false;
+      add(c.figure.root);
+      return true;
+    }
+    return false;
+  };
+
+  /**
+   * 老居民（一年多没动过的会话）：不上街，名字刻在他家门口的一块小碑上（一家一块）。碑不挡路——它立在门前的街沿上，
+   * 挡了会把雅典娜和你够得着的那一点堵死。groups：[{ home, names: [] }]。
+   */
+  world.steles = new Map();   // home → { home, names, object, x, z }
+  world.setElders = (groups) => {
+    const want = new Map((groups ?? []).filter((g) => g.names?.length).map((g) => [g.home, g]));
+    for (const [home, s] of world.steles) {
+      if (want.has(home)) continue;
+      root.remove(s.object);
+      world.steles.delete(home);
+    }
+    for (const [home, g] of want) {
+      const existing = world.steles.get(home);
+      if (existing) { existing.names = g.names; continue; }
+      let stand;
+      try { stand = layout.sitePoint(home); } catch { continue; }
+      const r = rng(hashSeed(`stele:${home}`));
+      // 门前那一点旁边 1.6–2.4 米、能站的地方（碑本身不挡路，但不要立在墙里、水里）
+      let spot = null;
+      for (let k = 0; k < 12 && !spot; k++) {
+        const a = r() * Math.PI * 2, d = 1.6 + r() * 0.8;
+        const p = { x: stand.x + Math.sin(a) * d, z: stand.z + Math.cos(a) * d };
+        if (layout.walkable(p)) spot = p;
+      }
+      if (!spot) continue;
+      const object = assets.object('prop.stele');
+      object.scale.setScalar(0.5);
+      object.position.set(spot.x, world.groundAt(spot.x, spot.z), spot.z);
+      object.rotation.y = Math.atan2(stand.x - spot.x, stand.z - spot.z);
+      object.userData.footprint = null;   // 不挡路（见上）
+      add(object);
+      world.steles.set(home, { home, names: g.names, object, x: spot.x, z: spot.z });
+    }
+  };
+
+  /**
+   * 街灯（art/kit.mjs 的 lampPost；2026-10-13，用户：外面的街道没有被打亮）：每个十字街口立一根，在四个街角里
+   * 按位置挑一个空着的（地块边上往里 0.45 米，不占街面），灯臂伸向街口。门窗的光只够照到门前，地块 12.5 米、门离街边
+   * 还有 3 米，街口和广场四角要靠它们。码头那一排只立在北边的角上（南边是海）。挑角的时候先看占用栅格：
+   * 柱子周围 0.9 米之内有东西挡着（建筑、树、院墙）就换一个角，四个都不行就不立。
+   */
+  function placeLampPosts() {
+    world.lampPosts = [];
+    const geo = new Kit();
+    lampPost(geo, M);
+    const proto = geo.build();
+    const footprint = footprintOf(proto);
+    const inset = STREET / 2 + 0.45;
+    const clear = (x, z) => [[0, 0], [0.9, 0], [-0.9, 0], [0, 0.9], [0, -0.9]].every(([dx, dz]) => !occupancy.blocked(x + dx, z + dz))
+      && insideMap(x, z, 2);
+    for (let i = iMin; i < iMax; i++) {
+      for (let j = Math.round(b.minZ / BLOCK); (j + 0.5) * BLOCK <= layout.quayZ + 0.01; j++) {
+        const X = (i + 0.5) * BLOCK, Z = (j + 0.5) * BLOCK;
+        const quay = Math.abs(Z - layout.quayZ) < 0.01;
+        const corners = [[1, -1], [-1, -1], [1, 1], [-1, 1]].filter(([, sz]) => !quay || sz < 0);
+        const start = hashSeed(`lamp:${i},${j}`) % corners.length;
+        for (let k = 0; k < corners.length; k++) {
+          const [sx, sz] = corners[(start + k) % corners.length];
+          const x = X + sx * inset, z = Z + sz * inset;
+          if (!clear(x, z)) continue;
+          const post = proto.clone();
+          post.position.set(x, 0, z);
+          post.rotation.y = Math.atan2(-sx, -sz);   // 灯臂（+z）伸向街口
+          post.userData.footprint = footprint;
+          post.userData.lights = proto.userData.lights;
+          add(post);
+          world.lampPosts.push({ x, z, object: post });
+          break;
+        }
+      }
+    }
+    if (world.lampPosts.length) world.rebuildOccupancy();
+  }
 
   /** 整座城拆掉（换城、或者城长出了新的一圈）。共享的材质留着，几何体（包括这座城共用的那几份）全部释放。 */
   world.dispose = () => {
     scene.remove(root);
     const seen = new Set();
     root.traverse((o) => {
+      // 蒙皮人物的骨骼纹理：只释放几何体时，每换一次城留下一张（实测 Chromium 里 renderer.info.memory.textures 每次 +1）
+      if (o.isSkinnedMesh) o.skeleton?.dispose();
       if (!o.isMesh || !o.geometry || seen.has(o.geometry) || o.geometry.userData?.shared) return;
       seen.add(o.geometry);
       o.geometry.dispose();
@@ -594,6 +708,7 @@ export function buildWorld(scene, city, layout, M, options) {
   };
 
   world.rebuildOccupancy();
+  placeLampPosts();
 
   // 海的岸（art/water.mjs）：码头石岸、栈桥、三处场馆的台地、橄榄林的台地（几块连成一排，并成一个矩形）——
   // 世界坐标里的矩形 [minX, minZ, maxX, maxZ]。白沫贴着它们，离它们越近水越浅；game 每帧连同时间、船一起交给海的材质
@@ -609,6 +724,31 @@ export function buildWorld(scene, city, layout, M, options) {
     ...seaTerraces.map((t) => rectOf([t])),
     ...(groveTerraces.length ? [rectOf(groveTerraces.map((g) => g.object))] : []),
   ];
+
+  // —— 夜里的灯火照到外面（art/lamps.mjs）：每座建筑登记的灯（kit.light，建筑本地坐标）换成世界坐标，烘成一张光照图 ——
+  world.lights = () => {
+    root.updateMatrixWorld(true);
+    const out = [], p = new THREE.Vector3(), n = new THREE.Vector3();
+    root.traverse((o) => {
+      if (!o.userData.lights || !o.visible) return;
+      for (const l of o.userData.lights) {
+        p.set(l.x, l.y, l.z).applyMatrix4(o.matrixWorld);
+        n.set(l.nx, 0, l.nz).transformDirection(o.matrixWorld);
+        const facing = l.nx !== 0 || l.nz !== 0;
+        out.push({ kind: l.kind, x: p.x, y: p.y, z: p.z, nx: facing ? n.x : 0, nz: facing ? n.z : 0, power: l.power, radius: l.radius });
+      }
+    });
+    return out;
+  };
+  world.refreshLamps = () => {
+    world.lampField = lampField(world.lights(), map);
+    setLampField(world.lampField);
+  };
+  for (const name of ['replaceBuilding', 'vacate']) {
+    const inner = world[name];
+    world[name] = (...args) => { const result = inner(...args); world.refreshLamps(); return result; };
+  }
+  world.refreshLamps();
   return world;
 }
 

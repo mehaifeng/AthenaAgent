@@ -861,6 +861,20 @@ public partial class App : Application, IAsyncDisposable
         // 与工作台共用同一个工作区监视器。外壳（MainWindowViewModel）在运行时把自己挂上来，依赖只朝一个方向。
         services.AddSingleton<Athena.UI.Services.GameMode.IPolisSaveStore>(sp =>
             new Athena.UI.Services.GameMode.PolisSaveStore(sp.GetRequiredService<IPlatformPathService>(), Log.Logger));
+        // 城里的人说话（2026-10-13）：和居民聊天、居民之间闲聊、辩论的围观——陪伴角色（没配就借标题生成角色），按用途分池限流
+        services.AddSingleton<Athena.UI.Services.GameMode.IPolisTalkService>(sp =>
+            new Athena.UI.Services.GameMode.PolisTalkService(
+                sp.GetRequiredService<OpenAiModelRuntimeFactory>(),
+                sp.GetRequiredService<ISystemClock>(),
+                Log.Logger));
+        // 城里的竞技（M-E）：讲台前的辩论——雅典娜用主对话模型，陪审团用陪伴角色；战绩是全局的 Game/contests.json
+        services.AddSingleton<Athena.UI.Services.GameMode.IPolisDebateService>(sp =>
+            new Athena.UI.Services.GameMode.PolisDebateService(
+                sp.GetRequiredService<OpenAiModelRuntimeFactory>(),
+                sp.GetRequiredService<ISystemClock>(),
+                new Athena.UI.Services.GameMode.PolisContestStore(
+                    Path.Combine(sp.GetRequiredService<IPlatformPathService>().GetAppDataDirectory(), "Game", "contests.json"), Log.Logger),
+                Log.Logger));
         services.AddSingleton<Athena.UI.ViewModels.GameMode.GameModeViewModel>(sp =>
             new Athena.UI.ViewModels.GameMode.GameModeViewModel(
                 sp.GetRequiredService<AppConfigurationSession>(),
@@ -870,7 +884,9 @@ public partial class App : Application, IAsyncDisposable
                 sp.GetRequiredService<ILocalizationService>(),
                 // 只读：神庙看每日神谕设没设、传令官报结果；游戏结构上建不了任务（神谕只能由雅典娜调用 create_task，走审批）
                 sp.GetRequiredService<ICronTaskReader>(),
-                sp.GetRequiredService<Athena.UI.Services.GameMode.PolisAssetStore>()));
+                sp.GetRequiredService<Athena.UI.Services.GameMode.PolisAssetStore>(),
+                sp.GetRequiredService<Athena.UI.Services.GameMode.IPolisTalkService>(),
+                sp.GetRequiredService<Athena.UI.Services.GameMode.IPolisDebateService>()));
         services.AddSingleton<AboutViewModel>();
         services.AddTransient<AppSettingsWindowViewModel>();
         services.AddTransient<ProviderModelsViewModel>();

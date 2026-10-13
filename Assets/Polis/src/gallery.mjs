@@ -4,6 +4,9 @@
 //   index.html?gallery=building.workshop&view=game&variant=weaver&state=bustling&size=2
 //   index.html?gallery=figure.athena&action=walk&frames=8
 //   index.html?gallery=bust:athena
+//   index.html?gallery=citizen:12345&age=old&action=walk&frames=8   （一位居民，长相由种子定：art/citizens.mjs）
+//   index.html?gallery=citizens&n=10&from=0&age=mixed&view=mid      （一排居民，种子与 demo.mjs 的编出来的居民相同）
+//   index.html?gallery=citizen-busts&n=12&from=0&age=mixed           （居民的半身像，对话面板里的实际大小）
 //   index.html?gallery=figure.athena&action=walk&frames=8&manifest={"figure.athena":{"model":"athena.glb","scale":1.62,"rig":"procedural"}}
 // 建筑、器物、植物旁边站一个灰色的你（玩家），用来看比例。渲染完 document.title = 'gallery-ready'。
 import * as THREE from '../vendor/three.bundle.mjs';
@@ -12,9 +15,10 @@ import { makeMaterials } from './art/materials.mjs';
 import { createAssetLibrary } from './art/assets.mjs';
 import { groundPlane, Kit, m4 } from './art/kit.mjs';
 import { rng, hashSeed } from './art/noise.mjs';
-import { workVariantFor } from './art/characters.mjs';
+import { workVariantFor, buildCitizen } from './art/characters.mjs';
 import { walkPeriod, ONE_SHOT_MS } from './art/poses.mjs';
 import { drawBust, EXPRESSIONS, CHARACTERS } from './art/busts.mjs';
+import { citizenLook } from './art/citizens.mjs';
 
 const VIEWS = { game: 1, mid: 2.6 };
 
@@ -22,6 +26,7 @@ export async function runGallery({ params, status }) {
   const id = params.get('gallery');
   if (id === 'list') return listAssets(status);
   if (id.startsWith('bust:')) return bustSheet(id.slice(5), status);
+  if (id === 'citizen-busts') return citizenBustSheet(params, status);
   const R = createRenderer({ canvas: document.getElementById('scene') });
   const M = makeMaterials();
   // &manifest=<JSON>：按一份资产清单（Id → 条目）换上外部模型再画（审查外部模型、蒙在程序化骨架上的人物用；模型从 /polis-assets/ 取）
@@ -31,7 +36,11 @@ export async function runGallery({ params, status }) {
     await assets.prepare();
     status.assets = assets.report;
   }
-  const entry = assets.registry.get(id);
+  // 居民（M-B）不在资产表里：citizen:<种子> 按种子现建一位（与城里同一个 buildCitizen），citizens 是一排
+  const citizenSeed = id.startsWith('citizen:') ? Number(id.slice('citizen:'.length)) >>> 0 : null;
+  const entry = citizenSeed != null ? { id, kind: 'figure', label: `居民 ${citizenSeed}` }
+    : id === 'citizens' ? { id, kind: 'lineup', label: '居民一排' }
+    : assets.registry.get(id);
   if (!entry) throw new Error(`gallery: unknown asset '${id}'`);
   R.scene.background = new THREE.Color(0xd2cdc5);
   // &night=1：夜里的灯光与调色（审查夜景用）
@@ -62,8 +71,10 @@ export async function runGallery({ params, status }) {
     R.syncMatrices();
   };
 
+  if (entry.kind === 'lineup') return citizenLineup({ R, M, params, status, place, center, view, azimuth });
+
   if (entry.kind === 'figure') {
-    const figure = assets.figure(id);
+    const figure = citizenSeed != null ? buildCitizen(M, citizenLook(citizenSeed, { age: params.get('age') ?? 'adult' }).spec) : assets.figure(id);
     R.scene.add(figure.root);
     R.gradePass.uniforms.uGlowStrength.value = 0;
     // &weights=1：蒙在程序化骨架上的外部人物按蒙皮权重上色（每根骨头一种颜色，按权重混合；不去色）——查权重分错了地方用
@@ -224,7 +235,6 @@ function caption(text) {
   ctx.fillStyle = '#f4f1ec';
   ctx.textBaseline = 'middle';
   ctx.fillText(text, 24, 27);
-  document.getElementById('controls').hidden = true;
 }
 
 /**
@@ -287,11 +297,106 @@ function actionSheet({ R, figure, who, action, frames, variant, status, place, e
   ctx.fillText(`${entry.label} · ${action}${action === 'work' ? `（${variant}）` : ''} · 上：游戏视距 · 下：中景 · 每帧间隔 ${Math.round(times[1] - times[0])} ms`, 12, 28);
   canvas.style.display = 'none';
   document.getElementById('overlay').style.display = 'none';
-  document.getElementById('controls').hidden = true;
   sheet.style.position = 'absolute';
   sheet.style.left = '0'; sheet.style.top = '0';
   document.body.appendChild(sheet);
   status.gallery = { id: entry.id, action, frames, variant, size: [sheet.width, sheet.height] };
+  status.ready = true;
+  document.title = 'gallery-ready';
+}
+
+/** 与 demo.mjs 的 demoCitizens 同一个种子：第 i 位永远是同一个人，最低位交替男女。 */
+function lineupSeed(i) { return ((Math.imul(i + 1, 2654435761) & ~1) | (i & 1)) >>> 0; }
+const LINEUP_AGES = ['young', 'adult', 'old'];
+function lineupAge(params, i) { const a = params.get('age') ?? 'mixed'; return a === 'mixed' ? LINEUP_AGES[i % 3] : a; }
+
+/** 一排居民（M-B 的美术审查）：同一个镜头下比身高、衣服、发式、胡子；每人脚下写种子与年纪。 */
+function citizenLineup({ R, M, params, status, place, center, view, azimuth }) {
+  const n = Math.max(1, Math.min(16, Number(params.get('n') ?? 10)));
+  const from = Math.max(0, Number(params.get('from') ?? 0));
+  const gap = 0.95;
+  const theta = THREE.MathUtils.degToRad(azimuth);
+  const box = new THREE.Box3();
+  const people = [];
+  R.gradePass.uniforms.uGlowStrength.value = 0;
+  for (let k = 0; k < n; k++) {
+    const i = from + k;
+    const seed = lineupSeed(i);
+    const age = lineupAge(params, i);
+    const look = citizenLook(seed, { age });
+    const figure = buildCitizen(M, look.spec);
+    // 排成一横排（垂直于视线），人人朝着镜头偏一点（四分之三侧）；facing=side 看侧面
+    const offset = (k - (n - 1) / 2) * gap;
+    figure.root.position.set(Math.cos(theta) * offset, 0, -Math.sin(theta) * offset);
+    figure.root.rotation.y = theta + (params.get('facing') === 'side' ? Math.PI / 2 : 0.35);
+    figure.pose(params.get('pose') ?? 'idle', 1200 + k * 777, { duration: 1800, clock: 1_000_000 + k * 777 });
+    R.scene.add(figure.root);
+    box.union(visibleBox(figure.root));
+    people.push({ i, seed, age, garment: look.spec.garment, hair: look.spec.hair, headgear: look.spec.headgear ?? null, beard: look.spec.beard ?? null, height: look.spec.height, scroll: look.spec.props.length > 0 });
+  }
+  const zoom = Number(params.get('zoom')) > 0 ? Number(params.get('zoom')) : view === 'mid' ? 1.6 : 1;
+  center.set(0, 0.9, 0);
+  place(zoom, center);
+  R.render();
+  caption(`居民一排 · 第 ${from}–${from + n - 1} 位 · ${params.get('age') ?? 'mixed'} · ${view === 'mid' ? '中景' : '游戏视距'}`);
+  const overlay = document.getElementById('overlay');
+  const ctx = overlay.getContext('2d');
+  const dpr = overlay.width / window.innerWidth;
+  ctx.save();
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.font = '10px "PingFang SC", sans-serif';
+  ctx.fillStyle = 'rgba(30,28,26,0.75)';
+  ctx.textAlign = 'center';
+  for (const [k, p] of people.entries()) {
+    const offset = (k - (n - 1) / 2) * gap;
+    const at = R.projectCss(new THREE.Vector3(Math.cos(theta) * offset, -0.12, -Math.sin(theta) * offset));
+    ctx.fillText(`#${p.i} ${p.age}`, at.x, at.y + 4);
+  }
+  ctx.restore();
+  status.gallery = { id: 'citizens', view, kind: 'lineup', people, clip: clipOf(R, box, 40) };
+  status.ready = true;
+  document.title = 'gallery-ready';
+}
+
+/** 居民的半身像（M-B）：对话面板里的实际大小（132 像素）一排排列开，大的一行看线条。 */
+function citizenBustSheet(params, status) {
+  const n = Math.max(1, Math.min(24, Number(params.get('n') ?? 12)));
+  const from = Math.max(0, Number(params.get('from') ?? 0));
+  const perRow = 8;
+  const sheet = document.createElement('canvas');
+  sheet.width = 40 + perRow * 150;
+  sheet.height = 70 + 360 + Math.ceil(n / perRow) * 190;
+  const ctx = sheet.getContext('2d');
+  ctx.fillStyle = '#d2cdc5';
+  ctx.fillRect(0, 0, sheet.width, sheet.height);
+  const looks = [];
+  for (let k = 0; k < n; k++) {
+    const i = from + k;
+    const look = citizenLook(lineupSeed(i), { age: lineupAge(params, i) });
+    looks.push({ i, look });
+  }
+  // 大的：前四位，三种神情里的 speak（卡片上用的那一种）
+  looks.slice(0, 4).forEach(({ i, look }, k) => {
+    drawBust(ctx, look.bust, 'speak', 40 + k * 300, 60, 340);
+    ctx.fillStyle = '#26221f';
+    ctx.font = '12px "PingFang SC", sans-serif';
+    ctx.fillText(`#${i} ${look.bust.hair}/${look.bust.headgear ?? '-'}/${look.bust.garment}/${look.bust.beard ?? '-'}/${look.bust.age}`, 40 + k * 300, 415);
+  });
+  looks.forEach(({ i, look }, k) => {
+    const x = 40 + (k % perRow) * 150, y = 440 + Math.floor(k / perRow) * 190;
+    drawBust(ctx, look.bust, 'speak', x, y, 132);
+    ctx.fillStyle = '#26221f';
+    ctx.font = '11px "PingFang SC", sans-serif';
+    ctx.fillText(`#${i} ${look.bust.age}`, x, y + 150);
+  });
+  ctx.font = '600 16px "PingFang SC", "Noto Sans CJK SC", sans-serif';
+  ctx.fillText(`居民的半身像 · 第 ${from}–${from + n - 1} 位 · 上：放大看线条 · 下：对话面板里的实际大小（132 像素）`, 40, 30);
+  document.getElementById('scene').style.display = 'none';
+  document.getElementById('overlay').style.display = 'none';
+  sheet.style.position = 'absolute';
+  sheet.style.left = '0'; sheet.style.top = '0';
+  document.body.appendChild(sheet);
+  status.gallery = { id: 'citizen-busts', n, from };
   status.ready = true;
   document.title = 'gallery-ready';
 }
@@ -315,7 +420,6 @@ function bustSheet(character, status) {
   ctx.fillText(`半身像 · ${character} · 上：放大看线条 · 下：对话面板里的实际大小（132 像素）`, 40, 30);
   document.getElementById('scene').style.display = 'none';
   document.getElementById('overlay').style.display = 'none';
-  document.getElementById('controls').hidden = true;
   sheet.style.position = 'absolute';
   sheet.style.left = '0'; sheet.style.top = '0';
   document.body.appendChild(sheet);

@@ -6,7 +6,7 @@ import { readFileSync } from 'node:fs';
 import {
   VIEW, VIEW_MODES, MOVE_KEYS, nextView, moveDirection, slide, orbitAngles, deadZoneShift, turnToward, isTypingTarget,
 } from '../../../../Assets/Polis/src/controls.mjs';
-import { talkView, MAX_SAY_CHARS } from '../../../../Assets/Polis/src/talk.mjs';
+import { talkView, chatView, chatLend, MAX_SAY_CHARS, MAX_LINE_CHARS } from '../../../../Assets/Polis/src/talk.mjs';
 import { createLayout, BLOCK } from '../../../../Assets/Polis/src/layout.mjs';
 import { UI_ZH } from '../../../../Assets/Polis/src/game.mjs';
 
@@ -118,9 +118,36 @@ test('talk bar: you can hand Athena a request only when she is free and you wrot
   assert.equal(busy.showStop, true, '她在办事：可以请她停下');
   assert.equal(busy.status, ui.talkBusy);
   assert.equal(talkView({ ...idle, waiting: true, busy: true }, '', ui).status, ui.talkWaiting, '等审批时提示去看审批窗口');
+  // 2026-10-13：审批只在对话栏上显示（她不再停在门槛前）——红封印，收起时占位字就是"她在等你点头"
+  const waiting = talkView({ ...idle, waiting: true, busy: true }, '', ui, false);
+  assert.equal(waiting.seal, true, '等审批：栏上一枚红封印');
+  assert.equal(waiting.placeholder, ui.talkWaiting, '收起时看不见状态行，等审批写在占位字里（比"她在办事"优先）');
+  assert.equal(talkView({ ...idle, waiting: true, busy: true }, '', ui, true).placeholder, ui.talkPlaceholder, '展开时状态行已经说了，占位字只是邀请');
+  assert.equal(talkView(idle, '', ui).seal, false, '不等审批：没有封印');
   assert.equal(talkView({ ...idle, compressing: true, canSend: false }, 'x', ui).canSend, false, '整理记忆（压缩上下文）时不能托付');
   assert.equal(talkView(idle, '', ui).status, ui.talkIdle);
   assert.ok(MAX_SAY_CHARS >= 8000, '一次能写一大段话');
+});
+
+test('chatting with a citizen (2026-10-13): the bar is lent to him — his name and words, a line of 1–300 characters that goes out as chat, disabled while he thinks', () => {
+  const ui = UI_ZH;
+  const target = { conversationId: 'c-9', name: '阿里斯通', bust: {} };
+  const typing = chatView('chat', target, '  今天风大吗？ ', ui);
+  assert.equal(typing.canSend, true, '写了一句：能说');
+  assert.equal(typing.name, target.name, '栏上是他的名字，不是雅典娜');
+  assert.ok(typing.placeholder.includes(target.name), `占位字带着他的名字：${typing.placeholder}`);
+  assert.ok(typing.status.includes(target.name), `状态行写着在和谁聊：${typing.status}`);
+  assert.equal(typing.send, ui.chatSend, '按钮是"说"，不是"托付"');
+  assert.equal(chatView('chat', target, '   ', ui).canSend, false, '只有空白：不能说');
+  assert.equal(chatView('chat', target, '话'.repeat(MAX_LINE_CHARS), ui).canSend, true, '300 字正好');
+  assert.equal(chatView('chat', target, '话'.repeat(MAX_LINE_CHARS + 1), ui).canSend, false, '301 字：不能说（C# 也会整条拒绝）');
+  assert.equal(chatView('chat', { ...target, conversationId: null }, '你好', ui).canSend, false, '不知道和谁说：不能说');
+  const thinking = chatView('chatting', target, '', ui);
+  assert.equal(thinking.disabled, true, '说出去了：输入框停用，等他答');
+  assert.equal(thinking.canSend, false);
+  assert.ok(thinking.status.includes(target.name), `状态行写着他在想：${thinking.status}`);
+  assert.deepEqual(chatLend(target, ui).intent('你好'), ['chat', { who: 'c-9', text: '你好' }], '发的是 chat，不是 say');
+  assert.equal(MAX_LINE_CHARS, 300, '与 C# 的 PolisTalk.MaxLineChars 一致');
 });
 
 test('the page labels the new controls in its own table (C# overrides them per language)', () => {
@@ -128,7 +155,10 @@ test('the page labels the new controls in its own table (C# overrides them per l
     'talkName', 'talkToAthena', 'talkPlaceholder', 'talkSend', 'talkStop', 'talkHint', 'talkIdle', 'talkBusy', 'talkQueued',
     'talkWaiting', 'talkCompressing', 'talkAttachments',
     // M3 第三轮：走近按 E 的提示
-    'interactKey', 'interactTalk', 'interactResident', 'interactItem', 'interactPlace', 'interactTree', 'interactBoard', 'interactOracle', 'interactVenue']) {
+    'interactKey', 'interactTalk', 'interactResident', 'interactItem', 'interactPlace', 'interactTree', 'interactBoard', 'interactOracle', 'interactVenue',
+    // M-B 与聊天（2026-10-13）：居民
+    'interactCitizen', 'citizenOpen', 'censusLine', 'interactStele', 'steleTitle', 'steleBody',
+    'citizenChat', 'chatStatus', 'chatPlaceholder', 'chatWaiting', 'chatSend', 'chatHint', 'askTimeout']) {
     assert.ok(typeof UI_ZH[key] === 'string' && UI_ZH[key].length > 0, `UI_ZH.${key}`);
   }
   assert.ok(!('followAthena' in UI_ZH), '旧的"镜头："按钮词条不用了');

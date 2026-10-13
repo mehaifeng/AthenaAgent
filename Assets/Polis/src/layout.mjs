@@ -11,8 +11,8 @@ export const BLOCK = 18;           // 一个街区：约 12.5 米的地块 + 5.5
 export const STREET = 5.5;
 export const PLOT = BLOCK - STREET;
 // 雅典娜走路的速度（米 / 秒）。M0–M2 她以 12 米 / 秒滑行（真实步速跟不上模型的节奏），用户实测说像女鬼在地上飘（2026-10-11），
-// M3 改成疾步走：3.2 米 / 秒、步幅 1.6 米（一步半秒），超过 orchestrator.maxWalkMs（10 秒，约 32 米）的路化作一道光瞬移——
-// 神本来就能瞬移；跟不上模型节奏时仍由"落后 3 秒就瞬移"兜底
+// M3 改成疾步走：3.2 米 / 秒、步幅 1.6 米（一步半秒），超过 athena.ATHENA.maxWalkMs（10 秒，约 32 米）的路化作一道光瞬移——
+// 神本来就能瞬移
 export const SPEED = 3.2;
 export const ATHENA_STRIDE = 1.6;
 export const PLAYER_SPEED = 6;

@@ -204,6 +204,7 @@
     <Compile Include="../Services/GameMode/*.cs" Link="Source/Services/GameMode/%(Filename)%(Extension)" />
     <Compile Include="../Tools/GameMode/Polis/PolisSyntheticFixture.cs" Link="Source/GameMode/PolisSyntheticFixture.cs" />
     <!-- 事件推导读的是气泡的渲染模型（Models 已链接），没有 Avalonia 依赖，在这里断言。 -->
-    <Compile Include="../ViewModels/GameMode/PolisEventProjector.cs" Link="Source/ViewModels/GameMode/PolisEventProjector.cs" />
+    <Compile Include="../ViewModels/GameMode/PolisDeliveries.cs" Link="Source/ViewModels/GameMode/PolisDeliveries.cs" />
+    <Compile Include="../ViewModels/GameMode/PolisLocale.cs" Link="Source/ViewModels/GameMode/PolisLocale.cs" />
   </ItemGroup>
 </Project>
