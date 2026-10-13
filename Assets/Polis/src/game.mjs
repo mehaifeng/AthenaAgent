@@ -20,7 +20,7 @@ import {
   VIEW, VIEW_MODES, RUN_FACTOR, MOVE_KEYS, nextView, moveDirection, slide, orbitAngles, deadZoneShift, turnToward, isTypingTarget,
 } from './controls.mjs';
 import { createAthena, stepProgress } from './athena.mjs';
-import { planCitizen, citizenAt, separate, assignTiers, pickChat, chatLineAt, greetLine, TOWN } from './citizens.mjs';
+import { planCitizen, citizenAt, newScheduleClock, scheduleClock, holdSchedule, resumeSchedule, separate, assignTiers, pickChat, chatLineAt, greetLine, TOWN } from './citizens.mjs';
 import { debateStage, assignAudience, supportersCount, bubbleExcerpt, DEBATE } from './debate.mjs';
 import { createRenderer } from './render.mjs';
 import { createOverlay } from './overlay.mjs';
@@ -925,7 +925,11 @@ export function createGame({ params, status, send, onTalk = null, onUiBlocked = 
         neighbourSites ??= [...layout.plots.keys()].filter((k) => k.startsWith('b:'));
         c.plan = planCitizen({ id: c.id, seed: c.data.seed, home: c.data.home }, { sitePoint: layout.sitePoint, route: layout.route, walkable: layout.walkable, hasSite, neighbours: neighbourSites });
       }
-      c.at = citizenAt(c.plan, wall);
+      // 被叫住（卡片、问话）或当陪审团的这段时间不算进他的日程：松开后从站定的地方接着走，而不是滑到墙钟上本该到的地方
+      c.schedule ??= newScheduleClock();
+      if ((panel?.type === 'citizen' && panel.id === c.id) || ask?.id === c.id || audienceOf.has(c.id)) holdSchedule(c.schedule, wall);
+      else resumeSchedule(c.schedule, wall);
+      c.at = citizenAt(c.plan, scheduleClock(c.schedule, wall));
       live.push(c);
     }
     // 避让：居民之间互相让；雅典娜与十一位居民是站在那儿的人（不被推），你是推不动的石头——挡在你面前的人侧身让开

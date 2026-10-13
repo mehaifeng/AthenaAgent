@@ -9,7 +9,7 @@ import { buildCitizen, CHARACTER_SPECS } from '../../../../Assets/Polis/src/art/
 import { HAIR_STYLES } from '../../../../Assets/Polis/src/art/rig.mjs';
 import { bust, CHARACTERS } from '../../../../Assets/Polis/src/art/busts.mjs';
 import {
-  TOWN, DESTINATIONS, planCitizen, routeClear, citizenAt, separate, assignTiers, pickChat, chatLineAt, chatLines, greetLine,
+  TOWN, DESTINATIONS, planCitizen, routeClear, citizenAt, newScheduleClock, scheduleClock, holdSchedule, resumeSchedule, separate, assignTiers, pickChat, chatLineAt, chatLines, greetLine,
 } from '../../../../Assets/Polis/src/citizens.mjs';
 import { createLayout } from '../../../../Assets/Polis/src/layout.mjs';
 import { createAssetLibrary } from '../../../../Assets/Polis/src/art/assets.mjs';
@@ -159,6 +159,33 @@ test('day: every citizen of the synthetic city stands and walks only where you c
   // 同一刻永远是同一个位置；日程与墙钟对齐、按种子错开
   assert.deepEqual(citizenAt(plans[0], 12345), citizenAt(plans[0], 12345));
   assert.ok(new Set(plans.map((p) => p.offset)).size > 24, '节拍按种子错开');
+});
+
+test('held (2026-10-13): a walker stopped for a talk resumes from where he stopped — the time he stood is taken off his own schedule, so he never races to where the wall clock says he should be', () => {
+  const { layout, hasSite } = buildCity();
+  const { street } = demoCitizens(fixture, 32);
+  const neighbours = [...layout.plots.keys()].filter((k) => k.startsWith('b:'));
+  const plan = street.map((c) => planCitizen(c, { sitePoint: layout.sitePoint, route: layout.route, walkable: layout.walkable, hasSite, neighbours })).find((p) => p.dest);
+  // 找一刻他正走在去处的半路上
+  let wall = 0;
+  while (citizenAt(plan, wall).action !== 'walk' || citizenAt(plan, wall + 3000).action !== 'walk') wall += 250;
+  const clock = newScheduleClock();
+  assert.equal(scheduleClock(clock, wall), wall, '没站定过：日程钟就是墙钟');
+  const before = citizenAt(plan, scheduleClock(clock, wall));
+  holdSchedule(clock, wall);
+  holdSchedule(clock, wall + 5000);   // 已经停着：不重新计时
+  const heldFor = 20_000;
+  assert.deepEqual(citizenAt(plan, scheduleClock(clock, wall + heldFor)), before, '站定期间日程不走');
+  resumeSchedule(clock, wall + heldFor);
+  const after = citizenAt(plan, scheduleClock(clock, wall + heldFor));
+  assert.ok(Math.hypot(after.x - before.x, after.z - before.z) < 1e-9, '松开的那一刻还在站定的地方');
+  // 松开之后一帧（16 ms）挪的距离是走路的速度，不是去追墙钟（旧做法：墙钟上的位置在 20 秒后，差出十几米）
+  const next = citizenAt(plan, scheduleClock(clock, wall + heldFor + 16));
+  assert.ok(Math.hypot(next.x - after.x, next.z - after.z) <= TOWN.speed * 0.016 * 1.6 + 1e-6, '松开后按走路的速度接着走');
+  const wallClockSpot = citizenAt(plan, wall + heldFor);
+  assert.ok(Math.hypot(wallClockSpot.x - before.x, wallClockSpot.z - before.z) > 2, `这个用例真的测到了差别：墙钟上的位置离站定处 ${Math.hypot(wallClockSpot.x - before.x, wallClockSpot.z - before.z).toFixed(1)} 米`);
+  resumeSchedule(clock, wall + heldFor + 1000);   // 没站定：不动
+  assert.equal(clock.shift, heldFor);
 });
 
 test('households (M-D): a household\'s house carries the household\'s name, not its key, and a citizen whose home is that house is planned from it', () => {

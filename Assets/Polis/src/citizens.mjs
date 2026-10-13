@@ -12,6 +12,8 @@
 //   4. 闲聊：两位都闲着、相距 chatRadius 以内、都在画面里、离你 chatPlayerRadius 以内、这一对 chatPairCooldownMs 里没说过——
 //      全城同时只有一组在说，一人一句，每句 chatLineMs；两人在这段时间里都不会动身（挑的时候就算好了）。
 //      三分之二是闲聊（风、橄榄、港口……），三分之一各说一句自己那件事（C# 填好的，正文永远不进台词）。
+//   5. 站定不吃日程（2026-10-13，用户：走着的人被叫住，Esc 之后他会飞快地"滑"到本该走到的地方）：被叫住、当陪审团的那段时间
+//      从他自己的日程钟里扣掉（scheduleClock / holdSchedule / resumeSchedule），松开后从站定的那一刻接着走。
 
 export const TOWN = Object.freeze({
   streetCap: 32,         // 街上同时最多几位（用户定的 32；C# 的 PolisCitizens.StreetCap 先截，页面再守一道——帧率门槛按 32 位量）
@@ -136,6 +138,26 @@ export function planCitizen(citizen, layout) {
 }
 
 const ease = (f) => f * f * (3 - 2 * f);
+
+/** 一位居民自己的日程钟：{ shift: 累计站定了多久, holdAt: 这一次从哪一刻站定的（没站定为 null） }。 */
+export const newScheduleClock = () => ({ shift: 0, holdAt: null });
+
+/** 他的日程此刻走到了墙钟的哪一刻：站定时停在站定的那一刻，松开后从那里接着走（规则 5）。 */
+export function scheduleClock(clock, wall) {
+  return (clock.holdAt ?? wall) - clock.shift;
+}
+
+/** 叫住他：日程钟停下（已经停着就不动）。 */
+export function holdSchedule(clock, wall) {
+  if (clock.holdAt == null) clock.holdAt = wall;
+}
+
+/** 放开他：站定的这段时间记进 shift，日程钟接着走。 */
+export function resumeSchedule(clock, wall) {
+  if (clock.holdAt == null) return;
+  clock.shift += Math.max(0, wall - clock.holdAt);
+  clock.holdAt = null;
+}
 
 /**
  * 他在墙钟 wall 这一刻在哪、干什么。返回 { x, z, yaw, action: 'idle'|'walk', walkT（步子的相位，毫秒）, idleLeft（这段待着还剩多久，走着时为 0）, at: 'home'|'dest'|'road' }。
