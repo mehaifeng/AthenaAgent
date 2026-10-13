@@ -81,7 +81,12 @@ public enum PolisIntentType
     /// <summary>你这一轮的论点（1–600 字，超长整条拒绝）。只在等你说的时候收（ViewModel 核对状态）。</summary>
     DebateSay,
     /// <summary>不辩了 / 辩完离开：这场作废（没判完的不记战绩）。</summary>
-    DebateEnd
+    DebateEnd,
+    /// <summary>
+    /// 你自己说了一句（不点名），附近的几个人依次接话（第三轮需求 6）：<c>text</c> 同 <see cref="Chat"/> 的上限；<c>who</c> 是按顺序开口的人，
+    /// 1–<see cref="PolisTalk.MaxChorusSpeakers"/> 位，每一位都得是这座城的居民或职业居民、不重复。他们的话只回到页面，不进任何会话。
+    /// </summary>
+    Chorus
 }
 
 /// <summary>校验通过的一条意图。路径已换算成磁盘上的绝对路径（<see cref="FullPath"/>）。</summary>
@@ -106,6 +111,8 @@ public sealed record PolisIntent(PolisIntentType Type)
     public string? OtherId { get; init; }
     /// <summary>chat：你不是在对他说，是你自己说了一句、他在旁边听见了（2026-10-13，平时的对话栏）。</summary>
     public bool Overheard { get; init; }
+    /// <summary>chorus：按顺序开口的人（第三轮需求 6）。</summary>
+    public IReadOnlyList<string>? Speakers { get; init; }
 }
 
 /// <summary>校验时需要知道的现场：当前城邦的根目录（神殿为 null）、有哪些会话、有哪些藏品。</summary>
@@ -187,6 +194,7 @@ public static class PolisIntents
         ["debate-start"] = PolisIntentType.DebateStart,
         ["debate-say"] = PolisIntentType.DebateSay,
         ["debate-end"] = PolisIntentType.DebateEnd,
+        ["chorus"] = PolisIntentType.Chorus,
     };
 
     /// <summary>页面那一侧用的名字（测试与文档用）。</summary>
@@ -313,6 +321,26 @@ public static class PolisIntents
                     return new PolisIntentResult(new PolisIntent(type) { ConversationId = who, Text = line, Overheard = overheard }, null);
                 }
 
+                case PolisIntentType.Chorus:
+                {
+                    var raw = ReadString(root, "text");
+                    if (raw == null) return PolisIntentResult.Reject("missing text");
+                    var line = Clean(raw.Trim(), int.MaxValue)!;
+                    if (line.Length == 0) return PolisIntentResult.Reject("empty text");
+                    if (line.Length > PolisTalk.MaxLineChars) return PolisIntentResult.Reject($"text longer than {PolisTalk.MaxLineChars} characters");
+                    if (!root.TryGetProperty("who", out var list) || list.ValueKind != JsonValueKind.Array) return PolisIntentResult.Reject("missing speakers");
+                    var speakers = new List<string>();
+                    foreach (var item in list.EnumerateArray())
+                    {
+                        var who = item.ValueKind == JsonValueKind.String ? item.GetString() : null;
+                        if (!IsKnownSpeaker(who, context)) return PolisIntentResult.Reject("unknown speaker");
+                        if (speakers.Exists(s => string.Equals(s, who, StringComparison.Ordinal))) return PolisIntentResult.Reject("a speaker appears twice");
+                        speakers.Add(who!);
+                    }
+                    if (speakers.Count is 0 or > PolisTalk.MaxChorusSpeakers) return PolisIntentResult.Reject($"1-{PolisTalk.MaxChorusSpeakers} speakers");
+                    return new PolisIntentResult(new PolisIntent(type) { Text = line, Speakers = speakers }, null);
+                }
+
                 case PolisIntentType.AmbientChat:
                 {
                     var a = ReadString(root, "a");
@@ -422,6 +450,12 @@ public static class PolisIntents
             return (null, "path resolves through a link to a place outside the workspace");
         return (full, null);
     }
+
+    /// <summary>城里能开口的人：这座城的居民（会话 Id），或者职业居民（<c>resident:&lt;名字&gt;</c>）。</summary>
+    private static bool IsKnownSpeaker(string? who, PolisIntentContext context)
+        => !string.IsNullOrEmpty(who) && (context.KnownCitizenIds.Contains(who)
+            || (who.StartsWith(ResidentSpeakerPrefix, StringComparison.Ordinal) && context.KnownResidentIds.Contains(who[ResidentSpeakerPrefix.Length..])
+                && PolisResidents.TryParse(who[ResidentSpeakerPrefix.Length..], out _)));
 
     private static string? ReadString(JsonElement root, string name)
         => root.TryGetProperty(name, out var value) && value.ValueKind == JsonValueKind.String ? value.GetString() : null;

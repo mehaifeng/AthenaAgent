@@ -22,6 +22,9 @@ import {
 import { createAthena, stepProgress, ATHENA } from './athena.mjs';
 import { planCitizen, citizenAt, newScheduleClock, scheduleClock, holdSchedule, resumeSchedule, separate, assignTiers, pickChat, nextChatAfter, greetLine, TOWN } from './citizens.mjs';
 import { debateStage, assignAudience, supportersCount, DEBATE } from './debate.mjs';
+import {
+  readRelations, EMPTY_RELATIONS, attitudeOf, bondOf, greetingStyle, canChat, chatPreference, RELATION, CHORUS, reactionOf, pickResponders, FACING_REACTIONS,
+} from './relations.mjs';
 import { createRenderer } from './render.mjs';
 import { createOverlay } from './overlay.mjs';
 import { makeMaterials, setNightWindows } from './art/materials.mjs';
@@ -29,6 +32,7 @@ import { setLampNight } from './art/lamps.mjs';
 import { swellHeight } from './art/water.mjs';
 import { createAssetLibrary } from './art/assets.mjs';
 import { setClothWind } from './art/rig.mjs';
+import { citizenLook } from './art/citizens.mjs';
 import { windAt } from './art/springs.mjs';
 import { ONE_SHOT_MS, oneShotDone } from './art/poses.mjs';
 import { buildWorld, PUBLIC_NAMES } from './world.mjs';
@@ -44,11 +48,8 @@ const BUBBLE_MS = 3600;
 export const BOAT_TRIP = Object.freeze({ periodMs: 180_000, tripMs: 20_000, offsetMs: 45_000 });
 const VOYAGE_FADE_MS = 400;
 const REVEAL_MS = 3200;
-/** 你自己说话时，这么近以内（而且在画面里）的人会接一句（2026-10-13）。 */
+/** 你自己说话时，这么近以内（而且在画面里）的人会有反应、几位会接话（2026-10-13；第三轮需求 6 起不止一位，见 relations.CHORUS）。 */
 export const SPEAK_RADIUS = 6;
-/** 接你话的那一位站定朝你多久（等他想、他说完之后再留 HEARD_AFTER_MS）。 */
-const HEARD_HOLD_MS = 30_000;
-const HEARD_AFTER_MS = 5000;
 /**
  * 递卷轴（2026-10-13，用户：一个任务完成时，雅典娜跑向你、递出卷轴；你在走动她就跟着，直到你停下）。
  * 她追到你身前 reach 以内、你站定 stillMs，就递；你还在走，每 rechaseMs 看一次，你走开了 rechaseMove 就从她此刻的位置改道追。
@@ -218,6 +219,35 @@ export const UI_ZH = Object.freeze({
   debateClose: '结束',
   // 户与民居（M-D）
   householdFounded: '「{name}」在城里安了家。',
+  relationsWhyTwo: '因为：{a}，{b}',
+  // 第三轮（人物关系，2026-10-13）：左上角的「人际」总览
+  relationsButton: '人际',
+  relationsTitle: '城里的人际',
+  relationsToYou: '他们怎么看你',
+  relationsPick: '点一个人，看看他为什么这样看你、和谁合得来、和谁合不来。',
+  relationsEmpty: '这座城里还没有人。',
+  relationsFriends: '合得来的',
+  relationsRivals: '合不来的',
+  relationsNone: '（没有）',
+  relationsWhy: '因为：{why}',
+  relationsResidents: '有职业的老住户',
+  relationsCitizens: '居民',
+  relationsIndoors: '在屋里',
+  bandClose: '亲近',
+  bandFriendly: '友好',
+  bandNeutral: '寻常',
+  bandCool: '冷淡',
+  bandHostile: '厌恶',
+  whyDone: '托给雅典娜的事办成了',
+  whyWorking: '雅典娜正替他办着事',
+  whyStopped: '托的事半途停下了',
+  whyFamiliar: '和你来往得多',
+  whyRecent: '最近常打交道',
+  whyWarm: '生性热络',
+  whyPrickly: '脾气不太好相处',
+  whyNature: '他待人就是这样',
+  whyChats: '你常找他说话',
+  whyAnnoyed: '被你搅扰过',
 });
 
 /** 说出去之后最多等多久（C# 那边一次调用 25 秒就放弃；多留 5 秒给排队和回传）。 */
@@ -274,6 +304,8 @@ export function transcriptMarkdown(m, ui) {
 /** 居民对你打招呼的话（本地的；两位居民之间的闲聊 2026-10-13 起只用模型，没有本地台词）。 */
 export const CITIZEN_ZH = Object.freeze({
   greet: '你好呀。|日安。|又见面了。|今天天气不错。|你也出来走走？',
+  // 第三轮（人物关系）：喜欢你的人打招呼说热络的；冷淡、厌恶的人不说话
+  greetWarm: '是你呀！今天气色真好。|哎，你来啦！|见到你真高兴。|快过来坐坐！|正想着你呢。',
 });
 
 /**
@@ -317,13 +349,15 @@ export function createGame({ params, status, send, onTalk = null, onUiBlocked = 
   let groveTrees = [];         // [{ conversationId, title, index, stage, turns, interrupted, scheduled }]
   let residents = [];          // [{ kind, met, name（职业加希腊名）, trade, greekName, intro }]：十位职业居民每座城都在（2026-10-13）
   // 居民即会话（M-B）：C# 推来街上的（≤ 32 位）、老居民（名字刻在碑上）与人口
-  let citizens = { street: [], elders: [], census: null };
+  let citizens = { street: [], elders: [], indoors: [], census: null };
   let citizenTiers = new Map();      // id → 'A' | 'B' | 'C'（citizens.assignTiers）
   let chatTalk = null;               // 此刻在聊天的那一对（citizens.pickChat；说什么由 C# 的模型定，ambient-chat → talk → ambient-end）
   const chatCooldown = new Map();    // 一对人上次聊天的时刻
   let nextChatPickAt = 0;
-  let greeting = null;               // { id, start, line }：此刻跟你打招呼的那一位
+  let greeting = null;               // { id, start, line, style }：此刻跟你打招呼的那一位（style：relations.greetingStyle，按他怎么看你）
   const greetedAt = new Map();       // 每一位上次跟你打招呼的时刻
+  // 人物关系（第三轮需求 1）：C# 推来的 relations 读成好查的样子（relations.mjs）——谁怎么看你、两人之间、朋友与不和的人
+  let relations = EMPTY_RELATIONS;
   // 和一位居民聊天（2026-10-13，原来 M-C 的问话）：对话栏借给了他（'typing' 你在写、'waiting' 说出去了等他答）；
   // 他的话在他头顶（sayings：id → { text, typing, at, doneAt }，流式的半句话边到边换），你的话在你头顶（mine）
   let convo = null;                  // { id, status, sentAt }
@@ -331,8 +365,13 @@ export function createGame({ params, status, send, onTalk = null, onUiBlocked = 
   let mine = null;                   // { text, at }
   /** 对话栏开着、而且是在和雅典娜说话（托付；2026-10-13 起要走到她身边按 E——平时的栏是你自己说话）。 */
   const talkingToAthena = () => talkOpen() && talkMode() === 'talk' && !convo && !lentToDebate();
-  // 你自己说话（2026-10-13）：接你话的那一位（他站定、转身朝你，直到说完再留一会儿）；有一段写好的话在雅典娜那里等你
-  let heard = null;                  // { id, until }
+  // 你自己说话（2026-10-13）：听见的人（第三轮需求 6：附近的几个人都有反应，最多三位依次开口）——
+  // id → { kind: 'wave'|'nod'|'listen'|'glance'|'turnAway'（relations.reactionOf，按他怎么看你）, start, until, speaks }。
+  // 转过来的人站定（日程钟停着），说完、C# 推 chorus-end 之后再留一会儿；有一段写好的话在雅典娜那里等你
+  const listeners = new Map();
+  const listening = (id, wall) => { const l = listeners.get(id); return !!l && wall < l.until; };
+  /** 他此刻转过来面朝你听（瞥一眼、转过身去的不算）。 */
+  const facesYou = (id, wall) => listening(id, wall) && FACING_REACTIONS.includes(listeners.get(id).kind);
   let crowdQueue = [];               // 围观的人还没说出口的起哄：{ id, text, kind, at }
   // 递卷轴：排着的成果（id），此刻在递的那一件 { itemId, phase: 'chase'|'give', target, chasedAt, giveAt }，你上次动的时刻
   let handovers = [];
@@ -495,7 +534,7 @@ export function createGame({ params, status, send, onTalk = null, onUiBlocked = 
       pressed.clear();
       itemsPrimed = false;   // 新的一座城：它的第一份成果清单是"一直在那儿的"，不是刚交到你手上的
       if (switchingCity) {
-        citizens = { street: [], elders: [], census: null };
+        citizens = { street: [], elders: [], indoors: [], census: null };
         chatTalk = null;
         nextChatPickAt = 0;   // 换了城：上一座城"没配模型、不再挑"的结论不带过来（设置可能改过了）
         greeting = null;
@@ -840,8 +879,11 @@ export function createGame({ params, status, send, onTalk = null, onUiBlocked = 
         yaw = Math.atan2(r.home.x - out.x, r.home.z - out.z); action = 'walk'; at = walked(f);
       } else { action = 'idle'; at = t; }
       // 他的卡片开着、或者你在和他聊（对话栏借给了他）：站在原地，转身面向你，先挥一下手，然后一边比划一边讲（M3）
-      const chatting = convo?.id === `resident:${r.kind}` || (heard?.id === `resident:${r.kind}` && wall < heard.until);
+      const rid = `resident:${r.kind}`;
+      const chatting = convo?.id === rid || facesYou(rid, wall);
       const greeting = (panel?.type === 'resident' && panel.id === r.kind) || chatting;
+      // 听见你说话但不转过来的（第三轮需求 6）：冷淡的瞥一眼，厌恶的背过身去
+      const aside = !greeting && listening(rid, wall) ? listeners.get(rid).kind : null;
       const style = { variant: r.work, speed: 1.3, stride: 1.3, seed: r.phase };
       // 收缆的水手：缆拴在泊着的船上；船出海去了，他就站在桥沿上等它回来（不朝着空海收缆）
       if (r.station?.rope === 'boat' && action === 'work') {
@@ -854,12 +896,15 @@ export function createGame({ params, status, send, onTalk = null, onUiBlocked = 
         yaw = Math.atan2(player.pos.x - x, player.pos.z - z);
         const since = wall - r.greetAt;
         const saying = sayings.get(`resident:${r.kind}`);
-        if (since < ONE_SHOT_MS.wave) { action = 'wave'; at = since; } else { action = 'talk'; at = since; style.speaker = !chatting || (!!saying && !saying.typing && (saying.doneAt == null || wall - saying.doneAt < 2500)); }
+        // 卡片开着、当面聊：先挥一下手；听见你说话的按他的样子（亲近的挥手，其余直接听）
+        const waves = convo?.id === rid || (panel?.type === 'resident' && panel.id === r.kind) || listeners.get(rid)?.kind === 'wave';
+        if (waves && since < ONE_SHOT_MS.wave) { action = 'wave'; at = since; } else { action = 'talk'; at = since; style.speaker = !chatting || (!!saying && !saying.typing && (saying.doneAt == null || wall - saying.doneAt < 2500)); }
       } else {
         r.greetAt = null;
+        if (aside === 'turnAway' && action !== 'walk') yaw = Math.atan2(x - player.pos.x, z - player.pos.z);
       }
       const dp = Math.hypot(player.pos.x - x, player.pos.z - z);
-      if (dp < 4 && action !== 'work') style.lookAt = playerHead.set(player.pos.x, 1.5, player.pos.z);
+      if ((dp < 4 && action !== 'work' && aside !== 'turnAway') || aside === 'glance') style.lookAt = playerHead.set(player.pos.x, 1.5, player.pos.z);
       r.yawNow = r.yawNow == null ? yaw : turnToward(r.yawNow, yaw, 1 - Math.exp(-dt / 180));
       r.figure.root.position.set(x, r.home.y ?? world.groundAt(x, z) + 0.012, z);
       r.figure.root.rotation.y = r.yawNow;
@@ -974,7 +1019,9 @@ export function createGame({ params, status, send, onTalk = null, onUiBlocked = 
 
   /** 判完了：按票数的比例，前面几位为你挥手。 */
   function markSupporters(votesForYou, jury) {
-    const list = [...audienceOf.values()].sort((a, b) => a.index - b.index);
+    // 挥手的人数按票数；谁挥按他们怎么看你——喜欢你的先（人物关系，第三轮需求 1）
+    const scoreOf = new Map([...audienceOf].map(([id, a]) => [a, attitudeOf(relations, id).score]));
+    const list = [...audienceOf.values()].sort((a, b) => (scoreOf.get(b) - scoreOf.get(a)) || (a.index - b.index));
     const k = supportersCount(list.length, votesForYou, jury);
     list.forEach((a, i) => { a.supporter = i < k; });
     status.supporters = k;
@@ -1088,6 +1135,32 @@ export function createGame({ params, status, send, onTalk = null, onUiBlocked = 
     };
   }
 
+  /** 跟你打招呼：按他怎么看你挑样子（relations.greetingStyle）和那一组话（热络的、平常的；冷淡、厌恶的不说话）。 */
+  function greetingFor(c, wall) {
+    const style = greetingStyle(attitudeOf(relations, c.id).band);
+    const words = style.line === 'warm' ? citizenWords.greetWarm : style.line === 'plain' ? citizenWords.greet : null;
+    return { id: c.id, start: wall, line: words ? greetLine(c.data.seed, words, wall) : '', style };
+  }
+
+  /**
+   * 站着没事的人看一眼身边的人（人物关系）：3 米内有合得来的（友好及以上）就看他；2.5 米内有合不来的（冷淡及以下）就把头扭开——
+   * 看的是对面那一侧。返回要看的那一点，没有就是 null。
+   */
+  function neighbourGlance(c, x, z, live, posOf) {
+    let friend = null, rival = null;
+    for (const o of live) {
+      if (o === c || !o.at) continue;
+      const p = posOf(o);
+      const d = Math.hypot(p.x - x, p.z - z);
+      if (d > 3) continue;
+      const b = bondOf(relations, c.id, o.id);
+      if (b >= RELATION.friendly && (!friend || d < friend.d)) friend = { x: p.x, z: p.z, d };
+      if (b <= RELATION.coolBelow && d <= 2.5 && (!rival || d < rival.d)) rival = { x: p.x, z: p.z, d };
+    }
+    if (rival) return { x: x - (rival.x - x), z: z - (rival.z - z) };
+    return friend;
+  }
+
   /**
    * 居民即会话（M-B）：日程（citizens.citizenAt）→ 避让（separate）→ 分档（assignTiers：离你最近的 4 位全套、画面里其余的
    * 布料停着、画面外的不摆不画）→ 闲聊与打招呼 → 摆姿势。人物一帧最多建两位（world.buildNextCitizen）：几十位一起建会卡住一帧。
@@ -1106,7 +1179,7 @@ export function createGame({ params, status, send, onTalk = null, onUiBlocked = 
       }
       // 被叫住（卡片、问话）或当陪审团的这段时间不算进他的日程：松开后从站定的地方接着走，而不是滑到墙钟上本该到的地方
       c.schedule ??= newScheduleClock();
-      if ((panel?.type === 'citizen' && panel.id === c.id) || convo?.id === c.id || (heard?.id === c.id && wall < heard.until) || audienceOf.has(c.id)
+      if ((panel?.type === 'citizen' && panel.id === c.id) || convo?.id === c.id || facesYou(c.id, wall) || audienceOf.has(c.id)
         || (chatTalk && (chatTalk.a === c.id || chatTalk.b === c.id))) holdSchedule(c.schedule, wall);
       else resumeSchedule(c.schedule, wall);
       c.at = citizenAt(c.plan, scheduleClock(c.schedule, wall));
@@ -1144,9 +1217,12 @@ export function createGame({ params, status, send, onTalk = null, onUiBlocked = 
     if (!chatTalk && wall >= nextChatPickAt) {
       nextChatPickAt = wall + 500;
       const candidates = live
-        .filter((c) => c.at.action === 'idle' && !c.hold && convo?.id !== c.id && heard?.id !== c.id && citizenTiers.get(c.id) !== 'C' && greeting?.id !== c.id && !audienceOf.has(c.id))
+        .filter((c) => c.at.action === 'idle' && !c.hold && convo?.id !== c.id && !listening(c.id, wall) && citizenTiers.get(c.id) !== 'C' && greeting?.id !== c.id && !audienceOf.has(c.id))
         .map((c) => { const p = posOf(c); return { id: c.id, x: p.x, z: p.z, idleLeft: c.at.idleLeft, inView: true }; });
-      const pick = pickChat(candidates, player.pos, chatCooldown, wall);
+      const pick = pickChat(candidates, player.pos, chatCooldown, wall, {
+        allowed: (a, b) => canChat(relations, a, b),
+        score: (a, b, d) => chatPreference(relations, a, b, d),
+      });
       if (pick) startAmbient(pick, wall);
     }
     // 打招呼：你走到一位闲着的居民跟前（2.5 米内），两分钟里没跟你打过招呼——他转身、挥手、说一句
@@ -1163,7 +1239,7 @@ export function createGame({ params, status, send, onTalk = null, onUiBlocked = 
         if (!best || d < best.d) best = { c, d };
       }
       if (best) {
-        greeting = { id: best.c.id, start: wall, line: greetLine(best.c.data.seed, citizenWords.greet, wall) };
+        greeting = greetingFor(best.c, wall);
         greetedAt.set(best.c.id, wall);
       }
     }
@@ -1176,7 +1252,8 @@ export function createGame({ params, status, send, onTalk = null, onUiBlocked = 
       counts[tier]++;
       const root = c.figure.root;
       // 卡片开着、或者你正在和他聊（对话栏借给了他）：他都站定、面朝你
-      const asked = convo?.id === c.id || (heard?.id === c.id && wall < heard.until);
+      const asked = convo?.id === c.id || facesYou(c.id, wall);
+      const aside = !asked && listening(c.id, wall) ? listeners.get(c.id).kind : null;
       const panelOpen = (panel?.type === 'citizen' && panel.id === c.id) || asked;
       // 卡片开着：他站定、面朝你；收起时记下站定的地方，再慢慢回到日程上的位置
       if (panelOpen && !c.hold) c.hold = posOf(c);
@@ -1213,16 +1290,28 @@ export function createGame({ params, status, send, onTalk = null, onUiBlocked = 
           }
           if (stageInfo) style.lookAt = playerHead.set(stageInfo.stage.x, 1.5, stageInfo.stage.z);
         }
+      } else if (aside && !panelOpen) {
+        // 听见你说话、但不转过来（需求 6）：冷淡的瞥一眼（走着的照走），厌恶的背过身去
+        if (aside === 'turnAway' && action === 'idle') yaw = Math.atan2(x - player.pos.x, z - player.pos.z);
+        else if (aside === 'glance') style.lookAt = playerHead.set(player.pos.x, 1.5, player.pos.z);
+      } else if (greetingNow && !panelOpen && !greeting.style.greets) {
+        // 冷淡的只看你一眼（身子不转、不说话），厌恶的转过身去（人物关系，第三轮需求 1）
+        if (greeting.style.turnAway) yaw = Math.atan2(x - player.pos.x, z - player.pos.z);
+        else style.lookAt = playerHead.set(player.pos.x, 1.5, player.pos.z);
+        action = 'idle';
       } else if (panelOpen || greetingNow) {
         yaw = Math.atan2(player.pos.x - x, player.pos.z - z);
         if (panelOpen && c.cardAt == null) c.cardAt = wall;
         const since = wall - (greetingNow ? greeting.start : c.cardAt);
-        if (since < ONE_SHOT_MS.wave) { action = 'wave'; t = since; } else { action = 'talk'; t = since; style.speaker = !asked; }
+        // 卡片开着、或者喜欢你的人打招呼：先挥一下手；寻常的人只点头说一句（人物关系）。听见你说话的（需求 6）：亲近的挥手，其余直接听
+        const cardOpen = panel?.type === 'citizen' && panel.id === c.id;
+        const waves = greetingNow ? greeting.style.wave : cardOpen || convo?.id === c.id || listeners.get(c.id)?.kind === 'wave';
+        if (waves && since < ONE_SHOT_MS.wave) { action = 'wave'; t = since; } else { action = 'talk'; t = since; style.speaker = !asked && (panelOpen || waves); }
         style.lookAt = playerHead.set(player.pos.x, 1.5, player.pos.z);
         // 聊天时他在想、在说：说话的手势；还在想（流式还没出字）时只是听着
         const saying = sayings.get(c.id);
         if (asked && saying && !saying.typing) style.speaker = saying.doneAt == null || wall - saying.doneAt < 2500;
-        if (greetingNow && !saying) bubbles.push({ id: c.id, text: greeting.line, alpha: Math.max(0, Math.min(1, since / 150, (TOWN.chatLineMs - since) / 300)) });
+        if (greetingNow && !saying && greeting.line) bubbles.push({ id: c.id, text: greeting.line, alpha: Math.max(0, Math.min(1, since / 150, (TOWN.chatLineMs - since) / 300)) });
       } else if (inChat) {
         // 面对面站着；正在说（流式出字、或刚说完两秒半内）的那位打手势，另一位听着
         const other = world.citizens.get(chatTalk.a === c.id ? chatTalk.b : chatTalk.a);
@@ -1238,6 +1327,10 @@ export function createGame({ params, status, send, onTalk = null, onUiBlocked = 
       } else {
         c.cardAt = null;
         if (action === 'idle' && Math.hypot(player.pos.x - x, player.pos.z - z) < 4) style.lookAt = playerHead.set(player.pos.x, 1.5, player.pos.z);
+        else if (action === 'idle' && tier === 'A') {
+          const glance = neighbourGlance(c, x, z, live, posOf);
+          if (glance) style.lookAt = playerHead.set(glance.x, 1.5, glance.z);
+        }
       }
       // 他头顶的话（你和他聊天时他说的）：在想时是一串循环的点，流式的字边到边换，说完留一阵再淡出；你还在和他聊就一直留着
       const saying = sayings.get(c.id);
@@ -1259,6 +1352,7 @@ export function createGame({ params, status, send, onTalk = null, onUiBlocked = 
     status.citizenTiers = counts;
     status.chat = chatTalk ? { a: chatTalk.a, b: chatTalk.b } : null;
     status.greeting = greeting?.id ?? null;
+    status.greetingStyle = greeting?.style ?? null;
     return bubbles;
   }
 
@@ -2067,9 +2161,10 @@ export function createGame({ params, status, send, onTalk = null, onUiBlocked = 
   }
 
   /**
-   * 你自己说了一句（对话栏平时的样子，2026-10-13）：你的话出现在你头顶；附近（SPEAK_RADIUS 以内、在画面里）最近的那一位接一句——
-   * 居民或职业居民，C# 的 chat 带着 overheard（他听见你在旁边说）。没人在旁边就只是你说了一句。以"/"开头的命令、以"@"开头的
-   * 点名还没有：你头顶说一句"还在路上"，什么也不发。这是以后接命令与点名的地方（talk.parseBarInput）。
+   * 你自己说了一句（对话栏平时的样子，2026-10-13）：你的话出现在你头顶；附近（SPEAK_RADIUS 以内、在画面里）的人都有反应——
+   * 第三轮需求 6（用户：不点名说话时，附近有多个 NPC 就多个都有反应，而不是只有一个）：最多六位按他怎么看你转身挥手、点头、转过来听、
+   * 瞥一眼或背过身去；最多三位依次开口（chorus：C# 让第一位像以前那样接你的话，后面的人听着前面的插一句）。没人在旁边就只是你说了一句。
+   * 以"/"开头的命令、以"@"开头的点名还没有：你头顶说一句"还在路上"，什么也不发。这是以后接命令与点名的地方（talk.parseBarInput）。
    */
   function speak(parsed) {
     if (!world || !parsed) return null;
@@ -2082,7 +2177,7 @@ export function createGame({ params, status, send, onTalk = null, onUiBlocked = 
     mine = { text: parsed.text, at: wall };
     const near = [];
     for (const c of world.citizens.values()) {
-      if (!c.figure?.root.visible || citizenTiers.get(c.id) === 'C' || audienceOf.has(c.id)) continue;
+      if (!c.figure?.root.visible || citizenTiers.get(c.id) === 'C' || audienceOf.has(c.id) || convo?.id === c.id) continue;
       if (chatTalk && (chatTalk.a === c.id || chatTalk.b === c.id)) continue;
       const p = c.figure.root.position;
       near.push({ id: c.id, d: Math.hypot(p.x - player.pos.x, p.z - player.pos.z) });
@@ -2092,13 +2187,31 @@ export function createGame({ params, status, send, onTalk = null, onUiBlocked = 
       if (!r.figure.root.visible) continue;
       near.push({ id: `resident:${r.kind}`, d: Math.hypot(p.x - player.pos.x, p.z - player.pos.z) });
     }
-    const who = near.filter((n) => n.d <= SPEAK_RADIUS && inView(...posOfSpeaker(n.id))).sort((a, b) => a.d - b.d || (a.id < b.id ? -1 : 1))[0]?.id ?? null;
-    status.spoke = { kind: 'say', responder: who };
-    if (!who) return null;
-    heard = { id: who, until: wall + HEARD_HOLD_MS };
-    sayings.set(who, { text: '', typing: true, at: wall, doneAt: null });
-    send('chat', { who, text: parsed.text, overheard: true });
-    return who;
+    // 第三轮需求 6：6 米内、画面里的人都有反应（最多 CHORUS.reactors 位，近的先），最多三位依次开口（relations.pickResponders：
+    // 越近、越喜欢你、越健谈的越先，厌恶你的不开口）；上一次说话时的反应到此为止
+    const hearers = near.filter((n) => n.d <= SPEAK_RADIUS && inView(...posOfSpeaker(n.id))).sort((a, b) => a.d - b.d || (a.id < b.id ? -1 : 1)).slice(0, CHORUS.reactors);
+    const speakers = pickResponders(hearers, relations);
+    for (const id of listeners.keys()) if (sayings.get(id)?.typing) sayings.delete(id);
+    listeners.clear();
+    for (const h of hearers) {
+      const speaks = speakers.includes(h.id);
+      listeners.set(h.id, { kind: reactionOf(attitudeOf(relations, h.id).band, speaks), start: wall, until: wall + (speakers.length ? CHORUS.holdMs : CHORUS.briefMs), speaks });
+    }
+    status.spoke = { kind: 'say', responder: speakers[0] ?? null, responders: speakers, reactions: Object.fromEntries([...listeners].map(([id, l]) => [id, l.kind])) };
+    if (speakers.length === 0) return null;
+    sayings.set(speakers[0], { text: '', typing: true, at: wall, doneAt: null });
+    send('chorus', { text: parsed.text, who: speakers });
+    return speakers[0];
+  }
+
+  /**
+   * C# 说这一轮接话结束了（chorus-end：{ who, spoke, status }，第三轮需求 6）：没轮到的人头顶的点收起；所有听见的人再留 CHORUS.afterMs 就接着过日子。
+   */
+  function endChorus(m) {
+    const now = performance.now();
+    for (const id of Array.isArray(m?.who) ? m.who : []) if (sayings.get(id)?.typing) sayings.delete(id);
+    for (const l of listeners.values()) l.until = Math.min(l.until, now + CHORUS.afterMs);
+    status.chorus = { status: String(m?.status ?? 'ok'), spoke: Array.isArray(m?.spoke) ? m.spoke : [] };
   }
 
   /** 一位说话的人此刻站在哪儿（居民或职业居民）：[x, z]。 */
@@ -2196,8 +2309,7 @@ export function createGame({ params, status, send, onTalk = null, onUiBlocked = 
       convo = { ...convo, status: 'typing' };
       onChatReplied?.(id);
     }
-    // 接你话的那一位说完了：再站一会儿就接着过他的日子
-    if (heard?.id === id) heard = { id, until: now + HEARD_AFTER_MS };
+    // 接你话的人说完了：等这一轮都说完（chorus-end）再留一会儿；别的人的话不延长
   }
 
   /** C# 推来的那场会话预览（citizen-transcript）：进卷轴阅读器。只认这座城里此刻有的居民。 */
@@ -2444,6 +2556,8 @@ export function createGame({ params, status, send, onTalk = null, onUiBlocked = 
       citizens = {
         street: Array.isArray(payload?.street) ? payload.street.filter((c) => c && c.id != null).slice(0, TOWN.streetCap) : [],
         elders: Array.isArray(payload?.elders) ? payload.elders : [],
+        // 街上满了、在屋里的（第三轮：敲门叫得出来、人际总览里有）：只有 Id、名字、家、种子、职业
+        indoors: Array.isArray(payload?.indoors) ? payload.indoors.filter((c) => c && typeof c.id === 'string') : [],
         census: payload?.census ?? null,
       };
       if (chatTalk && !citizens.street.some((c) => c.id === chatTalk.a || c.id === chatTalk.b)) chatTalk = null;
@@ -2452,6 +2566,24 @@ export function createGame({ params, status, send, onTalk = null, onUiBlocked = 
     },
     /** 居民此刻的分档（测试用）。 */
     get citizenTiers() { return citizenTiers; },
+    /** 人物关系（第三轮需求 1）：C# 推来的 relations（谁怎么看你、两人之间、朋友与不和的人）。 */
+    setRelations(payload) {
+      relations = readRelations(payload);
+      status.relations = { people: relations.you.size, pairs: relations.bond.size / 2 };
+    },
+    /** 读成好查的样子的关系（测试与总览用）。 */
+    get relations() { return relations; },
+    /** 人际总览里的人：街上的居民、在屋里的居民、十位职业居民（名字、半身像）。 */
+    relationsPeople() {
+      const out = [];
+      for (const c of world?.citizens.values() ?? []) out.push({ id: c.id, name: c.data.name ?? '', kind: 'citizen', indoors: false, bust: c.look.bust });
+      for (const c of citizens.indoors) {
+        if (world?.citizens.has(c.id)) continue;
+        out.push({ id: c.id, name: String(c.name ?? ''), kind: 'citizen', indoors: true, bust: citizenLook(Number(c.seed) >>> 0, { age: c.age ?? 'adult' }).bust });
+      }
+      for (const r of residents) out.push({ id: `resident:${r.kind}`, name: r.name ?? r.kind, kind: 'resident', indoors: false, bust: r.kind });
+      return out;
+    },
     /**
      * 对话栏借出去之后的进展（talk.mjs 的 onLent）：问话——'sent' 问出去了开始等、'cancel' 不问了；
      * 辩论——'cancel' 是不辩了（提议题时按 Esc 什么也不发；辩到一半按 Esc 发 debate-end）。
@@ -2495,8 +2627,14 @@ export function createGame({ params, status, send, onTalk = null, onUiBlocked = 
     prefillWaiting,
     /** 此刻在递的那一件（测试用）。 */
     get handover() { return handover ? { ...handover } : null; },
-    /** 接你话的那一位（测试用）。 */
-    get heard() { return heard ? { ...heard } : null; },
+    /** 接你话的第一位（测试用；第三轮起听见的人不止一位，见 listeners）。 */
+    get heard() {
+      const first = [...listeners].find(([, l]) => l.speaks);
+      return first ? { id: first[0], until: first[1].until } : null;
+    },
+    /** 听见你说话的人与他们的反应（测试用）：id → { kind, until, speaks }。 */
+    get listeners() { return new Map([...listeners].map(([id, l]) => [id, { ...l }])); },
+    endChorus,
     /** 让两位居民马上聊（冒烟测试用：走和挑人时一样的那条路——发 ambient-chat、先开口的那位头顶一串点）。 */
     ambientNow(a, b) {
       if (!world?.citizens.has(a) || !world?.citizens.has(b) || a === b) return false;
@@ -2519,7 +2657,9 @@ export function createGame({ params, status, send, onTalk = null, onUiBlocked = 
       const c = world?.citizens.get(id);
       if (!c?.figure) return false;
       const wall = performance.now();
-      greeting = { id, start: wall, line: greetLine(c.data.seed, citizenWords.greet, wall) };
+      greeting = greetingFor(c, wall);
+      // 运动自检要他头顶有话：冷淡、厌恶的人不说话，按寻常的那一组说一句
+      if (!greeting.line) greeting = { ...greeting, line: greetLine(c.data.seed, citizenWords.greet, wall), style: greetingStyle('neutral') };
       greetedAt.set(id, wall);
       return true;
     },

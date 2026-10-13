@@ -105,11 +105,67 @@ public static class PolisTalk
         var zh = IsChinese(language);
         string Pick((string Zh, string En)[] table, int shift)
         {
-            var row = table[(int)(((seed >> shift) ^ (seed * 2654435761u >> (shift + 3))) % (uint)table.Length)];
+            var row = table[IndexOf(seed, shift, table.Length)];
             return zh ? row.Zh : row.En;
         }
         return new PolisPersona(Pick(Trades, 3), Pick(Temperaments, 9), Pick(Manners, 15), Pick(Pastimes, 21));
     }
+
+    private static int IndexOf(uint seed, int shift, int length) => (int)(((seed >> shift) ^ (seed * 2654435761u >> (shift + 3))) % (uint)length);
+
+    /// <summary>他的脾气在脾气表里的位置（关系的暖度、耐心、健谈都按它，见 <see cref="PolisRelations"/>）。</summary>
+    public static int TemperamentIndex(uint seed) => IndexOf(seed, 9, Temperaments.Length);
+
+    /// <summary>他的职业在职业表里的位置（页面按它挑他干的活，第三轮需求 4）。</summary>
+    public static int TradeIndex(uint seed) => IndexOf(seed, 3, Trades.Length);
+
+    /// <summary>职业的键（与职业表同一个次序；页面的 crafts.mjs 认这些键）。</summary>
+    public static IReadOnlyList<string> TradeKeys { get; } = new[]
+    {
+        "potter", "weaver", "fisher", "baker", "vineGrower", "cobbler", "mason", "boatwright", "herbalist", "shepherd", "musician", "spiceTrader",
+        "carpenter", "beekeeper",
+    };
+
+    /// <summary>
+    /// 他对城的主人的态度（第三轮需求 1：好恶直接影响对话）——按关系的档写一句，放进和他说话的系统提示里。
+    /// 厌恶也不许骂人、不许失礼：冷淡、带刺、不想多说就够了。
+    /// </summary>
+    public static string AttitudeText(PolisRelationBand band, string language) => IsChinese(language)
+        ? band switch
+        {
+            PolisRelationBand.Close => "你很喜欢城的主人，见了他心里高兴，说话热络、亲近。",
+            PolisRelationBand.Friendly => "你对城的主人挺有好感，说话和气。",
+            PolisRelationBand.Neutral => "你对城的主人谈不上喜欢不喜欢，客客气气的。",
+            PolisRelationBand.Cool => "你对城的主人有点冷淡，话不多，不太热情。",
+            _ => "你不喜欢城的主人，说话冷淡、带点刺，不想多搭理他——但不骂人、不失礼。",
+        }
+        : band switch
+        {
+            PolisRelationBand.Close => "You are very fond of the city's owner; you are glad to see them and talk warmly and familiarly.",
+            PolisRelationBand.Friendly => "You like the city's owner and speak kindly to them.",
+            PolisRelationBand.Neutral => "You neither like nor dislike the city's owner; you are polite.",
+            PolisRelationBand.Cool => "You are a little cool towards the city's owner: few words, not much warmth.",
+            _ => "You do not like the city's owner: you are cool and a little prickly and would rather not talk - but never rude or insulting.",
+        };
+
+    /// <summary>他和另一个人的交情（两位居民闲聊、几个人一起接你的话时，放进提示词）。</summary>
+    public static string TiesText(PolisRelationBand band, string otherName, string language) => IsChinese(language)
+        ? band switch
+        {
+            PolisRelationBand.Close => $"你和「{otherName}」是老朋友，很要好。",
+            PolisRelationBand.Friendly => $"你和「{otherName}」处得不错。",
+            PolisRelationBand.Neutral => $"你和「{otherName}」只是点头之交。",
+            PolisRelationBand.Cool => $"你和「{otherName}」有点不对付。",
+            _ => $"你很不喜欢「{otherName}」，两人一碰面就别扭——说话可以带点刺，但不吵架、不骂人。",
+        }
+        : band switch
+        {
+            PolisRelationBand.Close => $"You and {otherName} are old friends and very close.",
+            PolisRelationBand.Friendly => $"You get on well with {otherName}.",
+            PolisRelationBand.Neutral => $"You and {otherName} are on nodding terms.",
+            PolisRelationBand.Cool => $"You and {otherName} do not quite get along.",
+            _ => $"You really do not like {otherName}; meeting them is awkward - you may be a little prickly, but no quarrels or insults.",
+        };
 
     /// <summary>一位居民的身份：他托雅典娜办过的那件事（标题、哪天开始、办到哪一步、常去哪儿）。只有标题、日期、文件夹名和数字。</summary>
     public static string CitizenCalling(PolisCitizen citizen, string language)
@@ -249,13 +305,16 @@ public static class PolisTalk
         IReadOnlyList<PolisCitizenExcerpt>? memory,
         IReadOnlyList<PolisTalkTurn> history,
         string line,
-        string language)
+        string language,
+        string? attitude = null)
     {
         ArgumentNullException.ThrowIfNull(history);
         ArgumentNullException.ThrowIfNull(line);
+        // 他对你的态度（第三轮需求 1）紧跟在"他是谁"后面：先知道自己是谁、怎么看你，再看规矩
+        var who = string.IsNullOrEmpty(attitude) ? SpeakerText(speaker, language) : SpeakerText(speaker, language) + (IsChinese(language) ? string.Empty : " ") + attitude;
         var system = memory == null
-            ? string.Join("\n\n", WorldText(world, language), SpeakerText(speaker, language), RulesText(language, remembers: false))
-            : string.Join("\n\n", WorldText(world, language), SpeakerText(speaker, language), RulesText(language), MemoryText(memory, language));
+            ? string.Join("\n\n", WorldText(world, language), who, RulesText(language, remembers: false))
+            : string.Join("\n\n", WorldText(world, language), who, RulesText(language), MemoryText(memory, language));
         var messages = new List<(string Role, string Text)>();
         foreach (var turn in history.Skip(Math.Max(0, history.Count - MaxHistoryTurns)))
         {
@@ -270,7 +329,7 @@ public static class PolisTalk
     /// 规则 5：两位居民在街上碰上了，<paramref name="speaker"/> 说一句。<paramref name="heard"/> 为 null 是他先开口；不然是对方刚说的那句，他接一句。
     /// 系统提示 = 世界观 + 他是谁 + 碰上了谁 + 闲聊的规矩；消息只有一条（先开口时是一句提示，接话时是对方的原话）。语言用界面语言。
     /// </summary>
-    public static PolisTalkPrompt BuildAmbientLine(PolisWorldFacts world, PolisSpeaker speaker, PolisSpeaker other, string? heard, string language)
+    public static PolisTalkPrompt BuildAmbientLine(PolisWorldFacts world, PolisSpeaker speaker, PolisSpeaker other, string? heard, string language, string? ties = null)
     {
         ArgumentNullException.ThrowIfNull(other);
         var zh = IsChinese(language);
@@ -278,6 +337,8 @@ public static class PolisTalk
         var meeting = zh
             ? $"你在街上碰到了城里的{(other.Female ? "女子" : "男子")}「{other.Name}」（{o.Trade}，性子{o.Temperament}），站下来闲聊两句。"
             : $"You run into {other.Name}, a {(other.Female ? "woman" : "man")} of the city ({o.Trade}, {o.Temperament}), and stop for a word.";
+        // 两人的交情（第三轮需求 1）：要好的聊得热络，不对付的带点刺
+        if (!string.IsNullOrEmpty(ties)) meeting += (zh ? string.Empty : " ") + ties;
         var rules = zh
             ? $"只说你这一句话本身：口语，一句，不超过 {MaxAmbientChars} 个字，用中文。聊城里的事、天气、各自的营生或家常，带一点你自己的性子。"
               + "不要说自己是 AI，不要用 Markdown、引号、表情符号，不要写出说话人的名字。"
@@ -296,6 +357,41 @@ public static class PolisTalk
     public static string Overheard(string line, string language) => IsChinese(language)
         ? $"（你在街上，听见城的主人在你旁边说）{line.Trim()}"
         : $"(In the street, you overhear the city's owner say nearby) {line.Trim()}";
+
+    /// <summary>你自己说话时最多几个人开口（第三轮需求 6；页面挑，C# 再守一道）。</summary>
+    public const int MaxChorusSpeakers = 3;
+
+    /// <summary>
+    /// 你自己说了一句，附近已经有人接了话，<paramref name="speaker"/> 也插一句（第三轮需求 6，2026-10-13，用户：不点名说话时，附近的几个人都有反应）。
+    /// 系统提示 = 世界观 + 他是谁 + 他对你的态度 + 插话的规矩 + 他和前面每一位的交情；消息是一条：你那句（前面说明是听见的）和前面几位依次说的话。
+    /// 没有他那场会话里的话（他是凑热闹，不是在回你的问题）；一句、不超过 <see cref="MaxAmbientChars"/> 字、用对方的语言。
+    /// </summary>
+    public static PolisTalkPrompt BuildChorusLine(
+        PolisWorldFacts world,
+        PolisSpeaker speaker,
+        string? attitude,
+        string line,
+        IReadOnlyList<(string Name, string Text, string? Ties)> earlier,
+        string language)
+    {
+        ArgumentNullException.ThrowIfNull(line);
+        ArgumentNullException.ThrowIfNull(earlier);
+        var zh = IsChinese(language);
+        var who = string.IsNullOrEmpty(attitude) ? SpeakerText(speaker, language) : SpeakerText(speaker, language) + (zh ? string.Empty : " ") + attitude;
+        var rules = zh
+            ? $"你在街上，听见城的主人在旁边说了一句话，旁边几个人已经接了话。你也插一句：口语，一句，不超过 {MaxAmbientChars} 个字，用对方用的语言；"
+              + "可以接城的主人的话，也可以接前面哪一位的话，带着你自己的性子和你对他们的态度。你只是在聊天，不能替雅典娜办事，也不答应替谁办事。"
+              + "不要说自己是 AI，不要用 Markdown、引号、表情符号，不要写出说话人的名字。只说你这一句话本身。"
+            : $"In the street you overhear the city's owner say something nearby, and a few people have already answered. Chip in with one line yourself: spoken, one sentence, at most {MaxAmbientChars} characters, in the language you hear; "
+              + "answer the owner or any of the others, in your own manner and with your feelings towards them. You are only chatting: you cannot do anything on Athena's behalf and you promise nothing. "
+              + "Never say you are an AI; no Markdown, quotes or emoji, and do not write the speaker's name. Say only your own line.";
+        var ties = string.Join(zh ? string.Empty : " ", earlier.Where(e => !string.IsNullOrEmpty(e.Ties)).Select(e => e.Ties));
+        var system = string.Join("\n\n", new[] { WorldText(world, language), who, rules, ties }.Where(s => !string.IsNullOrEmpty(s)));
+        var sb = new StringBuilder(Overheard(line, language));
+        foreach (var (name, text, _) in earlier)
+            sb.Append('\n').Append(zh ? $"{name}说：{text.Trim()}" : $"{name} says: {text.Trim()}");
+        return new PolisTalkPrompt(system, new[] { ("user", sb.ToString()) });
+    }
 
     /// <summary>围观的人一句最多多少字、一轮最多几句。</summary>
     public const int MaxCrowdChars = 24;

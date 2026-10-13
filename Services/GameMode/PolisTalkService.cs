@@ -23,7 +23,12 @@ public enum PolisTalkPurpose
     /// <summary>城里的人自己聊（两位居民碰上了）。用户定的上限：每小时 60 次（2026-10-13）。</summary>
     Ambient,
     /// <summary>辩论时围观的人起哄、喝彩、嘘。</summary>
-    Crowd
+    Crowd,
+    /// <summary>
+    /// 你自己说了一句、附近几个人接话时，第一位之后插话的那几位（第三轮需求 6，2026-10-13）。第一位照旧走 <see cref="Player"/>：
+    /// 他是在回你的话；后面的人是在凑热闹，单独一个池子，不挤你和人当面聊天的份。
+    /// </summary>
+    Chorus
 }
 
 /// <summary>一次说话的结局。</summary>
@@ -71,6 +76,7 @@ public sealed class PolisTalkService : IPolisTalkService, IDisposable
     {
         PolisTalkPurpose.Player => 60,
         PolisTalkPurpose.Ambient => 60,
+        PolisTalkPurpose.Chorus => 60,
         _ => 30,
     };
 

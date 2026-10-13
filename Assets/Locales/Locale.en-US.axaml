@@ -1584,10 +1584,41 @@
     <!-- 户与民居（M-D，2026-10-13）：户名与新立一户时雅典娜说的那一句 -->
     <system:String x:Key="Polis.Household.NamePattern">The {0} household</system:String>
     <system:String x:Key="Polis.Ui.HouseholdFounded">{name} has settled in the city.</system:String>
+    <system:String x:Key="Polis.Ui.RelationsWhyTwo">Because {a}, and {b}</system:String>
+    <!-- 第三轮（人物关系，2026-10-13）：左上角的「人际」总览 -->
+    <system:String x:Key="Polis.Ui.RelationsButton">People</system:String>
+    <system:String x:Key="Polis.Ui.RelationsTitle">Who's who in the city</system:String>
+    <system:String x:Key="Polis.Ui.RelationsToYou">How they see you</system:String>
+    <system:String x:Key="Polis.Ui.RelationsPick">Pick someone to see why they feel that way about you, and who they get on with.</system:String>
+    <system:String x:Key="Polis.Ui.RelationsEmpty">Nobody lives in this city yet.</system:String>
+    <system:String x:Key="Polis.Ui.RelationsFriends">Gets on with</system:String>
+    <system:String x:Key="Polis.Ui.RelationsRivals">Doesn't get on with</system:String>
+    <system:String x:Key="Polis.Ui.RelationsNone">(nobody)</system:String>
+    <system:String x:Key="Polis.Ui.RelationsWhy">Because {why}</system:String>
+    <system:String x:Key="Polis.Ui.RelationsResidents">Townsfolk with a trade</system:String>
+    <system:String x:Key="Polis.Ui.RelationsCitizens">Citizens</system:String>
+    <system:String x:Key="Polis.Ui.RelationsIndoors">indoors</system:String>
+    <system:String x:Key="Polis.Ui.BandClose">Close</system:String>
+    <system:String x:Key="Polis.Ui.BandFriendly">Friendly</system:String>
+    <system:String x:Key="Polis.Ui.BandNeutral">Neutral</system:String>
+    <system:String x:Key="Polis.Ui.BandCool">Cool</system:String>
+    <system:String x:Key="Polis.Ui.BandHostile">Hostile</system:String>
+    <system:String x:Key="Polis.Ui.WhyDone">what they entrusted to Athena got done</system:String>
+    <system:String x:Key="Polis.Ui.WhyWorking">Athena is working on it for them</system:String>
+    <system:String x:Key="Polis.Ui.WhyStopped">their errand stopped halfway</system:String>
+    <system:String x:Key="Polis.Ui.WhyFamiliar">you have been back and forth a lot</system:String>
+    <system:String x:Key="Polis.Ui.WhyRecent">you have been in touch lately</system:String>
+    <system:String x:Key="Polis.Ui.WhyWarm">warm by nature</system:String>
+    <system:String x:Key="Polis.Ui.WhyPrickly">hard to please by nature</system:String>
+    <system:String x:Key="Polis.Ui.WhyNature">that is how they treat people</system:String>
+    <system:String x:Key="Polis.Ui.WhyChats">you often stop to talk</system:String>
+    <system:String x:Key="Polis.Ui.WhyAnnoyed">you have bothered them</system:String>
     <system:String x:Key="Polis.Citizen.NamesMale">Demetrios|Ariston|Kriton|Phaidros|Lysis|Charmides|Euthyphron|Menon|Theaitetos|Xenophon|Hermon|Philon|Alkibiades|Agathon|Aischines|Anaxagoras|Antiphon|Apollodoros|Archelaos|Archytas|Aristeides|Aristarchos|Aristippos|Charondas|Chairephon|Damon|Demosthenes|Diodotos|Diogenes|Dion|Empedokles|Epikouros|Eratosthenes|Eukleides|Eudoxos|Euripides|Glaukon|Gorgias|Hekataios|Herakleitos|Hermogenes|Hippias|Hippokrates|Iktinos|Isokrates|Kallias|Kallikles|Kebes|Kimon|Kleisthenes|Kleon|Kritias|Ktesippos|Laches|Leon|Lykourgos|Lysandros|Lysias|Melanthios|Meletos|Menexenos|Miltiades|Myron|Nikias|Nikomachos|Pausanias|Perikles|Phaidon|Pheidias|Philolaos|Phokion|Pindaros|Polemarchos|Polykleitos|Praxiteles|Prodikos|Protagoras|Pyrrhon|Simmias|Simonides|Solon|Sophokles|Speusippos|Stesichoros|Thales|Themistokles|Theodoros|Theophrastos|Thoukydides|Thrasyboulos|Thrasymachos|Timaios|Timon|Xanthippos|Zenon|Zeuxis|Androkles|Kallimachos|Eumenes|Nikandros|Philippos|Stephanos|Theagenes|Hieron|Polykrates|Leonidas|Kleomenes|Brasidas|Phormion|Konon|Iphikrates|Chabrias|Timotheos|Epameinondas|Pelopidas|Archimedes|Aristoxenos|Euphranor|Apelles|Parrhasios</system:String>
     <system:String x:Key="Polis.Citizen.NamesFemale">Phyllis|Daphne|Kleio|Helena|Eirene|Thais|Diotima|Aspasia|Melissa|Charis|Korinna|Myrto|Agariste|Agnodike|Alkestis|Andromache|Antigone|Anyte|Ariadne|Arete|Arsinoe|Axiothea|Berenike|Chloe|Chrysis|Damo|Deianeira|Elektra|Elpinike|Erinna|Euadne|Eudokia|Eunike|Euphrosyne|Eurydike|Glykera|Harmonia|Hermione|Hipparchia|Hypatia|Iokaste|Ismene|Kallisto|Kassandra|Kleoboulina|Kleopatra|Kydippe|Lais|Lampito|Leda|Lysistrata|Megara|Melinna|Merope|Metrodora|Moero|Myrrhine|Nausikaa|Neaira|Nikarete|Nossis|Olympias|Pantheia|Penelope|Periktione|Phaidra|Philinna|Phryne|Praxilla|Rhodope|Sappho|Telesilla|Theano|Theodote|Timarete|Xanthippe|Zoe|Agathe|Alkmene|Amaryllis|Anthousa|Archippe|Atalante|Chariklo|Demo|Dorkas|Euboule|Eukleia|Galene|Gorgo|Hero|Iole|Kallirhoe|Kleito|Kore|Lysandra|Melite|Mnesarete|Nikaia|Niobe|Oinone|Pamphile|Philainis|Phila|Polyxena|Rhode|Stratonike|Thaleia|Theophania|Thessale|Timandra|Xenia|Aglaia|Antiope|Ianthe|Kalliope|Lysippe|Melpomene|Ourania|Philomela</system:String>
     <system:String x:Key="Polis.Citizen.NameNth">{0} ({1})</system:String>
     <system:String x:Key="Polis.Citizen.Greet">Hello there.|Good day.|We meet again.|Fine weather today.|Out for a walk too?</system:String>
+    <!-- 第三轮（人物关系）：喜欢你的人打招呼说热络的；冷淡、厌恶的人不说话 -->
+    <system:String x:Key="Polis.Citizen.GreetWarm">Oh, it's you! You look well today.|Ah, there you are!|So good to see you.|Come, sit a while!|I was just thinking of you.</system:String>
     <system:String x:Key="Polis.Public.PaintedStoa">Painted Stoa</system:String>
     <system:String x:Key="Polis.Public.Archive">Archive</system:String>
     <system:String x:Key="Polis.Public.Vault">Vault</system:String>

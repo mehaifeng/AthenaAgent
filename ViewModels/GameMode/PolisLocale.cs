@@ -164,6 +164,35 @@ public static class PolisLocale
         ("debateClose", "Polis.Ui.DebateClose", "结束"),
         // M-D（2026-10-13）：户与民居
         ("householdFounded", "Polis.Ui.HouseholdFounded", "「{name}」在城里安了家。"),
+        ("relationsWhyTwo", "Polis.Ui.RelationsWhyTwo", "因为：{a}，{b}"),
+        // 第三轮（人物关系，2026-10-13）：左上角的「人际」总览
+        ("relationsButton", "Polis.Ui.RelationsButton", "人际"),
+        ("relationsTitle", "Polis.Ui.RelationsTitle", "城里的人际"),
+        ("relationsToYou", "Polis.Ui.RelationsToYou", "他们怎么看你"),
+        ("relationsPick", "Polis.Ui.RelationsPick", "点一个人，看看他为什么这样看你、和谁合得来、和谁合不来。"),
+        ("relationsEmpty", "Polis.Ui.RelationsEmpty", "这座城里还没有人。"),
+        ("relationsFriends", "Polis.Ui.RelationsFriends", "合得来的"),
+        ("relationsRivals", "Polis.Ui.RelationsRivals", "合不来的"),
+        ("relationsNone", "Polis.Ui.RelationsNone", "（没有）"),
+        ("relationsWhy", "Polis.Ui.RelationsWhy", "因为：{why}"),
+        ("relationsResidents", "Polis.Ui.RelationsResidents", "有职业的老住户"),
+        ("relationsCitizens", "Polis.Ui.RelationsCitizens", "居民"),
+        ("relationsIndoors", "Polis.Ui.RelationsIndoors", "在屋里"),
+        ("bandClose", "Polis.Ui.BandClose", "亲近"),
+        ("bandFriendly", "Polis.Ui.BandFriendly", "友好"),
+        ("bandNeutral", "Polis.Ui.BandNeutral", "寻常"),
+        ("bandCool", "Polis.Ui.BandCool", "冷淡"),
+        ("bandHostile", "Polis.Ui.BandHostile", "厌恶"),
+        ("whyDone", "Polis.Ui.WhyDone", "托给雅典娜的事办成了"),
+        ("whyWorking", "Polis.Ui.WhyWorking", "雅典娜正替他办着事"),
+        ("whyStopped", "Polis.Ui.WhyStopped", "托的事半途停下了"),
+        ("whyFamiliar", "Polis.Ui.WhyFamiliar", "和你来往得多"),
+        ("whyRecent", "Polis.Ui.WhyRecent", "最近常打交道"),
+        ("whyWarm", "Polis.Ui.WhyWarm", "生性热络"),
+        ("whyPrickly", "Polis.Ui.WhyPrickly", "脾气不太好相处"),
+        ("whyNature", "Polis.Ui.WhyNature", "他待人就是这样"),
+        ("whyChats", "Polis.Ui.WhyChats", "你常找他说话"),
+        ("whyAnnoyed", "Polis.Ui.WhyAnnoyed", "被你搅扰过"),
     };
 
     /// <summary>
@@ -203,6 +232,8 @@ public static class PolisLocale
         // M-D：户名（{0} 是立户那一位的名字）
         ("householdName", "Polis.Household.NamePattern", "{0}一家"),
         ("greet", "Polis.Citizen.Greet", "你好呀。|日安。|又见面了。|今天天气不错。|你也出来走走？"),
+        // 第三轮（人物关系）：喜欢你的人打招呼说热络的；冷淡、厌恶的人不说话
+        ("greetWarm", "Polis.Citizen.GreetWarm", "是你呀！今天气色真好。|哎，你来啦！|见到你真高兴。|快过来坐坐！|正想着你呢。"),
     };
 
     public static IReadOnlyList<(string JsKey, string Key, string Fallback)> Places { get; } = new[]

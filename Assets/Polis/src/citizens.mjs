@@ -265,8 +265,10 @@ export function assignTiers(list, current = new Map(), { tierA = TOWN.tierA, rad
 /**
  * 挑一对来聊天（规则 4）。candidates：[{ id, x, z, idleLeft, inView }]（只放此刻闲着的）；player：{x, z}；
  * cooldown：Map pairKey → 上次说话的时刻；wall：此刻。返回 { a, b, key, start }（a 先开口）或 null。说什么由 C# 的模型定。
+ * 第三轮（人物关系）：allowed(a, b) 为假的一对不凑（互相厌恶的两位）；score(a, b, d) 给了就按它挑最小的（同样近时关系好的先），
+ * 没给就挑最近的一对。
  */
-export function pickChat(candidates, player, cooldown, wall) {
+export function pickChat(candidates, player, cooldown, wall, { allowed = null, score = null } = {}) {
   const ok = candidates.filter((c) => c.inView && c.idleLeft >= TOWN.chatNeedMs && Math.hypot(c.x - player.x, c.z - player.z) <= TOWN.chatPlayerRadius);
   let best = null;
   for (let i = 0; i < ok.length; i++) for (let j = i + 1; j < ok.length; j++) {
@@ -276,7 +278,9 @@ export function pickChat(candidates, player, cooldown, wall) {
     const key = a.id < b.id ? `${a.id}|${b.id}` : `${b.id}|${a.id}`;
     const last = cooldown.get(key);
     if (last != null && wall - last < TOWN.chatPairCooldownMs) continue;
-    if (!best || d < best.d) best = { a, b, key, d };
+    if (allowed && !allowed(a.id, b.id)) continue;
+    const s = score ? score(a.id, b.id, d) : d;
+    if (!best || s < best.s) best = { a, b, key, d, s };
   }
   if (!best) return null;
   const [first, second] = best.a.id < best.b.id ? [best.a, best.b] : [best.b, best.a];

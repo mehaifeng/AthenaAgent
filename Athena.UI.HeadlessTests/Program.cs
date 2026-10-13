@@ -2188,6 +2188,9 @@ static void SettleUtilityTabFade(Window window, string tabName)
         $"The {tabName} tab fade never reached full opacity; the panel would stay dimmed.");
 }
 
+// 游戏模式的关系账本（第三轮）：每个用例自己的根下一份，不碰真的 AthenaData。
+static PolisRelationStore HeadlessRelations(string root) => new(Path.Combine(root, "AthenaData", "Game", "relations.json"), Log.Logger);
+
 static void PumpUntil(Func<bool> done, int timeoutMs = 5000, string? failureMessage = null)
 {
     var deadline = Environment.TickCount + timeoutMs;
@@ -4469,7 +4472,7 @@ static void TestGameModeSwitchAndFailures()
         // 两个计时都留足余量：就绪计时从创建页面起算，到测试替页面报 ready 之间隔着一次调度；
         // 保留期要盖过切回对话时整棵气泡树的重建——CI 机器比开发机慢得多，几百毫秒的余量会偶发失败
         gameMode = new GameModeViewModel(session, previewHost, new PolisSaveStore(paths, Log.Logger), watcher, localization,
-            new HeadlessCronTaskReader(), new PolisAssetStore(Path.Combine(root, "AthenaData", "Game", "assets"), Log.Logger), new HeadlessPolisTalkService(), new HeadlessPolisDebateService())
+            new HeadlessCronTaskReader(), new PolisAssetStore(Path.Combine(root, "AthenaData", "Game", "assets"), Log.Logger), new HeadlessPolisTalkService(), new HeadlessPolisDebateService(), HeadlessRelations(root))
         {
             ReadyTimeout = TimeSpan.FromSeconds(2),
             ReleaseDelay = TimeSpan.FromSeconds(2)
@@ -4814,7 +4817,7 @@ static void TestGameModeCityLifecycle()
     GameModeViewModel Start(Action<GameModeViewModel>? configure = null)
     {
         var vm = new GameModeViewModel(session, previewHost, store, watcher, localization,
-            cronReader, new PolisAssetStore(Path.Combine(root, "AthenaData", "Game", "assets"), Log.Logger), new HeadlessPolisTalkService(), new HeadlessPolisDebateService());
+            cronReader, new PolisAssetStore(Path.Combine(root, "AthenaData", "Game", "assets"), Log.Logger), new HeadlessPolisTalkService(), new HeadlessPolisDebateService(), HeadlessRelations(root));
         configure?.Invoke(vm);
         shell = new MainWindowViewModel(
             chatService: null, configService: null, promptService: null, logService: null, knowledgeBaseService: null,
@@ -5172,7 +5175,7 @@ static void TestGameModeAccumulation()
     var residentTalk = new HeadlessPolisTalkService();
     try
     {
-        gameMode = new GameModeViewModel(session, previewHost, store, watcher, localization, cronReader, new PolisAssetStore(assetsDir, Log.Logger), residentTalk, new HeadlessPolisDebateService());
+        gameMode = new GameModeViewModel(session, previewHost, store, watcher, localization, cronReader, new PolisAssetStore(assetsDir, Log.Logger), residentTalk, new HeadlessPolisDebateService(), HeadlessRelations(root));
         var structural = typeof(GameModeViewModel).GetConstructors().SelectMany(c => c.GetParameters()).Select(p => p.ParameterType)
             .Concat(typeof(GameModeViewModel).GetFields(System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Public).Select(f => f.FieldType))
             .ToList();
@@ -5401,7 +5404,7 @@ static void TestGameModeCitizens()
     Window? window = null;
     try
     {
-        gameMode = new GameModeViewModel(session, previewHost, store, watcher, localization, new HeadlessCronTaskReader(), new PolisAssetStore(Path.Combine(root, "assets"), Log.Logger), answers, new HeadlessPolisDebateService());
+        gameMode = new GameModeViewModel(session, previewHost, store, watcher, localization, new HeadlessCronTaskReader(), new PolisAssetStore(Path.Combine(root, "assets"), Log.Logger), answers, new HeadlessPolisDebateService(), HeadlessRelations(root));
         shell = new MainWindowViewModel(
             chatService: null, configService: null, promptService: null, logService: null, knowledgeBaseService: null,
             localizationService: localization, fileSystemService: null, platformPathService: null, functionRegistry: null,
@@ -5481,6 +5484,17 @@ static void TestGameModeCitizens()
         int Rejections() => sink.Events.Count(e => e.Level == Serilog.Events.LogEventLevel.Warning && e.RenderMessage().StartsWith("Rejected a polis page intent", StringComparison.Ordinal));
         var messagesBefore = here.Sum(h => h.Chat.Messages.Count);
         List<JsonElement> Talks(bool done) => Of("talk").Where(t => t.GetProperty("done").GetBoolean() == done).ToList();
+        // —— 人物关系（第三轮需求 1）：居民一推，关系跟着推——这座城的每位居民（老居民除外）与十位职业居民各一条，没有任何正文 ——
+        PumpTimers(() => Of("relations").Count > 0, 5000, "居民推完要推关系（relations）。");
+        JsonElement Relations() => Of("relations")[^1].GetProperty("relations");
+        int ScoreOf(JsonElement rel, string id) => rel.GetProperty("you").GetProperty(id).GetProperty("score").GetInt32();
+        var relBefore = Relations();
+        var relPeople = relBefore.GetProperty("you").EnumerateObject().Select(p => p.Name).ToList();
+        if (relPeople.Count != 39 + 10 || !relPeople.Contains("resident:smith") || !relPeople.Contains(here[0].ConversationId) || relPeople.Contains(here[^1].ConversationId))
+            throw new InvalidOperationException($"关系里是这座城的 39 位居民（老居民不在）与十位职业居民：{relPeople.Count}");
+        if (Of("relations").Any(r => r.GetRawText().Contains(secret, StringComparison.Ordinal) || r.GetRawText().Contains("请帮我整理合同", StringComparison.Ordinal)))
+            throw new InvalidOperationException("关系里没有标题、没有任何正文，只有 Id、数与原因的键。");
+        var scoreBefore = ScoreOf(relBefore, here[0].ConversationId);
         answers.Partials = new[] { "我记得，", "我记得，那份合同" };
         answers.HoldFinal = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         page.Send($$"""{"v":1,"type":"chat","who":"{{here[0].ConversationId}}","text":"  那份合同最后定了几年？  "}""");
@@ -5514,6 +5528,20 @@ static void TestGameModeCitizens()
         var again = answers.Calls[^1].Prompt.Messages.Select(m => $"{m.Role}:{m.Text}").ToList();
         if (!again.SequenceEqual(new[] { "user:那份合同最后定了几年？", "assistant:我记得，那份合同最后定在三年。", "user:押金呢？" }))
             throw new InvalidOperationException($"他记得刚才聊过什么：{string.Join(" / ", again)}");
+        // 关系：他对你的态度进了提示词（紧跟在"他是谁"后面）；好好聊了两句，他对你 +4，原因里有"聊过"，账本两秒后落盘
+        var attitudes = Enum.GetValues<PolisRelationBand>().Select(b => PolisTalk.AttitudeText(b, "zh-CN")).ToList();
+        if (!attitudes.Any(a => answers.Calls[^1].Prompt.System.Contains(a, StringComparison.Ordinal)))
+            throw new InvalidOperationException($"和他说话的提示词里有他对你的态度：{answers.Calls[^1].Prompt.System}");
+        PumpTimers(() => ScoreOf(Relations(), here[0].ConversationId) != scoreBefore, 5000, "聊过之后关系要重推。");
+        var chatted = Relations().GetProperty("you").GetProperty(here[0].ConversationId);
+        // （原因只列分量最大的两条：聊过两句的 +4 比"办成了"的 +15 小，这里不在里面——Archive 的 polis relations 核对聊得多了它会排进来）
+        if (Math.Min(100, scoreBefore + 4) != chatted.GetProperty("score").GetInt32() || chatted.GetProperty("why").GetArrayLength() > 2)
+            throw new InvalidOperationException($"好好聊了两句：他对你 +4（{scoreBefore} → {chatted}），原因最多两条。");
+        var relationsFile = Path.Combine(root, "AthenaData", "Game", "relations.json");
+        PumpTimers(() => File.Exists(relationsFile), 8000, "关系的账本两秒后落盘（全局的 Game/relations.json）。");
+        var relationsText = File.ReadAllText(relationsFile);
+        if (!relationsText.Contains(here[0].ConversationId, StringComparison.Ordinal) || relationsText.Contains(secret, StringComparison.Ordinal) || relationsText.Contains("合同", StringComparison.Ordinal))
+            throw new InvalidOperationException("账本里有这位居民的 Id 与变化，没有任何正文或标题。");
         // 你自己说了一句、他在旁边听见（2026-10-13，平时的对话栏）：给模型的那一句前面说明是听见的
         page.Send($$"""{"v":1,"type":"chat","who":"{{here[3].ConversationId}}","text":"今天风真大","overheard":true}""");
         PumpTimers(() => answers.Calls.Count > 2, 5000, "听见的那一句也要问模型。");
@@ -5527,6 +5555,41 @@ static void TestGameModeCitizens()
         var noModel = Talks(true)[^1];
         if (noModel.GetProperty("status").GetString() != "nomodel" || !noModel.GetProperty("text").GetString()!.Contains("城里的居民", StringComparison.Ordinal))
             throw new InvalidOperationException($"没配模型时他说「先在设置的模型角色里给『虚拟宠物与城里的居民』……选一个模型」：{noModel}");
+        answers.Reply = _ => new PolisTalkReply(PolisTalkStatus.Ok, "好的。");
+
+        // —— 你自己说了一句，附近几个人依次接话（第三轮需求 6）：第一位走 Player 池、和以前听见你说话的那一位一样；
+        //    后面的走 Chorus 池，听得到前面几位说了什么、知道自己和他们的交情；下一位开口前头顶先一串点；说完推 chorus-end ——
+        var chorusCallsBefore = answers.Calls.Count;
+        var chorusTalksBefore = Of("talk").Count;
+        answers.Reply = p => new PolisTalkReply(PolisTalkStatus.Ok, p.Messages[^1].Text.Contains("说：", StringComparison.Ordinal) ? "我也这么觉得。" : "是啊，港口的旗子都飘直了。");
+        var chorusWho = new[] { here[4].ConversationId, here[5].ConversationId, "resident:scribe" };
+        page.Send($$"""{"v":1,"type":"chorus","text":"今天风真大","who":["{{chorusWho[0]}}","{{chorusWho[1]}}","{{chorusWho[2]}}"]}""");
+        PumpTimers(() => Of("chorus-end").Count > 0, 5000, "一轮接话说完要推 chorus-end。");
+        var chorusCalls = answers.Calls.Skip(chorusCallsBefore).ToList();
+        if (chorusCalls.Count != 3 || chorusCalls[0].Purpose != PolisTalkPurpose.Player || chorusCalls.Skip(1).Any(c => c.Purpose != PolisTalkPurpose.Chorus))
+            throw new InvalidOperationException($"三位依次接话：第一位走 Player，后面的走 Chorus（{string.Join(",", chorusCalls.Select(c => c.Purpose))}）。");
+        if (chorusCalls[0].Prompt.Messages[^1].Text != "（你在街上，听见城的主人在你旁边说）今天风真大" || !chorusCalls[0].Prompt.System.Contains("你记得的", StringComparison.Ordinal))
+            throw new InvalidOperationException("第一位像以前听见你说话那样接：前面说明是听见的，带着他那场会话里的话。");
+        if (!chorusCalls[1].Prompt.Messages[0].Text.EndsWith("说：是啊，港口的旗子都飘直了。", StringComparison.Ordinal) || !chorusCalls[1].Prompt.System.Contains("你和「", StringComparison.Ordinal))
+            throw new InvalidOperationException($"第二位听得到第一位说了什么、知道和他的交情：{chorusCalls[1].Prompt.Messages[0].Text}");
+        if (!chorusCalls[2].Prompt.Messages[0].Text.EndsWith("说：我也这么觉得。", StringComparison.Ordinal) || chorusCalls[2].Prompt.Messages[0].Text.Split('\n').Length != 3)
+            throw new InvalidOperationException($"第三位听得到前面两位：{chorusCalls[2].Prompt.Messages[0].Text}");
+        if (chorusCalls.Skip(1).Any(c => c.Prompt.System.Contains(secret, StringComparison.Ordinal) || c.Prompt.System.Contains("你记得的", StringComparison.Ordinal)))
+            throw new InvalidOperationException("插话的人不带他那场会话里的话。");
+        var chorusTalks = Of("talk").Skip(chorusTalksBefore)
+            .Select(t => $"{Array.IndexOf(chorusWho, t.GetProperty("who").GetString())}:{t.GetProperty("done").GetBoolean()}:{t.GetProperty("text").GetString()}").ToList();
+        if (!chorusTalks.SequenceEqual(new[] { "0:True:是啊，港口的旗子都飘直了。", "1:False:", "1:True:我也这么觉得。", "2:False:", "2:True:我也这么觉得。" }))
+            throw new InvalidOperationException($"一位说完下一位头顶一串点、再说：{string.Join(" / ", chorusTalks)}");
+        var chorusEnd = Of("chorus-end")[^1];
+        if (chorusEnd.GetProperty("status").GetString() != "ok" || chorusEnd.GetProperty("spoke").GetArrayLength() != 3)
+            throw new InvalidOperationException($"三位都说了：chorus-end ok：{chorusEnd}");
+        // 后面那位没配模型：这一轮到此为止，只有第一位说了（插话没有本地台词），chorus-end 带着结局
+        answers.Reply = p => p.Messages[^1].Text.Contains("说：", StringComparison.Ordinal) ? new PolisTalkReply(PolisTalkStatus.NoModel) : new PolisTalkReply(PolisTalkStatus.Ok, "风大好晒衣服。");
+        page.Send($$"""{"v":1,"type":"chorus","text":"今天风真大","who":["{{chorusWho[1]}}","{{chorusWho[0]}}"]}""");
+        PumpTimers(() => Of("chorus-end").Count > 1, 5000, "没配模型也要推 chorus-end。");
+        var cutShort = Of("chorus-end")[^1];
+        if (cutShort.GetProperty("status").GetString() != "nomodel" || cutShort.GetProperty("spoke").GetArrayLength() != 1)
+            throw new InvalidOperationException($"后面那位没配模型：只有第一位说了，chorus-end nomodel：{cutShort}");
         answers.Reply = _ => new PolisTalkReply(PolisTalkStatus.Ok, "好的。");
         // 校验：别的城的会话、不存在的会话、空的一句、超长的一句一律拒绝，一次也不调用
         var rejectedBefore = Rejections();
@@ -5564,6 +5627,23 @@ static void TestGameModeCitizens()
             throw new InvalidOperationException($"先开口的说完，另一位头顶一串点，再接一句：{string.Join(" / ", ambientTalks)}");
         if (Of("ambient-end")[^1].GetProperty("status").GetString() != "ok")
             throw new InvalidOperationException("说完了：ambient-end ok。");
+        // 关系：两人的交情进了闲聊的提示词；闲聊了一次，两人彼此 +1（街上的两两之间推给页面）
+        if (!ambientCalls.All(c => c.Prompt.System.Contains("你和「", StringComparison.Ordinal)))
+            throw new InvalidOperationException("闲聊的提示词里有两人的交情。");
+        int Bond(JsonElement rel, string a, string b)
+        {
+            foreach (var p in rel.GetProperty("pairs").EnumerateArray())
+            {
+                var (pa, pb) = (p[0].GetString(), p[1].GetString());
+                if (pa == a && pb == b) return p[2].GetInt32();
+                if (pa == b && pb == a) return p[3].GetInt32();
+            }
+            throw new InvalidOperationException($"街上的两人之间要有关系：{a} / {b}");
+        }
+        PumpTimers(() => Bond(Relations(), here[0].ConversationId, here[2].ConversationId) != Bond(relBefore, here[0].ConversationId, here[2].ConversationId), 5000, "闲聊之后两人的关系要重推。");
+        if (Bond(Relations(), here[0].ConversationId, here[2].ConversationId) - Bond(relBefore, here[0].ConversationId, here[2].ConversationId) != 1
+            || Bond(Relations(), here[2].ConversationId, here[0].ConversationId) - Bond(relBefore, here[2].ConversationId, here[0].ConversationId) != 1)
+            throw new InvalidOperationException("闲聊了一次：两人彼此 +1。");
         // 没配模型：一句也不说（没有本地台词可退），只推 ambient-end nomodel
         answers.Reply = _ => new PolisTalkReply(PolisTalkStatus.NoModel);
         var talksBeforeNoModel = Of("talk").Count;
@@ -5675,7 +5755,7 @@ static void TestGameModeDebate()
     try
     {
         gameMode = new GameModeViewModel(session, previewHost, store, watcher, localization, new HeadlessCronTaskReader(),
-            new PolisAssetStore(Path.Combine(root, "assets"), Log.Logger), crowdTalk, debates);
+            new PolisAssetStore(Path.Combine(root, "assets"), Log.Logger), crowdTalk, debates, HeadlessRelations(root));
         shell = new MainWindowViewModel(
             chatService: null, configService: null, promptService: null, logService: null, knowledgeBaseService: null,
             localizationService: localization, fileSystemService: null, platformPathService: null, functionRegistry: null,

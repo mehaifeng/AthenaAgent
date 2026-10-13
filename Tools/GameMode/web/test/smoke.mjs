@@ -45,7 +45,7 @@ try {
   for (const name of browsers) {
     const browser = await launch(name);
     try {
-      for (const check of [fixtureCheck, deliveryCheck, accumulationCheck, citizensCheck, chatCheck, debateCheck, householdCheck, controlsCheck]) {
+      for (const check of [fixtureCheck, deliveryCheck, accumulationCheck, citizensCheck, relationsCheck, chorusCheck, chatCheck, debateCheck, householdCheck, controlsCheck]) {
         if (wanted(check)) failed = !(await check(name, browser)) || failed;
       }
     } finally {
@@ -398,6 +398,229 @@ async function accumulationCheck(name, browser) {
  * 居民即会话（M-B）：C# 推 40 位上街（它本来只推 32 位，页面再守一道）→ 场景里最多 32 个 figure:citizen:*；最近的不超过 4 位全套；
  * 走到一位闲着的居民跟前按 E 开他的卡片（台词 + 人口一行），卡片上的按钮发 select-conversation；老居民的名字刻在碑上，碑也能按 E 看。
  */
+/**
+ * 人物关系（第三轮需求 1）：C# 推来的 relations 进城——左上角"人际"打开总览（谁怎么看你、按分数排、职业居民另成一组、
+ * 点一个人看他合得来与合不来的人）；开着时方向键不走路，Esc 收起；打招呼按他怎么看你（厌恶的转过身去不说话，亲近的挥手说热络的话）。
+ */
+async function relationsCheck(name, browser) {
+  const started = Date.now();
+  const result = { browser: `${name} ${browser.version()}`, mode: 'live, relations' };
+  try {
+    const page = await browser.newPage({ viewport: { width: 1600, height: 1000 } });
+    const problems = [];
+    page.on('console', (m) => { if (m.type() === 'error') problems.push(`[console.error] ${m.text()}`); });
+    page.on('pageerror', (e) => problems.push(`[pageerror] ${e.message}`));
+    await page.addInitScript(HOST);
+    await page.goto(`${server.origin}/polis/index.html?mode=live`);
+    await page.waitForFunction(() => (window.__hostInbox ?? []).some((m) => m.type === 'ready') || document.title === 'error', null, { timeout: 90_000 });
+    const send = (message) => page.evaluate((m) => window.polis.receive(JSON.stringify(m)), message);
+    await send({ type: 'init', tables: {} });
+    await send({ type: 'city', key: 'ws-1', city });
+    await send({ type: 'residents', residents: [{ kind: 'smith', met: true, name: '铁匠赫菲斯提昂' }, { kind: 'priestess', met: true, name: '女祭司忒弥斯托克勒亚' }] });
+    const homes = ['b:网站', 'b:合同', 'b:账本', 'b:照片', 'b:下载', 'b:杂物', 'agora:0', 'harbor'];
+    const street = homes.map((home, i) => ({
+      id: `rel-${i}`, seed: (Math.imul(i + 11, 2654435761) >>> 0), female: i % 2 === 1, name: `第${i}位`, title: `委托 ${i}`,
+      home, age: 'adult', outcome: 'completed', folders: [], turns: 2, trade: 'potter',
+    }));
+    const indoors = [{ id: 'in-1', seed: 777, female: true, name: '屋里的甲', home: 'b:杂物', age: 'young', trade: 'weaver' }];
+    await send({ type: 'citizens', citizens: { street, indoors, elders: [], census: { total: 9, street: 8, indoors: 1, elders: 0 } } });
+    await page.waitForFunction(() => {
+      const g = window.__polisGame;
+      return g.world.citizens.size === 8 && [...g.world.citizens.values()].every((c) => c.figure && c.plan);
+    }, null, { timeout: 60_000 });
+    const scores = [70, -80, 30, 5, -30, 10, 0, 45];
+    const you = Object.fromEntries(street.map((c, i) => [c.id, { score: scores[i], band: scores[i] >= 60 ? 'close' : scores[i] >= 25 ? 'friendly' : scores[i] > -25 ? 'neutral' : scores[i] > -60 ? 'cool' : 'hostile', patience: 3, opens: true, comesOut: scores[i] >= 25, why: i === 0 ? ['done', 'chats'] : [], talk: 0.5 }]));
+    you['in-1'] = { score: 20, band: 'neutral', patience: 3, opens: true, comesOut: false, why: [], talk: 0.5 };
+    you['resident:smith'] = { score: 6, band: 'neutral', patience: 3, opens: true, comesOut: false, why: ['nature'], talk: 0.5 };
+    you['resident:priestess'] = { score: 28, band: 'friendly', patience: 4, opens: true, comesOut: true, why: ['nature'], talk: 0.5 };
+    await send({ type: 'relations', relations: { you, pairs: [['rel-0', 'rel-2', 50, 40], ['rel-0', 'rel-1', -70, -65]], ties: { 'rel-0': { friends: [['rel-2', 50]], rivals: [['rel-1', -70]] } } } });
+    await page.waitForTimeout(200);
+    const relStatus = await page.evaluate(() => window.__polis.relations);
+
+    // —— 总览：工具条上的"人际"打开；按分数排、职业居民另成一组；点第一位看他合得来的人 ——
+    const buttonLabel = await page.evaluate(() => document.getElementById('btn-relations').textContent);
+    await page.click('#btn-relations');
+    await page.waitForTimeout(150);
+    const panel = await page.evaluate(() => {
+      const root = document.getElementById('relations');
+      const rows = [...root.querySelectorAll('.rel-row')].map((r) => ({ id: r.dataset.id, text: r.textContent }));
+      return { open: !root.hidden, rows, headers: [...root.querySelectorAll('.rel-list h3')].map((h) => h.textContent) };
+    });
+    await page.click('#relations .rel-row[data-id="rel-0"]');
+    await page.waitForTimeout(100);
+    const detail = await page.evaluate(() => {
+      const d = document.querySelector('#relations .rel-detail');
+      return { name: d?.querySelector('h2')?.textContent ?? null, why: d?.querySelector('.rel-why')?.textContent ?? null, links: [...(d?.querySelectorAll('.rel-link') ?? [])].map((l) => l.textContent) };
+    });
+    // 开着时方向键不走路
+    const before = await page.evaluate(() => window.__polisGame.player);
+    await page.keyboard.down('KeyW');
+    await page.waitForTimeout(300);
+    await page.keyboard.up('KeyW');
+    const after = await page.evaluate(() => window.__polisGame.player);
+    await page.keyboard.press('Escape');
+    await page.waitForTimeout(100);
+    const closed = await page.evaluate(() => document.getElementById('relations').hidden);
+
+    // —— 打招呼按他怎么看你：挑一位此刻闲着的人，先让他厌恶你（转过身去、不说话），再挑一位让他亲近你（挥手、说热络的话） ——
+    const greetCheck = async (score, band) => {
+      // 等一位此刻闲着、还要待一阵、还没打过招呼的人（日程 150 秒一圈，闲着的时候多）
+      const id = await page.waitForFunction(() => {
+        const g = window.__polisGame;
+        const c = [...g.world.citizens.values()].find((x) => x.at?.action === 'idle' && x.at.idleLeft > 5000 && x.figure.root.visible && !(window.__greeted ?? []).includes(x.id));
+        return c?.id ?? null;
+      }, null, { timeout: 40_000 }).then((h) => h.jsonValue(), () => null);
+      if (!id) return { id: null };
+      await send({ type: 'relations', relations: { you: { ...you, [id]: { ...you[id], score, band } }, pairs: [], ties: {} } });
+      await page.evaluate((cid) => {
+        (window.__greeted ??= []).push(cid);
+        const g = window.__polisGame;
+        // 别的人先挪远：只有他在你 2.5 米内（打招呼挑最近的那一位）
+        const c = g.world.citizens.get(cid);
+        const p = c.figure.root.position;
+        g.setFollow('player');
+        g.placePlayer(p.x + 1.4, p.z, -Math.PI / 2);
+      }, id);
+      await page.waitForFunction((cid) => window.__polis.greeting === cid, id, { timeout: 4000 }).catch(() => {});
+      await page.waitForTimeout(400);
+      return page.evaluate((cid) => {
+        const g = window.__polisGame;
+        const c = g.world.citizens.get(cid);
+        const toPlayer = Math.atan2(g.player.x - c.figure.root.position.x, g.player.z - c.figure.root.position.z);
+        const facing = Math.abs(((c.yawNow - toPlayer + Math.PI * 3) % (Math.PI * 2)) - Math.PI);
+        return { id: cid, greeting: window.__polis.greeting, style: window.__polis.greetingStyle, bubble: (g.used?.citizenBubbles ?? []).find((b) => b.id === cid)?.text ?? null, facingErr: +facing.toFixed(2) };
+      }, id);
+    };
+    const hostile = await greetCheck(-80, 'hostile');
+    const close = await greetCheck(75, 'close');
+    const checks = {
+      relationsArrive: relStatus?.people === 11 && relStatus?.pairs === 2,
+      buttonLabelled: buttonLabel === '人际',
+      overviewOpens: panel.open && panel.rows.length === 11,
+      sortedByScore: panel.rows[0]?.id === 'rel-0' && panel.rows[8]?.id === 'rel-1',
+      residentsApart: panel.headers.length === 2 && panel.rows.slice(9).every((r) => r.id.startsWith('resident:')),
+      indoorsListed: panel.rows.some((r) => r.id === 'in-1' && r.text.includes('在屋里')),
+      detailShowsTies: detail.name === '第0位' && (detail.why ?? '').includes('因为') && detail.links.some((l) => l.startsWith('第2位')) && detail.links.some((l) => l.startsWith('第1位')),
+      noWalkingWhileOpen: Math.hypot(after.x - before.x, after.z - before.z) < 0.01,
+      escCloses: closed,
+      hostileTurnsAway: hostile.id != null && hostile.greeting === hostile.id && hostile.style?.turnAway === true && hostile.bubble == null && hostile.facingErr > 2.0,
+      closeWavesWarmly: close.id != null && close.greeting === close.id && close.style?.wave === true && close.style?.line === 'warm' && typeof close.bubble === 'string' && close.bubble.length > 0 && close.facingErr < 0.6,
+      noProblems: problems.length === 0,
+    };
+    Object.assign(result, { checks, relStatus, panel: { open: panel.open, rows: panel.rows.map((r) => r.id), headers: panel.headers }, detail, hostile, close, problems, seconds: +((Date.now() - started) / 1000).toFixed(1) });
+    await page.close();
+    console.log(JSON.stringify(result, null, 2));
+    return Object.values(checks).every(Boolean);
+  } catch (e) {
+    result.error = e.message;
+    console.log(JSON.stringify(result, null, 2));
+    return false;
+  }
+}
+
+/**
+ * 你自己说话（第三轮需求 6）：附近的几个人都有反应——按他们怎么看你转身挥手、转过来听、背过身去；最多三位依次开口（chorus，厌恶你的不开口，
+ * 喜欢你的先）；第一位头顶马上一串点；C# 推来一位位的话和 chorus-end 之后，没轮到的人的点收起、听的人再留一会儿就散。
+ */
+async function chorusCheck(name, browser) {
+  const started = Date.now();
+  const result = { browser: `${name} ${browser.version()}`, mode: 'live, chorus' };
+  try {
+    const page = await browser.newPage({ viewport: { width: 1600, height: 1000 } });
+    const problems = [];
+    page.on('console', (m) => { if (m.type() === 'error') problems.push(`[console.error] ${m.text()}`); });
+    page.on('pageerror', (e) => problems.push(`[pageerror] ${e.message}`));
+    await page.addInitScript(HOST);
+    await page.goto(`${server.origin}/polis/index.html?mode=live`);
+    await page.waitForFunction(() => (window.__hostInbox ?? []).some((m) => m.type === 'ready') || document.title === 'error', null, { timeout: 90_000 });
+    const send = (message) => page.evaluate((m) => window.polis.receive(JSON.stringify(m)), message);
+    const inbox = () => page.evaluate(() => window.__hostInbox);
+    await send({ type: 'init', tables: {} });
+    await send({ type: 'city', key: 'ws-1', city });
+    const street = Array.from({ length: 6 }, (_, i) => ({
+      id: `ch-${i}`, seed: (Math.imul(i + 31, 2654435761) >>> 0), female: i % 2 === 0, name: `第${i}位`, title: `委托 ${i}`,
+      home: `agora:${i}`, age: 'adult', outcome: 'completed', folders: [], turns: 2, trade: 'baker',
+    }));
+    await send({ type: 'citizens', citizens: { street, indoors: [], elders: [], census: { total: 6, street: 6, indoors: 0, elders: 0 } } });
+    await page.waitForFunction(() => {
+      const g = window.__polisGame;
+      return g.world.citizens.size === 6 && [...g.world.citizens.values()].every((c) => c.figure && c.plan);
+    }, null, { timeout: 60_000 });
+    // 城里自己的闲聊停掉（像没配模型那样：这座城里不再挑一对）——不然挑中的两位在闲聊，不算听见你说话的人
+    await page.evaluate(() => {
+      const g = window.__polisGame;
+      g.ambientNow('ch-4', 'ch-5');
+      g.endAmbient({ a: 'ch-4', b: 'ch-5', status: 'nomodel' });
+    });
+    // 等三位此刻闲着的人，你站到他们中间（广场一圈的站位彼此在几米内）
+    const trio = await page.waitForFunction(() => {
+      const g = window.__polisGame;
+      const idle = [...g.world.citizens.values()].filter((c) => c.at?.action === 'idle' && c.at.idleLeft > 6000 && c.figure.root.visible);
+      return idle.length >= 3 ? idle.slice(0, 3).map((c) => c.id) : null;
+    }, null, { timeout: 60_000 }).then((h) => h.jsonValue(), () => null);
+    if (!trio) throw new Error('等不到三位闲着的人');
+    const [fondId, haterId, plainId] = trio;
+    const you = Object.fromEntries(street.map((c) => [c.id, { score: 0, band: 'neutral', patience: 3, opens: true, comesOut: false, why: [], talk: 0.5 }]));
+    you[fondId] = { ...you[fondId], score: 75, band: 'close', comesOut: true };
+    you[haterId] = { ...you[haterId], score: -80, band: 'hostile', opens: false, talk: 1 };
+    await send({ type: 'relations', relations: { you, pairs: [], ties: {} } });
+    await page.evaluate((ids) => {
+      const g = window.__polisGame;
+      const ps = ids.map((id) => g.world.citizens.get(id).figure.root.position);
+      const cx = ps.reduce((s, p) => s + p.x, 0) / ps.length, cz = ps.reduce((s, p) => s + p.z, 0) / ps.length;
+      g.setFollow('player');
+      g.placePlayer(cx, cz + 0.4, 0);
+    }, trio);
+    await page.waitForTimeout(300);
+    const n = (await inbox()).length;
+    const first = await page.evaluate(() => window.__polisGame.speak({ kind: 'say', text: '今天风真大' }));
+    await page.waitForTimeout(250);
+    const sent = (await inbox()).slice(n);
+    const chorus = sent.find((m) => m.type === 'chorus');
+    const after = await page.evaluate(() => {
+      const g = window.__polisGame;
+      return { spoke: window.__polis.spoke, listeners: Object.fromEntries([...g.listeners].map(([id, l]) => [id, l.kind])), sayings: Object.fromEntries([...g.sayings].map(([id, s]) => [id, { typing: s.typing, text: s.text }])) };
+    });
+    // 一位位地说（照 C# 推来的样子），再 chorus-end
+    const who = chorus?.who ?? [];
+    if (who[0]) await send({ type: 'talk', who: who[0], n: 1, text: '是啊，旗子都飘直了。', done: true, status: 'ok' });
+    if (who[1]) {
+      await send({ type: 'talk', who: who[1], n: 0, text: '', done: false });
+      await page.waitForTimeout(80);
+    }
+    const secondDots = who[1] ? await page.evaluate((id) => window.__polisGame.sayings.get(id)?.typing ?? null, who[1]) : null;
+    if (who[1]) await send({ type: 'talk', who: who[1], n: 2, text: '我也这么觉得。', done: true, status: 'ok' });
+    if (who[2]) await send({ type: 'talk', who: who[2], n: 0, text: '', done: false });
+    await send({ type: 'chorus-end', who, spoke: who.slice(0, 2), status: 'nomodel' });
+    await page.waitForTimeout(150);
+    const ended = await page.evaluate(() => {
+      const g = window.__polisGame;
+      const now = performance.now();
+      return { typing: [...g.sayings].filter(([, s]) => s.typing).map(([id]) => id), longest: Math.max(0, ...[...g.listeners.values()].map((l) => l.until - now)), chorus: window.__polis.chorus };
+    });
+    const checks = {
+      chorusSent: !!chorus && chorus.text === '今天风真大' && who.length >= 2 && who.length <= 3,
+      noChatSent: !sent.some((m) => m.type === 'chat' || m.type === 'say'),
+      haterSilent: !who.includes(haterId),
+      fondFirst: who[0] === fondId && first === fondId,
+      everyoneReacts: after.listeners[fondId] === 'wave' && after.listeners[haterId] === 'turnAway' && after.listeners[plainId] === 'listen',
+      firstThinking: after.sayings[fondId]?.typing === true,
+      nextGetsDots: who.length < 2 || secondDots === true,
+      endClearsDots: ended.typing.length === 0,
+      listenersDisperse: ended.longest <= 5200 && ended.chorus?.status === 'nomodel',
+      noProblems: problems.length === 0,
+    };
+    Object.assign(result, { checks, trio: { fondId, haterId, plainId }, chorus, after, ended, problems, seconds: +((Date.now() - started) / 1000).toFixed(1) });
+    await page.close();
+    console.log(JSON.stringify(result, null, 2));
+    return Object.values(checks).every(Boolean);
+  } catch (e) {
+    result.error = e.message;
+    console.log(JSON.stringify(result, null, 2));
+    return false;
+  }
+}
+
 async function citizensCheck(name, browser) {
   const started = Date.now();
   const result = { browser: `${name} ${browser.version()}`, mode: 'live, citizens' };

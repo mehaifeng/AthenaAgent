@@ -298,7 +298,8 @@ test('small talk (2026-10-13: model only, no preset lines): one pair at a time, 
   assert.ok(TOWN.chatMaxMs >= 2 * 25_000, '一对最多聊这么久，够两句各 25 秒的超时');
   // 打招呼仍是本地的
   assert.ok(CITIZEN_ZH.greet.split('|').includes(greetLine(42, CITIZEN_ZH.greet, 0)), '打招呼的话来自表里');
-  assert.deepEqual(Object.keys(CITIZEN_ZH), ['greet'], '没有闲聊的本地台词了');
+  // 第三轮（人物关系）：喜欢你的人打招呼说热络的那一组；仍然只有打招呼的话，没有闲聊的本地台词
+  assert.deepEqual(Object.keys(CITIZEN_ZH).sort(), ['greet', 'greetWarm'], '没有闲聊的本地台词了');
 });
 
 test('card (2026-10-13): the citizen\'s card shows that conversation\'s facts, and the preview is a reader document of only your and Athena\'s words', () => {
