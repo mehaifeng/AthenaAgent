@@ -1,8 +1,8 @@
 # 游戏模式进度
 
-> 配合 `Docs/GameMode_Design_CN.md`（设计稿 v6）与 `Docs/GameMode_Goals_CN.md`（三段目标）使用。上下文被压缩后先读这里再继续。
+> 配合 `Docs/GameMode_Design_CN.md`（设计稿 v6）使用。上下文被压缩后先读这里再继续。
 > 分支：M0 在 `feature/game-mode-m0`（从 `docs/game-mode-design` 拉出）；M1 在 `feature/game-mode-m1`（M0 未合入 main，从 `feature/game-mode-m0` 拉出，并合入了 origin/main 的 PR #28 以复用工作台监听的 Error 处理）；
-> M2 在 `feature/game-mode-m2`（2026-10-11：M1 的 PR #29 还没合入 main，按目标从 `feature/game-mode-m1` 的 28fd148 拉出）。
+> M2 在 `feature/game-mode-m2`（2026-10-11：M1 的 PR #29 还没合入 main，从 `feature/game-mode-m1` 的 28fd148 拉出）。
 > 2026-10-13 改向（用户拍板）：拆直播 → 居民生成器 → 问话 → 辩论 → 户与民居，五个里程碑在同一个分支 `worktree-polis-no-live` 上顺序提交、
 > 一个 PR。每个里程碑一节，新的在上；每节末尾的「待你确认」是无人值守时我替你定下的设计选择。
 
