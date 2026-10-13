@@ -137,6 +137,8 @@ public static class PolisLocale
         ("debateAthenaWins", "Polis.Ui.DebateAthenaWins", "雅典娜赢了"),
         ("debateTie", "Polis.Ui.DebateTie", "平局"),
         ("debateClose", "Polis.Ui.DebateClose", "结束"),
+        // M-D（2026-10-13）：户与民居
+        ("householdFounded", "Polis.Ui.HouseholdFounded", "「{name}」在城里安了家。"),
     };
 
     /// <summary>
@@ -172,6 +174,8 @@ public static class PolisLocale
         ("namesMale", "Polis.Citizen.NamesMale", "狄米特里|阿里斯通|克里同|斐德若|吕西斯|卡尔米德|欧绪弗洛|美诺|泰阿泰德|色诺芬|赫蒙|斐洛"),
         ("namesFemale", "Polis.Citizen.NamesFemale", "菲莉丝|达芙妮|克莱奥|海伦娜|伊瑞涅|塔伊丝|狄俄提玛|阿斯帕西娅|墨利萨|卡丽丝|科林娜|米尔托"),
         ("namePattern", "Polis.Citizen.NamePattern", "{0}的{1}"),
+        // M-D：户名（{0} 是立户那一位的称号，没有称号时是他的名字）
+        ("householdName", "Polis.Household.NamePattern", "{0}一家"),
         ("greet", "Polis.Citizen.Greet", "你好呀。|日安。|又见面了。|今天天气不错。|你也出来走走？"),
         ("chat.wind", "Polis.Citizen.Chat.Wind", "今天海上风大。|是啊，船都早早靠了岸。"),
         ("chat.olives", "Polis.Citizen.Chat.Olives", "林子里的橄榄又多了几棵。|一件事一棵，日子就这么长起来了。"),

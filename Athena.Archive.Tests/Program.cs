@@ -240,6 +240,7 @@ var tests = new (string Name, Func<Task> Run)[]
     ("polis citizens: one citizen per conversation, seeded by its id, living where it worked most; the 32 most recent on the street, elders on steles, and no message text in any line", TestPolisCitizensAsync),
     ("polis citizen answers: a citizen answers from his own conversation's visible passages only, within budget, through the companion (or title) role, one question at a time and 30 an hour; the page can only ask this city's citizens", TestPolisCitizenAnswersAsync),
     ("polis debate: three rounds of you then Athena, a strict jury verdict where anything less is a tie, a global record kept atomically, the main model for Athena and the companion (or title) role for the jury, ten an hour, and bounded motions and arguments", TestPolisDebateAsync),
+    ("polis households: citizens with no folder gather into households by title or month, at most six to a house and sixteen houses, keyed by the founder and placed in the same ledger as folders, never moved, never counted against the folder cap, and kept across a reconcile", TestPolisHouseholdsAsync),
     ("polis collection: accepted items are placed, moved and taken down in the save only; a lost item keeps its pedestal and only a click removes it; v2 saves migrate", TestPolisCollectionAsync),
     ("polis grove: one olive tree per completed commission, ordered by when it started, aged by its turns, derived from sessions alone", TestPolisGroveDerivationAsync),
     ("polis residents: each capability brings its resident at its first successful use, every registered tool has one, and the town re-derives from the archive", TestPolisResidentDerivationAsync),
@@ -11628,6 +11629,138 @@ static async Task TestPolisDebateAsync()
         ("""{"v":1,"type":"debate-say","text":42}""", "论点不是字符串"),
     })
         AssertFalse(PolisIntents.Validate(body, context).Accepted, $"拒绝：{why}");
+}
+
+static Task TestPolisHouseholdsAsync()
+{
+    var now = new DateTimeOffset(2026, 10, 13, 9, 0, 0, TimeSpan.Zero);
+    // 没有文件夹可归的居民：从会话推导（神殿：没有工作区）
+    PolisCitizen Citizen(string id, string title, DateTimeOffset started, double updatedDaysAgo = 1)
+        => PolisCitizens.Derive(new[] { new PolisCitizenSource(new PolisCommission(id, null, title, started, now.AddDays(-updatedDaysAgo), 1, false, false, false, null), Array.Empty<ChatMessage>()) },
+            null, null, new HashSet<string>(), new HashSet<string>(), now).Single();
+    string Label(PolisCitizen founder) => $"{(string.IsNullOrEmpty(founder.Epithet) ? founder.ConversationId : founder.Epithet)}一家";
+    var oct = new DateTimeOffset(2026, 10, 1, 9, 0, 0, TimeSpan.Zero);
+    var sep = new DateTimeOffset(2026, 9, 3, 9, 0, 0, TimeSpan.Zero);
+    var citizens = new List<PolisCitizen>
+    {
+        Citizen("aaaa1111-0000", "整理租赁合同", oct),
+        Citizen("bbbb2222-0000", "租赁合同续签", oct.AddDays(1)),
+        Citizen("cccc3333-0000", "写周报", sep),
+        Citizen("dddd4444-0000", "新会话", sep.AddDays(2)),
+        Citizen("eeee5555-0000", "新会话", sep.AddDays(3)),
+        Citizen("ffff6666-0000", "旅行计划", oct.AddDays(2)),
+    };
+    // 有文件夹可归的那一位不进任何一户
+    var withFolder = Citizen("gggg7777-0000", "整理合同", oct) with { Home = "b:合同", Folders = new[] { "合同" } };
+    // 按种子分到市集（公共地方之一）的人照样是没有文件夹可归的：家是 "market" 不等于是摊主
+    var atMarket = Enumerable.Range(0, 400).Select(i => Citizen($"m{i:D4}-market", "新会话", sep)).First(c => c.Home == "market");
+    AssertTrue(PolisHouseholds.IsHomeless(atMarket), "家按种子落在市集的人没有文件夹可归，进户");
+    var all = citizens.Append(withFolder).ToList();
+
+    var households = PolisHouseholds.Derive(all, Label);
+    string HouseOf(string id) => households.Single(h => h.Members.Contains(id)).Key;
+    AssertFalse(households.Any(h => h.Members.Contains("gggg7777-0000")), "有文件夹可归的居民不进户");
+    AssertEqual(HouseOf("aaaa1111-0000"), HouseOf("bbbb2222-0000"), "标题像（租赁合同）的进同一户");
+    AssertEqual(HouseOf("cccc3333-0000"), HouseOf("dddd4444-0000"), "不像任何一户：进同一个月立的那一户（九月）");
+    AssertEqual(HouseOf("cccc3333-0000"), HouseOf("eeee5555-0000"), "默认标题彼此不算像，按月份落户");
+    AssertTrue(HouseOf("ffff6666-0000") == HouseOf("aaaa1111-0000"), "十月里不像任何一户的（旅行计划）进十月最近立的那一户");
+    AssertEqual("household:cccc3333", households[0].Key, "户的钥匙：household: 加立户那场会话 Id 的前 8 个字母数字；按立户先后排");
+    AssertEqual("写周报一家", households[0].Label, "户名由立户那一位起");
+    AssertTrue(households.All(h => h.Members.Count <= PolisHouseholds.MaxMembers), "每户最多 6 人");
+    AssertEqual(PolisHouseholds.SizeClassFor(3), 2, "三人的民居两层");
+
+    // 只往后加：新开一场会话，前面的人住哪户不变
+    var later = all.Append(Citizen("hhhh8888-0000", "租赁合同退租", oct.AddDays(5))).ToList();
+    var again = PolisHouseholds.Derive(later, Label);
+    foreach (var h in households)
+        AssertTrue(h.Members.All(m => again.Single(x => x.Key == h.Key).Members.Contains(m)), $"{h.Key} 的人还在原来那一户");
+    AssertEqual(HouseOf("aaaa1111-0000"), again.Single(h => h.Members.Contains("hhhh8888-0000")).Key, "新来的进最像的那一户");
+
+    // 满 6 人另立一户；最多 16 户，再多的仍住公共地方
+    var crowd = Enumerable.Range(0, 7).Select(i => Citizen($"{i:D4}aaaa-crowd", "整理租赁合同", oct.AddMinutes(i))).ToList();
+    var crowded = PolisHouseholds.Derive(crowd, Label);
+    AssertTrue(crowded.Count == 2 && crowded[0].Members.Count == 6 && crowded[1].Members.Count == 1, "满 6 人另立一户");
+    var many = Enumerable.Range(0, 120).Select(i => Citizen($"{i:D8}-many", "新会话", new DateTimeOffset(2020, 1, 1, 0, 0, 0, TimeSpan.Zero).AddMonths(i))).ToList();
+    var capped = PolisHouseholds.Derive(many, Label);
+    AssertEqual(PolisHouseholds.MaxHouseholds, capped.Count, "最多 16 户");
+    var rehomedMany = PolisHouseholds.Rehome(many, capped);
+    AssertTrue(rehomedMany.Count(c => c.Home.StartsWith("b:household:", StringComparison.Ordinal)) == 16 && rehomedMany.Count(c => PolisCitizens.PublicHomes.Contains(c.Home)) == 104,
+        "户满了，再多的仍住公共地方");
+
+    // 钥匙：Id 前 8 个字母数字（小写），同城撞了就再长一点
+    var used = new HashSet<string>(StringComparer.Ordinal);
+    AssertEqual("household:ab12cd34", PolisHouseholds.KeyFor("AB12-CD34-ef56-7788", used), "去掉连字符、转小写、取 8 个");
+    AssertEqual("household:ab12cd34ef56", PolisHouseholds.KeyFor("ab12cd34-ef56-9999", used), "撞了就再长四个");
+    AssertEqual("household:ab12cd34", PolisHouseholds.KeyFor("AB12-CD34-ef56-7788"), "同一场会话永远同一把钥匙");
+
+    // 搬进民居：户里的人家是 b:household:…，其余的不变
+    var rehomed = PolisHouseholds.Rehome(all, households);
+    AssertEqual("b:" + HouseOf("aaaa1111-0000"), rehomed.Single(c => c.ConversationId == "aaaa1111-0000").Home, "户里的人住进自己的民居");
+    AssertEqual("b:合同", rehomed.Single(c => c.ConversationId == "gggg7777-0000").Home, "有文件夹的照旧");
+
+    // 账本：民居和文件夹在一本账本里，按生长次序占地、永不挪位；文件夹那一遍不动民居、不把它们算进上限
+    var folders = PolisLayoutLedger.Update(PolisLedger.Empty, new[]
+    {
+        new PolisBuilding("合同", PolisBuildingKind.StoaLibrary, 3, 30, new Dictionary<PolisFileKind, int>(), now, PolisBuildingState.Lived, 1, false),
+        new PolisBuilding("账本", PolisBuildingKind.Treasury, 3, 30, new Dictionary<PolisFileKind, int>(), now.AddDays(-1), PolisBuildingState.Lived, 1, false),
+    }).Ledger;
+    var placed = PolisHouseholds.Place(folders, households);
+    var folderPlots = folders.Entries.Select(e => new PolisPlot(e.X, e.Z)).ToHashSet();
+    var housePlots = placed.Entries.Where(e => PolisHouseholds.IsHouseholdKey(e.Key)).ToList();
+    AssertEqual(households.Count, housePlots.Count, "每户一块地");
+    AssertFalse(housePlots.Any(e => folderPlots.Contains(new PolisPlot(e.X, e.Z))), "民居不占文件夹的地");
+    var growth = PolisLayoutLedger.GrowthOrder().Where(p => !folderPlots.Contains(p)).Take(households.Count).ToList();
+    AssertTrue(housePlots.Select(e => new PolisPlot(e.X, e.Z)).SequenceEqual(growth), "按生长次序占下一块空地");
+    AssertTrue(PolisHouseholds.SameLedger(placed, PolisHouseholds.Place(placed, households)), "再聚一次户：账本不变");
+    // 一户散了：留下空地；再立起来：回到原地
+    var dissolved = PolisHouseholds.Place(placed, households.Skip(1).ToList());
+    var gone = dissolved.Entries.Single(e => e.Key == households[0].Key);
+    AssertTrue(gone.Vacated && gone.X == housePlots[0].X && gone.Z == housePlots[0].Z, "散了的户留下空地，地块保留");
+    var back = PolisHouseholds.Place(dissolved, households).Entries.Single(e => e.Key == households[0].Key);
+    AssertTrue(!back.Vacated && back.X == gone.X && back.Z == gone.Z, "又立起来回到原地");
+    // 文件夹那一遍（核对）不动民居
+    var reconciled = PolisLayoutLedger.Update(placed, new[]
+    {
+        new PolisBuilding("合同", PolisBuildingKind.StoaLibrary, 3, 30, new Dictionary<PolisFileKind, int>(), now, PolisBuildingState.Lived, 1, false),
+        new PolisBuilding("照片", PolisBuildingKind.SculptureGarden, 3, 30, new Dictionary<PolisFileKind, int>(), now, PolisBuildingState.Lived, 1, false),
+    }, maxIndependentBuildings: 2);
+    AssertTrue(reconciled.Ledger.Entries.Where(e => PolisHouseholds.IsHouseholdKey(e.Key)).All(e => !e.Vacated), "文件夹那一遍不把民居标成空地");
+    AssertTrue(reconciled.Standing.Any(e => e.Key == "照片") && reconciled.MarketStalls.Count == 0, "上限只数文件夹：两座民居之外，第二座文件夹照样有地（不进市集）");
+    var photo = reconciled.Ledger.Entries.Single(e => e.Key == "照片");
+    AssertFalse(housePlots.Any(e => e.X == photo.X && e.Z == photo.Z), "新文件夹不占民居的地");
+
+    // 推给页面的城：合进民居（户名、体量按人数、新旧按户里最近动过的那场），住着人的地不算空地
+    var city = PolisFixture.Compose("神殿", new PolisScanResult(Array.Empty<PolisTopLevelDirectory>(), Array.Empty<PolisScannedFile>(), new HashSet<string>(), false, Array.Empty<string>(), 0, 0),
+        new PolisSummary(Array.Empty<PolisBuilding>(), new PolisAgoraSummary(0, 0, null, false)), PolisLayoutLedger.Update(dissolved, Array.Empty<PolisBuilding>()), now, synthetic: false);
+    AssertTrue(city.Buildings.Count == 0 && city.Vacant.Any(v => v.Key == households[0].Key), "C# 自己的城里没有民居；散了的户是空地");
+    var shown = PolisHouseholds.WithHouseholds(city, households.Skip(1).ToList(), dissolved, now);
+    var house = shown.Buildings.Single(b => b.Key == households[1].Key);
+    AssertTrue(house.Kind == PolisBuildingKind.House && house.Label == households[1].Label && house.SizeClass == PolisHouseholds.SizeClassFor(households[1].Members.Count)
+        && house.Plot == new PolisPlot(housePlots[1].X, housePlots[1].Z), $"民居：{house}");
+    AssertTrue(shown.Vacant.Any(v => v.Key == households[0].Key) && !shown.Vacant.Any(v => v.Key == households[1].Key), "散了的户还是空地，住着人的不是");
+    var json = PolisFixture.ToJson(shown);
+    AssertTrue(json.Contains("\"label\"", StringComparison.Ordinal) && !PolisFixture.ToJson(city).Contains("\"label\"", StringComparison.Ordinal), "只有民居带名牌字段（文件夹的建筑不写，合成夹具逐字节不变）");
+
+    // 核对期间新立的户不被核对的结果冲掉；它的地被核对分给了文件夹时不要它
+    var before = folders;
+    var during = PolisHouseholds.Place(before, households.Take(2).ToList());
+    var reconciledLedger = PolisLayoutLedger.Update(before, new[]
+    {
+        new PolisBuilding("合同", PolisBuildingKind.StoaLibrary, 3, 30, new Dictionary<PolisFileKind, int>(), now, PolisBuildingState.Lived, 1, false),
+    }).Ledger;
+    var merged = PolisHouseholds.MergeAfterReconcile(reconciledLedger, during);
+    AssertEqual(2, merged.Entries.Count(e => PolisHouseholds.IsHouseholdKey(e.Key) && !e.Vacated), "核对期间新立的两户都在");
+    var clash = PolisLayoutLedger.Update(before, new[]
+    {
+        new PolisBuilding("合同", PolisBuildingKind.StoaLibrary, 3, 30, new Dictionary<PolisFileKind, int>(), now, PolisBuildingState.Lived, 1, false),
+        new PolisBuilding("账本", PolisBuildingKind.Treasury, 3, 30, new Dictionary<PolisFileKind, int>(), now, PolisBuildingState.Lived, 1, false),
+        new PolisBuilding("新文件夹", PolisBuildingKind.House, 3, 30, new Dictionary<PolisFileKind, int>(), now, PolisBuildingState.Lived, 1, false),
+    }).Ledger;
+    var clashed = PolisHouseholds.MergeAfterReconcile(clash, during);
+    var plotOwners = clashed.Entries.GroupBy(e => (e.X, e.Z)).Where(g => g.Count() > 1).ToList();
+    AssertEqual(0, plotOwners.Count, "一块地只有一个主人：被文件夹先占了的户这一次不要");
+    AssertTrue(clashed.Entries.Any(e => e.Key == "新文件夹"), "文件夹照样有地");
+    return Task.CompletedTask;
 }
 
 static async Task TestPolisCollectionAsync()

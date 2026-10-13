@@ -370,7 +370,8 @@ export function buildWorld(scene, city, layout, M, options) {
       group.add(tree);
     }
     const height = group.userData.height ?? 5;
-    const label = labelAt(bld.key, plot, height, 'building', `b:${bld.key}`);
+    // 户的民居（M-D）名牌写户名（"整理合同一家"）；文件夹的建筑写文件夹名
+    const label = labelAt(bld.label ?? bld.key, plot, height, 'building', `b:${bld.key}`);
     const entry = { group, height, kind: bld.kind, building: bld, label };
     world.buildings.set(`b:${bld.key}`, entry);
     return entry;

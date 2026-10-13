@@ -1558,6 +1558,9 @@
     <system:String x:Key="Polis.Debate.AthenaFailed">(Athena thinks it over and gives you this round.)</system:String>
     <system:String x:Key="Polis.Debate.JudgeNoModel">The jury has no spokesperson: pick a model for "Virtual pet and citizens" or "Title generation" in Settings. A tie.</system:String>
     <system:String x:Key="Polis.Debate.NoVerdict">The jury could not reach a verdict. A tie.</system:String>
+    <!-- 户与民居（M-D，2026-10-13）：户名与新立一户时雅典娜说的那一句 -->
+    <system:String x:Key="Polis.Household.NamePattern">The {0} household</system:String>
+    <system:String x:Key="Polis.Ui.HouseholdFounded">{name} has settled in the city.</system:String>
     <system:String x:Key="Polis.Citizen.NamesMale">Demetrios|Ariston|Kriton|Phaidros|Lysis|Charmides|Euthyphron|Menon|Theaitetos|Xenophon|Hermon|Philon</system:String>
     <system:String x:Key="Polis.Citizen.NamesFemale">Phyllis|Daphne|Kleio|Helena|Eirene|Thais|Diotima|Aspasia|Melissa|Charis|Korinna|Myrto</system:String>
     <system:String x:Key="Polis.Citizen.NamePattern">{1} · {0}</system:String>

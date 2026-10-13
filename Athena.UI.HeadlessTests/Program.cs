@@ -4842,8 +4842,10 @@ static void TestGameModeCityLifecycle()
     static List<JsonElement> OfType(FakePolisPage page, string type)
         => page.Messages.Where(m => m.GetProperty("type").GetString() == type).ToList();
 
+    // 文件夹的建筑占哪块地（这一组断言讲的都是文件夹）：户的民居（M-D）也在推给页面的城里，它们由 citizens 那一组断言管
     static Dictionary<string, string> Plots(JsonElement cityMessage)
         => cityMessage.GetProperty("city").GetProperty("buildings").EnumerateArray()
+            .Where(b => !PolisHouseholds.IsHouseholdKey(b.GetProperty("key").GetString()))
             .ToDictionary(b => b.GetProperty("key").GetString()!, b => $"{b.GetProperty("plot").GetProperty("x").GetInt32()},{b.GetProperty("plot").GetProperty("z").GetInt32()}", StringComparer.Ordinal);
 
     try
@@ -4968,7 +4970,8 @@ static void TestGameModeCityLifecycle()
                          || OfType(page, "city").Count > citiesBeforeRelease,
             10000, "放行之后，上一座城的补丁既没有被丢弃，也没有落地。");
         PumpTimersFor(200);
-        var otherKeys = PolisSaveFormat.Parse(File.ReadAllText(otherSavePath)).Document.Ledger.Entries.Select(e => e.Key).ToList();
+        // 只看文件夹的条目：这座城自己的户（M-D，没碰过文件夹的会话聚成的户）也在账本里，那是它自己的，不是上一座城漏过来的
+        var otherKeys = PolisSaveFormat.Parse(File.ReadAllText(otherSavePath)).Document.Ledger.Entries.Select(e => e.Key).Where(k => !PolisHouseholds.IsHouseholdKey(k)).ToList();
         if (!otherKeys.SequenceEqual(new[] { "信件" }))
             throw new InvalidOperationException($"上一座城的补丁不能写进这一座城的存档：账本应只有「信件」，实际 [{string.Join(", ", otherKeys)}]。");
         var shownKeys = Plots(OfType(page, "city")[^1]).Keys.ToList();
@@ -5486,15 +5489,34 @@ static void TestGameModeCitizens()
         if (File.ReadAllText(savePath).Contains("citizen", StringComparison.OrdinalIgnoreCase))
             throw new InvalidOperationException("居民不进存档（从会话树推导，删掉会话他就不在了）。");
 
-        // —— 神殿：没有工作区的会话都是神殿的居民，住公共地方 ——
+        // —— 户与民居（M-D）：没碰过文件夹的居民聚成户、住进民居；民居合进推给页面的城（户名作名牌），地写进存档的账本 ——
+        List<JsonElement> Houses() => Of("city")[^1].GetProperty("city").GetProperty("buildings").EnumerateArray()
+            .Where(b => b.GetProperty("key").GetString()!.StartsWith("household:", StringComparison.Ordinal)).ToList();
+        PumpTimers(() => City() == wsA.Id && Houses().Count > 0, 6000, "这座城里没碰过文件夹的居民要聚成户、盖起民居。");
+        var houses = Houses();
+        if (houses.Any(h => h.GetProperty("kind").GetString() != "house" || !h.GetProperty("label").GetString()!.EndsWith("一家", StringComparison.Ordinal)))
+            throw new InvalidOperationException($"民居是 house，名牌是户名：{string.Join(" / ", houses.Select(h => h.GetRawText()))}");
+        var streetNow = Of("citizens")[^1].GetProperty("citizens").GetProperty("street").EnumerateArray().ToList();
+        if (streetNow.Single(c => c.GetProperty("id").GetString() == here[0].ConversationId).GetProperty("home").GetString() != "b:合同")
+            throw new InvalidOperationException("碰过文件夹的那位照旧住在文件夹门前。");
+        var houseKeys = houses.Select(h => "b:" + h.GetProperty("key").GetString()).ToHashSet(StringComparer.Ordinal);
+        if (streetNow.Where(c => c.GetProperty("id").GetString() != here[0].ConversationId).Any(c => !houseKeys.Contains(c.GetProperty("home").GetString()!)))
+            throw new InvalidOperationException("没碰过文件夹的居民都住进了推给页面的那几座民居。");
+        if (houses.Any(h => h.GetProperty("files").GetInt32() > PolisHouseholds.MaxMembers))
+            throw new InvalidOperationException("每户最多 6 人。");
+        PumpTimers(() => File.ReadAllText(savePath).Contains("household:", StringComparison.Ordinal), 5000, "民居的地写进存档的账本（永不挪位）。");
+
+        // —— 神殿：没有工作区的会话都是神殿的居民；神殿没有文件夹，他们聚成户、住进民居（神殿自此有了房子） ——
         shell.SelectedConversation = globals[0];
         PumpTimers(() => City() == "sanctuary", 10000, "全局对话要航向神殿。");
         PumpTimers(() => Of("citizens")[^1].GetProperty("citizens").GetProperty("census").GetProperty("total").GetInt32() == 3, 6000, "神殿的居民是那 3 场全局对话。");
         var sanctuaryStreet = Of("citizens")[^1].GetProperty("citizens").GetProperty("street").EnumerateArray().ToList();
         if (!sanctuaryStreet.Select(c => c.GetProperty("id").GetString()).OrderBy(x => x).SequenceEqual(globals.Select(g => g.ConversationId).OrderBy(x => x)))
             throw new InvalidOperationException("神殿的街上是那 3 场全局对话的居民。");
-        if (sanctuaryStreet.Any(c => !PolisCitizens.PublicHomes.Contains(c.GetProperty("home").GetString()!)))
-            throw new InvalidOperationException("神殿没有文件夹，居民都住公共地方。");
+        PumpTimers(() => City() == "sanctuary" && Houses().Count == 1, 6000, "神殿里三场标题相像的全局对话聚成一户、盖一座民居。");
+        var sanctuaryHouse = Houses().Single();
+        if (sanctuaryHouse.GetProperty("label").GetString() != "闲谈一家" || sanctuaryStreet.Any(c => c.GetProperty("home").GetString() != "b:" + sanctuaryHouse.GetProperty("key").GetString()))
+            throw new InvalidOperationException($"神殿的三位住进「闲谈一家」：{sanctuaryHouse}");
         page.Send($$"""{"v":1,"type":"select-conversation","conversationId":"{{here[0].ConversationId}}"}""");
         PumpTimers(() => ReferenceEquals(shell.SelectedConversation, here[0]), 5000, "别的城的会话也能选（与点橄榄树一样走会话树）。");
     }
@@ -5512,7 +5534,7 @@ static void TestGameModeCitizens()
         capturingLogger.Dispose();
         if (Directory.Exists(root)) Directory.Delete(root, recursive: true);
     }
-    Console.WriteLine("[PASS] game mode citizens: one citizen per conversation, the 32 most recent on the street and the rest counted, elders on steles, the one who worked in a folder lives there, no message text reaches the page, a deleted conversation's citizen is gone, the sanctuary's citizens are its global chats, the card's button selects through the session tree, and asking a citizen sends only that conversation's messages, answers only to the page (a missing model is a sentence, not an error) and refuses other cities' citizens, made-up ids, empty and overlong questions");
+    Console.WriteLine("[PASS] game mode citizens: one citizen per conversation, the 32 most recent on the street and the rest counted, elders on steles, the one who worked in a folder lives there, no message text reaches the page, a deleted conversation's citizen is gone, the sanctuary's citizens are its global chats, the card's button selects through the session tree, citizens with no folder gather into households whose houses (named for the household) join the city posted to the page and whose plots are saved, and asking a citizen sends only that conversation's messages, answers only to the page (a missing model is a sentence, not an error) and refuses other cities' citizens, made-up ids, empty and overlong questions");
 }
 
 static void TestGameModeDebate()

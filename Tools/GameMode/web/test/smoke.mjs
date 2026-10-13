@@ -14,6 +14,7 @@
 //   居民即会话（M-B）：街上最多 32 位、最近的不超过 4 位全套；走到一位跟前按 E 开他的卡片，卡片的按钮选中那场会话；碑上刻着老居民。
 //   问话（M-C）：卡片上的"问他那件事"把对话栏借给他，回车只发 ask-citizen；回答回到卡片（长的读全文），对话栏还给雅典娜；页面从不自己发问。
 //   辩论（M-E）：讲台前按 E 开讲台的卡片；议题与论点在借给辩论的对话栏里写，回车只发 debate-start / debate-say；判票时居民围过来，判完按票数挥手；"结束"与 Esc 发 debate-end。
+//   户与民居（M-D）：居民先到、民居后到时城一变就从民居门前重新出门；民居的名牌写户名；新立的一户雅典娜说一句；户名变了名牌跟着换。
 //   bin/Debug/net10.0/.playwright/node/darwin-arm64/node Tools/GameMode/web/test/smoke.mjs [chromium,webkit]
 import { readFileSync, mkdtempSync, writeFileSync, rmSync } from 'node:fs';
 import { deflateSync, crc32 } from 'node:zlib';
@@ -47,6 +48,7 @@ try {
       failed = !(await citizensCheck(name, browser)) || failed;
       failed = !(await askCheck(name, browser)) || failed;
       failed = !(await debateCheck(name, browser)) || failed;
+      failed = !(await householdCheck(name, browser)) || failed;
       failed = !(await controlsCheck(name, browser)) || failed;
     } finally {
       await browser.close();
@@ -711,6 +713,73 @@ async function debateCheck(name, browser) {
       noProblems: problems.length === 0,
     };
     Object.assign(result, { checks, stand, focus, round1: { mode: round1.talk.mode, placeholder: round1.placeholder, athena: round1.athena, closeUp: round1.closeUp }, judging, gathered: { count: gathered.count, offSpot: gathered.people.filter((p) => !p.onSpot || !p.walkable || !p.nearStage) }, done, problems, seconds: +((Date.now() - started) / 1000).toFixed(1) });
+    await page.close();
+    console.log(JSON.stringify(result, null, 2));
+    return Object.values(checks).every(Boolean);
+  } catch (e) {
+    result.error = e.message;
+    console.log(JSON.stringify(result, null, 2));
+    return false;
+  }
+}
+
+/**
+ * 户与民居（M-D）：居民先到、民居后到（C# 先推居民的那一刻页面还没有那座民居）——城一变，他们就从民居门前重新出门；
+ * 民居的名牌写户名，不写钥匙；新立的一户（origins 'household'）雅典娜说一句"……在城里安了家"；户名变了，名牌跟着换。
+ */
+async function householdCheck(name, browser) {
+  const started = Date.now();
+  const result = { browser: `${name} ${browser.version()}`, mode: 'live, households' };
+  try {
+    const page = await browser.newPage({ viewport: { width: 1600, height: 1000 } });
+    const problems = [];
+    page.on('console', (m) => { if (m.type() === 'error') problems.push(`[console.error] ${m.text()}`); });
+    page.on('pageerror', (e) => problems.push(`[pageerror] ${e.message}`));
+    await page.addInitScript(HOST);
+    await page.goto(`${server.origin}/polis/index.html?mode=live`);
+    await page.waitForFunction(() => (window.__hostInbox ?? []).some((m) => m.type === 'ready') || document.title === 'error', null, { timeout: 90_000 });
+    const send = (message) => page.evaluate((m) => window.polis.receive(JSON.stringify(m)), message);
+    // 一块没人用的地（与 citizens.test.mjs 同一个找法）
+    const used = new Set([...city.buildings.map((b) => `${b.plot.x},${b.plot.z}`), ...Object.values(city.publicSites).map((p) => `${p.x},${p.z}`), ...(city.vacant ?? []).map((v) => `${v.plot.x},${v.plot.z}`)]);
+    let plot = null;
+    for (let r = 1; r <= 3 && !plot; r++) for (let x = -r; x <= r && !plot; x++) for (let z = -r; z <= r && !plot; z++) {
+      if (Math.max(Math.abs(x), Math.abs(z)) !== r || z >= city.seaStartsAtZ || used.has(`${x},${z}`)) continue;
+      plot = { x, z };
+    }
+    const house = { key: 'household:abcd1234', label: '整理合同一家', kind: 'house', files: 3, bytes: 0, kinds: {}, lastModified: new Date().toISOString(), state: 'lived', sizeClass: 2, incomplete: false, plot, order: 999 };
+    await send({ type: 'init', tables: {} });
+    await send({ type: 'city', key: 'ws-1', city });
+    const street = Array.from({ length: 3 }, (_, i) => ({
+      id: `conv-h${i}`, seed: (Math.imul(i + 41, 2654435761) >>> 0), female: false, name: `整理合同的第${i}位`, title: '整理合同',
+      home: 'b:household:abcd1234', age: 'adult', outcome: 'completed', folders: [], turns: 1, lines: ['那件事已经办完了。'],
+    }));
+    await send({ type: 'citizens', citizens: { street, elders: [], census: { total: 3, street: 3, indoors: 0, elders: 0 } } });
+    await page.waitForFunction(() => { const g = window.__polisGame; return g.world.citizens.size === 3 && [...g.world.citizens.values()].every((c) => c.figure && c.plan); }, null, { timeout: 60_000 });
+    const before = await page.evaluate(() => [...window.__polisGame.world.citizens.values()].map((c) => c.plan.home.site));
+    // 民居到了，带着"新立的一户"
+    await send({ type: 'city', key: 'ws-1', city: { ...city, buildings: [...city.buildings, house] }, origins: { 'household:abcd1234': 'household' } });
+    await page.waitForTimeout(400);
+    const after = await page.evaluate(() => ({
+      homes: [...window.__polisGame.world.citizens.values()].map((c) => c.plan?.home.site ?? null),
+      label: window.__polisGame.world.labels.find((l) => l.key === 'b:household:abcd1234')?.text ?? null,
+      leaked: window.__polisGame.world.labels.filter((l) => l.kind === 'building' && l.text.startsWith('household:')).length,
+      said: window.__polis.said ?? null,
+      building: window.__polisGame.world.buildings.has('b:household:abcd1234'),
+    }));
+    // 户名变了（立户那一场会话改了标题）：名牌跟着换
+    await send({ type: 'city', key: 'ws-1', city: { ...city, buildings: [...city.buildings, { ...house, label: '续签合同一家' }] } });
+    await page.waitForTimeout(300);
+    const renamed = await page.evaluate(() => window.__polisGame.world.labels.find((l) => l.key === 'b:household:abcd1234')?.text ?? null);
+    const checks = {
+      waitedOnTheSquare: before.every((s) => s !== 'b:household:abcd1234'),
+      houseBuilt: after.building,
+      labelIsTheHouseholdName: after.label === '整理合同一家' && after.leaked === 0,
+      replannedFromTheHouse: after.homes.every((s) => s === 'b:household:abcd1234'),
+      athenaWelcomesThem: typeof after.said === 'string' && after.said.includes('整理合同一家'),
+      labelFollowsTheName: renamed === '续签合同一家',
+      noProblems: problems.length === 0,
+    };
+    Object.assign(result, { checks, plot, before, after, renamed, problems, seconds: +((Date.now() - started) / 1000).toFixed(1) });
     await page.close();
     console.log(JSON.stringify(result, null, 2));
     return Object.values(checks).every(Boolean);

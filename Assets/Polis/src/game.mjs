@@ -180,6 +180,8 @@ export const UI_ZH = Object.freeze({
   debateAthenaWins: '雅典娜赢了',
   debateTie: '平局',
   debateClose: '结束',
+  // 户与民居（M-D）
+  householdFounded: '「{name}」在城里安了家。',
 });
 
 /** 问出去之后最多等多久（C# 那边一次调用 20 秒就放弃；多留 5 秒给排队和回传）。 */
@@ -505,12 +507,30 @@ export function createGame({ params, status, send, onTalk = null, onUiBlocked = 
   }
 
   function sameBuilding(a, b) {
-    return a.kind === b.kind && a.sizeClass === b.sizeClass && a.state === b.state && a.incomplete === b.incomplete;
+    return a.kind === b.kind && a.sizeClass === b.sizeClass && a.state === b.state && a.incomplete === b.incomplete && (a.label ?? null) === (b.label ?? null);
   }
 
+  /**
+   * 外部改动的建筑名牌闪一下；新立的一户（M-D，origin 'household'）也闪一下，雅典娜说一句"……在城里安了家"。
+   * 城变了之后居民按新的地块重排日程：家是一座刚盖起来的民居的人，原来只能先住在广场上（layout 里还没有那座民居）。
+   */
   function markExternal(origins) {
     const t = performance.now();
-    for (const [key, origin] of Object.entries(origins ?? {})) if (origin === 'external') flashes.set(`b:${key}`, t);
+    for (const [key, origin] of Object.entries(origins ?? {})) {
+      if (origin === 'external' || origin === 'household') flashes.set(`b:${key}`, t);
+      if (origin === 'household') {
+        const b = city?.buildings?.find((x) => x.key === key);
+        say(fill(ui.householdFounded, { name: b?.label ?? key }), clock, 3000);
+      }
+    }
+    replanCitizens();
+  }
+
+  /** 城的地块变了：家不在原先排日程时那块地上的居民（多半是刚有了民居的），下一帧重排；去处表也重新取。 */
+  function replanCitizens() {
+    neighbourSites = null;
+    if (!world?.citizens) return;
+    for (const c of world.citizens.values()) if (c.plan && c.plan.home.site !== c.data.home) c.plan = null;
   }
 
   // —— 每一步的路线（缓存） ——
@@ -1113,6 +1133,7 @@ export function createGame({ params, status, send, onTalk = null, onUiBlocked = 
     if (!text) return;
     speech.push({ text, t, minMs });
     speech.sort((a, b) => a.t - b.t);
+    status.said = text;   // 测试读：她最近要说的那一句
   }
 
   function currentLine(now) {

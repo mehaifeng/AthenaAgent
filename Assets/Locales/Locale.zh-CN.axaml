@@ -1558,6 +1558,9 @@
     <system:String x:Key="Polis.Debate.AthenaFailed">（雅典娜想了想，这一轮让给你。）</system:String>
     <system:String x:Key="Polis.Debate.JudgeNoModel">陪审团没有发言人：设置里还没给「虚拟宠物与城里的居民」或「标题生成」选模型，算平局。</system:String>
     <system:String x:Key="Polis.Debate.NoVerdict">陪审团没能给出裁决，算平局。</system:String>
+    <!-- 户与民居（M-D，2026-10-13）：户名与新立一户时雅典娜说的那一句 -->
+    <system:String x:Key="Polis.Household.NamePattern">{0}一家</system:String>
+    <system:String x:Key="Polis.Ui.HouseholdFounded">「{name}」在城里安了家。</system:String>
     <system:String x:Key="Polis.Citizen.NamesMale">狄米特里|阿里斯通|克里同|斐德若|吕西斯|卡尔米德|欧绪弗洛|美诺|泰阿泰德|色诺芬|赫蒙|斐洛</system:String>
     <system:String x:Key="Polis.Citizen.NamesFemale">菲莉丝|达芙妮|克莱奥|海伦娜|伊瑞涅|塔伊丝|狄俄提玛|阿斯帕西娅|墨利萨|卡丽丝|科林娜|米尔托</system:String>
     <system:String x:Key="Polis.Citizen.NamePattern">{0}的{1}</system:String>

@@ -74,6 +74,14 @@ public static class PolisLayoutLedger
 
     private static readonly HashSet<PolisPlot> Reserved = new(PublicSites.Values);
 
+    /// <summary>
+    /// 户的民居（M-D）的条目：钥匙以它开头，由 <c>PolisHouseholds</c> 维护。规则写在账本这里而不是户那边，
+    /// 是为了账本不依赖户的推导——<c>Tools/GameMode/PolisExport</c> 只编译账本、建筑与夹具这几个文件（整个方案的构建踩过）。
+    /// </summary>
+    public const string HouseholdKeyPrefix = "household:";
+
+    public static bool IsHouseholdEntry(string? key) => key != null && key.StartsWith(HouseholdKeyPrefix, StringComparison.Ordinal);
+
     public static bool IsReserved(PolisPlot plot) => Reserved.Contains(plot);
 
     /// <summary>
@@ -134,6 +142,7 @@ public static class PolisLayoutLedger
     /// <item>新文件夹按"最近修改在前、同时按名字"的次序，依次占生长次序里的下一块空地——常用的离广场近。</item>
     /// <item>还在的独立建筑达到上限后，新文件夹不再占地，进市集当摊位；已经有地的永远不会被挤进市集。</item>
     /// <item>账本本身损坏（同一文件夹两条、两条占同一块地）时只保留落户更早的那一条。</item>
+    /// <item>户的民居（<see cref="HouseholdKeyPrefix"/> 开头，M-D）的条目原样保留、占着地，但不算进独立建筑的上限；它们由 <c>PolisHouseholds.Place</c> 维护。</item>
     /// </list>
     /// </summary>
     public static PolisLayout Update(
@@ -156,10 +165,12 @@ public static class PolisLayoutLedger
             if (keys.Contains(entry.Key) || occupied.Contains(plot)) continue;
             keys.Add(entry.Key);
             occupied.Add(plot);
-            entries.Add(entry with { Vacated = !presentKeys.Contains(entry.Key) });
+            // 户的民居（M-D）不是文件夹：在不在由聚户那一遍定（PolisHouseholds.Place），文件夹这一遍原样保留
+            entries.Add(IsHouseholdEntry(entry.Key) ? entry : entry with { Vacated = !presentKeys.Contains(entry.Key) });
         }
 
-        var standingCount = entries.Count(e => !e.Vacated);
+        // 独立建筑的上限只数文件夹：民居多了不该把新文件夹挤进市集
+        var standingCount = entries.Count(e => !e.Vacated && !IsHouseholdEntry(e.Key));
         var capacity = Math.Max(0, maxIndependentBuildings - standingCount);
         var nextOrder = entries.Count == 0 ? 0 : entries.Max(e => e.Order) + 1;
         var stalls = new List<string>();

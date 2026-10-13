@@ -161,6 +161,40 @@ test('day: every citizen of the synthetic city stands and walks only where you c
   assert.ok(new Set(plans.map((p) => p.offset)).size > 24, '节拍按种子错开');
 });
 
+test('households (M-D): a household\'s house carries the household\'s name, not its key, and a citizen whose home is that house is planned from it', () => {
+  // 一块没人用的地：在合成城邦的第一、二圈里找（不是文件夹的、不是公共建筑的、不是空地、不在海里）
+  const used = new Set([...fixture.buildings.map((b) => `${b.plot.x},${b.plot.z}`), ...Object.values(fixture.publicSites).map((p) => `${p.x},${p.z}`), ...(fixture.vacant ?? []).map((v) => `${v.plot.x},${v.plot.z}`)]);
+  let plot = null;
+  for (let r = 1; r <= 3 && !plot; r++) {
+    for (let x = -r; x <= r && !plot; x++) {
+      for (let z = -r; z <= r && !plot; z++) {
+        if (Math.max(Math.abs(x), Math.abs(z)) !== r || z >= fixture.seaStartsAtZ || used.has(`${x},${z}`)) continue;
+        plot = { x, z };
+      }
+    }
+  }
+  assert.ok(plot, '找得到一块空地');
+  const house = { key: 'household:abcd1234', label: '整理合同一家', kind: 'house', files: 3, bytes: 0, kinds: {}, lastModified: '2026-10-13T00:00:00Z', state: 'lived', sizeClass: 2, incomplete: false, plot, order: 999 };
+  const city = { ...fixture, buildings: [...fixture.buildings, house] };
+  const M = stubMaterials();
+  const assets = createAssetLibrary(M);
+  const acc = demoAccumulation(city);
+  const layout = createLayout({ ...city, groveTrees: acc.trees.length });
+  const world = buildWorld(new THREE.Scene(), city, layout, M, { assets });
+  const label = world.labels.find((l) => l.key === 'b:household:abcd1234');
+  assert.ok(label, '民居有名牌');
+  assert.equal(label.text, '整理合同一家', '名牌写户名，不写钥匙');
+  assert.ok(world.labels.filter((l) => l.kind === 'building').every((l) => !l.text.startsWith('household:')), '没有一块名牌露出钥匙');
+  assert.ok(layout.plots.has('b:household:abcd1234'), '民居是一块地，站点 b:household:…');
+  const hasSite = (site) => site === 'agora' || site.startsWith('agora:') || site === 'harbor' || site === 'gate' || layout.plots.has(site);
+  const plan = planCitizen({ id: 'conv-x', seed: 12345, home: 'b:household:abcd1234' }, { sitePoint: layout.sitePoint, route: layout.route, walkable: layout.walkable, hasSite, neighbours: [] });
+  assert.equal(plan.home.site, 'b:household:abcd1234', '住在这一户的人从民居门前出门');
+  assert.ok(layout.walkable(plan.home.point), '民居门前能站');
+  // 民居还没盖起来（城还没推到）时只能先住广场：日程记下的家与他真正的家不同——城一变，页面据此重排（game.replanCitizens）
+  const early = planCitizen({ id: 'conv-x', seed: 12345, home: 'b:household:ffff0000' }, { sitePoint: layout.sitePoint, route: layout.route, walkable: layout.walkable, hasSite, neighbours: [] });
+  assert.notEqual(early.home.site, 'b:household:ffff0000', '还没有那座民居：先住广场');
+});
+
 test('avoidance: overlapping people step apart, nobody is pushed off walkable ground, you are the stone they step around, and the nudge fades when no one is near', () => {
   const walkable = (p) => p.x > -10 && p.x < 10 && p.z > -10 && p.z < 10 && !(p.x > 2 && p.x < 3);
   let people = [

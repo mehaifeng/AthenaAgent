@@ -18,7 +18,14 @@ public sealed record PolisFixtureBuilding(
     int SizeClass,
     bool Incomplete,
     PolisPlot Plot,
-    int Order);
+    int Order)
+{
+    /// <summary>
+    /// 名牌上写什么（M-D）：户的民居写户名（"整理合同一家"）；文件夹的建筑不填，名牌就是文件夹名（<see cref="Key"/>）。
+    /// 不填时不写进 JSON，合成夹具逐字节不变。
+    /// </summary>
+    public string? Label { get; init; }
+}
 
 public sealed record PolisFixtureVacantPlot(string Key, PolisPlot Plot);
 

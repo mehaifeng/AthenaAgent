@@ -152,6 +152,10 @@ public sealed partial class GameModeViewModel : ViewModelBase, IDisposable
     private IReadOnlySet<string> _knownCitizens = new HashSet<string>(StringComparer.Ordinal);
     /// <summary>这座城此刻的居民（会话 Id → 居民）：问话要他的名字、标题、常去的文件夹。</summary>
     private IReadOnlyDictionary<string, PolisCitizen> _citizensById = new Dictionary<string, PolisCitizen>(StringComparer.Ordinal);
+    /// <summary>这座城此刻的户（M-D）：推给页面的城里合进它们的民居；换城清空。</summary>
+    private IReadOnlyList<PolisHousehold> _households = Array.Empty<PolisHousehold>();
+    /// <summary>这座城的第一遍聚户已经做过：之后新立的户才在页面上闪一下、让雅典娜说一句（第一遍是"本来就住在这儿的"）。</summary>
+    private bool _householdsBaselined;
     private readonly ICitizenAnswerService _citizenAnswers;
     /// <summary>页面关掉、视图模型释放时，还在路上的问话一并取消。</summary>
     private readonly CancellationTokenSource _askCancel = new();
@@ -746,6 +750,21 @@ public sealed partial class GameModeViewModel : ViewModelBase, IDisposable
         return L(entry.Key, entry.Fallback);
     }
 
+    /// <summary>户名（M-D）：立户那一位的称号加"一家"；没有称号（默认标题）就用他的名字。</summary>
+    private string HouseholdLabel(PolisCitizen founder)
+    {
+        var table = PolisLocale.Citizen.ToDictionary(c => c.JsKey, StringComparer.Ordinal);
+        string Text(string jsKey) => L(table[jsKey].Key, table[jsKey].Fallback);
+        var who = string.IsNullOrEmpty(founder.Epithet)
+            ? PolisCitizens.Pick(founder.Female ? Text("namesFemale") : Text("namesMale"), founder.Seed >> 8)
+            : founder.Epithet;
+        return string.Format(CultureInfo.CurrentCulture, Text("householdName"), who);
+    }
+
+    /// <summary>户的"样子"（钥匙、户名、人数、新旧）：变了才重推城。</summary>
+    private static string HouseholdShape(IReadOnlyList<PolisHousehold> households, DateTimeOffset now)
+        => string.Join(";", households.Select(h => $"{h.Key}|{h.Label}|{h.Members.Count}|{PolisBuildings.StateFor(h.LastActive, now)}"));
+
     /// <summary>
     /// 问一位居民那场会话的事（M-C）。那场会话的消息在内存里（会话树启动时全部恢复，不读库）：在 UI 线程上取一份快照，
     /// 挑片段、调模型都在线程池上，回到 UI 线程把回答推给页面（<c>citizen-answer</c>）。任何结局都有一句话给他说——
@@ -1103,6 +1122,8 @@ public sealed partial class GameModeViewModel : ViewModelBase, IDisposable
         _cityWorkspace = workspace;
         _slot = workspace == null ? PolisSaveSlot.Sanctuary : PolisSaveSlot.ForWorkspace(workspace.Id);
         _cityKey = workspace?.Id ?? "sanctuary";
+        _households = Array.Empty<PolisHousehold>();
+        _householdsBaselined = false;
         _lastScan = null;
         _notices.Clear();
         var slot = _slot;
@@ -1270,6 +1291,28 @@ public sealed partial class GameModeViewModel : ViewModelBase, IDisposable
             (_city?.Market ?? Enumerable.Empty<string>()).ToHashSet(StringComparer.Ordinal),
             now,
             ignoreCase: !OperatingSystem.IsLinux());
+        // 户与民居（M-D）：没有文件夹可归的居民聚成户、住进民居。户的地写进账本（永不挪位），城（合进民居）先推、居民后推——
+        // 居民的家是 b:household:…，页面得先有那座民居才排得出他的日程
+        var households = PolisHouseholds.Derive(citizens, HouseholdLabel);
+        var ledger = PolisHouseholds.Place(_save.Ledger, households);
+        var standingBefore = _save.Ledger.Entries.Where(e => PolisHouseholds.IsHouseholdKey(e.Key) && !e.Vacated).Select(e => e.Key).ToHashSet(StringComparer.Ordinal);
+        var householdsChanged = !PolisHouseholds.SameLedger(ledger, _save.Ledger) || HouseholdShape(households, now) != HouseholdShape(_households, now);
+        _households = households;
+        citizens = PolisHouseholds.Rehome(citizens, households);
+        if (householdsChanged && _city != null)
+        {
+            var founded = households.Where(h => !standingBefore.Contains(h.Key)).Select(h => h.Key).ToList();
+            if (!PolisHouseholds.SameLedger(ledger, _save.Ledger))
+            {
+                _save = _save with { Ledger = ledger };
+                _ = PersistSaveAsync();
+            }
+            // 第一遍（刚到这座城）是本来就住在这儿的人家，不闪、不说；之后新立的户闪一下、雅典娜说一句
+            var origins = _householdsBaselined && founded.Count > 0 ? founded.ToDictionary(k => k, _ => "household", StringComparer.Ordinal) : null;
+            PostCity(_city, sanctuary: _cityWorkspace == null, founding: false, partial: false, origins: origins);
+            if (founded.Count > 0) _logger.Information("Polis households: {Count} new in {City} ({Total} in all)", founded.Count, _cityKey, households.Count);
+        }
+        _householdsBaselined = true;
         _knownCitizens = citizens.Select(c => c.ConversationId).ToHashSet(StringComparer.Ordinal);
         _citizensById = citizens.ToDictionary(c => c.ConversationId, StringComparer.Ordinal);
         Post(new { type = "citizens", citizens = PolisAccumulation.Citizens(citizens, L) });
@@ -1430,12 +1473,14 @@ public sealed partial class GameModeViewModel : ViewModelBase, IDisposable
 
     private void PostCity(PolisFixtureDocument city, bool sanctuary, bool founding, bool partial, IReadOnlyDictionary<string, string>? origins = null)
     {
+        // C# 自己记的城只有文件夹的建筑（委托板、居民的家、外部改动都按它算）；推给页面的那一份合进户的民居（M-D）
         _city = city;
+        var shown = PolisHouseholds.WithHouseholds(city, _households, _save.Ledger, DateTimeOffset.UtcNow);
         Post(new
         {
             type = "city",
             key = _cityKey,
-            city = JsonSerializer.SerializeToElement(city, PolisFixture.JsonOptions),
+            city = JsonSerializer.SerializeToElement(shown, PolisFixture.JsonOptions),
             sanctuary,
             founding,
             partial,
@@ -1607,7 +1652,8 @@ public sealed partial class GameModeViewModel : ViewModelBase, IDisposable
                 ? item with { RelativePath = found.RelativePath, Fingerprint = found.Fingerprint, Lost = found.Lost, ModifiedSinceDelivery = found.ModifiedSinceDelivery }
                 : item)
             .ToList();
-        return current with { Ledger = reconciled.Ledger, Items = items };
+        // 核对期间新立的户（M-D）写进了此刻的账本：不被核对的结果冲掉
+        return current with { Ledger = PolisHouseholds.MergeAfterReconcile(reconciled.Ledger, current.Ledger), Items = items };
     }
 
     /// <summary>
