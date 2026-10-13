@@ -25,6 +25,8 @@ import { isTypingTarget } from './controls.mjs';
 import { connectHost } from './bridge.mjs';
 import { openReader } from './reader.mjs';
 import { demoAccumulation, demoCitizens } from './demo.mjs';
+import { createRelationsView } from './relations-view.mjs';
+import { relationsView } from './relations.mjs';
 
 const params = new URLSearchParams(location.search);
 const live = params.get('mode') === 'live';
@@ -90,7 +92,7 @@ async function main() {
     onTalk: talk ? () => { talk.openAthena(); } : null,
     onUiBlocked: (blocked) => talk?.setSuppressed(blocked),
     onViewChange: () => syncView(game),
-    modalOpen: readerOpen,
+    modalOpen: () => readerOpen() || relationsOpen(),
     topInset: live ? 52 : 0,
     defaultView: 'free',
     talkOpen: () => !!talk?.isOpen,
@@ -103,6 +105,10 @@ async function main() {
     onRead: ({ title, markdown }) => openReader(document, document.getElementById('reader'), { title, markdown, closeLabel: game.ui.close ?? '收起' }),
   });
   window.__polisGame = game;
+  // 人际总览（第三轮，人物关系）：左上角（夹具模式在右下）的"人际"打开；开着时方向键不走路，Esc 收起
+  relationsPanel = createRelationsView(document.getElementById('relations'), { onClose: () => { if (live) wake(); } });
+  window.__polisRelations = relationsPanel;
+  document.getElementById('btn-relations').addEventListener('click', () => { toggleRelations(game); if (live) wake(); });
   game.setNight(nightAtStart, { instant: true });
   window.addEventListener('resize', () => game.resize());
   wireView(game);
@@ -117,6 +123,23 @@ function sentLocally(type, fields) {
 }
 
 const readerOpen = () => !document.getElementById('reader').hidden;
+let relationsPanel = null;
+const relationsOpen = () => !!relationsPanel?.isOpen;
+
+/** 人际总览的内容：这座城的每个人（街上的、在屋里的、职业居民）怎么看你、和谁合得来（relations.relationsView）。 */
+function relationsContent(game) {
+  return relationsView(game.relations, game.relationsPeople(), game.ui);
+}
+
+function toggleRelations(game) {
+  if (relationsOpen()) relationsPanel.close();
+  else relationsPanel.open(relationsContent(game), game.ui);
+}
+
+/** 关系或居民变了：总览开着就重画（选中的人留着）。 */
+function refreshRelations(game) {
+  if (relationsOpen()) relationsPanel.update(relationsContent(game), game.ui);
+}
 
 function closeReader() {
   const reader = document.getElementById('reader');
@@ -147,7 +170,8 @@ function syncView(game) {
 
 /** Esc：先收起最上面的那一层——阅读器、海图、摆放、卡片或面板。 */
 function dismissTopmost(game) {
-  if (readerOpen()) closeReader();
+  if (relationsOpen()) relationsPanel.close();
+  else if (readerOpen()) closeReader();
   else if (game.chartOpen) game.toggleChart(false);
   else game.dismiss();
 }
@@ -188,11 +212,18 @@ function liveHandlers() {
     grove: whenReady((m) => { liveGame.setGrove(m.trees); wake(); }),
     residents: whenReady((m) => { liveGame.setResidents(m.residents); wake(); }),
     // 居民即会话（M-B）：{ street（≤ 32 位）, elders, census }
-    citizens: whenReady((m) => { liveGame.setCitizens(m.citizens ?? null); wake(); }),
+    citizens: whenReady((m) => { liveGame.setCitizens(m.citizens ?? null); refreshRelations(liveGame); wake(); }),
+    // 人物关系（第三轮需求 1）：{ you, pairs, ties }——谁怎么看你、两人之间、朋友与不和的人
+    relations: whenReady((m) => { liveGame.setRelations(m.relations ?? null); refreshRelations(liveGame); wake(); }),
     // 问话的回答（M-C）：{ conversationId, status, text }——放进他的卡片，对话栏还给雅典娜
     // 先还对话栏、再放回答：栏还开着时，城里会以为你又在和雅典娜说话，不把卡片打开
     'talk': whenReady((m) => { liveGame.setTalk(m); wake(); }),
     'ambient-end': whenReady((m) => { liveGame.endAmbient(m); wake(); }),
+    // 你自己说话之后附近几个人依次接话，说完了（第三轮需求 6）：{ who, spoke, status }
+    'chorus-end': whenReady((m) => { liveGame.endChorus(m); wake(); }),
+    // 敲门（第三轮需求 3）：C# 的回音——谁敲得太勤、谁打发过你不应门；请他出来，他出不出来
+    'knock-reply': whenReady((m) => { liveGame.setKnockReply(m); wake(); }),
+    'call-out-reply': whenReady((m) => { liveGame.setCallOutReply(m); wake(); }),
     'citizen-transcript': whenReady((m) => { liveGame.showCitizenTranscript(m); wake(); }),
     // 讲台前的辩论（M-E）：{ state, id, motion, round, rounds, jury, transcript, verdict, record, notice }
     debate: whenReady((m) => { liveGame.setDebate(m.debate ?? null); wake(); }),
@@ -226,6 +257,7 @@ function liveHandlers() {
 function syncChartButton(game = liveGame) {
   if (!game) return;
   document.getElementById('btn-chart').textContent = game.ui.chart;
+  document.getElementById('btn-relations').textContent = game.ui.relationsButton;
 }
 
 function startLive(game) {
@@ -238,7 +270,7 @@ function startLive(game) {
   window.addEventListener('keydown', (e) => {
     if (isTypingTarget(e.target) || e.isComposing) return;
     if (e.key === 'Enter' && !e.shiftKey && !e.metaKey && !e.ctrlKey && !e.altKey) {
-      if (talk?.available && !readerOpen() && !game.chartOpen) { e.preventDefault(); talk.open({ focus: true }); wake(); }
+      if (talk?.available && !readerOpen() && !relationsOpen() && !game.chartOpen) { e.preventDefault(); talk.open({ focus: true }); wake(); }
       return;
     }
     if (e.key === 'Escape') { dismissTopmost(game); wake(); return; }
@@ -268,7 +300,7 @@ function updateHint() {
   if (!liveGame) return;
   if (liveGame.playerMoving) walkedOnce = true;
   const ui = liveGame.ui;
-  const show = !walkedOnce && !!liveGame.world && !!talk?.available && !talk.isOpen && !readerOpen();
+  const show = !walkedOnce && !!liveGame.world && !!talk?.available && !talk.isOpen && !readerOpen() && !relationsOpen();
   const text = show ? (document.hasFocus() ? ui.controlsHint : ui.focusHint) : '';
   if (el.textContent !== text) el.textContent = text;
   if (el.hidden !== !show) el.hidden = !show;
@@ -438,8 +470,14 @@ function motionSelftest(game) {
         const lp = truth.project(camera);
         errors.labels = Math.max(errors.labels, Math.hypot(((lp.x + 1) / 2) * window.innerWidth - l.x, (1 - (lp.y + 1) / 2) * window.innerHeight - l.y) * dpr);
       }
-      // 居民头顶的话（M-B）：按他这一帧的矩阵投影
+      // 居民头顶的话（M-B）：按他这一帧的矩阵投影；挂在门上的话（第三轮需求 3：咚、咚，门里的人应声）按门上那一点
       for (const b of used.citizenBubbles ?? []) {
+        if (b.anchor && b.alpha > 0) {
+          kinds.doorBubble = (kinds.doorBubble ?? 0) + 1;
+          const dp = b.anchor.clone().project(camera);
+          errors.bubble = Math.max(errors.bubble, Math.hypot(((dp.x + 1) / 2) * window.innerWidth - b.x, (1 - (dp.y + 1) / 2) * window.innerHeight - b.y) * dpr);
+          continue;
+        }
         const c = world.citizens.get(b.id);
         if (!c?.figure || !(b.alpha > 0)) continue;
         kinds.citizenBubble = (kinds.citizenBubble ?? 0) + 1;
@@ -478,6 +516,10 @@ function motionSelftest(game) {
     .filter((c) => c.figure?.root.visible)
     .sort((a, b) => Math.hypot(a.figure.root.position.x - start.x, a.figure.root.position.z - start.z) - Math.hypot(b.figure.root.position.x - start.x, b.figure.root.position.z - start.z))[0];
   if (greeter) game.greetCitizen(greeter.id);
+  // 门（第三轮需求 3）：离你最近的那扇门敲一下，门上的"咚、咚"与门里的应声在走路这一段逐帧核对
+  const nearestDoor = [...(game.world?.doors?.values() ?? [])]
+    .sort((a, b) => Math.hypot(a.x - start.x, a.z - start.z) - Math.hypot(b.x - start.x, b.z - start.z))[0];
+  if (nearestDoor) game.knock(nearestDoor.id);
   const key = (type, code) => window.dispatchEvent(new KeyboardEvent(type, { code, key: code.slice(3).toLowerCase() }));
   key('keydown', 'KeyW');
   key('keydown', 'KeyD');

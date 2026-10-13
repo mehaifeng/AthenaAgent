@@ -875,6 +875,9 @@ public partial class App : Application, IAsyncDisposable
                 new Athena.UI.Services.GameMode.PolisContestStore(
                     Path.Combine(sp.GetRequiredService<IPlatformPathService>().GetAppDataDirectory(), "Game", "contests.json"), Log.Logger),
                 Log.Logger));
+        // 人物关系（第三轮）：全局的 Game/relations.json，只记事件带来的变化（起点按真实的数现推）
+        services.AddSingleton(sp => new Athena.UI.Services.GameMode.PolisRelationStore(
+            Path.Combine(sp.GetRequiredService<IPlatformPathService>().GetAppDataDirectory(), "Game", "relations.json"), Log.Logger));
         services.AddSingleton<Athena.UI.ViewModels.GameMode.GameModeViewModel>(sp =>
             new Athena.UI.ViewModels.GameMode.GameModeViewModel(
                 sp.GetRequiredService<AppConfigurationSession>(),
@@ -886,7 +889,8 @@ public partial class App : Application, IAsyncDisposable
                 sp.GetRequiredService<ICronTaskReader>(),
                 sp.GetRequiredService<Athena.UI.Services.GameMode.PolisAssetStore>(),
                 sp.GetRequiredService<Athena.UI.Services.GameMode.IPolisTalkService>(),
-                sp.GetRequiredService<Athena.UI.Services.GameMode.IPolisDebateService>()));
+                sp.GetRequiredService<Athena.UI.Services.GameMode.IPolisDebateService>(),
+                sp.GetRequiredService<Athena.UI.Services.GameMode.PolisRelationStore>()));
         services.AddSingleton<AboutViewModel>();
         services.AddTransient<AppSettingsWindowViewModel>();
         services.AddTransient<ProviderModelsViewModel>();

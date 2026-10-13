@@ -21,6 +21,10 @@ export const INTENT_TYPES = Object.freeze([
   'citizen-transcript',
   // M-E：讲台前的辩论（提议题、一轮的论点、不辩了）
   'debate-start', 'debate-say', 'debate-end',
+  // 第三轮（需求 6）：你自己说了一句，附近的几个人依次接话（按顺序开口的人，最多三位）
+  'chorus',
+  // 第三轮（需求 3）：敲门（屋里听见的人）、请他出来
+  'knock', 'call-out',
 ]);
 
 export function intent(type, fields = {}) {

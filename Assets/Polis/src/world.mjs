@@ -19,6 +19,7 @@ import { BLOCK, STREET, PLOT } from './layout.mjs';
 import { venueSlotLocal, groveSpot, VENUES, SLOTS_PER_VENUE } from './civic-layout.mjs';
 import { createOccupancy, footprintOf, footprintOfGeometry, BLOCKING_HEIGHT } from './footprint.mjs';
 import { lampField, setLampField } from './art/lamps.mjs';
+import { DOOR, usableSill, findDoorstep, planApproach, insidePoint } from './doors.mjs';
 
 /** 公共建筑的名字。实时模式里由 C# 按界面语言推来（locale 文件），这里是独立打开页面时的默认值。 */
 export const PUBLIC_NAMES = Object.freeze({
@@ -85,6 +86,8 @@ export function buildWorld(scene, city, layout, M, options) {
     };
     walk(root);
     layout.setObstacles(obstacles);
+    // 门阶与门前的路按新的栅格重新算（第一次用到时）
+    for (const d of world.doors?.values() ?? []) d.plan = undefined;
     // 城里的东西变了，居民站的地方和出门的那段路也要重新挑（神谕的月桂可能正落在侍女出门的路上）
     for (const resident of world.residents.values()) settleResident(resident);
     return occupancy.stamped;
@@ -373,10 +376,86 @@ export function buildWorld(scene, city, layout, M, options) {
     const height = group.userData.height ?? 5;
     // 户的民居（M-D）名牌写户名（"整理合同一家"）；文件夹的建筑写文件夹名
     const label = labelAt(bld.label ?? bld.key, plot, height, 'building', `b:${bld.key}`);
-    const entry = { group, height, kind: bld.kind, building: bld, label };
+    const entry = { group, height, kind: bld.kind, building: bld, label, doors: [] };
     world.buildings.set(`b:${bld.key}`, entry);
+    addDoors(entry, bld, plot);
     return entry;
   }
+
+  // —— 门（第三轮需求 2，2026-10-13）：建筑登记的门（kit.door），地面上的那几扇（doors.usableSill）挂会转的门扇，
+  // 向屋里开（扇板转进墙里，看得见的是门洞里的暗处，夜里是灯光）；关着时四边留一道缝。宽过 1.4 米的是两扇对开。
+  // 门扇不进占用栅格（它在墙面上，足迹不变——你照旧进不去）。门阶与走到街上的路第一次用到时才算（doorPlan）。 ——
+  world.doors = new Map();   // id（"<文件夹>#<第几扇>"）→ { id, building, x, z, y, w, h, nx, nz, leaves, open, plan }
+  function buildLeaf(lw, lh, side) {
+    const kit = new Kit();
+    const cx = -side * lw / 2;
+    kit.box(M.wood, lw, lh, 0.05, cx, lh / 2, 0);
+    for (const fy of [0.2, 0.78]) kit.box(M.darkWood, lw - 0.08, 0.09, 0.02, cx, lh * fy, 0.034);
+    kit.box(M.darkWood, 0.05, lh - 0.04, 0.02, cx + side * (lw / 2 - 0.05), lh / 2, 0.034);   // 合页那一侧的竖档
+    // 铁环门环：在靠中缝那一侧、齐胸高
+    kit.add(M.bronze, new THREE.TorusGeometry(0.055, 0.009, 6, 16), m4(cx - side * (lw / 2 - 0.16), Math.min(1.25, lh * 0.58), 0.05));
+    const g = kit.build();
+    g.traverse((o) => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; } });
+    return g;
+  }
+  function addDoors(entry, bld, plot) {
+    (entry.group.userData.doors ?? []).forEach((d, i) => {
+      if (!usableSill(d)) return;
+      const id = `${bld.key}#${i}`;
+      // 建筑一律朝南（layout.facingFor）：门的本地坐标直接加到地块中心上
+      const x = plot.cx + d.x, z = plot.cz + d.z;
+      const two = d.w > 1.4;
+      const lw = (two ? d.w / 2 : d.w) - 0.04, lh = d.h - 0.05;
+      const leaves = [];
+      for (const side of two ? [-1, 1] : [-1]) {
+        const pivot = new THREE.Group();
+        pivot.name = `door:${id}`;
+        // 合页在门洞的边上，扇板贴在发光的门洞前面（门洞的盒子前面在墙面外 6 厘米）
+        pivot.position.set(x + side * (d.w / 2 - 0.02), d.y + 0.02, z + 0.09);
+        pivot.add(buildLeaf(lw, lh, side));
+        add(pivot);
+        leaves.push({ pivot, side });
+      }
+      world.doors.set(id, { id, building: `b:${bld.key}`, x, z, y: d.y, w: d.w, h: d.h, nx: 0, nz: 1, leaves, open: 0, plan: undefined });
+      entry.doors.push(id);
+    });
+  }
+  function removeDoors(entry) {
+    for (const id of entry?.doors ?? []) {
+      const d = world.doors.get(id);
+      if (!d) continue;
+      for (const { pivot } of d.leaves) disposeGroup(pivot);
+      world.doors.delete(id);
+    }
+  }
+  /** 一扇门的门阶、门里那一点、门阶到街上的路（第一次用到时算，之后记着；走不到街上为 null）。 */
+  world.doorPlan = (id) => {
+    const d = world.doors.get(id);
+    if (!d) return null;
+    if (d.plan !== undefined) return d.plan;
+    const step = findDoorstep(d, layout.walkable);
+    const plot = layout.plots.get(d.building);
+    let approach = null;
+    if (step && plot) {
+      const half = PLOT / 2 + DOOR.pad;
+      approach = planApproach(step, layout.sitePoint(d.building), layout.walkable,
+        { minX: plot.cx - half, maxX: plot.cx + half, minZ: plot.cz - half, maxZ: plot.cz + half });
+    }
+    d.plan = step && approach ? { id, step, inside: insidePoint(d), approach, sill: d.y, nx: d.nx, nz: d.nz, x: d.x, z: d.z, w: d.w, h: d.h } : null;
+    return d.plan;
+  };
+  /** 一个家（站点名）用哪扇门：这座楼能走到街上的门里按种子挑一扇（两户并排的民居有两扇）；没有为 null。 */
+  world.doorFor = (site, seed) => {
+    const ids = (world.buildings.get(site)?.doors ?? []).filter((id) => world.doorPlan(id));
+    return ids.length ? world.doorPlan(ids[(seed >>> 0) % ids.length]) : null;
+  };
+  /** 门开几分（0 关、1 开到 92°）：两扇对开的反着转，都向屋里。 */
+  world.setDoorOpen = (id, k) => {
+    const d = world.doors.get(id);
+    if (!d || d.open === k) return;
+    d.open = k;
+    for (const { pivot, side } of d.leaves) pivot.rotation.y = -side * k * DOOR.openAngle;
+  };
 
   // 被删掉的文件夹留下的空地：一圈残存的地基石
   function placeVacant(v) {
@@ -544,6 +623,7 @@ export function buildWorld(scene, city, layout, M, options) {
     const id = `b:${bld.key}`;
     const old = world.buildings.get(id);
     if (old) {
+      removeDoors(old);
       disposeGroup(old.group);
       world.labels.splice(world.labels.indexOf(old.label), 1);
       world.buildings.delete(id);
@@ -565,6 +645,7 @@ export function buildWorld(scene, city, layout, M, options) {
     const id = `b:${v.key}`;
     const old = world.buildings.get(id);
     if (old) {
+      removeDoors(old);
       disposeGroup(old.group);
       world.labels.splice(world.labels.indexOf(old.label), 1);
       world.buildings.delete(id);
@@ -589,6 +670,7 @@ export function buildWorld(scene, city, layout, M, options) {
       }
       const i = world.labels.indexOf(c.label);
       if (i >= 0) world.labels.splice(i, 1);
+      world.setStation(id, null);
       world.citizens.delete(id);
     }
     for (const [id, data] of want) {
@@ -600,12 +682,33 @@ export function buildWorld(scene, city, layout, M, options) {
         if (moved) existing.plan = null;   // 搬了家（最常碰的文件夹换了）：日程重算
         continue;
       }
-      const look = citizenLook(data.seed, { age: data.age ?? 'adult' });
+      const look = citizenLook(data.seed, { age: data.age ?? 'adult', trade: data.trade ?? null });
       const label = { text: data.name ?? '', kind: 'citizen', key: `citizen:${id}`, anchor: new THREE.Vector3() };
       world.labels.push(label);
       world.citizens.set(id, { id, data, look, figure: null, label, plan: null, nudge: { x: 0, z: 0 }, tier: 'C', yawNow: null });
     }
   };
+  /**
+   * 门前干活的工位（第三轮需求 4，citizens 规则 7）：一位居民一件，摆在他门前干活的地方的前面、正面朝着他；station 为 null 是收掉。
+   * 不挡路（资产登记为不参与碰撞），所以摆、挪、收都不用重盖占用栅格。
+   */
+  world.stations = new Map();   // 居民 id → { kind, x, z, yaw, object }
+  world.setStation = (id, station) => {
+    const old = world.stations.get(id);
+    if (old && (!station || old.kind !== station.kind)) {
+      disposeGroup(old.object);
+      world.stations.delete(id);
+    }
+    if (!station) return;
+    const entry = world.stations.get(id) ?? { object: add(assets.object(`prop.station-${station.kind}`)) };
+    Object.assign(entry, { kind: station.kind, x: station.x, z: station.z, yaw: station.yaw });
+    entry.object.name = `station:${id}`;
+    entry.object.position.set(station.x, world.groundAt(station.x, station.z), station.z);
+    entry.object.rotation.y = station.yaw;
+    entry.object.scale.setScalar(station.scale ?? 1);   // 按干活的人的身高（姿势是拿参照人解的，crafts 规则 4）
+    world.stations.set(id, entry);
+  };
+
   /** 建下一位还没有人物的居民；建了返回 true。 */
   world.buildNextCitizen = () => {
     for (const c of world.citizens.values()) {

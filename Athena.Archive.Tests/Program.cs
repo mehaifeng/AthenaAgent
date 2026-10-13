@@ -242,6 +242,9 @@ var tests = new (string Name, Func<Task> Run)[]
     ("polis talk: a citizen talks with a seeded temperament and trade, the city as his world and only his own passages as memory; the reply streams through the companion (or title) role without temperature, one line per pool at a time and an hourly cap per pool", TestPolisTalkAsync),
     ("polis debate: three rounds of you then Athena, a strict jury verdict where anything less is a tie, a global record kept atomically, the main model for Athena and the companion (or title) role for the jury, ten an hour, and bounded motions and arguments", TestPolisDebateAsync),
     ("polis households: citizens with no folder gather into households by title or month, at most six to a house and sixteen houses, keyed by the founder and placed in the same ledger as folders, never moved, never counted against the folder cap, and kept across a reconcile", TestPolisHouseholdsAsync),
+    ("polis relations: every bond starts from real facts (the conversation's outcome, rounds, temperament, household, building, title, chemistry), only events are kept and fade with a half-life, chats and pestering are capped per hour, patience and coming out follow the band, the ledger is atomic and set aside when unreadable, and no title or message text reaches the page", TestPolisRelationsAsync),
+    ("polis chorus: when you speak to nobody in particular up to three nearby people answer in turn, the later ones hearing the earlier and knowing how they stand with them, on a pool of their own; the page names them and C# checks every one", TestPolisChorusAsync),
+    ("polis doors: knocking names who is behind the door, calling someone out and talking through the door are checked like every other intent, and the prompt says the door is shut and how this round ends", TestPolisDoorsAsync),
     ("polis collection: accepted items are placed, moved and taken down in the save only; a lost item keeps its pedestal and only a click removes it; v2 saves migrate", TestPolisCollectionAsync),
     ("polis grove: one olive tree per completed commission, ordered by when it started, aged by its turns, derived from sessions alone", TestPolisGroveDerivationAsync),
     ("polis residents: each capability brings its resident at its first successful use, every registered tool has one, and the town re-derives from the archive", TestPolisResidentDerivationAsync),
@@ -11839,6 +11842,317 @@ static async Task TestPolisDebateAsync()
         ("""{"v":1,"type":"debate-say","text":42}""", "论点不是字符串"),
     })
         AssertFalse(PolisIntents.Validate(body, context).Accepted, $"拒绝：{why}");
+}
+
+static async Task TestPolisRelationsAsync()
+{
+    var now = new DateTimeOffset(2026, 10, 13, 9, 0, 0, TimeSpan.Zero);
+    PolisCitizen Citizen(string id, string title, int turns, bool interrupted = false, double updatedDaysAgo = 1)
+        => PolisCitizens.Derive(new[] { new PolisCitizenSource(new PolisCommission(id, null, title, now.AddDays(-40), now.AddDays(-updatedDaysAgo), turns, false, false, interrupted, null), Array.Empty<ChatMessage>()) },
+            null, null, new HashSet<string>(), new HashSet<string>(), now).Single();
+
+    // —— 规则 1：五档 ——
+    AssertEqual(PolisRelationBand.Close, PolisRelations.BandOf(60), "60 是亲近");
+    AssertEqual(PolisRelationBand.Friendly, PolisRelations.BandOf(59), "59 是友好");
+    AssertEqual(PolisRelationBand.Friendly, PolisRelations.BandOf(25), "25 是友好");
+    AssertEqual(PolisRelationBand.Neutral, PolisRelations.BandOf(24), "24 是寻常");
+    AssertEqual(PolisRelationBand.Neutral, PolisRelations.BandOf(-24), "−24 是寻常");
+    AssertEqual(PolisRelationBand.Cool, PolisRelations.BandOf(-25), "−25 是冷淡");
+    AssertEqual(PolisRelationBand.Cool, PolisRelations.BandOf(-59), "−59 是冷淡");
+    AssertEqual(PolisRelationBand.Hostile, PolisRelations.BandOf(-60), "−60 是厌恶");
+
+    // —— 脾气、职业的位置与性子表一致（暖度、耐心按位置取） ——
+    var byIndex = new Dictionary<int, string>();
+    var tradeByIndex = new Dictionary<int, string>();
+    for (uint k = 0; k < 3000; k++)
+    {
+        var seed = k * 2654435761u + 17;
+        var persona = PolisTalk.PersonaFor(seed, "zh-CN");
+        var t = PolisTalk.TemperamentIndex(seed);
+        if (byIndex.TryGetValue(t, out var name)) AssertEqual(name, persona.Temperament, "同一个脾气位置是同一种脾气");
+        else byIndex[t] = persona.Temperament;
+        var trade = PolisTalk.TradeIndex(seed);
+        if (tradeByIndex.TryGetValue(trade, out var tradeName)) AssertEqual(tradeName, persona.Trade, "同一个职业位置是同一种职业");
+        else tradeByIndex[trade] = persona.Trade;
+    }
+    AssertEqual(PolisTalk.TableSizes.Temperaments, byIndex.Values.Distinct().Count(), "每个脾气位置一种脾气");
+    AssertEqual(PolisRelations.Warmth.Count, PolisTalk.TableSizes.Temperaments, "暖度表和脾气表一样长");
+    AssertEqual(PolisRelations.Talkativeness.Count, PolisTalk.TableSizes.Temperaments, "健谈表和脾气表一样长");
+    AssertEqual(PolisTalk.TableSizes.Trades, PolisTalk.TradeKeys.Count, "职业的键和职业表一样长");
+    AssertEqual(PolisTalk.TradeKeys.Count, PolisTalk.TradeKeys.Distinct().Count(), "职业的键不重复");
+    // 页面的 art/crafts.mjs tradeOf 用同一个式子按种子挑职业（夹具与演示里没带职业时）：crafts.test.mjs 断言同样的十组
+    foreach (var (seed, key) in new (uint, string)[]
+             {
+                 (0u, "potter"), (1u, "carpenter"), (7u, "baker"), (12345u, "herbalist"), (2654435761u, "beekeeper"), (4294967295u, "carpenter"),
+                 (2654435769u, "musician"), (305419896u, "potter"), (99999u, "potter"), (3141592653u, "boatwright"),
+             })
+    {
+        AssertEqual(key, PolisTalk.TradeKeys[PolisTalk.TradeIndex(seed)], $"种子 {seed} 的职业与页面的 tradeOf 一致");
+    }
+
+    // —— 规则 2：他对你的起点按真实的数推 ——
+    var done = PolisRelations.CitizenPerson(Citizen("done-0001", "整理租赁合同", turns: 12));
+    var stopped = PolisRelations.CitizenPerson(Citizen("stop-0001", "整理租赁合同", turns: 0, interrupted: true));
+    var doneScore = PolisRelations.BaseToPlayer(done).Score;
+    var stoppedScore = PolisRelations.BaseToPlayer(stopped with { Seed = done.Seed, Temperament = done.Temperament }).Score;
+    AssertEqual(15 + 12 + 10, doneScore - stoppedScore, "办完了 +15、来回 12 回 +12，做到一半停下 −10（同样的脾气与种子）");
+    AssertEqual(doneScore, PolisRelations.BaseToPlayer(done).Score, "同样的人同样的起点");
+    var stale = done with { IdleDays = 30 };
+    AssertEqual(5, doneScore - PolisRelations.BaseToPlayer(stale).Score, "两周内动过 +5");
+    var warmest = done with { Temperament = 5 };
+    var grumbler = done with { Temperament = 10 };
+    AssertEqual(35, PolisRelations.BaseToPlayer(warmest).Score - PolisRelations.BaseToPlayer(grumbler).Score, "热心肠 +20、爱发牢骚 −15");
+    AssertTrue(PolisRelations.BaseToPlayer(done).Parts.Any(p => p.Why == "done"), "原因里有「办完了」");
+    var priestess = PolisRelations.ResidentPerson(PolisResidentKind.Priestess);
+    var accountant = PolisRelations.ResidentPerson(PolisResidentKind.Accountant);
+    AssertEqual("resident:priestess", priestess.Id, "职业居民的 Id 是 resident:<名字>");
+    AssertTrue(PolisRelations.BaseToPlayer(priestess).Score > PolisRelations.BaseToPlayer(accountant).Score, "女祭司比账房温和");
+
+    // —— 规则 2：两人之间（有方向） ——
+    AssertEqual(PolisRelations.Chemistry(11u, 99u), PolisRelations.Chemistry(99u, 11u), "缘分对称");
+    var chems = Enumerable.Range(0, 2000).Select(i => PolisRelations.Chemistry((uint)i * 2654435761u, (uint)(i + 7) * 2246822519u)).ToList();
+    AssertTrue(chems.All(c => c >= -30 && c <= 30) && chems.Min() < -20 && chems.Max() > 20, $"缘分在 −30…30，两头都取得到（{chems.Min()}…{chems.Max()}）");
+    var a = PolisRelations.CitizenPerson(Citizen("pair-a", "整理租赁合同", 3));
+    var b = PolisRelations.CitizenPerson(Citizen("pair-b", "租赁合同续签", 3));
+    var strangers = PolisRelations.BasePair(a with { Household = null, Building = null, TitleTokens = new HashSet<string>() }, b with { Household = null, Building = null, TitleTokens = new HashSet<string>() });
+    var family = PolisRelations.BasePair(a with { Household = "b:household:x", Building = null }, b with { Household = "b:household:x", Building = null });
+    AssertTrue(family - strangers >= 40, $"同一户 +40 以上（标题也像）：{strangers} → {family}");
+    var neighbours = PolisRelations.BasePair(a with { Building = "b:合同", Household = null, TitleTokens = new HashSet<string>() }, b with { Building = "b:合同", Household = null, TitleTokens = new HashSet<string>() });
+    AssertEqual(25, neighbours - strangers, "住同一座楼 +25");
+    var warmA = a with { Temperament = 5, Household = null, Building = null, TitleTokens = new HashSet<string>() };
+    var coldB = b with { Temperament = 10, Household = null, Building = null, TitleTokens = new HashSet<string>() };
+    AssertTrue(PolisRelations.BasePair(warmA, coldB) > PolisRelations.BasePair(coldB, warmA), "热心肠的那位对人更好一些（有方向）");
+
+    // —— 规则 3：事件、上限、夹住 ——
+    var ledger = PolisRelationLedger.Empty;
+    double total = 0;
+    for (var i = 0; i < 5; i++)
+    {
+        (ledger, var applied) = PolisRelations.Apply(ledger, a.Id, PolisRelationEvent.Chat, now.AddMinutes(i));
+        total += applied;
+    }
+    AssertEqual(6d, total, "聊一句 +2，每人每小时最多 +6");
+    (ledger, var later) = PolisRelations.Apply(ledger, a.Id, PolisRelationEvent.Chat, now.AddMinutes(70));
+    AssertEqual(2d, later, "过了一小时又能 +2");
+    (ledger, var heardTwice) = PolisRelations.Apply(ledger, a.Id, PolisRelationEvent.Overheard, now.AddMinutes(71));
+    (ledger, var heardThrice) = PolisRelations.Apply(ledger, a.Id, PolisRelationEvent.Overheard, now.AddMinutes(72));
+    (ledger, var heardFourth) = PolisRelations.Apply(ledger, a.Id, PolisRelationEvent.Overheard, now.AddMinutes(73));
+    AssertEqual(2d, heardTwice + heardThrice + heardFourth, "接你的话 +1，每小时最多 +2");
+    var pester = PolisRelationLedger.Empty;
+    double pesterTotal = 0;
+    for (var i = 0; i < 4; i++)
+    {
+        (pester, var applied) = PolisRelations.Apply(pester, a.Id, PolisRelationEvent.Pestered, now.AddSeconds(i * 10));
+        pesterTotal += applied;
+    }
+    AssertEqual(-6d, pesterTotal, "敲得太勤 −3，每小时最多 −6");
+    var clamp = PolisRelationLedger.Empty;
+    for (var h = 0; h < 40; h++) (clamp, _) = PolisRelations.Apply(clamp, a.Id, PolisRelationEvent.Chat, now.AddHours(h).AddMinutes(1));
+    AssertTrue(PolisRelations.PlayerDelta(clamp, a.Id, now.AddHours(40)) <= PolisRelations.MaxPlayerDelta + 1e-9, "对你的累计变化夹在 +60 之内");
+    (var away, var sentAway) = PolisRelations.Apply(PolisRelationLedger.Empty, a.Id, PolisRelationEvent.SentAway, now);
+    AssertEqual(-4d, sentAway, "说烦了 −4");
+    AssertTrue(PolisRelations.Ignoring(away, a.Id, now.AddMinutes(2)) && !PolisRelations.Ignoring(away, a.Id, now.AddMinutes(4)), "打发了你，三分钟里不应门");
+    AssertTrue(PolisRelations.IsPestering(away, a.Id, now.AddSeconds(20)) && !PolisRelations.IsPestering(away, a.Id, now.AddSeconds(40)), "打发之后 30 秒内再敲算敲得太勤");
+
+    // —— 规则 5：两分钟里第三次敲 ——
+    var knocks = PolisRelationLedger.Empty;
+    AssertFalse(PolisRelations.IsPestering(knocks, a.Id, now), "第一次敲不算");
+    (knocks, _) = PolisRelations.Apply(knocks, a.Id, PolisRelationEvent.Knock, now);
+    AssertFalse(PolisRelations.IsPestering(knocks, a.Id, now.AddSeconds(30)), "第二次敲不算");
+    (knocks, _) = PolisRelations.Apply(knocks, a.Id, PolisRelationEvent.Knock, now.AddSeconds(30));
+    AssertTrue(PolisRelations.IsPestering(knocks, a.Id, now.AddSeconds(60)), "两分钟里第三次敲算敲得太勤");
+    AssertFalse(PolisRelations.IsPestering(knocks, a.Id, now.AddMinutes(5)), "过了两分钟不算");
+
+    // —— 淡去：半衰期 30 天 ——
+    AssertTrue(Math.Abs(PolisRelations.Decayed(8, now, now.AddDays(30)) - 4) < 1e-9, "30 天淡去一半");
+    AssertEqual(8d, PolisRelations.Decayed(8, now, now.AddDays(-3)), "将来的时刻不放大");
+
+    // —— 规则 4：耐心、叫得出来、出门来谈 ——
+    var friendlyView = PolisRelations.ToPlayer(done with { FixedBase = 40, Temperament = -1 }, PolisRelationLedger.Empty, now);
+    AssertTrue(friendlyView.Band == PolisRelationBand.Friendly && friendlyView.Opens && friendlyView.ComesOut, "友好：叫得出来，说到头出门来谈");
+    var neutralView = PolisRelations.ToPlayer(done with { FixedBase = 0, Temperament = -1 }, PolisRelationLedger.Empty, now);
+    AssertTrue(neutralView.Opens && !neutralView.ComesOut, "寻常：叫得出来，说到头请你走");
+    var coolView = PolisRelations.ToPlayer(done with { FixedBase = -40, Temperament = -1 }, PolisRelationLedger.Empty, now);
+    AssertTrue(!coolView.Opens && !coolView.ComesOut, "冷淡：叫不出来");
+    AssertEqual(3, neutralView.Patience, "寻常的耐心三轮");
+    AssertEqual(1, PolisRelations.ToPlayer(done with { FixedBase = -100, Temperament = -1 }, PolisRelationLedger.Empty, now).Patience, "厌恶到底：一轮");
+    AssertEqual(5, PolisRelations.ToPlayer(done with { FixedBase = 100, Temperament = -1 }, PolisRelationLedger.Empty, now).Patience, "亲近到顶：五轮");
+    var unhurried = PolisRelations.ToPlayer(stopped with { Temperament = 4 }, PolisRelationLedger.Empty, now);
+    var impatient = PolisRelations.ToPlayer(stopped with { Temperament = 9 }, PolisRelationLedger.Empty, now);
+    AssertTrue(unhurried.Patience >= impatient.Patience, "慢性子比急性子耐心");
+    var withChats = PolisRelations.ToPlayer(a, clamp, now.AddHours(40));
+    AssertTrue(withChats.Score > PolisRelations.ToPlayer(a, PolisRelationLedger.Empty, now.AddHours(40)).Score && withChats.Why.Contains("chats"), "聊得多了分数高，原因里有「聊过」");
+
+    // —— 规则 3：闲聊，彼此 +1，最多 +15 ——
+    var ambient = PolisRelationLedger.Empty;
+    for (var i = 0; i < 30; i++) ambient = PolisRelations.ApplyAmbient(ambient, b.Id, a.Id, now);
+    var (ab, ba) = PolisRelations.Between(a, b, ambient, now);
+    var (ab0, ba0) = PolisRelations.Between(a, b, PolisRelationLedger.Empty, now);
+    AssertEqual(15, ab - ab0, "a 对 b：闲聊累计最多 +15");
+    AssertEqual(15, ba - ba0, "b 对 a：闲聊累计最多 +15");
+    AssertEqual(1, ambient.Pairs.Count, "一对只记一条（两头按序数排）");
+    AssertTrue(string.CompareOrdinal(ambient.Pairs[0].A, ambient.Pairs[0].B) < 0, "A 排在 B 前面");
+
+    // —— 存盘前收拾：删掉的会话、淡没了的清掉 ——
+    var pruned = PolisRelations.Prune(clamp, new HashSet<string>(StringComparer.Ordinal) { "someone-else" }, now.AddHours(40));
+    AssertEqual(0, pruned.You.Count, "不认识的人（会话删掉了）的账清掉");
+    var faded = PolisRelations.Prune(away, new HashSet<string>(StringComparer.Ordinal) { a.Id }, now.AddDays(400));
+    AssertEqual(0, faded.You.Count, "淡没了、最近一小时也没事的清掉");
+
+    // —— 推给页面的：you 有居民与职业居民，pairs 只给街上的，ties 每人最多三个；没有任何消息正文 ——
+    var people = new[] { a, b, done, PolisRelations.ResidentPerson(PolisResidentKind.Smith) };
+    var payload = System.Text.Json.JsonSerializer.Serialize(PolisRelations.Payload(people, new HashSet<string>(StringComparer.Ordinal) { a.Id, b.Id, "resident:smith" }, ambient, now));
+    using (var doc = System.Text.Json.JsonDocument.Parse(payload))
+    {
+        var root = doc.RootElement;
+        AssertEqual(4, root.GetProperty("you").EnumerateObject().Count(), "you：每个人一条");
+        AssertTrue(root.GetProperty("you").TryGetProperty("resident:smith", out var smith) && smith.GetProperty("band").GetString() != null, "职业居民也在里面");
+        AssertEqual(3, root.GetProperty("pairs").GetArrayLength(), "pairs：只给街上的三个人两两之间");
+        foreach (var tie in root.GetProperty("ties").EnumerateObject())
+            AssertTrue(tie.Value.GetProperty("friends").GetArrayLength() <= PolisRelations.MaxTies && tie.Value.GetProperty("rivals").GetArrayLength() <= PolisRelations.MaxTies, "每人最多三个朋友、三个不和的人");
+    }
+    AssertFalse(payload.Contains("租赁", StringComparison.Ordinal) || payload.Contains("合同", StringComparison.Ordinal), "关系里没有标题、文件夹或任何正文");
+
+    // —— 提示词：他对你的态度、两人的交情 ——
+    var world = new PolisWorldFacts("我的工作区", false, false, 4, new[] { "合同" });
+    var speaker = new PolisSpeaker("阿里斯通", false, PolisCitizenAge.Adult, PolisTalk.PersonaFor(a.Seed, "zh-CN"), "（身份）");
+    var cold = PolisTalk.AttitudeText(PolisRelationBand.Hostile, "zh-CN");
+    var chat = PolisTalk.BuildChat(world, speaker, Array.Empty<PolisCitizenExcerpt>(), Array.Empty<PolisTalkTurn>(), "你好", "zh-CN", cold);
+    AssertTrue(chat.System.Contains(cold, StringComparison.Ordinal) && chat.System.IndexOf(cold, StringComparison.Ordinal) < chat.System.IndexOf("口语交谈", StringComparison.Ordinal), "态度跟在「他是谁」后面、规矩前面");
+    AssertTrue(cold.Contains("不骂人", StringComparison.Ordinal), "厌恶也不许骂人");
+    AssertFalse(PolisTalk.BuildChat(world, speaker, Array.Empty<PolisCitizenExcerpt>(), Array.Empty<PolisTalkTurn>(), "你好", "zh-CN").System.Contains("城的主人有点冷淡", StringComparison.Ordinal), "没给态度就没有那一句");
+    var other = speaker with { Name = "达芙妮", Female = true };
+    var ties = PolisTalk.TiesText(PolisRelationBand.Close, "达芙妮", "zh-CN");
+    AssertTrue(PolisTalk.BuildAmbientLine(world, speaker, other, null, "zh-CN", ties).System.Contains(ties, StringComparison.Ordinal), "闲聊的提示词里有两人的交情");
+    AssertTrue(PolisTalk.AttitudeText(PolisRelationBand.Close, "en-US").All(c => c < 128) && PolisTalk.TiesText(PolisRelationBand.Cool, "Daphne", "en-US").Contains("Daphne", StringComparison.Ordinal), "英文一份");
+
+    // —— 存储：来回一致；坏了改名留着；更新的版本写的也改名留着；不留临时文件 ——
+    var dir = Path.Combine(Path.GetTempPath(), "athena-polis-relations-" + Guid.NewGuid().ToString("N"));
+    try
+    {
+        var path = Path.Combine(dir, "Game", "relations.json");
+        using (var store = new PolisRelationStore(path, new LoggerConfiguration().CreateLogger()))
+        {
+            AssertEqual(0, (await store.LoadAsync()).You.Count, "没有文件就是空的账本");
+            var saved = clamp with { Pairs = ambient.Pairs };
+            await store.SaveAsync(saved);
+            var back = await store.LoadAsync();
+            AssertEqual(1, back.You.Count, "来回：人");
+            AssertTrue(Math.Abs(back.You[0].Delta - saved.You[0].Delta) < 0.001, "来回：变化");
+            AssertEqual(saved.You[0].Recent.Count, back.You[0].Recent.Count, "来回：最近几笔");
+            AssertEqual(1, back.Pairs.Count, "来回：对");
+            AssertEqual(0, Directory.GetFiles(Path.GetDirectoryName(path)!, "*.tmp").Length, "不留临时文件");
+            AssertFalse(File.ReadAllText(path).Contains("租赁", StringComparison.Ordinal), "账本里只有 Id 与数");
+            File.WriteAllText(path, "{ not json");
+            AssertEqual(0, (await store.LoadAsync()).You.Count, "读不懂：从空的账本重新记");
+            AssertTrue(Directory.GetFiles(Path.GetDirectoryName(path)!, "relations.json.corrupt-*").Length == 1, "读不懂的文件改名留着");
+            AssertFalse(File.Exists(path), "读不懂的文件不留在原处");
+            File.WriteAllText(path, """{ "schemaVersion": 99, "you": [], "pairs": [] }""");
+            AssertEqual(0, (await store.LoadAsync()).You.Count, "更新的版本写的：不读");
+            AssertFalse(File.Exists(path), "更新的版本写的文件也改名留着，不覆盖");
+        }
+    }
+    finally
+    {
+        try { Directory.Delete(dir, recursive: true); } catch (IOException) { /* 临时目录清理失败不影响断言 */ }
+    }
+}
+
+static Task TestPolisChorusAsync()
+{
+    // —— 意图：chorus { text, who: [按顺序开口的人] }——1–3 位、不重复、都是这座城的居民或职业居民；一句 1–300 字，超长整条拒绝 ——
+    var context = new PolisIntentContext(null, new HashSet<string> { "c1", "c2", "c3", "c4" }, new HashSet<string>())
+    {
+        KnownCitizenIds = new HashSet<string> { "c1", "c2", "c3", "c4" },
+        KnownResidentIds = new HashSet<string> { "scribe" },
+    };
+    var ok = PolisIntents.Validate("""{"v":1,"type":"chorus","text":"  今天风真大  ","who":["c2","resident:scribe","c1"]}""", context);
+    AssertTrue(ok.Accepted && ok.Intent!.Type == PolisIntentType.Chorus, "附近的三位依次接话");
+    AssertEqual("今天风真大", ok.Intent!.Text, "去掉首尾空白");
+    AssertTrue(ok.Intent.Speakers!.SequenceEqual(new[] { "c2", "resident:scribe", "c1" }), "开口的先后照页面排的");
+    foreach (var (body, why) in new[]
+    {
+        ("""{"v":1,"type":"chorus","text":"你好","who":[]}""", "没有人"),
+        ("""{"v":1,"type":"chorus","text":"你好","who":["c1","c2","c3","c4"]}""", "多过三位"),
+        ("""{"v":1,"type":"chorus","text":"你好","who":["c1","c1"]}""", "同一位两次"),
+        ("""{"v":1,"type":"chorus","text":"你好","who":["c1","c9"]}""", "别的城的人"),
+        ("""{"v":1,"type":"chorus","text":"你好","who":["resident:smith"]}""", "不在这座城里的职业居民"),
+        ("""{"v":1,"type":"chorus","text":"你好","who":"c1"}""", "who 不是一串"),
+        ("""{"v":1,"type":"chorus","text":"   ","who":["c1"]}""", "只有空白"),
+        ("""{"v":1,"type":"chorus","who":["c1"]}""", "没有话"),
+        ($$"""{"v":1,"type":"chorus","text":"{{new string('风', PolisTalk.MaxLineChars + 1)}}","who":["c1"]}""", "超长（不截断，整条拒绝）"),
+    })
+        AssertFalse(PolisIntents.Validate(body, context).Accepted, $"拒绝：{why}");
+    AssertTrue(PolisIntents.KnownTypeNames.Contains("chorus"), "chorus 在封闭集合里");
+
+    // —— 插一句的提示词：世界观、他是谁、他对你的态度、插话的规矩、他和前面每一位的交情；消息是你那句（听见的）加前面几位依次说的 ——
+    var world = new PolisWorldFacts("我的工作区", false, false, 4, new[] { "合同" });
+    var speaker = new PolisSpeaker("达芙妮", true, PolisCitizenAge.Young, PolisTalk.PersonaFor(42u, "zh-CN"), "（身份）");
+    var attitude = PolisTalk.AttitudeText(PolisRelationBand.Friendly, "zh-CN");
+    var ties = PolisTalk.TiesText(PolisRelationBand.Cool, "阿里斯通", "zh-CN");
+    var prompt = PolisTalk.BuildChorusLine(world, speaker, attitude, "  今天风真大 ", new[] { ("阿里斯通", " 港口的船都靠岸了。 ", (string?)ties) }, "zh-CN");
+    AssertTrue(prompt.System.Contains("「我的工作区」", StringComparison.Ordinal) && prompt.System.Contains("「达芙妮」", StringComparison.Ordinal), "有世界观、有他是谁");
+    AssertTrue(prompt.System.Contains(attitude, StringComparison.Ordinal) && prompt.System.Contains(ties, StringComparison.Ordinal), "有他对你的态度、他和前面那位的交情");
+    AssertTrue(prompt.System.Contains($"不超过 {PolisTalk.MaxAmbientChars} 个字", StringComparison.Ordinal) && prompt.System.Contains("不能替雅典娜办事", StringComparison.Ordinal), "插话的规矩：一句、不长、只是聊天");
+    AssertEqual(1, prompt.Messages.Count, "消息只有一条");
+    AssertEqual("（你在街上，听见城的主人在你旁边说）今天风真大\n阿里斯通说：港口的船都靠岸了。", prompt.Messages[0].Text, "你那句（听见的）加前面几位依次说的");
+    AssertFalse(prompt.System.Contains("你记得的", StringComparison.Ordinal), "插话的人不带他那场会话里的话");
+    var english = PolisTalk.BuildChorusLine(world, speaker with { Persona = PolisTalk.PersonaFor(42u, "en-US") }, PolisTalk.AttitudeText(PolisRelationBand.Cool, "en-US"), "windy",
+        new[] { ("Ariston", "Ships are in.", (string?)null) }, "en-US");
+    AssertTrue(english.System.Contains("Chip in", StringComparison.Ordinal) && english.Messages[0].Text.EndsWith("Ariston says: Ships are in.", StringComparison.Ordinal), "英文一份");
+    AssertEqual(60, PolisTalkService.MaxCallsPerHour(PolisTalkPurpose.Chorus), "插话单独一个池子，每小时 60 次");
+    AssertEqual(3, PolisTalk.MaxChorusSpeakers, "最多三位开口");
+    return Task.CompletedTask;
+}
+
+static Task TestPolisDoorsAsync()
+{
+    // —— 意图：knock { who: [屋里听见的人] }、call-out { who }、chat 的 door ——
+    var context = new PolisIntentContext(null, new HashSet<string> { "c1", "c2", "c3" }, new HashSet<string>())
+    {
+        KnownCitizenIds = new HashSet<string> { "c1", "c2", "c3" },
+        KnownResidentIds = new HashSet<string> { "scribe" },
+    };
+    var knock = PolisIntents.Validate("""{"v":1,"type":"knock","who":["c1","c2"]}""", context);
+    AssertTrue(knock.Accepted && knock.Intent!.Type == PolisIntentType.Knock && knock.Intent.Speakers!.SequenceEqual(new[] { "c1", "c2" }), "敲门：屋里听见的两位");
+    AssertTrue(PolisIntents.Validate("""{"v":1,"type":"knock","who":[]}""", context).Accepted, "屋里没人也可以敲（C# 那边什么也不记）");
+    foreach (var (body, why) in new[]
+    {
+        ("""{"v":1,"type":"knock","who":["c1","c9"]}""", "别的城的人"),
+        ("""{"v":1,"type":"knock","who":["c1","c1"]}""", "同一位两次"),
+        ("""{"v":1,"type":"knock","who":["resident:scribe"]}""", "职业居民不住在门里"),
+        ("""{"v":1,"type":"knock"}""", "没有 who"),
+        ("""{"v":1,"type":"call-out","who":"c9"}""", "请别的城的人出来"),
+        ("""{"v":1,"type":"call-out"}""", "请谁出来"),
+        ("""{"v":1,"type":"chat","who":"resident:scribe","text":"在吗","door":true}""", "隔着门和职业居民说话"),
+        ("""{"v":1,"type":"chat","who":"c1","text":"在吗","door":true,"overheard":true}""", "既隔着门又是听见的"),
+    })
+        AssertFalse(PolisIntents.Validate(body, context).Accepted, $"拒绝：{why}");
+    var many = "[" + string.Join(",", Enumerable.Range(0, PolisIntents.MaxKnockHeard + 1).Select(i => $"\"k{i}\"")) + "]";
+    AssertFalse(PolisIntents.Validate($$"""{"v":1,"type":"knock","who":{{many}}}""", context with { KnownCitizenIds = Enumerable.Range(0, 20).Select(i => $"k{i}").ToHashSet() }).Accepted, "一扇门后面最多 12 位");
+    var call = PolisIntents.Validate("""{"v":1,"type":"call-out","who":"c2"}""", context);
+    AssertTrue(call.Accepted && call.Intent!.Type == PolisIntentType.CallOut && call.Intent.ConversationId == "c2", "请他出来");
+    var door = PolisIntents.Validate("""{"v":1,"type":"chat","who":"c3","text":"在吗","door":true}""", context);
+    AssertTrue(door.Accepted && door.Intent!.ThroughDoor && !door.Intent.Overheard, "隔着门说话");
+    AssertFalse(PolisIntents.Validate("""{"v":1,"type":"chat","who":"c3","text":"在吗"}""", context).Intent!.ThroughDoor, "不带 door 就是当面说");
+    foreach (var name in new[] { "knock", "call-out" }) AssertTrue(PolisIntents.KnownTypeNames.Contains(name), $"{name} 在封闭集合里");
+
+    // —— 隔着门的提示词：门里门外一句、这一轮怎么收（stay / out / away），中英各一份 ——
+    var world = new PolisWorldFacts("我的工作区", false, false, 4, new[] { "合同" });
+    var speaker = new PolisSpeaker("达芙妮", true, PolisCitizenAge.Young, PolisTalk.PersonaFor(42u, "zh-CN"), "（身份）");
+    foreach (var outcome in new[] { "stay", "out", "away" })
+    {
+        var text = PolisTalk.DoorText(outcome, "zh-CN");
+        AssertTrue(text.StartsWith("你正在自己家里，门关着", StringComparison.Ordinal), $"{outcome}：先说门里门外");
+        var prompt = PolisTalk.BuildChat(world, speaker, Array.Empty<PolisCitizenExcerpt>(), Array.Empty<PolisTalkTurn>(), "在吗", "zh-CN", PolisTalk.AttitudeText(PolisRelationBand.Neutral, "zh-CN"), outcome);
+        AssertTrue(prompt.System.Contains(text, StringComparison.Ordinal), $"{outcome}：进了系统提示");
+        AssertTrue(prompt.System.IndexOf(text, StringComparison.Ordinal) < prompt.System.IndexOf("口语交谈", StringComparison.Ordinal), $"{outcome}：在规矩前面");
+        AssertTrue(PolisTalk.DoorText(outcome, "en-US").All(c => c < 128), $"{outcome}：英文一份");
+    }
+    AssertTrue(PolisTalk.DoorText("out", "zh-CN").Contains("这就出来", StringComparison.Ordinal), "最后一句：说出他这就出来");
+    AssertTrue(PolisTalk.DoorText("away", "zh-CN").Contains("请他先走", StringComparison.Ordinal) && PolisTalk.DoorText("away", "zh-CN").Contains("不要答应开门", StringComparison.Ordinal), "说烦了：请他先走，不开门");
+    AssertFalse(PolisTalk.BuildChat(world, speaker, Array.Empty<PolisCitizenExcerpt>(), Array.Empty<PolisTalkTurn>(), "在吗", "zh-CN").System.Contains("门关着", StringComparison.Ordinal), "当面说话没有门里门外那一句");
+    return Task.CompletedTask;
 }
 
 static Task TestPolisHouseholdsAsync()

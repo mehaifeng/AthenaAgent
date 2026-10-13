@@ -18,6 +18,7 @@ import { rng, hashSeed } from './noise.mjs';
 import { poseAt } from './poses.mjs';
 import { prepareExternalBody, attachExternalBody } from './bind.mjs';
 import { footprintOf, BLOCKING_HEIGHT } from '../footprint.mjs';
+import { buildStation } from './stations.mjs';
 
 /**
  * 资产表：Id → { kind, label, build(params) }。label 是美术审查里的中文名。
@@ -60,6 +61,10 @@ export function createAssetRegistry(M) {
   };
   for (const [name, [label, fn]] of Object.entries(propTable)) add(`prop.${name}`, 'prop', label, () => fn(M));
   add('prop.statue', 'prop', '立像', () => props.buildStatue(M, statue));
+  // 第三轮（需求 4）：居民干活的工位，摆在门前干活的人面前——不挡路（citizens.mjs 规则 7）
+  for (const [kind, label] of Object.entries({ wheel: '陶轮', trough: '揉面台', block: '石料', sawhorse: '锯木架' })) {
+    add(`prop.station-${kind}`, 'prop', `工位：${label}`, () => buildStation(M, kind), 'none');
+  }
   for (const kind of ['scroll', 'ledger', 'painting', 'answer']) {
     const label = { scroll: '卷轴', ledger: '账册', painting: '彩绘板', answer: '回答' }[kind];
     add(`prop.item-${kind}`, 'prop', `成果：${label}（待收下）`, () => buildDeliveredItem(M, kind), 'none');

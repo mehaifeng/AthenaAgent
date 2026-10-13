@@ -157,7 +157,7 @@ test('the page labels the new controls in its own table (C# overrides them per l
     // M3 第三轮：走近按 E 的提示
     'interactKey', 'interactTalk', 'interactResident', 'interactItem', 'interactPlace', 'interactTree', 'interactBoard', 'interactOracle', 'interactVenue',
     // M-B 与聊天（2026-10-13）：居民
-    'interactCitizen', 'citizenOpen', 'censusLine', 'interactStele', 'steleTitle', 'steleBody',
+    'interactCitizen', 'censusLine', 'interactStele', 'steleTitle', 'steleBody',
     'citizenChat', 'chatStatus', 'chatPlaceholder', 'chatWaiting', 'chatSend', 'chatHint', 'askTimeout']) {
     assert.ok(typeof UI_ZH[key] === 'string' && UI_ZH[key].length > 0, `UI_ZH.${key}`);
   }
