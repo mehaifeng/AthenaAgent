@@ -576,7 +576,7 @@ async function chatCheck(name, browser) {
     await page.keyboard.type('算了');
     await page.keyboard.press('Escape');
     await page.waitForTimeout(200);
-    const cancelled = await page.evaluate(() => ({ talk: window.__polisTalk.state, value: window.__polisTalk.value, chatting: window.__polisGame.chatting }));
+    const cancelled = await page.evaluate(() => ({ talk: window.__polisTalk.state, value: window.__polisTalk.value, athenaDraft: window.__polisTalk.athenaDraft, chatting: window.__polisGame.chatting }));
     const afterCancel = (await inbox()).slice(n2);
     // 两位居民街头闲聊（只用模型）：发 ambient-chat；先开口的那位头顶一串点，C# 流式推他的话，说完另一位头顶一串点再接一句；
     // ambient-end 散场。没配模型（nomodel）：头顶的点收起，这座城里不再挑
@@ -621,7 +621,8 @@ async function chatCheck(name, browser) {
       barResumesForTheNextLine: replied.talk.mode === 'chat' && replied.focused && !replied.disabled && replied.chatting?.status === 'typing' && replied.panel == null && replied.closeUp === 'citizen',
       keepsChatting: second.length === 1 && second[0].type === 'chat' && second[0].text === '那我去港口看看',
       athenaNotSummoned: waiting.summoned === summonedBefore,
-      escTakesLeave: cancelled.talk.mode === 'talk' && cancelled.chatting === null && cancelled.value === '写给雅典娜的半句话' && afterCancel.length === 0,
+      // 告辞：栏回到你自己说话（2026-10-13），写给雅典娜的半句话照样收在她那边
+      escTakesLeave: cancelled.talk.mode === 'speak' && cancelled.chatting === null && cancelled.athenaDraft === '写给雅典娜的半句话' && afterCancel.length === 0,
       neverSpeaksByItself: chats.length === 2 && !all.some((m) => m.type === 'say' || m.type === 'ask-citizen' || (m.type === 'draft' && /风|港口|算了/.test(m.text ?? ''))),
       ambientAsksTheModel: startedAmbient === true && ambientSent.length === 1 && ambientSent[0].type === 'ambient-chat' && ambientSent[0].a === pairIds[0] && ambientSent[0].b === pairIds[1],
       ambientDotsThenStream: ambientDots.some((b) => b.id === pairIds[0] && b.typing) && ambientPartial.some((b) => b.id === pairIds[0] && b.text === '今天港口'),
@@ -718,7 +719,7 @@ async function debateCheck(name, browser) {
     ];
     await send({ type: 'debate', debate: { ...base, state: 'judging', round: 3, transcript } });
     await page.waitForTimeout(300);
-    const judging = await page.evaluate(() => ({ talk: window.__polisTalk.state, value: window.__polisTalk.value, audience: window.__polisGame.audience.size }));
+    const judging = await page.evaluate(() => ({ talk: window.__polisTalk.state, value: window.__polisTalk.value, athenaDraft: window.__polisTalk.athenaDraft, audience: window.__polisGame.audience.size }));
     await page.waitForTimeout(9500);   // 走得最远的也在九秒内到
     const gathered = await page.evaluate(() => {
       const g = window.__polisGame;
@@ -747,7 +748,7 @@ async function debateCheck(name, browser) {
     await page.keyboard.press('Escape');
     await page.waitForTimeout(200);
     const escSent = (await inbox()).slice(n);
-    const afterEsc = await page.evaluate(() => ({ talk: window.__polisTalk.state, value: window.__polisTalk.value, debate: window.__polisGame.debate }));
+    const afterEsc = await page.evaluate(() => ({ talk: window.__polisTalk.state, value: window.__polisTalk.value, athenaDraft: window.__polisTalk.athenaDraft, debate: window.__polisGame.debate }));
     const all = await inbox();
     const of = (list, type) => list.filter((m) => m.type === type);
     const checks = {
@@ -761,12 +762,12 @@ async function debateCheck(name, browser) {
       onlyDebateSaySent: saySent.length === 1 && saySent[0].type === 'debate-say' && saySent[0].text === '休息让人第二天更有效率。',
       waitsForAthena: waiting.talk.mode === 'debating' && waiting.disabled,
       roundTwoLent: round2.talk.mode === 'debate' && round2.placeholder.includes('2') && round2.regions.includes('debate-close'),
-      barGivenBackForJudging: judging.talk.mode === 'talk' && judging.value === '写给雅典娜的半句话',
+      barGivenBackForJudging: judging.talk.mode === 'speak' && judging.athenaDraft === '写给雅典娜的半句话',
       juryGathers: judging.audience > 0 && gathered.count === judging.audience && gathered.people.every((p) => p.onSpot && p.walkable && p.nearStage),
       supportersWave: done.supporters === Math.round((done.audience * 7) / 10) && done.supporters > 0,
       verdictOnTheBoard: done.debate?.state === 'done' && done.debate.votesForYou === 7 && done.regions.includes('debate-close'),
       closeEndsIt: closeSent.length === 1 && closeSent[0].type === 'debate-end' && after.debate === null && after.audience === 0,
-      escEndsIt: lent2 === 'debate' && escSent.length === 1 && escSent[0].type === 'debate-end' && afterEsc.talk.mode === 'talk' && afterEsc.value === '写给雅典娜的半句话' && afterEsc.debate === null,
+      escEndsIt: lent2 === 'debate' && escSent.length === 1 && escSent[0].type === 'debate-end' && afterEsc.talk.mode === 'speak' && afterEsc.athenaDraft === '写给雅典娜的半句话' && afterEsc.debate === null,
       neverDebatesByItself: of(all, 'debate-start').length === 1 && of(all, 'debate-say').length === 1 && !all.some((m) => m.type === 'say' || (m.type === 'draft' && /周末|休息/.test(m.text ?? ''))),
       noProblems: problems.length === 0,
     };
@@ -948,18 +949,33 @@ async function controlsCheck(name, browser) {
     await page.keyboard.press('Enter');
     const said = (await inbox()).filter((m) => m.type === 'say');
     const afterSay = await page.evaluate(() => ({ open: document.getElementById('talk').classList.contains('open'), value: window.__polisTalk.value }));
-    // 她在办事：托付键换成"请她停下"
+    // 她在办事：托付键换成"请她停下"（只在和她说话时有——2026-10-13 起平时的栏是你自己说话：再按 E 和她说话）
     await send({ type: 'composer', conversationId: 'c-1', busy: true, queued: false, waiting: false, compressing: false, canSend: false, attachments: ['合同.docx'] });
+    await page.keyboard.press('KeyE');
+    await page.waitForTimeout(150);
     const busyBar = await page.evaluate(() => ({ stop: !document.querySelector('#talk .talk-stop').hidden, send: !document.querySelector('#talk .talk-send').hidden }));
     await page.click('#talk .talk-stop');
     const stopSent = (await inbox()).some((m) => m.type === 'stop-turn');
-    // 在城里按 Enter 开口
+    // 在城里按 Enter：你自己说话（2026-10-13）——栏是你的小像，说出去的话在你头顶，不托付给雅典娜；"/"开头的命令还在路上
     await page.evaluate(() => document.activeElement?.blur?.());
     await page.keyboard.press('Escape');
     await page.keyboard.press('Enter');
-    const enterOpens = await page.evaluate(() => document.getElementById('talk').classList.contains('open'));
+    const enterOpens = await page.evaluate(() => ({ open: document.getElementById('talk').classList.contains('open'), mode: window.__polisTalk.mode, name: document.querySelector('#talk .talk-name').textContent }));
+    const nSpeak = (await inbox()).length;
+    await page.keyboard.type('今天天气不错');
+    await page.keyboard.press('Enter');
+    await page.waitForTimeout(150);
+    const spoke = await page.evaluate(() => ({ mine: window.__polisGame.mine?.text ?? null, spoke: window.__polis.spoke, open: document.getElementById('talk').classList.contains('open'), mode: window.__polisTalk.mode }));
+    await page.keyboard.press('Enter');
+    await page.keyboard.type('/help');
+    await page.keyboard.press('Enter');
+    await page.waitForTimeout(150);
+    const commanded = await page.evaluate(() => ({ mine: window.__polisGame.mine?.text ?? null, spoke: window.__polis.spoke }));
+    const speakSent = (await inbox()).slice(nSpeak);
     // 托付时栏收起，镜头才开始往回退（走完两秒多），这时又开口：近景记住的必须是你原来的远近与俯角，不是退到半路的那个。
-    // 等页面真的进了近景再收起——以前 Enter 与 Esc 只隔 1–4 毫秒，只有机器忙、恰好一帧落在两者之间才走到这条路（2026-10-12）
+    // 等页面真的进了近景再收起——以前 Enter 与 Esc 只隔 1–4 毫秒，只有机器忙、恰好一帧落在两者之间才走到这条路（2026-10-12）。
+    // 近景只在和雅典娜说话时有：按 E（你还站在她身边）
+    await page.keyboard.press('KeyE');
     const reopened = await page.waitForFunction(() => window.__polis.closeUp === 'talk', null, { timeout: 5000 }).then(() => true, () => false);
     await page.keyboard.press('Escape');
     // 收起：等镜头退回开口之前的远近与俯角（按条件等，不按固定时长）；退不回去就到时限，读出它停在哪儿
@@ -970,7 +986,7 @@ async function controlsCheck(name, browser) {
     const afterClose = await page.evaluate(() => ({ kind: window.__polis.closeUp, zoom: window.__polisGame.camera.zoom, elevation: window.__polisGame.cameraAngles().elevation }));
     // 退回的半路上滚轮：远近归你，镜头不再把它拽回开口前的值；俯角照样退回去（2026-10-12：滚轮像失灵，只有往回滚或停手等才恢复）。
     // 滚轮在一次 evaluate 里同步派发、当场读远近——不靠这台机器的帧率赶上某个时间窗
-    await page.keyboard.press('Enter');
+    await page.keyboard.press('KeyE');
     await page.waitForFunction(() => window.__polis.closeUp === 'talk', null, { timeout: 5000 }).catch(() => {});
     await page.waitForFunction(() => window.__polisGame.camera.zoom > 3, null, { timeout: 8000 }).catch(() => {});
     await page.keyboard.press('Escape');
@@ -984,27 +1000,30 @@ async function controlsCheck(name, browser) {
     // 俯角接着退：这台机器一帧几百毫秒、帧间隔又封顶 100 毫秒，镜头走得比墙钟慢几倍，所以只要求它还在往回走、没走完也行
     await page.waitForFunction((v) => Math.abs(window.__polisGame.cameraAngles().elevation - v.elevation) < 0.5, viewBefore, { timeout: 8000 }).catch(() => {});
     const wheeledDuringRestore = await page.evaluate(() => ({ kind: window.__polis.closeUp, zoom: window.__polisGame.camera.zoom, elevation: window.__polisGame.cameraAngles().elevation }));
-    // 预填（委托板、退回……）：带着字展开、聚焦，不发送
+    // 预填（委托板、退回……；2026-10-13，用户：文字留着等你去找她）：不自己展开、不发送；她说一句"过来找我"；走到她身边按 E，栏带着这段话打开
     const saysBeforePrefill = (await inbox()).filter((m) => m.type === 'say').length;
     await send({ type: 'composer', conversationId: 'c-2', busy: false, queued: false, waiting: false, compressing: false, canSend: true, attachments: [], draft: '关于《摘要》，请修改：', open: true });
     await page.waitForTimeout(200);
-    const prefilled = await page.evaluate(() => ({ open: document.getElementById('talk').classList.contains('open'), value: window.__polisTalk.value, focused: document.activeElement?.classList.contains('talk-input') }));
+    const prefilled = await page.evaluate(() => ({ open: document.getElementById('talk').classList.contains('open'), waiting: window.__polis.athenaHasWords === true, said: window.__polis.said, draft: window.__polisTalk.athenaDraft }));
+    await page.keyboard.press('KeyE');
+    await page.waitForTimeout(200);
+    const prefillAtAthena = await page.evaluate(() => ({ open: document.getElementById('talk').classList.contains('open'), mode: window.__polisTalk.mode, value: window.__polisTalk.value, focused: document.activeElement?.classList.contains('talk-input'), waiting: window.__polis.athenaHasWords === true }));
     const saysAfterPrefill = (await inbox()).filter((m) => m.type === 'say').length;
     await page.keyboard.press('Escape');
-    // 你在远处开口（2026-10-13）：站到港口去按 Enter——她离你远过 12 米，就过来（远过 10 秒的路化作一道光过来）
+    // 你在远处开口（2026-10-13）：站到港口去按 Enter——那是你自己说话，她不会被叫过来，也不再瞬移
     await page.waitForFunction(() => !document.getElementById('talk').classList.contains('open'), null, { timeout: 3000 }).catch(() => {});
     const farAway = await page.evaluate(() => {
       const g = window.__polisGame, h = g.layout.sitePoint('harbor'), a = g.world.athena.position;
       g.placePlayer(h.x, h.z - 1.2, Math.PI);
-      return { player: { x: h.x, z: h.z - 1.2 }, athena: { x: a.x, z: a.z }, summoned: window.__polis.summoned ?? 0 };
+      return { player: { x: h.x, z: h.z - 1.2 }, athena: { x: a.x, z: a.z }, steps: g.athenaSim.steps.length };
     });
     await page.waitForTimeout(200);
     await page.keyboard.press('Enter');
-    const cameOver = await page.waitForFunction(() => {
+    await page.waitForTimeout(2500);
+    const summon = await page.evaluate((n) => {
       const g = window.__polisGame, a = g.world.athena.position, p = g.player;
-      return Math.hypot(a.x - p.x, a.z - p.z) < 3 && window.__polis.athena === 'idle';
-    }, null, { timeout: 15_000 }).then(() => true, () => false);
-    const summon = await page.evaluate(() => ({ summoned: window.__polis.summoned ?? 0, at: window.__polis.athenaAt, steps: window.__polisGame.athenaSim.steps.slice(-3).map((s) => s.kind) }));
+      return { distance: Math.hypot(a.x - p.x, a.z - p.z), mode: window.__polisTalk.mode, summoned: window.__polis.summoned ?? 0, newSteps: g.athenaSim.steps.slice(n).map((s) => ({ kind: s.kind, to: s.to ?? s.at })) };
+    }, farAway.steps);
     await page.keyboard.press('Escape');
     // M3 第三轮：夜里跟着应用的深色主题——推一条 theme，页面上的条立刻换，城里一秒多走到夜里；换回来也一样
     await send({ type: 'theme', night: true });
@@ -1046,16 +1065,21 @@ async function controlsCheck(name, browser) {
       composingEnterDoesNotSend: saysWhileComposing === 0,
       enterEntrusts: said.length === 1 && said[0].conversationId === 'c-1' && said[0].text === 'wasd 把合同列个清单' && !afterSay.open && afterSay.value === '',
       stopWhileBusy: busyBar.stop && !busyBar.send && stopSent,
-      enterOpensTalk: enterOpens,
-      prefillOpensWithoutSending: prefilled.open && prefilled.focused && prefilled.value === '关于《摘要》，请修改：' && saysAfterPrefill === saysBeforePrefill,
-      athenaComesWhenCalledFromAfar: Math.hypot(farAway.athena.x - farAway.player.x, farAway.athena.z - farAway.player.z) > 12 && cameOver
-        && summon.summoned === farAway.summoned + 1 && summon.steps.includes('teleport'),
+      enterSpeaksForYourself: enterOpens.open && enterOpens.mode === 'speak' && enterOpens.name === '你',
+      speakingIsNotEntrusting: spoke.mine === '今天天气不错' && spoke.spoke?.kind === 'say' && spoke.mode === 'speak' && !spoke.open
+        && !speakSent.some((m) => m.type === 'say' || m.type === 'draft'),
+      commandsAreReserved: commanded.spoke?.kind === 'command' && commanded.mine === '（「/」命令还在路上）' && speakSent.length === 0,
+      prefillWaitsAtAthena: !prefilled.open && prefilled.waiting && prefilled.draft === '关于《摘要》，请修改：' && /写好的话/.test(prefilled.said ?? '')
+        && prefillAtAthena.open && prefillAtAthena.mode === 'talk' && prefillAtAthena.focused && prefillAtAthena.value === '关于《摘要》，请修改：' && !prefillAtAthena.waiting
+        && saysAfterPrefill === saysBeforePrefill,
+      athenaIsNotSummonedFromAfar: Math.hypot(farAway.athena.x - farAway.player.x, farAway.athena.z - farAway.player.z) > 12 && summon.distance > 12
+        && summon.mode === 'speak' && summon.summoned === 0 && !summon.newSteps.some((x) => x.kind === 'teleport' || /^pt:/.test(x.to ?? '')),
       nightFollowsTheme: nightNow.body && nightNow.k === 1 && nightNow.overlay && !dayAgain.body && dayAgain.k === 0 && nightNow.pixels.mean < dayAgain.pixels.mean - 20,
       longScrollReachesTheEnd: readerFit.cardInside && readerFit.scrollable && readerFit.lastVisible && readerFit.table,
       neverApproves: !all.some((m) => /approv|allow|grant/i.test(m.type)),
       noProblems: problems.length === 0,
     };
-    Object.assign(result, { checks, angles: { before: a0, after: a1 }, walked: { from: p0, to: p1 }, closeUp: { before: viewBefore, during: closeUp, reopened, afterClose, wheel, wheeledDuringRestore }, summon: { farAway, cameOver, ...summon }, problems, seconds: +((Date.now() - started) / 1000).toFixed(1) });
+    Object.assign(result, { checks, angles: { before: a0, after: a1 }, walked: { from: p0, to: p1 }, closeUp: { before: viewBefore, during: closeUp, reopened, afterClose, wheel, wheeledDuringRestore }, summon: { farAway, spoke, commanded, prefilled, prefillAtAthena, ...summon }, problems, seconds: +((Date.now() - started) / 1000).toFixed(1) });
     await page.close();
     console.log(JSON.stringify(result, null, 2));
     return Object.values(checks).every(Boolean);

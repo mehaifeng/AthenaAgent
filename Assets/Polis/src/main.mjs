@@ -72,20 +72,29 @@ async function main() {
   // 对话栏只在实时模式里有：夹具里没有人在听
   if (live) {
     // 问话（M-C）：对话栏借给一位居民时，问出去 / 不问了告诉城里（他站定、镜头留在你们两个身上、等太久了替他说"没想起来"）
-    talk = createTalk(document.getElementById('talk'), { send, onOpen: () => liveGame?.releaseKeys(), onLent: (event, info) => liveGame?.lentEvent(event, info) });
+    talk = createTalk(document.getElementById('talk'), {
+      send,
+      onOpen: () => liveGame?.releaseKeys(),
+      onLent: (event, info) => liveGame?.lentEvent(event, info),
+      // 你自己说了一句（2026-10-13：对话栏平时是你自己说话，附近的人会接）；有一段写好的话在雅典娜那里等你
+      onSpeak: (parsed) => { liveGame?.speak(parsed); wake(); },
+      onPrefill: () => { liveGame?.prefillWaiting(); wake(); },
+    });
     window.__polisTalk = talk;
   }
   const game = createGame({
     params,
     status,
     send,
-    onTalk: talk ? () => { talk.open({ focus: true }); } : null,
+    // 走到雅典娜身边按 E：和她说话（托付）。平时的对话栏（Enter）是你自己说话
+    onTalk: talk ? () => { talk.openAthena(); } : null,
     onUiBlocked: (blocked) => talk?.setSuppressed(blocked),
     onViewChange: () => syncView(game),
     modalOpen: readerOpen,
     topInset: live ? 52 : 0,
     defaultView: 'free',
     talkOpen: () => !!talk?.isOpen,
+    talkMode: () => talk?.mode ?? 'speak',
     onChat: talk ? (target) => { talk.openChat(target); } : null,
     onChatReplied: talk ? (id) => { if (talk.lentTo?.kind === 'chat' && talk.lentTo.id === id) talk.resumeLent(); } : null,
     // 讲台前的辩论（M-E）：栏借给辩论（提议题、一轮轮的论点）；办完了还回来——只还给借它的那一种（问话不受辩论影响）
@@ -392,7 +401,8 @@ function motionSelftest(game) {
   // 他在走，脚下那块"E 和他说话"跟着他走，按他这一帧的位置投影（M3 第三轮：互动改成走近按 E）
   const tree = game.world?.groveTrees?.[0];
   const walker = [...(game.world?.residents?.keys() ?? [])][0] ?? null;
-  const teleporting = () => game.athenaSim?.state().step.kind === 'teleport';
+  // 2026-10-13 起她没有瞬移（远了就跑）：去港口那一段现在是跑，同样逐帧核对
+  const teleporting = () => false;
 
   function measure(t) {
     if (tree && i % 2 === 0) game.setHover('tree', tree.conversationId);

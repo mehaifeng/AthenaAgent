@@ -5504,10 +5504,16 @@ static void TestGameModeCitizens()
         var again = answers.Calls[^1].Prompt.Messages.Select(m => $"{m.Role}:{m.Text}").ToList();
         if (!again.SequenceEqual(new[] { "user:那份合同最后定了几年？", "assistant:我记得，那份合同最后定在三年。", "user:押金呢？" }))
             throw new InvalidOperationException($"他记得刚才聊过什么：{string.Join(" / ", again)}");
+        // 你自己说了一句、他在旁边听见（2026-10-13，平时的对话栏）：给模型的那一句前面说明是听见的
+        page.Send($$"""{"v":1,"type":"chat","who":"{{here[3].ConversationId}}","text":"今天风真大","overheard":true}""");
+        PumpTimers(() => answers.Calls.Count > 2, 5000, "听见的那一句也要问模型。");
+        if (answers.Calls[^1].Prompt.Messages[^1].Text != "（你在街上，听见城的主人在你旁边说）今天风真大")
+            throw new InvalidOperationException($"听见的那一句前面说明是听见的：{answers.Calls[^1].Prompt.Messages[^1].Text}");
+        PumpTimers(() => Talks(true).Count > 2, 5000, "听见之后他的话也推回页面。");
         // 没配模型：他说一句本地化的话，不是错误框
         answers.Reply = _ => new PolisTalkReply(PolisTalkStatus.NoModel);
         page.Send($$"""{"v":1,"type":"chat","who":"{{here[1].ConversationId}}","text":"你还记得什么？"}""");
-        PumpTimers(() => Talks(true).Count > 2, 5000, "没配模型也要推一句话回去。");
+        PumpTimers(() => Talks(true).Count > 3, 5000, "没配模型也要推一句话回去。");
         var noModel = Talks(true)[^1];
         if (noModel.GetProperty("status").GetString() != "nomodel" || !noModel.GetProperty("text").GetString()!.Contains("城里的居民", StringComparison.Ordinal))
             throw new InvalidOperationException($"没配模型时他说「先在设置的模型角色里给『虚拟宠物与城里的居民』……选一个模型」：{noModel}");

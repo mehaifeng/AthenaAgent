@@ -1,24 +1,27 @@
 // 雅典娜住在城里（2026-10-13 改向）。她不再镜像任何回合：工具调用太快太密（logs.db：工具中位 0.05 秒、三成调用间隔不到半秒、
 // 四成回合根本不调工具），没有一个时钟能让逐调用的动画好看。她现在只是城里的一个人——在广场上待着，在广场那一圈六个点之间
-// 走一走；你走近、或者对话栏开着，她就不再走开；你在远处开口，她走过来（远了就化作一道光过来）。
+// 走一走；你走近、或者在和她说话，她就不再走开。2026-10-13 起（用户）她不再瞬移，也不会被远处的一句话叫过来——要和她说话，
+// 走到她身边；一回合做完了，她拿着卷轴跑到你跟前递给你，你在走动她就跟着，等你停下再递（chase）。
 // 纯逻辑：不碰 DOM、不碰 three.js，时间由调用方给（毫秒），同样的调用总是得到同样的结果（Node 单测 athena.test.mjs）。
 //
 // 规则（每一条都有断言）：
 //   1. 每次移动都要完成：走到一半的路不改道，新目标排在后面（猫头鹰村验证过的那一条，M0 的编排器也守着它）。
 //   2. 闲逛只在广场那一圈的六个点（agora:0..5）之间；每一处停多久按种子错开，不是满城同一个节拍。
-//   3. 留住她（hold：你在旁边、对话栏开着）时不开始新的闲逛；正在走的那一段照样走完。
-//   4. 去一个地方：走得到（≤ maxWalkMs）就走，否则化作一道光瞬移（teleportMs）——神本来就能瞬移。
+//   3. 留住她（hold：你在旁边、在和她说话）时不开始新的闲逛；正在走的那一段照样走完。
+//   4. 去一个地方：走得到（≤ maxWalkMs）就走，再远就跑（runFactor：跑的时长是走的这么多倍）。没有瞬移（2026-10-13，用户）。
 //   5. 时间只进不退：比上一次更早的 now 当成上一次（回放式的后退由调用方重建）。
+//   6. 追着你跑（chase，交付卷轴）：规则 1 唯一的例外——你走动了，她从此刻所在的那一点（调用方算好、以 pt:x,z 给来）改道，
+//      排着的目的地一并作废；追的这一段永远是跑。
 
 export const ATHENA = Object.freeze({
-  maxWalkMs: 10000,     // 3.2 米 / 秒走 10 秒约 32 米：广场到周围一圈走得到，再远就瞬移（M3 定的，原来在编排器里）
-  teleportMs: 420,      // 化作一道光
+  maxWalkMs: 10000,     // 3.2 米 / 秒走 10 秒约 32 米：广场到周围一圈走着去，再远就跑（2026-10-13 起没有瞬移）
+  runFactor: 0.45,      // 跑的时长是走的这么多倍（3.2 米 / 秒 → 约 7.1 米 / 秒，比你跑得稍快一点，追得上你）
   idleMs: 6000,         // 每到一处至少待这么久
   idleSpreadMs: 4000,   // 再按种子多待 0–4 秒
   wanderSpots: 6,       // 广场那一圈（layout.wanderSpots）
 });
 
-const MOVING = new Set(['walk', 'teleport']);
+const MOVING = new Set(['walk', 'run']);
 
 /** 这一处是广场那一圈的第几个点（不是就 -1）。 */
 export function spotIndex(site) {
@@ -54,15 +57,16 @@ export function createAthena({ travelMs, home = 'agora:0', startAt = 0, seed = 7
     steps.push(current);
   }
 
-  function startMove(to, t) {
+  function startMove(to, t, { run = false, reason = null } = {}) {
     const from = position;
     const walk = travelMs(from, to);
-    const teleport = !(Number.isFinite(walk) && walk <= ATHENA.maxWalkMs);
+    const ms = Number.isFinite(walk) ? Math.max(1, walk) : 1;
+    const running = run || ms > ATHENA.maxWalkMs;
     current = {
-      kind: teleport ? 'teleport' : 'walk',
+      kind: running ? 'run' : 'walk',
       from, to, start: t,
-      end: t + (teleport ? ATHENA.teleportMs : Math.max(1, walk)),
-      reason: teleport ? 'far' : null,
+      end: t + (running ? Math.max(1, ms * ATHENA.runFactor) : ms),
+      reason: reason ?? (running && !run ? 'far' : null),
     };
     steps.push(current);
   }
@@ -120,6 +124,20 @@ export function createAthena({ travelMs, home = 'agora:0', startAt = 0, seed = 7
     },
     state() {
       return { step: current, position, moving: MOVING.has(current.kind), queued: queue.length };
+    },
+    /**
+     * 追着你跑（规则 6）：从 from（她此刻所在的那一点，pt:x,z）跑向 site；正在走的那一段就此打住，排着的目的地作废。
+     * 已经在跑向 site 了，什么也不做。
+     */
+    chase(site, from, t = clock) {
+      const now = Math.max(clock, t);
+      if (MOVING.has(current.kind) && current.to === site && current.reason === 'chase') return false;
+      queue.length = 0;
+      if (MOVING.has(current.kind)) current.end = Math.min(current.end, now);   // 这一段到此为止（已经开始的步骤只增不减，截短它）
+      position = from ?? position;
+      clock = now;
+      startMove(site, now, { run: true, reason: 'chase' });
+      return true;
     },
     get position() { return position; },
     get steps() { return steps; },

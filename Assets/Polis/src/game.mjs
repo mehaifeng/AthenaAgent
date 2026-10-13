@@ -19,7 +19,7 @@ import { createLayout, pointAlong, polyLength, PLAYER_SPEED, SPEED, ATHENA_STRID
 import {
   VIEW, VIEW_MODES, RUN_FACTOR, MOVE_KEYS, nextView, moveDirection, slide, orbitAngles, deadZoneShift, turnToward, isTypingTarget,
 } from './controls.mjs';
-import { createAthena, stepProgress } from './athena.mjs';
+import { createAthena, stepProgress, ATHENA } from './athena.mjs';
 import { planCitizen, citizenAt, newScheduleClock, scheduleClock, holdSchedule, resumeSchedule, separate, assignTiers, pickChat, nextChatAfter, greetLine, TOWN } from './citizens.mjs';
 import { debateStage, assignAudience, supportersCount, bubbleExcerpt, DEBATE } from './debate.mjs';
 import { createRenderer } from './render.mjs';
@@ -43,8 +43,13 @@ const BUBBLE_MS = 3600;
 export const BOAT_TRIP = Object.freeze({ periodMs: 180_000, tripMs: 20_000, offsetMs: 45_000 });
 const VOYAGE_FADE_MS = 400;
 const REVEAL_MS = 3200;
-/** 你在远处开口（对话栏展开）、她离你比这更远：她走过来（远了化作一道光过来）。近景镜头只在两人相距 12 米内看两个人。 */
-const SUMMON_DISTANCE = 12;
+/** 你自己说话时，这么近以内（而且在画面里）的人会接一句（2026-10-13）。 */
+export const SPEAK_RADIUS = 6;
+/** 接你话的那一位站定朝你多久（等他想、他说完之后再留 HEARD_AFTER_MS）。 */
+const HEARD_HOLD_MS = 30_000;
+const HEARD_AFTER_MS = 5000;
+/** 跑的速度（米 / 秒）：她走的速度除以 athena.mjs 的 runFactor。 */
+const RUN_SPEED = SPEED / ATHENA.runFactor;
 /** 你离她这么近，她就不再走开（闲逛暂停，athena.mjs 的 hold）。 */
 const NEAR_ATHENA = 2.5;
 /** 指针停在她身上时那块名牌的位置（她自己的坐标系里）：脚下，头顶留给旁白气泡。 */
@@ -83,12 +88,13 @@ export const UI_ZH = Object.freeze({
   viewPlayer: '跟着你',
   viewAthena: '跟着雅典娜',
   viewFreeTip: '左键拖动转视角，右键拖动平移，滚轮缩放；你走远了镜头会跟上',
-  controlsHint: 'WASD / 方向键走动（按住 Shift 跑）· 拖动转视角 · 走近人或物件按 E 互动 · Enter 和雅典娜说话',
+  controlsHint: 'WASD / 方向键走动（按住 Shift 跑）· 拖动转视角 · 走近人或物件按 E 互动 · Enter 说话（和雅典娜说话请走到她身边按 E）',
   focusHint: '点一下画面，就能用键盘走动',
   athenaHere: '雅典娜在这边',
   // 走近按 E（M3 第三轮）：脚下那块提示
   interactKey: 'E',
   interactTalk: '和雅典娜说话',
+  interactTalkWaiting: '和雅典娜说话（有一段写好的话等你）',
   interactResident: '和{name}说话',
   interactItem: '看看「{title}」',
   interactPlace: '摆在这里',
@@ -145,6 +151,16 @@ export const UI_ZH = Object.freeze({
   interactStele: '读碑上的名字',
   steleTitle: '老居民',
   steleBody: '一年多没出门的居民，名字刻在这里：',
+  // 你自己说话（2026-10-13：对话栏平时是你自己说话，附近的人会接；和雅典娜说话要走到她身边按 E）
+  speakName: '你',
+  speakIdle: '说点什么，附近的人会听见',
+  speakAthenaBusy: '雅典娜在办事——要和她说话，走到她身边按 E',
+  speakPlaceholder: '说点什么……',
+  speakSend: '说',
+  speakHint: 'Enter 说 · 附近的人会接话 · 和雅典娜说话请走到她身边按 E',
+  speakCommandSoon: '（「/」命令还在路上）',
+  speakMentionSoon: '（「@」点名还在路上）',
+  athenaHasWords: '我这里有一段替你写好的话，过来找我。',
   // 和一位居民聊天（2026-10-13，原来 M-C 的问话：他的话出现在他头顶）
   citizenChat: '聊几句',
   chatStatus: '和{name}聊天',
@@ -267,7 +283,7 @@ export const CITIZEN_ZH = Object.freeze({
  * @param {string} [options.defaultView] 缺省视角：自由（你是主角）
  * @param {() => boolean} [options.talkOpen] 对话栏此刻是不是展开着（M3：你站着和她说话、她听着；托付之后你比划两秒）
  */
-export function createGame({ params, status, send, onTalk = null, onUiBlocked = null, onViewChange = null, modalOpen = () => false, topInset = 0, defaultView = 'free', talkOpen = () => false, onChat = null, onChatReplied = null, onLendEnd = null, onDebate = null, onRead = null }) {
+export function createGame({ params, status, send, onTalk = null, onUiBlocked = null, onViewChange = null, modalOpen = () => false, topInset = 0, defaultView = 'free', talkOpen = () => false, talkMode = () => 'talk', onChat = null, onChatReplied = null, onLendEnd = null, onDebate = null, onRead = null }) {
   const R = createRenderer({
     canvas: document.getElementById('scene'),
     ao: params.get('ao') !== '0', shadows: params.get('shadows') !== '0',
@@ -307,8 +323,11 @@ export function createGame({ params, status, send, onTalk = null, onUiBlocked = 
   let convo = null;                  // { id, status, sentAt }
   const sayings = new Map();
   let mine = null;                   // { text, at }
-  /** 对话栏开着、而且是在和雅典娜说话（不是借给了一位居民）。 */
-  const talkingToAthena = () => talkOpen() && !convo && !lentToDebate();
+  /** 对话栏开着、而且是在和雅典娜说话（托付；2026-10-13 起要走到她身边按 E——平时的栏是你自己说话）。 */
+  const talkingToAthena = () => talkOpen() && talkMode() === 'talk' && !convo && !lentToDebate();
+  // 你自己说话（2026-10-13）：接你话的那一位（他站定、转身朝你，直到说完再留一会儿）；有一段写好的话在雅典娜那里等你
+  let heard = null;                  // { id, until }
+  let athenaHasWords = false;
   // 讲台前的辩论（M-E）：C# 推来的这一场（没有就是 null）、战绩、舞台站位（这座城算一次）、围过来的陪审团
   let debate = null;                 // { state, id, motion, round, rounds, jury, transcript, verdict, record }
   let debateRecord = { wins: 0, losses: 0, ties: 0 };
@@ -355,7 +374,6 @@ export function createGame({ params, status, send, onTalk = null, onUiBlocked = 
   // —— 雅典娜（athena.mjs）：换城时整个重建。clock 是页面的时钟（毫秒，frame 的 now，只进不退） ——
   let athenaSim = null;
   let clock = 0;
-  let talkWasOpen = false;
   const createAthenaFor = (startAt) => createAthena({ travelMs: (a, b) => layout.travelMs(a, b), home: 'agora:0', startAt });
 
   // —— 成果：C# 推来的藏品。这座城装好之后才到的待收成果是刚做完的那一回合：直接出现在你脚下 ——
@@ -606,28 +624,24 @@ export function createGame({ params, status, send, onTalk = null, onUiBlocked = 
   const safeSite = (site) => (site && (site === 'agora' || site === 'harbor' || site === 'gate' || site.startsWith('agora:') || site.startsWith('pt:') || layout.plots.has(site)) ? site : 'agora');
 
   /**
-   * 雅典娜在时刻 now 的位置、朝向、光，以及她这一刻的动作（走 / 停）。光只在她化作一道光的那一下有：站着、走着都没有——
-   * 2026-10-12，用户：去掉始终存在的圣光。她不再做事、交付、沉思（2026-10-13：直播拿掉了），那几种光也就没有了。
+   * 雅典娜在时刻 now 的位置、朝向，以及她这一刻的动作（走 / 跑 / 停）。她没有光了：2026-10-12 去掉了始终存在的圣光，
+   * 2026-10-13 去掉了瞬移（她唯一的那一道光）。pose.teleport 恒为 null、glow 恒为 0，留着这两个字段只是让旧的读法不出错。
    */
   function athenaPose(state, now) {
     const step = state.step;
     const pose = { x: 0, z: 0, yaw: 0, visible: true, glow: 0, teleport: null, action: 'idle', t: now, style: {} };
     if (!step) return pose;
     const t = now - step.start;
-    if (step.kind === 'walk') {
-      // 她走路（M3）：步子的相位按走过的距离推进（起步和停步时慢下来，脚也慢下来，不打滑）
+    if (step.kind === 'walk' || step.kind === 'run') {
+      // 她走路（M3），远了就跑（2026-10-13 起没有瞬移）：步子的相位按走过的距离推进（起步和停步时慢下来，脚也慢下来，不打滑）。
+      // 追着你跑（递卷轴）的那一段不缓起缓停：你还在走，她一直是跑着的
       const route = routeOf(step);
-      const f = ease(stepProgress(step, now));
+      const running = step.kind === 'run';
+      const raw = stepProgress(step, now);
+      const f = step.reason === 'chase' ? raw : ease(raw);
       const p = pointAlong(route, f);
-      Object.assign(pose, { x: p.x, z: p.z, yaw: p.dir, glow: 0, action: 'walk', t: ((polyLength(route) * f) / SPEED) * 1000, style: { speed: SPEED, stride: ATHENA_STRIDE } });
-      return pose;
-    }
-    if (step.kind === 'teleport') {
-      const f = stepProgress(step, now);
-      const p = pointAlong(routeOf(step), f);
-      const site = f < 0.5 ? layout.sitePoint(safeSite(step.from)) : layout.sitePoint(safeSite(step.to));
-      Object.assign(pose, { x: site.x, z: site.z, yaw: facingAt(safeSite(step.to)), visible: f < 0.15 || f > 0.85, glow: 0.55, action: 'idle', t });
-      pose.teleport = new THREE.Vector3(p.x, 1.15, p.z);
+      const speed = running ? RUN_SPEED : SPEED;
+      Object.assign(pose, { x: p.x, z: p.z, yaw: p.dir, glow: 0, action: running ? 'run' : 'walk', t: ((polyLength(route) * f) / speed) * 1000, style: { speed, stride: running ? ATHENA_STRIDE * 1.5 : ATHENA_STRIDE } });
       return pose;
     }
     const at = safeSite(step.at ?? state.position);
@@ -641,14 +655,6 @@ export function createGame({ params, status, send, onTalk = null, onUiBlocked = 
     if (talkingToAthena() || debateActive()) return true;
     const a = world?.athena;
     return !!a && a.visible && Math.hypot(a.position.x - player.pos.x, a.position.z - player.pos.z) < NEAR_ATHENA;
-  }
-
-  /** 对话栏刚展开（不管是走到她跟前按 E、还是在城里任何地方按 Enter）：她离你太远，就走过来（远了化作一道光过来）。 */
-  function summonIfFar(now) {
-    const a = world?.athena;
-    if (!a || !athenaSim) return;
-    if (Math.hypot(a.position.x - player.pos.x, a.position.z - player.pos.z) <= SUMMON_DISTANCE) return;
-    if (athenaSim.goTo(playerSite(), now)) status.summoned = (status.summoned ?? 0) + 1;
   }
 
   function applyAthena(pose, line = null, dt = 16) {
@@ -748,7 +754,7 @@ export function createGame({ params, status, send, onTalk = null, onUiBlocked = 
         yaw = Math.atan2(r.home.x - out.x, r.home.z - out.z); action = 'walk'; at = walked(f);
       } else { action = 'idle'; at = t; }
       // 他的卡片开着、或者你在和他聊（对话栏借给了他）：站在原地，转身面向你，先挥一下手，然后一边比划一边讲（M3）
-      const chatting = convo?.id === `resident:${r.kind}`;
+      const chatting = convo?.id === `resident:${r.kind}` || (heard?.id === `resident:${r.kind}` && wall < heard.until);
       const greeting = (panel?.type === 'resident' && panel.id === r.kind) || chatting;
       const style = { variant: r.work, speed: 1.3, stride: 1.3, seed: r.phase };
       // 收缆的水手：缆拴在泊着的船上；船出海去了，他就站在桥沿上等它回来（不朝着空海收缆）
@@ -992,7 +998,7 @@ export function createGame({ params, status, send, onTalk = null, onUiBlocked = 
       }
       // 被叫住（卡片、问话）或当陪审团的这段时间不算进他的日程：松开后从站定的地方接着走，而不是滑到墙钟上本该到的地方
       c.schedule ??= newScheduleClock();
-      if ((panel?.type === 'citizen' && panel.id === c.id) || convo?.id === c.id || audienceOf.has(c.id)
+      if ((panel?.type === 'citizen' && panel.id === c.id) || convo?.id === c.id || (heard?.id === c.id && wall < heard.until) || audienceOf.has(c.id)
         || (chatTalk && (chatTalk.a === c.id || chatTalk.b === c.id))) holdSchedule(c.schedule, wall);
       else resumeSchedule(c.schedule, wall);
       c.at = citizenAt(c.plan, scheduleClock(c.schedule, wall));
@@ -1025,7 +1031,7 @@ export function createGame({ params, status, send, onTalk = null, onUiBlocked = 
     if (!chatTalk && wall >= nextChatPickAt) {
       nextChatPickAt = wall + 500;
       const candidates = live
-        .filter((c) => c.at.action === 'idle' && !c.hold && convo?.id !== c.id && citizenTiers.get(c.id) !== 'C' && greeting?.id !== c.id && !audienceOf.has(c.id))
+        .filter((c) => c.at.action === 'idle' && !c.hold && convo?.id !== c.id && heard?.id !== c.id && citizenTiers.get(c.id) !== 'C' && greeting?.id !== c.id && !audienceOf.has(c.id))
         .map((c) => { const p = posOf(c); return { id: c.id, x: p.x, z: p.z, idleLeft: c.at.idleLeft, inView: true }; });
       const pick = pickChat(candidates, player.pos, chatCooldown, wall);
       if (pick) startAmbient(pick, wall);
@@ -1057,7 +1063,7 @@ export function createGame({ params, status, send, onTalk = null, onUiBlocked = 
       counts[tier]++;
       const root = c.figure.root;
       // 卡片开着、或者你正在和他聊（对话栏借给了他）：他都站定、面朝你
-      const asked = convo?.id === c.id;
+      const asked = convo?.id === c.id || (heard?.id === c.id && wall < heard.until);
       const panelOpen = (panel?.type === 'citizen' && panel.id === c.id) || asked;
       // 卡片开着：他站定、面朝你；收起时记下站定的地方，再慢慢回到日程上的位置
       if (panelOpen && !c.hold) c.hold = posOf(c);
@@ -1341,7 +1347,7 @@ export function createGame({ params, status, send, onTalk = null, onUiBlocked = 
     // 讲台前辩论时：对话栏借给了辩论，镜头看你和她（和平时开口一样的近景）；判票与判完看整个舞台和围过来的陪审团
     if (lentToDebate() && talkOpen()) return { kind: 'debate', id: null };
     if (debate && (debate.state === 'judging' || debate.state === 'done') && stageInfo) return { kind: 'jury', id: null };
-    if (talkOpen()) return { kind: 'talk', id: null };
+    if (talkingToAthena()) return { kind: 'talk', id: null };
     if (panel?.type === 'resident' && world.residents.has(panel.id)) return { kind: 'resident', id: panel.id };
     if (panel?.type === 'citizen' && world.citizens.get(panel.id)?.figure) return { kind: 'citizen', id: panel.id };
     return null;
@@ -1448,10 +1454,7 @@ export function createGame({ params, status, send, onTalk = null, onUiBlocked = 
     setClothWind(windAt(wall));   // 海上吹来的风：全城的衣摆、面纱、斗篷都吃它（M3）
     stepNight(dt);
     updatePlayer(wall, dt);
-    // 对话栏刚展开：她离你远就走过来（你在城里任何地方按 Enter 开口，都不必先去找她）
-    const talking = talkingToAthena();
-    if (talking && !talkWasOpen) summonIfFar(now);
-    talkWasOpen = talking;
+    // 2026-10-13：远处开口不再把她叫过来——要和她说话，走到她身边（talk.openAthena）
     const state = athenaSim.update(now, { hold: athenaHeld() });
     const line = currentLine(now);
     const pose = athenaPose(state, now);
@@ -1861,7 +1864,7 @@ export function createGame({ params, status, send, onTalk = null, onUiBlocked = 
   function promptText(target) {
     const clip = (str, n = 14) => { const t = String(str ?? ''); return t.length > n ? `${t.slice(0, n - 1)}…` : t; };
     switch (target.type) {
-      case 'athena': return ui.interactTalk;
+      case 'athena': return athenaHasWords ? ui.interactTalkWaiting : ui.interactTalk;
       case 'resident': return fill(ui.interactResident, { name: residents.find((r) => r.kind === target.id)?.name ?? target.id });
       case 'citizen': return fill(ui.interactCitizen, { name: clip(world?.citizens.get(target.id)?.data.name ?? '', 16) });
       case 'stele': return ui.interactStele;
@@ -1929,7 +1932,60 @@ export function createGame({ params, status, send, onTalk = null, onUiBlocked = 
     pressed.clear();
     syncUiBlocked();
     status.talkOpened = (status.talkOpened ?? 0) + 1;
+    athenaHasWords = false;
+    status.athenaHasWords = false;
     onTalk();
+  }
+
+  /**
+   * 你自己说了一句（对话栏平时的样子，2026-10-13）：你的话出现在你头顶；附近（SPEAK_RADIUS 以内、在画面里）最近的那一位接一句——
+   * 居民或职业居民，C# 的 chat 带着 overheard（他听见你在旁边说）。没人在旁边就只是你说了一句。以"/"开头的命令、以"@"开头的
+   * 点名还没有：你头顶说一句"还在路上"，什么也不发。这是以后接命令与点名的地方（talk.parseBarInput）。
+   */
+  function speak(parsed) {
+    if (!world || !parsed) return null;
+    const wall = performance.now();
+    if (parsed.kind !== 'say') {
+      mine = { text: parsed.kind === 'command' ? ui.speakCommandSoon : ui.speakMentionSoon, at: wall };
+      status.spoke = { kind: parsed.kind, responder: null };
+      return null;
+    }
+    mine = { text: parsed.text, at: wall };
+    const near = [];
+    for (const c of world.citizens.values()) {
+      if (!c.figure?.root.visible || citizenTiers.get(c.id) === 'C' || audienceOf.has(c.id)) continue;
+      if (chatTalk && (chatTalk.a === c.id || chatTalk.b === c.id)) continue;
+      const p = c.figure.root.position;
+      near.push({ id: c.id, d: Math.hypot(p.x - player.pos.x, p.z - player.pos.z) });
+    }
+    for (const r of world.residents.values()) {
+      const p = r.figure.root.position;
+      if (!r.figure.root.visible) continue;
+      near.push({ id: `resident:${r.kind}`, d: Math.hypot(p.x - player.pos.x, p.z - player.pos.z) });
+    }
+    const who = near.filter((n) => n.d <= SPEAK_RADIUS && inView(...posOfSpeaker(n.id))).sort((a, b) => a.d - b.d || (a.id < b.id ? -1 : 1))[0]?.id ?? null;
+    status.spoke = { kind: 'say', responder: who };
+    if (!who) return null;
+    heard = { id: who, until: wall + HEARD_HOLD_MS };
+    sayings.set(who, { text: '', typing: true, at: wall, doneAt: null });
+    send('chat', { who, text: parsed.text, overheard: true });
+    return who;
+  }
+
+  /** 一位说话的人此刻站在哪儿（居民或职业居民）：[x, z]。 */
+  function posOfSpeaker(id) {
+    const root = id.startsWith('resident:') ? world.residents.get(id.slice(9))?.figure.root : world.citizens.get(id)?.figure?.root;
+    return root ? [root.position.x, root.position.z] : [Infinity, Infinity];
+  }
+
+  /**
+   * 有一段替你写好、要托付给雅典娜的话在等你（委托板、神谕、退回；2026-10-13 起不自己展开，用户定的）：她在城里说一句，
+   * 走到她跟前，脚下的提示写着"有一段写好的话"；按 E，栏带着这段话打开。
+   */
+  function prefillWaiting() {
+    athenaHasWords = true;
+    status.athenaHasWords = true;
+    say(ui.athenaHasWords, clock, 3600);
   }
 
   // —— 输入：键盘走路 ——
@@ -2011,6 +2067,8 @@ export function createGame({ params, status, send, onTalk = null, onUiBlocked = 
       convo = { ...convo, status: 'typing' };
       onChatReplied?.(id);
     }
+    // 接你话的那一位说完了：再站一会儿就接着过他的日子
+    if (heard?.id === id) heard = { id, until: now + HEARD_AFTER_MS };
   }
 
   /** C# 推来的那场会话预览（citizen-transcript）：进卷轴阅读器。只认这座城里此刻有的居民。 */
@@ -2304,6 +2362,10 @@ export function createGame({ params, status, send, onTalk = null, onUiBlocked = 
     get stage() { return stage(); },
     setTalk,
     endAmbient,
+    speak,
+    prefillWaiting,
+    /** 接你话的那一位（测试用）。 */
+    get heard() { return heard ? { ...heard } : null; },
     /** 让两位居民马上聊（冒烟测试用：走和挑人时一样的那条路——发 ambient-chat、先开口的那位头顶一串点）。 */
     ambientNow(a, b) {
       if (!world?.citizens.has(a) || !world?.citizens.has(b) || a === b) return false;

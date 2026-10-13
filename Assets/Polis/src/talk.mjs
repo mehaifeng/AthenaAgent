@@ -1,7 +1,10 @@
-// 和雅典娜说话（设计稿 7.1"说"）。游戏盖住了整个中间区域，原来的输入框也在它下面——城里的对话栏是游戏模式下说话的地方。
-// 底部正中一条对话栏：平时一行（左边雅典娜的小像）；点进去、按 Enter、或者在城里点雅典娜，它就展开——半身像、她此刻在做什么、
-// 能写几行的输入框。Enter 托付（Shift+Enter 换行；输入法正在选字时的 Enter 只是选字），Esc 收起，草稿留着，并且随手同步回
-// 这份委托自己的输入框（切回对话模式，写了一半的话还在）。她在办事时，托付键换成"请她停下"。
+// 城里的对话栏（设计稿 7.1"说"）。游戏盖住了整个中间区域，原来的输入框也在它下面——城里的对话栏是游戏模式下说话的地方。
+// 2026-10-13 起（用户）它平时是"你自己说话"（speak）：左边是你的小像，Enter 说出去，你的话出现在你头顶，附近的人会接一句
+// （game.speak → C# 的 chat，overheard）。以"/"开头是命令、以"@"开头是点名——都还没有，先解析出来交给 onSpeak，由城里说一句
+// "还在路上"（parseBarInput 是以后接命令的地方）。和雅典娜说话（托付，talk）要走到她身边按 E（openAthena）：栏换成她的半身像、
+// 她此刻在做什么、能写几行的输入框。Enter 托付（Shift+Enter 换行；输入法正在选字时的 Enter 只是选字），Esc 收起回到"自己说话"，
+// 写给她的草稿留着，并且随手同步回这份委托自己的输入框（切回对话模式，写了一半的话还在）。她在办事时，托付键换成"请她停下"。
+// 等审批的红封印两种模式都在栏上（城里唯一显示审批的地方）。
 //
 // 写进去的字是你自己的。托付走 C# 输入框的同一条路径（SendMessageCommand），这里只发三条意图：say（托付）、draft（草稿）、
 // stop-turn（请她停下），都带着这份委托的 Id，C# 只认此刻显示的那一份（PolisIntents）。整块界面的文字都用 textContent，
@@ -28,6 +31,40 @@ const PORTRAIT = Object.freeze({
 });
 
 const fill = (template, vars) => String(template ?? '').replace(/\{(\w+)\}/g, (_, k) => vars[k] ?? '');
+
+/**
+ * "自己说话"那一句是什么（纯逻辑，Node 单测）：以"/"开头是命令（{ kind: 'command', name, args }），以"@"开头是点名
+ * （{ kind: 'mention', name, text }），其余是一句话（{ kind: 'say', text }）。命令与点名都还没有实现——这是以后接它们的地方。
+ */
+export function parseBarInput(text) {
+  const t = String(text ?? '').trim();
+  if (t.startsWith('/')) {
+    const [head, ...rest] = t.slice(1).split(/\s+/);
+    return { kind: 'command', name: head ?? '', args: rest.join(' '), text: t };
+  }
+  if (t.startsWith('@')) {
+    const m = /^@(\S*)\s*([\s\S]*)$/.exec(t);
+    return { kind: 'mention', name: m?.[1] ?? '', text: m?.[2] ?? '', raw: t };
+  }
+  return { kind: 'say', text: t };
+}
+
+/**
+ * "自己说话"时这条栏显示什么（纯逻辑，Node 单测）：你的名字与小像；状态行说附近的人会听见——雅典娜在办事、在等你点头时说她的事
+ * （等审批的红封印照样在）；能说 = 写了字、不超过上限（不需要委托，也不管她在不在办事）。
+ */
+export function speakView(state, text, ui) {
+  const t = String(text ?? '').trim();
+  return {
+    name: ui.speakName ?? '',
+    status: state.waiting ? ui.talkWaiting : state.busy ? ui.speakAthenaBusy : ui.speakIdle,
+    placeholder: state.waiting ? ui.talkWaiting : ui.speakPlaceholder,
+    send: ui.speakSend ?? '',
+    hint: ui.speakHint ?? '',
+    seal: !!state.waiting,
+    canSend: t.length > 0 && t.length <= MAX_LINE_CHARS,
+  };
+}
 
 /**
  * 对话栏这一刻该显示什么（纯逻辑，Node 单测）：C# 推来的 composer 状态 + 当前草稿。
@@ -103,9 +140,11 @@ export function chatView(mode, target, text, ui) {
 
 /**
  * @param {HTMLElement} root  index.html 里的 #talk（结构是静态的标记，这里只填文字、读写 .value）
- * @param {{ send: (type: string, fields?: object) => void, onOpen?: () => void, onLent?: (event: 'sent'|'cancel', info: { kind: string, id: string, text?: string }) => void }} options
+ * @param {{ send: (type: string, fields?: object) => void, onOpen?: () => void, onLent?: (event: 'sent'|'cancel', info: { kind: string, id: string, text?: string }) => void,
+ *   onSpeak?: (parsed: { kind: 'say'|'command'|'mention' }) => void, onPrefill?: () => void }} options
+ *   onSpeak：你自己说了一句（parseBarInput 的结果）；onPrefill：有一段替你写好、要托付给雅典娜的话在等你（2026-10-13：不再自己展开，你得去找她）
  */
-export function createTalk(root, { send, onOpen = null, onLent = null }) {
+export function createTalk(root, { send, onOpen = null, onLent = null, onSpeak = null, onPrefill = null }) {
   const doc = root.ownerDocument;
   const win = doc.defaultView;
   const q = (selector) => root.querySelector(selector);
@@ -117,7 +156,7 @@ export function createTalk(root, { send, onOpen = null, onLent = null }) {
   const sendButton = q('.talk-send');
   const stopButton = q('.talk-stop');
   const hintEl = q('.talk-hint');
-  input.maxLength = MAX_SAY_CHARS;
+  input.maxLength = MAX_LINE_CHARS;   // 平时是你自己说话（一句话的上限）；和雅典娜说话时换成托付的上限
 
   let ui = {};
   let state = { conversationId: null, busy: false, queued: false, waiting: false, compressing: false, canSend: false, attachments: [] };
@@ -127,15 +166,16 @@ export function createTalk(root, { send, onOpen = null, onLent = null }) {
   let draftTimer = null;
   let lastDraft = null;      // 最近一次同步给 C# 的草稿（相同的不再发）
   let drawn = '';
-  let mode = 'talk';         // 'talk' 和雅典娜说话；'lent' 借出去了（在写）；'waiting' 发出去了，在等
+  let mode = 'speak';        // 'speak' 你自己说话（平时）；'talk' 和雅典娜说话（走到她身边按 E）；'lent' 借出去了（在写）；'waiting' 发出去了，在等
   let lent = null;           // chatLend / debateLend 给的那一份
-  let savedDraft = '';       // 借出去期间收着的、你写给雅典娜的草稿
+  let athenaDraft = '';      // 不在和她说话时收着的、你写给雅典娜的草稿（和 C# 那份委托的输入框同步）
+  let speakText = '';        // 和她说话、借出去时收着的、你自己说到一半的话（只在页面上）
   let focusWhenShown = false;
 
   function drawPortrait(expression) {
     const p = open ? PORTRAIT.open : PORTRAIT.collapsed;
     const dpr = Math.min(win.devicePixelRatio || 1, 2);
-    const who = mode !== 'talk' && lent?.bust ? lent.bust : 'athena';
+    const who = mode === 'speak' ? 'player' : mode !== 'talk' && lent?.bust ? lent.bust : 'athena';
     const key = `${typeof who === 'object' ? who.key ?? 'citizen' : who}:${expression}:${open}:${dpr}`;
     if (key === drawn) return;
     drawn = key;
@@ -159,6 +199,7 @@ export function createTalk(root, { send, onOpen = null, onLent = null }) {
   }
 
   function render() {
+    if (mode === 'speak') return renderSpeak();
     if (mode !== 'talk') return renderLent();
     input.disabled = false;
     root.classList.remove('asking');
@@ -178,11 +219,38 @@ export function createTalk(root, { send, onOpen = null, onLent = null }) {
     root.classList.toggle('open', open);
     root.classList.toggle('busy', view.busy);
     root.classList.toggle('waiting', view.seal);
+    root.classList.remove('speaking');
     const hidden = !available || suppressed;
     const appearing = root.hidden && !hidden;
     root.hidden = hidden;
     if (appearing) autosize();
     drawPortrait(view.expression);
+  }
+
+  /** 你自己说话时的样子：你的小像与名字，状态行说附近的人会听见（她在办事、等你点头时说她的事；红封印照样在）。 */
+  function renderSpeak() {
+    const view = speakView(state, input.value, ui);
+    input.disabled = false;
+    root.classList.remove('asking');
+    nameEl.textContent = view.name;
+    statusEl.textContent = view.status ?? '';
+    input.placeholder = view.placeholder ?? '';
+    sendButton.textContent = view.send;
+    sendButton.disabled = !view.canSend;
+    sendButton.hidden = false;
+    stopButton.hidden = true;
+    hintEl.textContent = view.hint;
+    attachmentsEl.hidden = true;
+    attachmentsEl.textContent = '';
+    root.classList.toggle('open', open);
+    root.classList.remove('busy');
+    root.classList.toggle('waiting', view.seal);
+    root.classList.add('speaking');
+    const hidden = !available || suppressed;
+    const appearing = root.hidden && !hidden;
+    root.hidden = hidden;
+    if (appearing) autosize();
+    drawPortrait('smile');
   }
 
   /** 借出去时的样子：借用者的半身像与名字、它自己的按键与提示、等的时候输入框停用。 */
@@ -203,6 +271,7 @@ export function createTalk(root, { send, onOpen = null, onLent = null }) {
     root.classList.remove('busy');
     root.classList.remove('waiting');
     root.classList.add('asking');
+    root.classList.remove('speaking');
     const hidden = suppressed;
     const appearing = root.hidden && !hidden;
     root.hidden = hidden;
@@ -218,7 +287,9 @@ export function createTalk(root, { send, onOpen = null, onLent = null }) {
     if (!config?.id) return false;
     if (mode === 'talk') {
       if (draftTimer != null) flushDraft();
-      savedDraft = input.value;
+      athenaDraft = input.value;
+    } else if (mode === 'speak') {
+      speakText = input.value;
     }
     mode = 'lent';
     lent = config;
@@ -234,16 +305,15 @@ export function createTalk(root, { send, onOpen = null, onLent = null }) {
     return true;
   }
 
-  /** 还回来：雅典娜的草稿放回输入框（没有改过，不重新同步）。cancelled 为真时告诉城里"不问了 / 不辩了"。 */
+  /** 还回来：回到"你自己说话"，你说到一半的话放回输入框（写给雅典娜的草稿照样收着）。cancelled 为真时告诉城里"告辞 / 不辩了"。 */
   function endLent(cancelled = false) {
-    if (mode === 'talk') return;
+    if (mode === 'talk' || mode === 'speak') return;
     const was = lent;
-    mode = 'talk';
+    mode = 'speak';
     lent = null;
     input.disabled = false;
-    input.maxLength = MAX_SAY_CHARS;
-    input.value = savedDraft;
-    lastDraft = savedDraft;
+    input.maxLength = MAX_LINE_CHARS;
+    input.value = speakText;
     drawn = '';
     if (doc.activeElement === input) input.blur();
     open = true;
@@ -284,6 +354,49 @@ export function createTalk(root, { send, onOpen = null, onLent = null }) {
     if (open) onOpen?.();
   }
 
+  /**
+   * 走到雅典娜身边按 E（2026-10-13：托付只在她身边）：栏换成她，输入框里是写给她的草稿（预填的那一段也在这里）。借出去时不换。
+   */
+  function openAthena() {
+    if (mode === 'lent' || mode === 'waiting') return false;
+    if (mode === 'speak') speakText = input.value;
+    mode = 'talk';
+    input.disabled = false;
+    input.maxLength = MAX_SAY_CHARS;
+    input.value = athenaDraft;
+    lastDraft = athenaDraft;
+    drawn = '';
+    if (!available || suppressed) { render(); return false; }
+    setOpen(true);
+    render();
+    input.focus();
+    const end = input.value.length;
+    input.setSelectionRange(end, end);
+    return true;
+  }
+
+  /** 离开雅典娜（收起、走开、托付完）：草稿同步出去收着，栏回到"你自己说话"。 */
+  function leaveAthena() {
+    if (mode !== 'talk') return;
+    flushDraft();
+    athenaDraft = input.value;
+    mode = 'speak';
+    input.maxLength = MAX_LINE_CHARS;
+    input.value = speakText;
+    drawn = '';
+  }
+
+  /** 你自己说一句：解析（命令、点名都还没有，交给城里说一句"还在路上"），交给 onSpeak，清空、收起，把键盘还给城。 */
+  function submitSpeak() {
+    if (!speakView(state, input.value, ui).canSend) return false;
+    const parsed = parseBarInput(input.value);
+    input.value = '';
+    speakText = '';
+    onSpeak?.(parsed);
+    close();
+    return true;
+  }
+
   function flushDraft() {
     if (draftTimer != null) { win.clearTimeout(draftTimer); draftTimer = null; }
     if (mode !== 'talk') return;   // 借出去的这段时间，输入框里是问题或论点，不是草稿
@@ -305,6 +418,7 @@ export function createTalk(root, { send, onOpen = null, onLent = null }) {
     send('say', { conversationId: state.conversationId, text });
     input.value = '';
     lastDraft = '';
+    athenaDraft = '';
     // 先按"她接手了"显示；C# 马上推来真实状态——办事中，或者被拒绝时连同草稿一起退回来
     state = { ...state, busy: true, canSend: false };
     close();
@@ -312,7 +426,7 @@ export function createTalk(root, { send, onOpen = null, onLent = null }) {
   }
 
   function openTalk({ focus = true } = {}) {
-    if (mode !== 'talk') {
+    if (mode === 'lent' || mode === 'waiting') {
       if (suppressed) return false;
       setOpen(true);
       if (focus && mode === 'lent') input.focus();
@@ -332,6 +446,7 @@ export function createTalk(root, { send, onOpen = null, onLent = null }) {
     flushDraft();
     if (doc.activeElement === input) input.blur();
     setOpen(false);
+    leaveAthena();
     render();
   }
 
@@ -344,10 +459,11 @@ export function createTalk(root, { send, onOpen = null, onLent = null }) {
       e.preventDefault();
       if (mode === 'lent') submitLent();
       else if (mode === 'talk') submit();
+      else if (mode === 'speak') submitSpeak();
     } else if (e.key === 'Escape') {
       e.preventDefault();
-      // 借出去时按 Esc（写着、等着都算）是"不问了 / 不辩了"：栏马上还给雅典娜
-      if (mode !== 'talk') endLent(true);
+      // 借出去时按 Esc（写着、等着都算）是"告辞 / 不辩了"：栏马上还回来
+      if (mode === 'lent' || mode === 'waiting') endLent(true);
       else close();
     }
   });
@@ -357,16 +473,18 @@ export function createTalk(root, { send, onOpen = null, onLent = null }) {
     // 聊天时点回城里（去走动了）：就是告辞了。辩论不这样——你会转头看一眼陪审团，焦点回来还接着辩
     if (mode === 'lent' && lent?.kind === 'chat') { endLent(true); return; }
     // 借出去时（尤其发出去之后输入框停用、焦点自己掉了）：栏留着展开，状态行写着在等什么
-    if (mode !== 'talk') return;
+    if (mode === 'lent' || mode === 'waiting') return;
     flushDraft();
     setOpen(false);
+    leaveAthena();
+    render();
   });
   // 点收起的那一行（小像、空白处）也是点进去
   root.addEventListener('click', (e) => {
     if (e.target.closest?.('button')) return;
     if (doc.activeElement !== input) openTalk({ focus: true });
   });
-  sendButton.addEventListener('click', () => { if (mode === 'lent') submitLent(); else if (mode === 'talk') submit(); });
+  sendButton.addEventListener('click', () => { if (mode === 'lent') submitLent(); else if (mode === 'talk') submit(); else if (mode === 'speak') submitSpeak(); });
   stopButton.addEventListener('click', () => { if (state.busy) send('stop-turn'); });
   win.addEventListener('blur', flushDraft);
 
@@ -389,21 +507,22 @@ export function createTalk(root, { send, onOpen = null, onLent = null }) {
       };
       if (switched || typeof message.draft === 'string') {
         const draft = typeof message.draft === 'string' ? message.draft : '';
-        // 借出去的时候：输入框里是问题或论点，雅典娜的草稿先收着，还回来时再放进去
-        if (mode !== 'talk') savedDraft = draft;
-        else input.value = draft;
+        // 不在和她说话的时候：输入框里是你自己的话、问题或论点，雅典娜的草稿先收着，和她说话时再放进去
+        athenaDraft = draft;
+        if (mode === 'talk') input.value = draft;
         lastDraft = draft;
         autosize();
       }
       available = !!state.conversationId;
-      // 预填（委托板、居民的示范、退回）要的是和雅典娜说话：正在聊的那一位让位
-      if (message.open && mode !== 'talk') endLent(true);
       render();
-      if (message.open) openTalk({ focus: true });
+      // 预填（委托板、神谕、退回）：2026-10-13 起不自己展开——那段话等你走到雅典娜身边按 E 再看（用户定的）
+      if (message.open) onPrefill?.();
     },
     open: openTalk,
     close,
     submit,
+    /** 走到雅典娜身边按 E：和她说话（托付）。 */
+    openAthena,
     flushDraft,
     /** 借给一位居民聊天。 */
     openChat: (target) => lend(chatLend(target, ui)),
@@ -414,13 +533,15 @@ export function createTalk(root, { send, onOpen = null, onLent = null }) {
     /** 事情办完（辩论进了裁决、换了城）：还回来。 */
     endLent: () => endLent(false),
     /** 'talk'，或者借出去时借用者的说法：'chat' / 'chatting'、'debate' / 'debating'。 */
-    get mode() { return mode === 'talk' ? 'talk' : mode === 'lent' ? lent.kind : lent.waitingKind; },
+    get mode() { return mode === 'talk' || mode === 'speak' ? mode : mode === 'lent' ? lent.kind : lent.waitingKind; },
+    /** 写给雅典娜、此刻收着的草稿（不在和她说话时；测试用）。 */
+    get athenaDraft() { return mode === 'talk' ? input.value : athenaDraft; },
     get lentTo() { return lent ? { kind: lent.kind, id: lent.id } : null; },
     setTables(table) { ui = { ...table }; drawn = ''; render(); },
     setSuppressed(value) {
       if (suppressed === !!value) return;
       suppressed = !!value;
-      if (suppressed && open && mode === 'talk') close();
+      if (suppressed && open && (mode === 'talk' || mode === 'speak')) close();
       render();
       if (!suppressed && focusWhenShown && mode === 'lent') input.focus();
       focusWhenShown = false;
@@ -428,9 +549,9 @@ export function createTalk(root, { send, onOpen = null, onLent = null }) {
     get isOpen() { return open; },
     get available() { return available && !suppressed; },
     get value() { return input.value; },
-    set value(text) { input.value = String(text ?? ''); autosize(); render(); scheduleDraft(); },
+    set value(text) { input.value = String(text ?? ''); autosize(); render(); if (mode === 'talk') scheduleDraft(); },
     get state() {
-      const exposed = mode === 'talk' ? 'talk' : mode === 'lent' ? lent.kind : lent.waitingKind;
+      const exposed = mode === 'talk' || mode === 'speak' ? mode : mode === 'lent' ? lent.kind : lent.waitingKind;
       return { ...state, open, suppressed, available, mode: exposed, chatting: lent?.kind === 'chat' ? lent.id : null, lentTo: lent?.kind ?? null };
     },
   };

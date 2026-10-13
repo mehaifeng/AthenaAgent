@@ -11410,6 +11410,10 @@ static async Task TestPolisCitizenAnswersAsync()
     AssertTrue(preview.Accepted && preview.Intent!.Type == PolisIntentType.CitizenTranscript && preview.Intent.ConversationId == "c1", "这座城的居民可以预览");
     var pair = PolisIntents.Validate("""{"v":1,"type":"ambient-chat","a":"c1","b":"c3"}""", context with { KnownCitizenIds = new HashSet<string> { "c1", "c3" } });
     AssertTrue(pair.Accepted && pair.Intent!.ConversationId == "c1" && pair.Intent.OtherId == "c3", "这座城的两位居民可以闲聊");
+    var overheard = PolisIntents.Validate("""{"v":1,"type":"chat","who":"c1","text":"今天风真大","overheard":true}""", context);
+    AssertTrue(overheard.Accepted && overheard.Intent!.Overheard, "你自己说了一句、他在旁边听见（overheard）");
+    AssertFalse(PolisIntents.Validate("""{"v":1,"type":"chat","who":"c1","text":"你好"}""", context).Intent!.Overheard, "不带 overheard 就是对他说的");
+    AssertEqual("（你在街上，听见城的主人在你旁边说）今天风真大", PolisTalk.Overheard("  今天风真大 ", "zh-CN"), "听见的那一句前面说明是听见的");
     var residentContext = context with { KnownResidentIds = new HashSet<string> { "scribe" } };
     AssertTrue(PolisIntents.Validate("""{"v":1,"type":"chat","who":"resident:scribe","text":"你好"}""", residentContext).Accepted, "和这座城的职业居民说话");
     AssertFalse(PolisIntents.Validate("""{"v":1,"type":"chat","who":"resident:smith","text":"你好"}""", residentContext).Accepted, "不在这座城里的职业居民");

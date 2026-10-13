@@ -40,7 +40,7 @@ public static class PolisLocale
         ("viewPlayer", "Polis.Ui.ViewPlayer", "跟着你"),
         ("viewAthena", "Polis.Ui.ViewAthena", "跟着雅典娜"),
         ("viewFreeTip", "Polis.Ui.ViewFreeTip", "左键拖动转视角，右键拖动平移，滚轮缩放；你走远了镜头会跟上"),
-        ("controlsHint", "Polis.Ui.ControlsHint", "WASD / 方向键走动（按住 Shift 跑）· 拖动转视角 · 走近人或物件按 E 互动 · Enter 和雅典娜说话"),
+        ("controlsHint", "Polis.Ui.ControlsHint", "WASD / 方向键走动（按住 Shift 跑）· 拖动转视角 · 走近人或物件按 E 互动 · Enter 说话（和雅典娜说话请走到她身边按 E）"),
         ("focusHint", "Polis.Ui.FocusHint", "点一下画面，就能用键盘走动"),
         ("athenaHere", "Polis.Ui.AthenaHere", "雅典娜在这边"),
         // 走近按 E（M3 第三轮：互动从鼠标点击改为走到跟前按交互键）
@@ -103,6 +103,17 @@ public static class PolisLocale
         ("interactStele", "Polis.Ui.InteractStele", "读碑上的名字"),
         ("steleTitle", "Polis.Ui.SteleTitle", "老居民"),
         ("steleBody", "Polis.Ui.SteleBody", "一年多没出门的居民，名字刻在这里："),
+        // 你自己说话（2026-10-13：平时的对话栏；和雅典娜说话要走到她身边按 E）
+        ("interactTalkWaiting", "Polis.Ui.InteractTalkWaiting", "和雅典娜说话（有一段写好的话等你）"),
+        ("speakName", "Polis.Ui.SpeakName", "你"),
+        ("speakIdle", "Polis.Ui.SpeakIdle", "说点什么，附近的人会听见"),
+        ("speakAthenaBusy", "Polis.Ui.SpeakAthenaBusy", "雅典娜在办事——要和她说话，走到她身边按 E"),
+        ("speakPlaceholder", "Polis.Ui.SpeakPlaceholder", "说点什么……"),
+        ("speakSend", "Polis.Ui.SpeakSend", "说"),
+        ("speakHint", "Polis.Ui.SpeakHint", "Enter 说 · 附近的人会接话 · 和雅典娜说话请走到她身边按 E"),
+        ("speakCommandSoon", "Polis.Ui.SpeakCommandSoon", "（「/」命令还在路上）"),
+        ("speakMentionSoon", "Polis.Ui.SpeakMentionSoon", "（「@」点名还在路上）"),
+        ("athenaHasWords", "Polis.Ui.AthenaHasWords", "我这里有一段替你写好的话，过来找我。"),
         // 和一位居民聊天（2026-10-13，原来 M-C 的问话）
         ("citizenChat", "Polis.Ui.CitizenChat", "聊几句"),
         ("chatStatus", "Polis.Ui.ChatStatus", "和{name}聊天"),

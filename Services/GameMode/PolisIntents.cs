@@ -104,6 +104,8 @@ public sealed record PolisIntent(PolisIntentType Type)
     public PolisResidentKind? Resident { get; init; }
     /// <summary>两个人的那一种意图里的另一位（<see cref="PolisIntentType.AmbientChat"/> 的 b）。</summary>
     public string? OtherId { get; init; }
+    /// <summary>chat：你不是在对他说，是你自己说了一句、他在旁边听见了（2026-10-13，平时的对话栏）。</summary>
+    public bool Overheard { get; init; }
 }
 
 /// <summary>校验时需要知道的现场：当前城邦的根目录（神殿为 null）、有哪些会话、有哪些藏品。</summary>
@@ -307,7 +309,8 @@ public static class PolisIntents
                     // 一句话也不截断：截掉半句再说，说的就是另一回事了（页面的输入框本来就打不进更多）
                     if (line.Length > PolisTalk.MaxLineChars)
                         return PolisIntentResult.Reject($"text longer than {PolisTalk.MaxLineChars} characters");
-                    return new PolisIntentResult(new PolisIntent(type) { ConversationId = who, Text = line }, null);
+                    var overheard = root.TryGetProperty("overheard", out var rawOverheard) && rawOverheard.ValueKind == JsonValueKind.True;
+                    return new PolisIntentResult(new PolisIntent(type) { ConversationId = who, Text = line, Overheard = overheard }, null);
                 }
 
                 case PolisIntentType.AmbientChat:

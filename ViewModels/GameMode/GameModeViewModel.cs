@@ -587,7 +587,7 @@ public sealed partial class GameModeViewModel : ViewModelBase, IDisposable
                 break;
             }
             case PolisIntentType.Chat:
-                _ = RunIntentAsync(() => ChatAsync(intent.ConversationId!, intent.Text!), "chat");
+                _ = RunIntentAsync(() => ChatAsync(intent.ConversationId!, intent.Overheard ? PolisTalk.Overheard(intent.Text!, _localization.CurrentLanguage) : intent.Text!), "chat");
                 break;
             case PolisIntentType.AmbientChat:
                 _ = RunIntentAsync(() => AmbientChatAsync(intent.ConversationId!, intent.OtherId!), "ambient-chat");

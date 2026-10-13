@@ -1515,6 +1515,16 @@
     <system:String x:Key="Polis.Ui.SteleTitle">Old citizens</system:String>
     <system:String x:Key="Polis.Ui.SteleBody">Citizens who have not been out for over a year are carved here:</system:String>
     <!-- 问话（M-C，2026-10-13）：居民卡片上的问话、对话栏借给居民时的字，以及没拿到回答时他说的那一句 -->
+    <system:String x:Key="Polis.Ui.InteractTalkWaiting">Talk to Athena (she has words waiting for you)</system:String>
+    <system:String x:Key="Polis.Ui.SpeakName">You</system:String>
+    <system:String x:Key="Polis.Ui.SpeakIdle">Say something; whoever is near will hear</system:String>
+    <system:String x:Key="Polis.Ui.SpeakAthenaBusy">Athena is at work. To talk to her, walk up to her and press E</system:String>
+    <system:String x:Key="Polis.Ui.SpeakPlaceholder">Say something…</system:String>
+    <system:String x:Key="Polis.Ui.SpeakSend">Say</system:String>
+    <system:String x:Key="Polis.Ui.SpeakHint">Enter to say · whoever is near may answer · to talk to Athena, walk up to her and press E</system:String>
+    <system:String x:Key="Polis.Ui.SpeakCommandSoon">("/" commands are on their way)</system:String>
+    <system:String x:Key="Polis.Ui.SpeakMentionSoon">("@" mentions are on their way)</system:String>
+    <system:String x:Key="Polis.Ui.AthenaHasWords">I have some words written for you. Come and find me.</system:String>
     <system:String x:Key="Polis.Ui.CitizenChat">Chat a little</system:String>
     <system:String x:Key="Polis.Ui.ChatStatus">Chatting with {name}</system:String>
     <system:String x:Key="Polis.Ui.ChatPlaceholder">Say something to {name}…</system:String>
@@ -1692,7 +1702,7 @@
     <system:String x:Key="Polis.Ui.ViewPlayer">Follow you</system:String>
     <system:String x:Key="Polis.Ui.ViewAthena">Follow Athena</system:String>
     <system:String x:Key="Polis.Ui.ViewFreeTip">Drag to turn the view, right-drag to pan, scroll to zoom; the camera catches up when you walk away</system:String>
-    <system:String x:Key="Polis.Ui.ControlsHint">WASD / arrow keys to walk (hold Shift to run) · drag to turn the view · walk up to people and things and press E · Enter to talk to Athena</system:String>
+    <system:String x:Key="Polis.Ui.ControlsHint">WASD / arrow keys to walk (hold Shift to run) · drag to turn the view · walk up to someone or something and press E · Enter to speak (to talk to Athena, walk up to her and press E)</system:String>
     <system:String x:Key="Polis.Ui.FocusHint">Click the scene once to walk with the keyboard</system:String>
     <system:String x:Key="Polis.Ui.AthenaHere">Athena is this way</system:String>
     <system:String x:Key="Polis.Ui.InteractKey">E</system:String>

@@ -283,6 +283,13 @@ public static class PolisTalk
         return new PolisTalkPrompt(system, new[] { ("user", user) });
     }
 
+    /// <summary>
+    /// 你自己说了一句、他在旁边听见了（2026-10-13，平时的对话栏）：给模型的那一句前面说明是听见的，他可以接也可以搭话。
+    /// </summary>
+    public static string Overheard(string line, string language) => IsChinese(language)
+        ? $"（你在街上，听见城的主人在你旁边说）{line.Trim()}"
+        : $"(In the street, you overhear the city's owner say nearby) {line.Trim()}";
+
     /// <summary>记住这一轮：追加到末尾，超过 <see cref="MaxHistoryTurns"/> 轮就忘掉最旧的。</summary>
     public static IReadOnlyList<PolisTalkTurn> Remember(IReadOnlyList<PolisTalkTurn>? history, string you, string them)
     {
