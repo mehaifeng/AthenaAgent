@@ -53,6 +53,8 @@ internal sealed class NativeWebViewPolisPage : IPolisPage
         };
         _webView.NavigationCompleted += OnNavigationCompleted;
         _webView.WebMessageReceived += OnWebMessageReceived;
+        // Linux：内嵌的 WebKitGTK 收不到顶层焦点，输入法不工作；由宿主补焦点
+        GtkWebViewFocusBridge.Attach(_webView);
         // 挂载是异步的（NativeWebView.OnAttached 经调度器回抛），挂载失败时靠它找到是哪一个页面失败了
         _pendingAttach = this;
     }
