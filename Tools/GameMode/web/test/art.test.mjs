@@ -341,7 +341,7 @@ test('asset manifest: unknown ids, bad entries and failed loads all fall back to
 });
 
 test('busts: every character has the three expressions, deterministic, inside the frame, no accent color', () => {
-  assert.equal(Object.keys(CHARACTERS).length, 13, 'Athena, the player and eleven residents');
+  assert.equal(Object.keys(CHARACTERS).length, 12, 'Athena, the player and ten residents (the gold maiden went on 2026-10-13)');
   for (const c of Object.keys(CHARACTERS)) {
     const shapes = new Set();
     for (const e of EXPRESSIONS) {
@@ -494,11 +494,12 @@ test('sea chart: the sanctuary in the middle, islands on a spiral by creation or
 });
 
 test('intents (M2): the new page intents are in the closed set; still no approval', () => {
-  for (const name of ['place-item', 'unplace-item', 'remove-item', 'take-suggestion', 'request-oracle', 'select-island', 'meet-resident', 'try-resident']) {
+  for (const name of ['place-item', 'unplace-item', 'remove-item', 'take-suggestion', 'request-oracle', 'select-island', 'meet-resident']) {
     assert.ok(INTENT_TYPES.includes(name), name);
     assert.equal(intent(name, { x: 1 }).type, name);
   }
   assert.ok(!INTENT_TYPES.some((t) => /approv|allow|grant|consent/i.test(t)));
+  assert.ok(!INTENT_TYPES.includes('try-resident'), '工具能力撤下了（2026-10-13）：没有"请雅典娜试试"');
 });
 
 test('water: the sea moves, and every shader patch actually lands in three.js\'s standard shader', () => {

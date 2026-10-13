@@ -436,9 +436,9 @@ export function buildWorld(scene, city, layout, M, options) {
   world.playerFigure = player;
   world.player = player.root;
   // 派发子代理时飞出去的六位黄金侍女（M1–M3）随直播一起拿掉了（2026-10-13）：她们只为镜像那一次工具调用而建、平时藏着。
-  // 黄金侍女这位居民还在（characters.RESIDENT_ROLES.maiden）
+  // 黄金侍女这位居民也随后拿掉了（2026-10-13，职业居民不再和工具挂钩）
 
-  /** 居民：每位站在他那项能力的建筑旁（characters.RESIDENT_ROLES），按 C# 推导出来的名单出现。 */
+  /** 职业居民：每位站在他那门行当的建筑旁（characters.RESIDENT_ROLES）；十位每座城都在（C# 推来的名单，2026-10-13）。 */
   world.setResidents = (list, nameOf = (kind) => kind) => {
     const want = new Map((list ?? []).map((r) => [r.kind, r]));
     for (const [kind, resident] of world.residents) {

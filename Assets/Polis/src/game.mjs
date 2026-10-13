@@ -130,7 +130,7 @@ export const UI_ZH = Object.freeze({
   oracleNone: '在神庙设立每日神谕：每天早上，雅典娜回顾这座城的变化，传令官把晨报送到你手上。设立时需要你在审批窗口里点头。',
   requestOracle: '请雅典娜设立',
   latestScroll: '看最近一卷',
-  residentTry: '请雅典娜试试',
+  residentTitle: '{trade}{name}',
   chart: '海图',
   chartTitle: '群岛海图',
   chartHint: '一座岛是一座城邦。点一座岛，驶向它最近的那份委托。',
@@ -293,7 +293,7 @@ export function createGame({ params, status, send, onTalk = null, onUiBlocked = 
 
   // —— 积累（C# 推来的，全部可以从存档与会话重新推导） ——
   let groveTrees = [];         // [{ conversationId, title, index, stage, turns, interrupted, scheduled }]
-  let residents = [];          // [{ kind, met, name, intro, tryLabel }]
+  let residents = [];          // [{ kind, met, name（职业加希腊名）, trade, greekName, intro }]：十位职业居民每座城都在（2026-10-13）
   // 居民即会话（M-B）：C# 推来街上的（≤ 32 位）、老居民（名字刻在碑上）与人口
   let citizens = { street: [], elders: [], census: null };
   let citizenTiers = new Map();      // id → 'A' | 'B' | 'C'（citizens.assignTiers）
@@ -711,8 +711,9 @@ export function createGame({ params, status, send, onTalk = null, onUiBlocked = 
     const boatSpeed = dt > 0 ? ((boat.position.z - prevBoatZ) / dt) * 1000 : 0;
     M.water.userData.water.update({ time: sec, night: nightK, boat: { x: bx, z: bz, speed: Math.abs(boatSpeed) > 20 ? 0 : boatSpeed }, shores: world.waterShores });
 
-    animateResidents(wall, dt);
+    const residentSaying = animateResidents(wall, dt);
     placeItems();
+    return residentSaying;
   }
 
   /**
@@ -721,6 +722,7 @@ export function createGame({ params, status, send, onTalk = null, onUiBlocked = 
    */
   const ropeTo = new THREE.Vector3();
   function animateResidents(wall, dt) {
+    const said = [];
     for (const r of world.residents.values()) {
       const cycle = 26000;
       const t = (wall + r.phase * 3) % cycle;
@@ -745,8 +747,9 @@ export function createGame({ params, status, send, onTalk = null, onUiBlocked = 
         x = out.x + (r.home.x - out.x) * ease(f); z = out.z + (r.home.z - out.z) * ease(f);
         yaw = Math.atan2(r.home.x - out.x, r.home.z - out.z); action = 'walk'; at = walked(f);
       } else { action = 'idle'; at = t; }
-      // 他的卡片开着：站在原地，转身面向你，先挥一下手，然后一边比划一边讲（M3）
-      const greeting = panel?.type === 'resident' && panel.id === r.kind;
+      // 他的卡片开着、或者你在和他聊（对话栏借给了他）：站在原地，转身面向你，先挥一下手，然后一边比划一边讲（M3）
+      const chatting = convo?.id === `resident:${r.kind}`;
+      const greeting = (panel?.type === 'resident' && panel.id === r.kind) || chatting;
       const style = { variant: r.work, speed: 1.3, stride: 1.3, seed: r.phase };
       // 收缆的水手：缆拴在泊着的船上；船出海去了，他就站在桥沿上等它回来（不朝着空海收缆）
       if (r.station?.rope === 'boat' && action === 'work') {
@@ -758,7 +761,8 @@ export function createGame({ params, status, send, onTalk = null, onUiBlocked = 
         x = r.home.x; z = r.home.z;
         yaw = Math.atan2(player.pos.x - x, player.pos.z - z);
         const since = wall - r.greetAt;
-        if (since < ONE_SHOT_MS.wave) { action = 'wave'; at = since; } else { action = 'talk'; at = since; style.speaker = true; }
+        const saying = sayings.get(`resident:${r.kind}`);
+        if (since < ONE_SHOT_MS.wave) { action = 'wave'; at = since; } else { action = 'talk'; at = since; style.speaker = !chatting || (!!saying && !saying.typing && (saying.doneAt == null || wall - saying.doneAt < 2500)); }
       } else {
         r.greetAt = null;
       }
@@ -775,7 +779,15 @@ export function createGame({ params, status, send, onTalk = null, onUiBlocked = 
       style.cloth = tier === 'A' || greeting;
       r.figure.setDetail(tier === 'A' || greeting);
       r.figure.pose(action, at, style);
+      // 他头顶的话（你和他聊天时他说的）：和居民一样，在想时是一串点，说完留一阵再淡出；你还在和他聊就一直留着
+      const saying = sayings.get(`resident:${r.kind}`);
+      if (saying) {
+        const alpha = speechAlpha(saying, wall, chatting);
+        if (alpha <= 0) sayings.delete(`resident:${r.kind}`);
+        else said.push({ id: `resident:${r.kind}`, text: saying.typing ? thinkingDots(wall) : saying.text, alpha, typing: !!saying.typing });
+      }
     }
+    return said;
   }
 
   /** 老居民按家分组（一家一块碑）。 */
@@ -1323,8 +1335,9 @@ export function createGame({ params, status, send, onTalk = null, onUiBlocked = 
   /** 此刻该不该是近景、看着谁：对话栏开着看你和雅典娜；居民的卡片开着看你和他。 */
   function closeUpWanted() {
     if (!world || voyage || reveal || fogInfo) return null;
-    // 和一位居民聊天：对话栏借给了他，镜头看你和他，不看她
+    // 和一位居民（或职业居民）聊天：对话栏借给了他，镜头看你和他，不看她
     if (convo && world.citizens.get(convo.id)?.figure) return { kind: 'citizen', id: convo.id };
+    if (convo?.id.startsWith('resident:') && world.residents.has(convo.id.slice(9))) return { kind: 'resident', id: convo.id.slice(9) };
     // 讲台前辩论时：对话栏借给了辩论，镜头看你和她（和平时开口一样的近景）；判票与判完看整个舞台和围过来的陪审团
     if (lentToDebate() && talkOpen()) return { kind: 'debate', id: null };
     if (debate && (debate.state === 'judging' || debate.state === 'done') && stageInfo) return { kind: 'jury', id: null };
@@ -1443,7 +1456,7 @@ export function createGame({ params, status, send, onTalk = null, onUiBlocked = 
     const line = currentLine(now);
     const pose = athenaPose(state, now);
     applyAthena(pose, line, dt);
-    // 居民先排（他们和十一位居民一起分档，见 tierPeople），十一位居民在 applyEffects 里按同一份分档摆
+    // 居民先排（他们和十位职业居民一起分档，见 tierPeople），职业居民在 applyEffects 里按同一份分档摆
     const citizenSaying = animateCitizens(wall, dt);
     // 说出去太久没有回音（C# 那边一次调用 25 秒就放弃）：他想了想，没说出来——这一句放进他头顶，你接着说
     if (convo?.status === 'waiting' && wall - convo.sentAt > ASK_TIMEOUT_MS) {
@@ -1456,7 +1469,7 @@ export function createGame({ params, status, send, onTalk = null, onUiBlocked = 
       const stale = debate.state === 'done' && debateSeen.doneAt && wall - debateSeen.doneAt > DEBATE.doneHoldMs;
       if (far || stale) endDebateFromPage();
     }
-    applyEffects(wall, dt);
+    const residentSaying = applyEffects(wall, dt);
     focus = pickFocus(pose);
     status.focus = focus ? { type: focus.type, id: focus.id ?? focus.venue ?? null, slot: focus.slot ?? null } : null;
     followCamera(dt, pose, snap);
@@ -1481,11 +1494,15 @@ export function createGame({ params, status, send, onTalk = null, onUiBlocked = 
     const bubbleCss = R.projectCss(headWorld);
     // 居民头顶的话（M-B）：和她的那一句一样按这一帧的矩阵投影（运动自检逐帧核对）
     // 你头顶的话（2026-10-13）：你对一位居民说的那一句，说完留一阵（他开口之后淡得快一点）
-    const mineAlpha = mine ? speechAlpha({ text: mine.text, doneAt: mine.at }, wall) : 0;
+    // 他还在想（还没开口）时你那句一直留着；他开口之后按字数留一阵再淡出
+    const heStarted = convo && sayings.get(convo.id) && !sayings.get(convo.id).typing;
+    const mineAlpha = mine ? speechAlpha({ text: mine.text, doneAt: convo?.status === 'waiting' && !heStarted ? null : mine.at }, wall) : 0;
     if (mine && mineAlpha <= 0) mine = null;
-    const sayingNow = mine ? [...citizenSaying, { id: 'player', text: mine.text, alpha: mineAlpha }] : citizenSaying;
+    const sayingNow = [...citizenSaying, ...residentSaying, ...(mine ? [{ id: 'player', text: mine.text, alpha: mineAlpha }] : [])];
     const citizenBubbles = sayingNow.map((b) => {
-      const root = b.id === 'player' ? world.player : world.citizens.get(b.id).figure.root;
+      const root = b.id === 'player' ? world.player
+        : b.id.startsWith('resident:') ? world.residents.get(b.id.slice(9)).figure.root
+          : world.citizens.get(b.id).figure.root;
       const head = (root.userData.headTop?.clone() ?? new THREE.Vector3(0, 1.75, 0)).applyMatrix4(root.matrixWorld);
       return { ...b, world: head, ...R.projectCss(head) };
     });
@@ -1684,7 +1701,7 @@ export function createGame({ params, status, send, onTalk = null, onUiBlocked = 
       case 'resident': {
         const r = residents.find((x) => x.kind === panel.id);
         if (!r) return null;
-        return { type: 'resident', bust: panel.id, expression: 'speak', title: r.name ?? panel.id, lines: [r.intro ?? ''], tryLabel: r.tryLabel ?? ui.residentTry };
+        return { type: 'resident', bust: panel.id, expression: 'speak', title: r.name ?? panel.id, lines: [r.intro ?? ''], askable: !!onChat };
       }
       case 'citizen': {
         const c = world?.citizens.get(panel.id);
@@ -1977,7 +1994,7 @@ export function createGame({ params, status, send, onTalk = null, onUiBlocked = 
    */
   function setTalk(m) {
     const id = m?.who;
-    if (!world?.citizens.has(id)) return;
+    if (!world?.citizens.has(id) && !(typeof id === 'string' && id.startsWith('resident:') && world?.residents.has(id.slice(9)))) return;
     const now = performance.now();
     const text = String(m.text ?? '');
     const prev = sayings.get(id);
@@ -2105,10 +2122,19 @@ export function createGame({ params, status, send, onTalk = null, onUiBlocked = 
       }
       case 'placing-cancel': placing = null; status.placing = null; break;
       case 'panel-close': panel = null; break;
-      case 'resident-try':
-        if (panel?.type === 'resident') send('try-resident', { residentId: panel.id });
+      case 'resident-chat': {
+        // 和一位职业居民聊几句（2026-10-13：工具能力撤下了，他是城里有职业、有性子的人）：和居民同一条路——对话栏借给他，
+        // 他站定面朝你，他的话在他头顶。who 是 resident:<名字>
+        if (panel?.type !== 'resident' || !onChat) break;
+        const r = residents.find((x) => x.kind === panel.id);
+        if (!r || !world?.residents.has(panel.id)) break;
+        convo = { id: `resident:${panel.id}`, status: 'typing', sentAt: 0 };
+        status.chatting = convo.id;
         panel = null;
+        syncUiBlocked();
+        onChat({ conversationId: convo.id, name: r.name ?? r.kind, bust: r.kind });
         break;
+      }
       case 'citizen-transcript':
         // 看看那场会话：C# 回 citizen-transcript，进卷轴阅读器（卡片留着）
         if (panel?.type === 'citizen') send('citizen-transcript', { conversationId: panel.id });
@@ -2293,6 +2319,8 @@ export function createGame({ params, status, send, onTalk = null, onUiBlocked = 
     get chatting() { return convo ? { ...convo } : null; },
     /** 头顶此刻的话（测试用）：id → { text, typing, doneAt }。 */
     get sayings() { return new Map(sayings); },
+    /** 你头顶此刻的那一句（测试用）。 */
+    get mine() { return mine ? { ...mine } : null; },
     /** 让一位居民向你打招呼（运动自检用：保证走路那一段有居民头顶的话要逐帧核对）。 */
     greetCitizen(id) {
       const c = world?.citizens.get(id);

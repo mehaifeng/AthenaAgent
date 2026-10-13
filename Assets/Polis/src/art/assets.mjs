@@ -72,7 +72,7 @@ export function createAssetRegistry(M) {
   add('plant.acanthus', 'plant', '莨苕', (p = {}) => plants.buildAcanthus(M, p));
   const figureLabels = {
     athena: '雅典娜', player: '你（玩家）', surveyor: '测绘员', scribe: '抄写员', accountant: '账房', smith: '铁匠', sailor: '水手',
-    librarian: '图书管理员', maiden: '黄金侍女', herald: '传令官', painter: '画师', artisan: '工匠', priestess: '女祭司',
+    librarian: '图书管理员', herald: '传令官', painter: '画师', artisan: '工匠', priestess: '女祭司',
   };
   for (const id of CHARACTER_IDS) add(`figure.${id}`, 'figure', figureLabels[id] ?? id, (p = {}) => buildCharacter(M, id, p.spec ?? {}));
   return { registry, statue };

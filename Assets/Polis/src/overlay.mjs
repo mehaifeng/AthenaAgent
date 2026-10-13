@@ -441,7 +441,8 @@ export function createOverlay(canvas) {
     }
     const by = y + h - 44;
     let bx = textX;
-    if (view.type === 'resident') bx += button(view.tryLabel, bx, by, 'resident-try') + 8;
+    // 职业居民（2026-10-13）：聊几句（工具能力撤下了，没有"请雅典娜试试"）
+    if (view.type === 'resident' && view.askable) bx += button(ui.citizenChat, bx, by, 'resident-chat', { minWidth: 90 }) + 8;
     // 居民即会话（M-B）：聊几句（对话栏借给他，他的话在他头顶）、看看那场会话、去看他那份委托（走会话树的同一条路径）
     if (view.type === 'citizen') {
       if (view.askable) bx += button(ui.citizenChat, bx, by, 'citizen-chat', { minWidth: 90 }) + 8;

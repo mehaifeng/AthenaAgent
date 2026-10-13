@@ -674,7 +674,6 @@ export const HAIR_STYLES = Object.freeze({
   // 图书管理员：老人，秃顶，两侧和后面的灰发留长、垂到后颈
   librarian: { front: 0.4, temple: 0.15, side: -0.15, back: -0.75, thick: 0.007, volume: 0, backVolume: 0.006, bald: { y: 0.35, z: -0.5 }, strands: 18, strandAmp: 0.0025, waves: 3, waveAmp: 0.002 },
   // 金色侍女：古风的两条辫子，头顶一个髻
-  maiden: { front: 0.5, temple: 0.3, side: 0.0, back: -0.45, thick: 0.007, volume: 0.003, backVolume: 0.004, part: 0.003, strands: 16, strandAmp: 0.003, bun: { at: [0, 0.02, -0.112], size: [0.05, 0.045, 0.045] }, braids: true },
   // 传令官：浓密的卷发垂到后颈（帽子挂在背后，整头露着）
   herald: { front: 0.46, temple: 0.22, side: -0.2, back: -0.68, thick: 0.007, volume: 0.004, backVolume: 0.005, curls: { amp: 0.003, freq: 7 } },
   // 画师：头发全挽进发网（sakkos），前面露一道发际线

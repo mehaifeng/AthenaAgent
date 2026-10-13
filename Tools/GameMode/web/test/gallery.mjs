@@ -24,7 +24,7 @@ const SUBTYPES = {
   warehouse: ['store', 'granary', 'jarShed'],
 };
 const ATHENA_WORK = ['read', 'write', 'hammer', 'summon', 'haul', 'await'];
-const BUSTS = ['athena', 'player', 'surveyor', 'scribe', 'accountant', 'smith', 'sailor', 'librarian', 'maiden', 'herald', 'painter', 'artisan', 'priestess'];
+const BUSTS = ['athena', 'player', 'surveyor', 'scribe', 'accountant', 'smith', 'sailor', 'librarian', 'herald', 'painter', 'artisan', 'priestess'];
 
 const server = await startServer();
 const browser = await launch(browserName);

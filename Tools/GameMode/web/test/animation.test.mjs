@@ -199,7 +199,7 @@ test('rig: switching actions crossfades over BLEND_MS, a variant change too, and
   assert.ok(near(g.joints.head.rotation.y, writing, 1e-6), 'while working the head has its own business');
 });
 
-test('rig: spring-bone strips hang where they belong (veil, cape, braids, apron) and never blow up', () => {
+test('rig: spring-bone strips hang where they belong (veil, cape, apron) and never blow up', () => {
   const M = stubMaterials();
   setClothWind(new THREE.Vector3(0, 0, 0));
   const strips = (id) => buildCharacter(M, id).cloth.length;
@@ -207,7 +207,6 @@ test('rig: spring-bone strips hang where they belong (veil, cape, braids, apron)
   assert.ok(strips('player') >= 4, 'your long hair hangs on chains (2026-10-12)');
   assert.ok(strips('priestess') >= 3, 'the veil adds chains');
   assert.ok(strips('herald') >= 3, 'the cape adds chains');
-  assert.ok(strips('maiden') >= 2, 'the braids add chains');
   assert.ok(strips('smith') >= 1, 'the apron adds a chain');
   const skinned = [];
   buildCharacter(M, 'priestess').root.traverse((o) => { if (o.isSkinnedMesh) skinned.push(o); });

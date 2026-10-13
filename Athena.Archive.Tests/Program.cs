@@ -11410,6 +11410,10 @@ static async Task TestPolisCitizenAnswersAsync()
     AssertTrue(preview.Accepted && preview.Intent!.Type == PolisIntentType.CitizenTranscript && preview.Intent.ConversationId == "c1", "这座城的居民可以预览");
     var pair = PolisIntents.Validate("""{"v":1,"type":"ambient-chat","a":"c1","b":"c3"}""", context with { KnownCitizenIds = new HashSet<string> { "c1", "c3" } });
     AssertTrue(pair.Accepted && pair.Intent!.ConversationId == "c1" && pair.Intent.OtherId == "c3", "这座城的两位居民可以闲聊");
+    var residentContext = context with { KnownResidentIds = new HashSet<string> { "scribe" } };
+    AssertTrue(PolisIntents.Validate("""{"v":1,"type":"chat","who":"resident:scribe","text":"你好"}""", residentContext).Accepted, "和这座城的职业居民说话");
+    AssertFalse(PolisIntents.Validate("""{"v":1,"type":"chat","who":"resident:smith","text":"你好"}""", residentContext).Accepted, "不在这座城里的职业居民");
+    AssertFalse(PolisIntents.Validate("""{"v":1,"type":"chat","who":"resident:maiden","text":"你好"}""", residentContext with { KnownResidentIds = new HashSet<string> { "maiden" } }).Accepted, "黄金侍女拿掉了");
     var ok = PolisIntents.Validate("""{"v":1,"type":"chat","who":"c1","text":"  今天风大吗？ "}""", context);
     AssertTrue(ok.Accepted && ok.Intent!.Type == PolisIntentType.Chat && ok.Intent.ConversationId == "c1" && ok.Intent.Text == "今天风大吗？", "和这座城的居民说话：去掉首尾空白");
     AssertTrue(PolisIntents.Validate($$"""{"v":1,"type":"chat","who":"c1","text":"{{new string('话', 300)}}"}""", context).Accepted, "300 字正好");
@@ -11491,6 +11495,14 @@ static async Task TestPolisTalkAsync()
     var replyLine = PolisTalk.BuildAmbientLine(world, other, ambientSelf, "今天海上风大。", "zh-CN");
     AssertEqual("阿里斯通说：今天海上风大。", replyLine.Messages.Single().Text, "接话的那位：带着对方刚说的");
     AssertTrue(PolisTalk.BuildAmbientLine(world, ambientSelf, other, null, "en-US").System.Contains("in English", StringComparison.Ordinal), "英文界面用英文聊");
+
+    // —— 职业居民（2026-10-13）：他的人设代替按种子挑的性子，没有"你记得的"，规矩里说他不能替雅典娜办事 ——
+    var scribe = new PolisSpeaker("卡德摩斯", false, PolisCitizenAge.Young, new PolisPersona("抄写员", "", "", ""), "", Portrait: "你在档案馆当抄写员，替雅典娜起草文书。");
+    var residentPrompt = PolisTalk.BuildChat(world, scribe, null, Array.Empty<PolisTalkTurn>(), "你在忙什么？", "zh-CN");
+    foreach (var part in new[] { "这座城的抄写员「卡德摩斯」", "男子", "年轻", "替雅典娜起草文书", "不能替雅典娜办事", "「我的工作区」" })
+        AssertTrue(residentPrompt.System.Contains(part, StringComparison.Ordinal), $"职业居民的系统提示含「{part}」");
+    AssertFalse(residentPrompt.System.Contains("你记得的", StringComparison.Ordinal) || residentPrompt.System.Contains("托付过的那件事", StringComparison.Ordinal), "职业居民没有托付过的事，也没有记得的那一段");
+    AssertTrue(prompt.System.Contains("不能替雅典娜办事", StringComparison.Ordinal), "居民也只是聊天");
 
     // —— 流式看得见的字：思考块没合上一个字都不给，合上之后只给后面的；半个开标签也不露 ——
     AssertEqual(string.Empty, PolisTalk.VisibleSoFar("<think>想一想租"), "思考块没合上：什么都不给");
@@ -12125,6 +12137,37 @@ static Task TestPolisResidentDerivationAsync()
     AssertEqual(PolisResidentKind.Scribe, PolisResidents.ForTool("create_document"), "生成文档归抄写员");
     AssertEqual(PolisResidentKind.Herald, PolisResidents.ForTool("create_task"), "定时任务归传令官");
     AssertEqual(PolisResidentKind.Artisan, PolisResidents.ForTool("some_future_tool"), "没登记的归工匠");
+    // 2026-10-13：黄金侍女拿掉了，十位职业居民每座城都在；派发子代理也归工匠（这张表只回答"这项能力用过没有"）
+    AssertEqual(10, PolisResidents.All.Count, "十位职业居民");
+    AssertFalse(PolisResidents.TryParse("maiden", out _), "黄金侍女拿掉了");
+    AssertEqual(PolisResidentKind.Artisan, PolisResidents.ForTool("dispatch_subagents"), "派发子代理归工匠");
+    CollectionAssert(new[] { "Painter", "Priestess" }, PolisResidents.All.Where(PolisResidents.IsFemale).Select(k => k.ToString()), "画师与女祭司是女子（与页面的 face.female 一致）");
+    {
+        // 每位一个固定的希腊名：中英两份 locale 都有，彼此不重、也不和居民名表重名（同一座城里不重名）；职业、名字、开场白、人设都有
+        var repo = FindRepositoryRoot();
+        foreach (var lang in new[] { "zh-CN", "en-US" })
+        {
+            var xaml = File.ReadAllText(Path.Combine(repo, "Assets", "Locales", $"Locale.{lang}.axaml"));
+            string Text(string key)
+            {
+                var m = System.Text.RegularExpressions.Regex.Match(xaml, $"x:Key=\"{System.Text.RegularExpressions.Regex.Escape(key)}\">([^<]*)<");
+                AssertTrue(m.Success, $"{lang} 有 {key}");
+                return m.Groups[1].Value;
+            }
+            var citizenNames = Text("Polis.Citizen.NamesMale").Split('|').Concat(Text("Polis.Citizen.NamesFemale").Split('|')).ToHashSet(StringComparer.Ordinal);
+            var greek = new List<string>();
+            foreach (var kind in PolisResidents.All)
+            {
+                var entry = Athena.UI.ViewModels.GameMode.PolisLocale.Residents.Single(r => r.Kind == PolisResidents.Slug(kind));
+                greek.Add(Text(entry.GreekKey));
+                AssertTrue(Text(entry.NameKey).Length > 0 && Text(entry.IntroKey).Length > 0 && Text(entry.PersonaKey).Length > 20, $"{lang} {kind}：职业、开场白、人设");
+                AssertFalse(Text(entry.IntroKey).Contains("请雅典娜", StringComparison.Ordinal), $"{lang} {kind}：开场白是城里的说法，不是示范请求");
+            }
+            AssertEqual(10, greek.Distinct(StringComparer.Ordinal).Count(), $"{lang} 十个希腊名彼此不重");
+            AssertFalse(greek.Any(citizenNames.Contains), $"{lang} 职业居民的名字不在居民名表里：{string.Join("、", greek.Where(citizenNames.Contains))}");
+            AssertFalse(xaml.Contains("Polis.Resident.Maiden", StringComparison.Ordinal) || xaml.Contains(".Try\"", StringComparison.Ordinal) || xaml.Contains("Polis.Ui.ResidentTry", StringComparison.Ordinal), $"{lang} 没有黄金侍女、没有示范请求");
+        }
+    }
     foreach (var kind in Enum.GetValues<PolisResidentKind>())
     {
         AssertTrue(PolisResidents.TryParse(PolisResidents.Slug(kind), out var parsed) && parsed == kind, $"{kind} 的名字能来回换算");
@@ -12449,10 +12492,11 @@ static Task TestPolisAccumulationIntentsAsync()
     AssertTrue(V("""{"v":1,"type":"select-island","islandId":"w1"}""").Intent?.IslandId == "w1", "选岛");
     AssertFalse(V("""{"v":1,"type":"select-island","islandId":"w9"}""").Accepted, "不认识的岛");
     AssertTrue(V("""{"v":1,"type":"meet-resident","residentId":"scribe"}""").Intent?.Resident == PolisResidentKind.Scribe, "结识一位已经出现的居民");
-    AssertFalse(V("""{"v":1,"type":"try-resident","residentId":"smith"}""").Accepted, "还没出现的居民不能请");
+    AssertFalse(V("""{"v":1,"type":"try-resident","residentId":"scribe"}""").Accepted, "工具能力撤下了（2026-10-13）：没有\"请雅典娜试试\"");
     AssertFalse(V("""{"v":1,"type":"approve","itemId":"item-1"}""").Accepted, "网页仍然没有'批准'");
-    foreach (var name in new[] { "place-item", "unplace-item", "remove-item", "take-suggestion", "request-oracle", "select-island", "meet-resident", "try-resident" })
+    foreach (var name in new[] { "place-item", "unplace-item", "remove-item", "take-suggestion", "request-oracle", "select-island", "meet-resident" })
         AssertTrue(PolisIntents.KnownTypeNames.Contains(name), $"{name} 在封闭集合里");
+    AssertFalse(PolisIntents.KnownTypeNames.Contains("try-resident"), "try-resident 不在封闭集合里了");
     return Task.CompletedTask;
 }
 

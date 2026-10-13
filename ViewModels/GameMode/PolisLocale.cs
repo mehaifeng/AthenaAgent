@@ -87,7 +87,8 @@ public static class PolisLocale
         ("oracleNone", "Polis.Ui.OracleNone", "在神庙设立每日神谕：每天早上，雅典娜回顾这座城的变化，传令官把晨报送到你手上。设立时需要你在审批窗口里点头。"),
         ("requestOracle", "Polis.Ui.RequestOracle", "请雅典娜设立"),
         ("latestScroll", "Polis.Ui.LatestScroll", "看最近一卷"),
-        ("residentTry", "Polis.Ui.ResidentTry", "请雅典娜试试"),
+        // 职业居民的称呼：职业加希腊名（2026-10-13）
+        ("residentTitle", "Polis.Ui.ResidentTitle", "{trade}{name}"),
         ("chart", "Polis.Ui.Chart", "海图"),
         ("chartTitle", "Polis.Ui.ChartTitle", "群岛海图"),
         ("chartHint", "Polis.Ui.ChartHint", "一座岛是一座城邦。点一座岛，驶向它最近的那份委托。"),
@@ -223,44 +224,41 @@ public static class PolisLocale
     };
 
     /// <summary>
-    /// 居民（设计稿 7.2）：名字、他讲的"这项能力还能做什么"（"|" 分隔几种说法，按日期轮换）、"请雅典娜试试"预填的示范请求。
-    /// 顺序与 <see cref="Services.GameMode.PolisResidentKind"/> 一致。
+    /// 十位职业居民（2026-10-13 起不再和工具挂钩）：职业、固定的希腊名（男女分明，不与居民名表重名——测试核对）、卡片上他自己说的话
+    /// （"|" 分隔几种说法，按日期轮换；都是城里的说法，不再是能力的介绍）、聊天时他的人设（他管的那摊事与性子，进提示词）。
     /// </summary>
-    public static IReadOnlyList<(string Kind, string NameKey, string NameFallback, string IntroKey, string IntroFallback, string TryKey, string TryFallback)> Residents { get; } = new[]
+    public static IReadOnlyList<(string Kind, string NameKey, string NameFallback, string GreekKey, string GreekFallback, string IntroKey, string IntroFallback, string PersonaKey, string PersonaFallback)> Residents { get; } = new[]
     {
-        ("surveyor", "Polis.Resident.Surveyor.Name", "测绘员",
-            "Polis.Resident.Surveyor.Intro", "我替雅典娜量过这座城：哪个文件夹最大、哪里的东西最旧、哪份文件提到了什么，她都能翻出来告诉你。|找东西别自己翻：说个大概，雅典娜会一个个文件夹去找，连文档里的字也能搜。",
-            "Polis.Resident.Surveyor.Try", "帮我看看这个工作区里哪些文件夹最大、哪些很久没动了，列一张清单给我。"),
-        ("scribe", "Polis.Resident.Scribe.Name", "抄写员",
-            "Polis.Resident.Scribe.Intro", "报告、说明、清单，她都能替你起草；你写了一半的那份，她也能接着写、帮你改顺。|她能直接做出 Word 文档和演示文稿，格式、标题、编号都替你排好。",
-            "Polis.Resident.Scribe.Try", "帮我起草一份文档：把这周做了什么、遇到了什么问题、下周打算做什么写成一页周报。"),
-        ("accountant", "Polis.Resident.Accountant.Name", "账房",
-            "Polis.Resident.Accountant.Intro", "一堆表格要汇总、对账、算合计？交给她，哪一格对不上她也会指出来。|她能新建表格、改公式、加列删行，还能把几张表合成一张。",
-            "Polis.Resident.Accountant.Try", "帮我把这个工作区里的表格汇总一下：每张表是什么、有几行、最要紧的几个数是多少。"),
-        ("smith", "Polis.Resident.Smith.Name", "铁匠",
-            "Polis.Resident.Smith.Intro", "要跑命令、装工具、批量改名，她在锻炉前就能办——危险的那几步会先停下来问你。|重复的体力活交给锻炉：几百个文件改格式、压缩、整理，一条命令的事。",
-            "Polis.Resident.Smith.Try", "帮我看看这个工作区的文件夹里一共有多少文件、占了多大空间（只看，不要改动任何东西）。"),
-        ("sailor", "Polis.Resident.Sailor.Name", "水手",
-            "Polis.Resident.Sailor.Intro", "船出海就是去网上打听：查资料、对比价格、把网页上的文件下载回来。|她还能替你在网页上点完一整套流程——登录这种要你自己来的事，她会停下来。",
-            "Polis.Resident.Sailor.Try", "帮我在网上查一查最近关于这个工作区主题的新消息，挑三条最重要的讲给我听，附上来源。"),
-        ("librarian", "Polis.Resident.Librarian.Name", "图书管理员",
-            "Polis.Resident.Librarian.Intro", "你常用的格式、你的偏好、你说过的要紧事，告诉她一次，她就记在图书馆里，下次不用再说。|想知道她记住了什么？问她就行，记错的也可以让她改掉。",
-            "Polis.Resident.Librarian.Try", "请记住：我写文档喜欢先给结论、再给细节，标题用短句。以后替我写东西都这样。"),
-        ("maiden", "Polis.Resident.Maiden.Name", "黄金侍女",
-            "Polis.Resident.Maiden.Intro", "活多的时候，雅典娜会叫上我们几个分头去办，各自查一部分，办完一起回来交给她。|一次要看很多文件、查很多地方时，分给我们比她一个人跑快得多。",
-            "Polis.Resident.Maiden.Try", "请分头去看这个工作区里的几个主要文件夹，各自总结一下里面有什么，最后汇成一份概览。"),
-        ("herald", "Polis.Resident.Herald.Name", "传令官",
-            "Polis.Resident.Herald.Intro", "要定时做的事（每天早上、每周一、每月一号），交给雅典娜排成定时任务；结果出来，由我来报。|应用关着的时候错过的那一次，我也会告诉你。",
-            "Polis.Resident.Herald.Try", "帮我设一个定时任务：每周一早上 9 点回顾这个工作区上一周的变化，写一份简报给我。"),
-        ("painter", "Polis.Resident.Painter.Name", "画师",
-            "Polis.Resident.Painter.Intro", "要一张配图、一幅示意、一个封面？说清楚画什么、什么风格，她就画给你。|画好的图会挂进彩绘柱廊，你随时能来看。",
-            "Polis.Resident.Painter.Try", "帮我画一张简洁的封面图，主题是这个工作区正在做的事，风格干净、留白多。"),
-        ("artisan", "Polis.Resident.Artisan.Name", "工匠",
-            "Polis.Resident.Artisan.Intro", "雅典娜还能接上别的工具和技能：日历、邮箱、数据库……要接什么，问她就行。|她自己的设置也能看能改——要紧的改动会先问你。",
-            "Polis.Resident.Artisan.Try", "你现在能用哪些技能和外部工具？列给我看，并告诉我每样适合做什么。"),
-        ("priestess", "Polis.Resident.Priestess.Name", "女祭司",
-            "Polis.Resident.Priestess.Intro", "神庙里的每日神谕：每天早上，雅典娜替你看一眼这座城的变化，写一卷晨报，传令官送到你手上。|想换个时间、换个内容？告诉雅典娜，她会改那个定时任务（也要你点头）。",
-            "Polis.Resident.Priestess.Try", "把每日神谕改成工作日早上 8 点半，晨报里再加一条：今天最该先做的一件事。"),
+        ("surveyor", "Polis.Resident.Surveyor.Name", "测绘员", "Polis.Resident.Surveyor.GreekName", "阿那克西曼德",
+            "Polis.Resident.Surveyor.Intro", "这座城的每一座房子我都量过：哪一座最大、哪一座最久没人进、里面都放着些什么，问我就对了。|雅典娜要找什么东西，常常先来问我在哪一片。",
+            "Polis.Resident.Surveyor.Persona", "你管着城的地图和清单：每座建筑（就是城的主人的每个文件夹）有多大、多旧、放着什么。你一丝不苟，说话爱带上数字和方位，至今还为量错过的那一回耿耿于怀。"),
+        ("scribe", "Polis.Resident.Scribe.Name", "抄写员", "Polis.Resident.Scribe.GreekName", "卡德摩斯",
+            "Polis.Resident.Scribe.Intro", "我在档案馆抄写文书：报告、说明、书信、清单，雅典娜口述，我落笔。|写到一半的东西别扔，拿来，我替你接着写顺。",
+            "Polis.Resident.Scribe.Persona", "你在档案馆当抄写员，替雅典娜起草、誊写城里的文书、报告和书信。你年轻勤快，有点书呆子气，听到别人用词不准就忍不住要纠正一下。"),
+        ("accountant", "Polis.Resident.Accountant.Name", "账房", "Polis.Resident.Accountant.GreekName", "帕西昂",
+            "Polis.Resident.Accountant.Intro", "库房里的账册都归我管：哪一笔进、哪一笔出，哪一格对不上，我一眼就看得出来。|数目这东西，差一个铜板也是差。",
+            "Polis.Resident.Accountant.Persona", "你在库房管账，城里的账册、表格、数目都经你的手。你上了年纪，精打细算，说话慢条斯理，三句不离数字，最见不得账对不上。"),
+        ("smith", "Polis.Resident.Smith.Name", "铁匠", "Polis.Resident.Smith.GreekName", "赫菲斯提昂",
+            "Polis.Resident.Smith.Intro", "锻炉这边是干粗活的地方：成百上千件东西要一样样过一遍，交给我，一锤一锤地来。|动真格的那几下我会先停下来问一声，砸坏了可就补不回来了。",
+            "Polis.Resident.Smith.Persona", "你在锻炉打铁，城里成批的苦力活、要一样样过一遍的粗活都在锻炉办。你嗓门大，性子直，干活利落，最讨厌磨磨蹭蹭，但真要下重锤之前一定先确认一遍。"),
+        ("sailor", "Polis.Resident.Sailor.Name", "水手", "Polis.Resident.Sailor.GreekName", "涅阿尔科斯",
+            "Polis.Resident.Sailor.Intro", "船一出港，就是去外头打听消息：远方的新鲜事、别人家的价钱、要带回来的文书，我都捎得回来。|海上的事说不准，打发我出去之前，最好想清楚要打听什么。",
+            "Polis.Resident.Sailor.Persona", "你是港口的水手，船按时出海，去外头打听消息、捎回远方的文书。你乐天，爱讲海上的见闻，讲着讲着就添油加醋，说到风浪就眉飞色舞。"),
+        ("librarian", "Polis.Resident.Librarian.Name", "图书管理员", "Polis.Resident.Librarian.GreekName", "泽诺多托斯",
+            "Polis.Resident.Librarian.Intro", "圆形图书馆里收着这座城的记忆：主人说过的偏好、要紧的事，记下一次，以后就不用再说。|想知道这里记着什么？问我。记错的，也可以改。",
+            "Polis.Resident.Librarian.Persona", "你管着圆形图书馆，那里收着这座城的记忆——城的主人的偏好、说过的要紧事。你年长、温和、记性极好，爱引经据典，说话轻声细语。"),
+        ("herald", "Polis.Resident.Herald.Name", "传令官", "Polis.Resident.Herald.GreekName", "塔尔提比俄斯",
+            "Polis.Resident.Herald.Intro", "我站在讲台上：有人提议题，我主持辩论；到了时辰该办的差事，结果出来由我来报。|你不在城里时错过的那几件，回来我也一样报给你。",
+            "Polis.Resident.Herald.Persona", "你是传令官，站在广场的讲台上主持辩论，按时辰报告那些定时差事的结果。你嗓音洪亮，讲究礼数，说话爱用郑重其事的开场白。"),
+        ("painter", "Polis.Resident.Painter.Name", "画师", "Polis.Resident.Painter.GreekName", "卡吕普索",
+            "Polis.Resident.Painter.Intro", "彩绘柱廊里挂的画都出自我手：配图、示意、封面，说清楚画什么、什么味道，我就画给你。|光从哪边来，颜色就跟着变，你注意过吗？",
+            "Polis.Resident.Painter.Persona", "你是彩绘柱廊的画师，城里的配图、示意图、封面都由你画。你敏感，爱观察光线和颜色，说话常带着画面感，偶尔有点自顾自。"),
+        ("artisan", "Polis.Resident.Artisan.Name", "工匠", "Polis.Resident.Artisan.GreekName", "代达罗斯",
+            "Polis.Resident.Artisan.Intro", "我在锻炉旁凿石头、做器具和机关；城外的手艺和工具要接进城里来，也是我来装。|主人家的规矩（设置）我也会调，要紧的地方会先问过。",
+            "Polis.Resident.Artisan.Persona", "你是锻炉旁的工匠，凿石头、做器具和机关，也负责把城外的手艺和工具接进城里来，调一调城的规矩。你手巧，话少，总在琢磨怎么做得更精巧。"),
+        ("priestess", "Polis.Resident.Priestess.Name", "女祭司", "Polis.Resident.Priestess.GreekName", "忒弥斯托克勒亚",
+            "Polis.Resident.Priestess.Intro", "神庙里每天清晨有一道神谕：雅典娜替主人看一眼城里的变化，写成一卷晨报。|想换个时辰、换些内容？去跟雅典娜说，神谕跟着改。",
+            "Polis.Resident.Priestess.Persona", "你是神庙的女祭司，照看神庙，主持每天清晨的神谕（雅典娜替城的主人写的晨报）。你庄重沉静，说话带一点神秘，喜欢用预兆和比喻。"),
     };
 
     /// <summary>委托板（7.3）：每一种建议在板上的一句话与预填的请求。{0} 主语（文件夹名、委托标题、藏品名），{1} 数量，{2} 多少天没动。</summary>
@@ -315,7 +313,7 @@ public static class PolisLocale
 
     /// <summary>全部 locale 键（测试核对中英两份 locale 都有这些词条）。</summary>
     public static IEnumerable<string> AllKeys => Ui.Concat(Places).Concat(PublicNames).Select(e => e.Key)
-        .Concat(Residents.SelectMany(r => new[] { r.NameKey, r.IntroKey, r.TryKey }))
+        .Concat(Residents.SelectMany(r => new[] { r.NameKey, r.GreekKey, r.IntroKey, r.PersonaKey }))
         .Concat(Board.SelectMany(b => new[] { b.LineKey, b.PromptKey }))
         .Concat(Oracle.Select(o => o.Key))
         .Concat(Herald.Select(h => h.Key))

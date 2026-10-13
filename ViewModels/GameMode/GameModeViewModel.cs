@@ -586,10 +586,6 @@ public sealed partial class GameModeViewModel : ViewModelBase, IDisposable
                 }
                 break;
             }
-            case PolisIntentType.TryResident:
-                if (_shell != null)
-                    _ = RunIntentAsync(() => OpenCommissionWithPrefillAsync(PolisAccumulation.ResidentPrompt(intent.Resident!.Value, L)), "try-resident");
-                break;
             case PolisIntentType.Chat:
                 _ = RunIntentAsync(() => ChatAsync(intent.ConversationId!, intent.Text!), "chat");
                 break;
@@ -809,6 +805,11 @@ public sealed partial class GameModeViewModel : ViewModelBase, IDisposable
     /// </summary>
     private async Task ChatAsync(string who, string line)
     {
+        if (who.StartsWith(PolisIntents.ResidentSpeakerPrefix, StringComparison.Ordinal))
+        {
+            await ResidentChatAsync(who, line);
+            return;
+        }
         if (_disposed || !_citizensById.TryGetValue(who, out var citizen)) return;
         var session = _shell?.AllSessions.FirstOrDefault(s => s.ConversationId == who);
         if (session == null) return;
@@ -826,6 +827,33 @@ public sealed partial class GameModeViewModel : ViewModelBase, IDisposable
         var token = _askCancel.Token;
         var (reply, n) = await StreamLineAsync(who, PolisTalkPurpose.Player,
             () => PolisTalk.BuildChat(world, speaker, PolisCitizenAnswers.SelectExcerpts(messages, line), history, line, language), token);
+        if (reply == null || _disposed || page == null || !ReferenceEquals(page, _page)) return;
+        if (reply.Status == PolisTalkStatus.Ok && !string.IsNullOrWhiteSpace(reply.Text))
+            _talkHistory[who] = PolisTalk.Remember(history, line, reply.Text!);
+        var text = reply.Status == PolisTalkStatus.Ok && !string.IsNullOrWhiteSpace(reply.Text) ? reply.Text! : TalkFallback(reply.Status);
+        Post(new { type = "talk", who, n, text, done = true, status = reply.Status.ToString().ToLowerInvariant() });
+        Flush();
+    }
+
+    /// <summary>
+    /// 和一位职业居民说一句话（2026-10-13，用户：撤下工具能力，留下职业与他管的那摊事、各自的性子，能像居民一样聊天）。
+    /// 提示词 = 这座城 + 他（职业、希腊名、他管的那摊事与性子，<c>Polis.Resident.*.Persona</c>）+ 规矩（没有"你记得的"——他没托付过事）
+    /// + 和你说过的几轮。他只是聊天：城里没有一个人能动工具，规矩里写着不答应替谁办事。
+    /// </summary>
+    private async Task ResidentChatAsync(string who, string line)
+    {
+        if (_disposed || !PolisResidents.TryParse(who[PolisIntents.ResidentSpeakerPrefix.Length..], out var kind)) return;
+        var language = _localization.CurrentLanguage;
+        var entry = PolisAccumulation.ResidentEntry(kind);
+        var speaker = new PolisSpeaker(
+            L(entry.GreekKey, entry.GreekFallback), PolisResidents.IsFemale(kind), PolisResidents.AgeOf(kind),
+            new PolisPersona(L(entry.NameKey, entry.NameFallback), string.Empty, string.Empty, string.Empty), string.Empty,
+            Portrait: L(entry.PersonaKey, entry.PersonaFallback));
+        var world = WorldFacts();
+        _talkHistory.TryGetValue(who, out var history);
+        history ??= Array.Empty<PolisTalkTurn>();
+        var page = _page;
+        var (reply, n) = await StreamLineAsync(who, PolisTalkPurpose.Player, () => PolisTalk.BuildChat(world, speaker, null, history, line, language), _askCancel.Token);
         if (reply == null || _disposed || page == null || !ReferenceEquals(page, _page)) return;
         if (reply.Status == PolisTalkStatus.Ok && !string.IsNullOrWhiteSpace(reply.Text))
             _talkHistory[who] = PolisTalk.Remember(history, line, reply.Text!);
@@ -1421,9 +1449,10 @@ public sealed partial class GameModeViewModel : ViewModelBase, IDisposable
             .Where(s => string.Equals(s.Workspace?.Id ?? string.Empty, workspaceId ?? string.Empty, StringComparison.Ordinal))
             .Select(s => (Session: s, Messages: (IReadOnlyList<ChatMessage>)s.Chat.Messages.ToList()))
             .ToList();
+        // 十位职业居民每座城一开始就都在（2026-10-13）；按工具推导的那一份只回答"这项能力用过没有"（下面委托板的记忆建议）
         var residents = PolisResidents.Derive(sessionsHere.Select(s => (s.Session.ConversationId, s.Messages)), oracle?.CreatedAt);
-        _knownResidents = residents.Select(r => PolisResidents.Slug(r.Kind)).ToHashSet(StringComparer.Ordinal);
-        Post(new { type = "residents", residents = PolisAccumulation.Residents(residents, _save.MetResidents.ToList(), L, now) });
+        _knownResidents = PolisResidents.All.Select(PolisResidents.Slug).ToHashSet(StringComparer.Ordinal);
+        Post(new { type = "residents", residents = PolisAccumulation.Residents(_save.MetResidents.ToList(), L, now) });
 
         // 居民即会话（M-B）：这座城的每场会话一位居民，街上最多 32 位，按最近动过的先上街
         var byId = commissions.ToDictionary(c => c.ConversationId, StringComparer.Ordinal);

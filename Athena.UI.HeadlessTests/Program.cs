@@ -5159,9 +5159,10 @@ static void TestGameModeAccumulation()
     GameModeViewModel? gameMode = null;
     MainWindowViewModel? shell = null;
     Window? window = null;
+    var residentTalk = new HeadlessPolisTalkService();
     try
     {
-        gameMode = new GameModeViewModel(session, previewHost, store, watcher, localization, cronReader, new PolisAssetStore(assetsDir, Log.Logger), new HeadlessPolisTalkService(), new HeadlessPolisDebateService());
+        gameMode = new GameModeViewModel(session, previewHost, store, watcher, localization, cronReader, new PolisAssetStore(assetsDir, Log.Logger), residentTalk, new HeadlessPolisDebateService());
         var structural = typeof(GameModeViewModel).GetConstructors().SelectMany(c => c.GetParameters()).Select(p => p.ParameterType)
             .Concat(typeof(GameModeViewModel).GetFields(System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Public).Select(f => f.FieldType))
             .ToList();
@@ -5202,13 +5203,14 @@ static void TestGameModeAccumulation()
         if (!trees.SequenceEqual(new[] { convOld.ConversationId, convA.ConversationId, convCron.ConversationId }))
             throw new InvalidOperationException($"橄榄林要按委托开始的先后一份一棵，实际 [{string.Join(", ", trees)}]。");
 
-        // —— 居民：这座城里用到过的能力；设了神谕，女祭司也在 ——
+        // —— 职业居民（2026-10-13）：十位每座城都在（不再按用到的能力出现），没有黄金侍女；称呼是职业加希腊名 ——
         var residents = Of("residents")[^1].GetProperty("residents").EnumerateArray().Select(r => r.GetProperty("kind").GetString()).ToList();
-        if (!residents.SequenceEqual(new[] { "surveyor", "scribe", "priestess" }))
-            throw new InvalidOperationException($"居民要按第一次用到的先后出现（神谕的女祭司随神谕），实际 [{string.Join(", ", residents)}]。");
+        if (!residents.SequenceEqual(new[] { "surveyor", "scribe", "accountant", "smith", "sailor", "librarian", "herald", "painter", "artisan", "priestess" }))
+            throw new InvalidOperationException($"十位职业居民每座城都在，没有黄金侍女，实际 [{string.Join(", ", residents)}]。");
         var surveyor = Of("residents")[^1].GetProperty("residents").EnumerateArray().First();
-        if (string.IsNullOrWhiteSpace(surveyor.GetProperty("intro").GetString()) || surveyor.GetProperty("met").GetBoolean())
-            throw new InvalidOperationException("居民要讲得出这项能力还能做什么；还没说过话的不算结识。");
+        if (surveyor.GetProperty("name").GetString() != "测绘员阿那克西曼德" || surveyor.GetProperty("greekName").GetString() != "阿那克西曼德"
+            || string.IsNullOrWhiteSpace(surveyor.GetProperty("intro").GetString()) || surveyor.GetProperty("met").GetBoolean() || surveyor.TryGetProperty("tryLabel", out _))
+            throw new InvalidOperationException($"职业居民：称呼是职业加希腊名、有开场白、没说过话不算结识、没有\"请雅典娜试试\"：{surveyor}");
 
         // —— 传令官：离开期间跑完的神谕，那一卷作为成果放在广场上 ——
         var report = Of("report")[^1].GetProperty("lines").EnumerateArray().ToList();
@@ -5266,18 +5268,29 @@ static void TestGameModeAccumulation()
         if (fromOracle.Chat.Messages.Count > 0)
             throw new InvalidOperationException("神庙不替人发消息：请求只预填，由你按发送（之后 create_task 的审批照常弹出）。");
 
-        // —— 居民：说过话记进存档；"试试"只预填 ——
+        // —— 职业居民：说过话记进存档；工具能力撤下了（try-resident 被拒，不开委托）；能像居民一样聊天 ——
         PumpTimers(() => OfTypeCity(page) == wsA.Id, 10000, "回到第一座城没有落地。");
         page.Send("""{"v":1,"type":"meet-resident","residentId":"scribe"}""");
         PumpTimers(() => PolisSaveFormat.Parse(File.ReadAllText(savePath)).Document.MetResidents.Contains("scribe"), 5000, "和抄写员说过话，要记进存档（已结识的居民）。");
         page.Send("""{"v":1,"type":"meet-resident","residentId":"smith"}""");
+        PumpTimers(() => PolisSaveFormat.Parse(File.ReadAllText(savePath)).Document.MetResidents.Contains("smith"), 5000, "铁匠每座城都在，也能结识。");
         before = groupA.Conversations.ToList();
         page.Send("""{"v":1,"type":"try-resident","residentId":"scribe"}""");
-        PumpTimers(() => groupA.Conversations.Count > before.Count, 5000, "请雅典娜试试要新开一份委托。");
-        var fromResident = groupA.Conversations.Except(before).Single();
-        PumpTimers(() => fromResident.Chat.InputText.Length > 0 && fromResident.Chat.Messages.Count == 0, 5000, "居民的示范请求只预填，不发送。");
-        if (PolisSaveFormat.Parse(File.ReadAllText(savePath)).Document.MetResidents.Contains("smith"))
-            throw new InvalidOperationException("还没出现的居民（铁匠）不能被'结识'：意图在 C# 被拒。");
+        page.Send("""{"v":1,"type":"meet-resident","residentId":"maiden"}""");
+        PumpTimersFor(300);
+        if (groupA.Conversations.Count != before.Count || PolisSaveFormat.Parse(File.ReadAllText(savePath)).Document.MetResidents.Contains("maiden"))
+            throw new InvalidOperationException("try-resident 已经没有了（不开委托）；黄金侍女拿掉了（不能结识）。");
+        var callsBeforeResident = residentTalk.Calls.Count;
+        residentTalk.Reply = _ => new PolisTalkReply(PolisTalkStatus.Ok, "在抄一份周报呢。");
+        page.Send("""{"v":1,"type":"chat","who":"resident:scribe","text":"你在忙什么？"}""");
+        PumpTimers(() => Of("talk").Any(t => t.GetProperty("who").GetString() == "resident:scribe" && t.GetProperty("done").GetBoolean()), 5000, "和职业居民聊天要把他的话推回页面。");
+        var residentCall = residentTalk.Calls.Skip(callsBeforeResident).Single();
+        if (residentCall.Purpose != PolisTalkPurpose.Player || !residentCall.Prompt.System.Contains("抄写员「卡德摩斯」", StringComparison.Ordinal)
+            || !residentCall.Prompt.System.Contains("档案馆", StringComparison.Ordinal) || residentCall.Prompt.System.Contains("你记得的", StringComparison.Ordinal)
+            || !residentCall.Prompt.System.Contains("不能替雅典娜办事", StringComparison.Ordinal))
+            throw new InvalidOperationException($"职业居民的提示词：他的职业、名字和他管的那摊事，没有托付过的事，不答应办事：{residentCall.Prompt.System}");
+        if (Of("talk").Last(t => t.GetProperty("who").GetString() == "resident:scribe").GetProperty("text").GetString() != "在抄一份周报呢。" || groupA.Conversations.Count != before.Count)
+            throw new InvalidOperationException("他的话只回到页面，不开委托、不进会话。");
 
         // —— 海图：神殿居中，工作区按创建时间排；选岛 = 选中那个工作区最近的会话（走会话树的同一条路径） ——
         chatB.IsSending = true;

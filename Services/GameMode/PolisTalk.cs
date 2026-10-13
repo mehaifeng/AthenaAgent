@@ -9,8 +9,11 @@ namespace Athena.UI.Services.GameMode;
 /// <summary>城里一个人的性子（2026-10-13，用户：NPC 要有各自的性格）。四样都从种子挑，同一个人永远同一副脾气。</summary>
 public sealed record PolisPersona(string Trade, string Temperament, string Manner, string Pastime);
 
-/// <summary>说话的人在这座城里是谁：名字、男女、年纪、性子；<see cref="Calling"/> 是他的身份（一位居民托付过的那件事，或一位职业居民管的那摊事）。</summary>
-public sealed record PolisSpeaker(string Name, bool Female, PolisCitizenAge Age, PolisPersona Persona, string Calling);
+/// <summary>
+/// 说话的人在这座城里是谁：名字、男女、年纪、性子；<see cref="Calling"/> 是他的身份（一位居民托付过的那件事）。
+/// 职业居民（2026-10-13）用 <see cref="Portrait"/>：他的职业与他管的那摊事、他的性子，写好的一段，代替按种子挑的性子。
+/// </summary>
+public sealed record PolisSpeaker(string Name, bool Female, PolisCitizenAge Age, PolisPersona Persona, string Calling, string? Portrait = null);
 
 /// <summary>这座城此刻的样子（提示词里的世界观）：城名、是不是神殿、白天还是夜里、多少居民、有哪些文件夹（建筑）。</summary>
 public sealed record PolisWorldFacts(string CityName, bool Sanctuary, bool Night, int Population, IReadOnlyList<string> Buildings);
@@ -176,24 +179,40 @@ public static class PolisTalk
         ArgumentNullException.ThrowIfNull(speaker);
         var zh = IsChinese(language);
         var p = speaker.Persona;
+        var sex = zh ? (speaker.Female ? "女子" : "男子") : (speaker.Female ? "woman" : "man");
         var age = speaker.Age switch
         {
             PolisCitizenAge.Young => zh ? "年轻" : "young",
             PolisCitizenAge.Adult => zh ? "正当壮年" : "in the prime of life",
             _ => zh ? "上了年纪" : "getting on in years",
         };
+        if (speaker.Portrait != null)
+        {
+            return zh
+                ? $"你是这座城的{p.Trade}「{speaker.Name}」，{sex}，{age}。{speaker.Portrait}"
+                : $"You are {speaker.Name}, the city's {p.Trade}, a {sex}, {age}. {speaker.Portrait}";
+        }
         return zh
             ? $"你是这座城里的{(speaker.Female ? "女子" : "男子")}「{speaker.Name}」，{age}，以{p.Trade}为生。你性子{p.Temperament}，{p.Manner}，闲时爱{p.Pastime}。{speaker.Calling}"
             : $"You are {speaker.Name}, a {(speaker.Female ? "woman" : "man")} of this city, {age}, who works as a {p.Trade}. You are {p.Temperament}, {p.Manner}, and in your free time you enjoy {p.Pastime}. {speaker.Calling}";
     }
 
-    /// <summary>规则 3：说话的规矩。</summary>
-    public static string RulesText(string language) => IsChinese(language)
-        ? $"像城里的普通人在街上被人搭话那样口语交谈：一到三句，不超过 {MaxReplyChars} 个字；对方用什么语言你就用什么语言。"
-          + "可以闲聊城里的事、天气、你的生活和你的行当。说到你托付过的那件事，只凭下面「你记得的」那几段；那里没有的就说记不清了，不要编，不要猜。"
+    /// <summary>
+    /// 规则 3：说话的规矩。<paramref name="remembers"/> 为真（一位居民）时多一条：说到他托付过的那件事只凭记得的；
+    /// 职业居民没有托付过的事，说起自己的行当照实说。谁都只是聊天——不能替雅典娜办事、也不答应替谁办事（城里没有一个人能动工具）。
+    /// </summary>
+    public static string RulesText(string language, bool remembers = true) => IsChinese(language)
+        ? $"像城里的人在街上被人搭话那样口语交谈：一到三句，不超过 {MaxReplyChars} 个字；对方用什么语言你就用什么语言。"
+          + (remembers
+              ? "可以闲聊城里的事、天气、你的生活和你的行当。说到你托付过的那件事，只凭下面「你记得的」那几段；那里没有的就说记不清了，不要编，不要猜。"
+              : "可以闲聊城里的事、天气、你的生活；说起你的行当和你管的那摊事就照实说，不知道的不要编。")
+          + "你只是在聊天：不能替雅典娜办事，也不答应替谁办事；真有事要办，就请对方去找雅典娜。"
           + "不要说自己是 AI、模型或一段对话，不要提「片段」「记录」这类词；不要用 Markdown、列表、引号包住整句或表情符号。只说你这一句话本身。"
-        : $"Talk like an ordinary townsperson stopped in the street: one to three spoken sentences, at most {MaxReplyChars} characters; answer in the language you are spoken to in. "
-          + "You may chat about the city, the weather, your life and your trade. About the thing you entrusted to Athena, rely only on the passages under \"What you remember\"; if they do not say, say you cannot quite remember - never invent or guess. "
+        : $"Talk like a townsperson stopped in the street: one to three spoken sentences, at most {MaxReplyChars} characters; answer in the language you are spoken to in. "
+          + (remembers
+              ? "You may chat about the city, the weather, your life and your trade. About the thing you entrusted to Athena, rely only on the passages under \"What you remember\"; if they do not say, say you cannot quite remember - never invent or guess. "
+              : "You may chat about the city, the weather and your life; speak truthfully about your trade and what you look after, and never invent what you do not know. ")
+          + "You are only chatting: you cannot do anything on Athena's behalf and you do not promise to do anything for anyone; if there is real work to do, send them to Athena. "
           + "Never say you are an AI, a model or a conversation, and do not mention passages or records; no Markdown, lists, quotes around the whole reply or emoji. Say only your own line.";
 
     /// <summary>"你记得的"：那场会话里挑出来的几段（空的也写明，免得模型以为漏了）。</summary>
@@ -215,18 +234,21 @@ public static class PolisTalk
 
     /// <summary>
     /// 你和一位居民说话的提示词：系统提示 = 世界观 + 他是谁 + 规矩 + 他记得的；消息 = 之前的来回（最多 <see cref="MaxHistoryTurns"/> 轮）+ 你这一句。
+    /// <paramref name="memory"/> 为 null 是职业居民（没有托付过的事，也就没有"你记得的"那一段）。
     /// </summary>
     public static PolisTalkPrompt BuildChat(
         PolisWorldFacts world,
         PolisSpeaker speaker,
-        IReadOnlyList<PolisCitizenExcerpt> memory,
+        IReadOnlyList<PolisCitizenExcerpt>? memory,
         IReadOnlyList<PolisTalkTurn> history,
         string line,
         string language)
     {
         ArgumentNullException.ThrowIfNull(history);
         ArgumentNullException.ThrowIfNull(line);
-        var system = string.Join("\n\n", WorldText(world, language), SpeakerText(speaker, language), RulesText(language), MemoryText(memory, language));
+        var system = memory == null
+            ? string.Join("\n\n", WorldText(world, language), SpeakerText(speaker, language), RulesText(language, remembers: false))
+            : string.Join("\n\n", WorldText(world, language), SpeakerText(speaker, language), RulesText(language), MemoryText(memory, language));
         var messages = new List<(string Role, string Text)>();
         foreach (var turn in history.Skip(Math.Max(0, history.Count - MaxHistoryTurns)))
         {

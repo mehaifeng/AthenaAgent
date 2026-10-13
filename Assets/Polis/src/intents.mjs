@@ -10,7 +10,7 @@ export const INTENT_TYPES = Object.freeze([
   'stop-turn', 'accept-delivery', 'return-delivery', 'read-scroll', 'relocate', 'save-player',
   // M2：藏品的摆放 / 撤下 / 移除（只改存档），委托板、神谕、海图、居民
   'place-item', 'unplace-item', 'remove-item', 'take-suggestion', 'request-oracle', 'select-island',
-  'meet-resident', 'try-resident',
+  'meet-resident',
   // 对话栏
   'say', 'draft',
   // 和城里的一个人说一句话（2026-10-13，原来 M-C 的问话；他的回答只回到页面——他头顶的气泡，不进任何会话）

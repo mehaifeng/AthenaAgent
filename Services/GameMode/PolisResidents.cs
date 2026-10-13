@@ -6,7 +6,9 @@ using System.Linq;
 namespace Athena.UI.Services.GameMode;
 
 /// <summary>
-/// 城里的居民（设计稿 7.2）：每一位代表一项能力，第一次用到它时出现在城里。以后去找他，就能知道这项能力还能做什么。
+/// 城里的十位职业居民（设计稿 7.2；2026-10-13 起不再和工具挂钩，用户：撤下工具能力，留下职业和他管的那摊事，各有性子，能像居民一样聊天）。
+/// 每座城一开始就都在；黄金侍女（派发子代理的化身）随之拿掉了。下面每一项的注释是他管的那摊事，也是这项能力原来的归属——
+/// <see cref="PolisResidents.Derive"/> 仍按它回答"这项能力用过没有"（委托板的一条建议要看记忆用过没有），但不再决定谁住在城里。
 /// </summary>
 public enum PolisResidentKind
 {
@@ -22,8 +24,6 @@ public enum PolisResidentKind
     Sailor,
     /// <summary>图书管理员：记忆（知识库）。</summary>
     Librarian,
-    /// <summary>黄金侍女：派发子代理。</summary>
-    Maiden,
     /// <summary>传令官：定时任务及其结果。</summary>
     Herald,
     /// <summary>画师：生成图片。</summary>
@@ -66,12 +66,13 @@ public static class PolisResidents
         Add(PolisResidentKind.Smith, "execute_terminal_command");
         Add(PolisResidentKind.Sailor, "web_search", "fetch_url_to_file", "run_browser_task");
         Add(PolisResidentKind.Librarian, "recall_from_memory", "create_new_memory");
-        Add(PolisResidentKind.Maiden, "dispatch_subagents");
         Add(PolisResidentKind.Herald, "create_task", "update_task", "cancel_task", "list_tasks", "run_task_now");
         Add(PolisResidentKind.Painter, "generate_image");
         Add(PolisResidentKind.Artisan,
             "view_self_configuration", "modify_self_configuration", "activate_skill", "read_skill_resource",
-            "mcp_list_tools", "mcp_get_tool_schema", "mcp_call_tool", "mcp_add_server", "mcp_remove_server", "mcp_import_json");
+            "mcp_list_tools", "mcp_get_tool_schema", "mcp_call_tool", "mcp_add_server", "mcp_remove_server", "mcp_import_json",
+            // 黄金侍女拿掉之后（2026-10-13），派发子代理也算"把城外的帮手接进来"
+            "dispatch_subagents");
         return map;
     }
 
@@ -81,6 +82,20 @@ public static class PolisResidents
     /// <summary>工具 → 居民；没登记的（MCP 服务器暴露的外部工具名不会走到这里，它们都经 mcp_call_tool）归工匠。</summary>
     public static PolisResidentKind ForTool(string toolName)
         => toolName != null && ByTool.TryGetValue(toolName, out var kind) ? kind : PolisResidentKind.Artisan;
+
+    /// <summary>城里的十位职业居民，按枚举的次序（每座城一开始就都在）。</summary>
+    public static IReadOnlyList<PolisResidentKind> All { get; } = Enum.GetValues<PolisResidentKind>();
+
+    /// <summary>她是女子（画师、女祭司；与页面 characters.mjs 的 face.female 一致）。</summary>
+    public static bool IsFemale(PolisResidentKind kind) => kind is PolisResidentKind.Painter or PolisResidentKind.Priestess;
+
+    /// <summary>他多大（与页面 characters.mjs 的 face.age 一致）。</summary>
+    public static PolisCitizenAge AgeOf(PolisResidentKind kind) => kind switch
+    {
+        PolisResidentKind.Scribe => PolisCitizenAge.Young,
+        PolisResidentKind.Accountant or PolisResidentKind.Librarian => PolisCitizenAge.Old,
+        _ => PolisCitizenAge.Adult,
+    };
 
     /// <summary>页面与 locale 里用的名字（camelCase）。</summary>
     public static string Slug(PolisResidentKind kind)

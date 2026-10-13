@@ -236,7 +236,7 @@ async function accumulationCheck(name, browser) {
     await send({ type: 'init', tables: {}, assets: { 'building.house': { model: 'house.glb', scale: 1 }, 'prop.amphora': { model: 'missing.glb' }, 'figure.athena': { model: 'mannequin.glb', rig: 'procedural' } } });
     await send({ type: 'city', key: 'ws-1', city });
     await send({ type: 'grove', trees: Array.from({ length: 20 }, (_, i) => ({ conversationId: `c-${i}`, title: `委托 ${i}`, index: i, stage: i % 4, turns: 1 + i, interrupted: false, scheduled: false })) });
-    await send({ type: 'residents', residents: [{ kind: 'scribe', met: false, name: '抄写员', intro: '她能替你起草报告。', tryLabel: '请雅典娜试试' }, { kind: 'smith', met: true, name: '铁匠', intro: '锻炉前跑命令。', tryLabel: '请雅典娜试试' }] });
+    await send({ type: 'residents', residents: [{ kind: 'scribe', met: false, name: '抄写员卡德摩斯', trade: '抄写员', greekName: '卡德摩斯', intro: '我在档案馆抄写文书。' }, { kind: 'smith', met: true, name: '铁匠赫菲斯提昂', trade: '铁匠', greekName: '赫菲斯提昂', intro: '锻炉这边是干粗活的地方。' }] });
     await send({ type: 'board', suggestions: [{ id: 'tidyAgora:', line: '广场上散着 20 个文件' }, { id: 'setOracle:', line: '在神庙设一个每日神谕' }] });
     await send({ type: 'oracle', oracle: { exists: false, title: '每日神谕', body: '还没有设立' } });
     await send({ type: 'islands', islands: [
@@ -299,7 +299,21 @@ async function accumulationCheck(name, browser) {
     await page.evaluate(() => { const g = window.__polisGame; g.openPanel('oracle'); g.onButton('oracle-request'); });
     intents.oracle = await sentSince(n);
     n = await inboxLength();
-    await page.evaluate(() => { const g = window.__polisGame; g.openResident('scribe'); g.onButton('resident-try'); });
+    // 职业居民（2026-10-13）：卡片上没有"请雅典娜试试"，有"聊几句"——对话栏借给他，回车发 chat（who: resident:scribe）
+    await page.evaluate(() => window.__polisGame.openResident('scribe'));
+    await page.waitForTimeout(250);   // 按钮区域是画完一帧才有的
+    const residentCard = await page.evaluate(() => { const g = window.__polisGame; return { view: g.panelView(), regions: g.regions.map((r) => r.id) }; });
+    await page.evaluate(() => window.__polisGame.onButton('resident-chat'));
+    await page.waitForTimeout(150);
+    const residentLent = await page.evaluate(() => ({ talk: window.__polisTalk.state, chatting: window.__polisGame.chatting, name: document.querySelector('#talk .talk-name').textContent, closeUp: window.__polis.closeUp }));
+    await page.keyboard.type('你在忙什么？');
+    await page.keyboard.press('Enter');
+    await page.waitForTimeout(150);
+    await send({ type: 'talk', who: 'resident:scribe', n: 3, text: '在抄一份周报呢。', done: true, status: 'ok' });
+    await page.waitForTimeout(150);
+    const residentBubble = await page.evaluate(() => (window.__polisGame.used?.citizenBubbles ?? []).find((b) => b.id === 'resident:scribe')?.text ?? null);
+    await page.keyboard.press('Escape');
+    await page.waitForTimeout(100);
     intents.resident = await sentSince(n);
     n = await inboxLength();
     await page.evaluate(() => { const g = window.__polisGame; g.toggleChart(true); });
@@ -338,7 +352,10 @@ async function accumulationCheck(name, browser) {
       treeSelects: treeFocus?.type === 'tree' && of(intents.tree, 'select-conversation')?.conversationId === 'c-4',
       boardTakes: of(intents.board, 'take-suggestion')?.suggestionId === 'tidyAgora:',
       oracleRequests: !!of(intents.oracle, 'request-oracle') && Object.keys(of(intents.oracle, 'request-oracle')).every((k) => k === 'v' || k === 'type'),
-      residentMeetsAndTries: of(intents.resident, 'meet-resident')?.residentId === 'scribe' && of(intents.resident, 'try-resident')?.residentId === 'scribe',
+      residentMeetsAndChats: of(intents.resident, 'meet-resident')?.residentId === 'scribe' && of(intents.resident, 'chat')?.who === 'resident:scribe'
+        && !intents.resident.some((m) => m.type === 'try-resident' || m.type === 'say') && residentCard.view?.title === '抄写员卡德摩斯' && residentCard.regions.includes('resident-chat')
+        && !residentCard.regions.includes('resident-try') && residentLent.talk.mode === 'chat' && residentLent.name === '抄写员卡德摩斯' && residentLent.closeUp === 'resident'
+        && residentBubble === '在抄一份周报呢。',
       chartShownAndSelects: chartShown && of(intents.island, 'select-island')?.islandId === 'ws-2',
       placesDefault: of(intents.placeDefault, 'place-item')?.venue === 'archive' && of(intents.placeDefault, 'place-item')?.slot === undefined,
       placesOnSlot: of(intents.placeSlot, 'place-item')?.venue === 'archive' && of(intents.placeSlot, 'place-item')?.slot === 5,
@@ -348,7 +365,7 @@ async function accumulationCheck(name, browser) {
       neverApproves: !inbox.some((t) => /approv|allow|grant/i.test(t)),
       noProblems: problems.length === 0,
     };
-    Object.assign(result, { checks, assets: shape.assets, inbox, problems, seconds: +((Date.now() - started) / 1000).toFixed(1) });
+    Object.assign(result, { checks, assets: shape.assets, resident: { card: { title: residentCard.view?.title, regions: residentCard.regions }, lent: { mode: residentLent.talk.mode, name: residentLent.name, closeUp: residentLent.closeUp }, bubble: residentBubble, sent: intents.resident }, inbox, problems, seconds: +((Date.now() - started) / 1000).toFixed(1) });
     await page.close();
     console.log(JSON.stringify(result, null, 2));
     return Object.values(checks).every(Boolean);
@@ -457,7 +474,7 @@ async function citizensCheck(name, browser) {
       listShrinks: shrunk.size === 5 && shrunk.figures === 5 && shrunk.steles === 0,
       noProblems: problems.length === 0,
     };
-    Object.assign(result, { checks, census, card, stele: { home: stele, focus: steleFocus, panel: steleCard.panel }, shrunk, problems, seconds: +((Date.now() - started) / 1000).toFixed(1) });
+    Object.assign(result, { checks, census, target, focus, card, stele: { home: stele, focus: steleFocus, panel: steleCard.panel }, shrunk, problems, seconds: +((Date.now() - started) / 1000).toFixed(1) });
     await page.close();
     console.log(JSON.stringify(result, null, 2));
     return Object.values(checks).every(Boolean);
@@ -525,8 +542,12 @@ async function chatCheck(name, browser) {
     await page.waitForTimeout(250);
     const sentNow = (await inbox()).slice(n);
     const bubblesNow = () => page.evaluate(() => (window.__polisGame.used?.citizenBubbles ?? []).map((b) => ({ id: b.id, text: b.text, typing: !!b.typing, alpha: b.alpha })));
+    // 头顶的话的状态（不管这一帧画没画：闲聊挑的是画面里的人，测试里随手指定的两位可能在画面外，不摆也不画）
+    const sayingsNow = () => page.evaluate(() => [...window.__polisGame.sayings].map(([id, v]) => ({ id, text: v.text, typing: !!v.typing, done: v.doneAt != null })));
+    const mineNow = () => page.evaluate(() => window.__polisGame.mine?.text ?? null);
     const waiting = await page.evaluate(() => ({ talk: window.__polisTalk.state, chatting: window.__polisGame.chatting, disabled: document.querySelector('#talk .talk-input').disabled, closeUp: window.__polis.closeUp, summoned: window.__polis.summoned ?? 0 }));
     const thinkingBubbles = await bubblesNow();
+    const mineAfterSend = await mineNow();
 
     // C# 流式推他的话：半句话边到边换，说完的那一版定下来，栏回到"你在写"（可以接着说）；说完之后才到的半句话不覆盖它
     await send({ type: 'talk', who: target?.id, text: '风是不小，', done: false });
@@ -564,26 +585,26 @@ async function chatCheck(name, browser) {
     const startedAmbient = await page.evaluate(([a, b]) => window.__polisGame.ambientNow(a, b), pairIds);
     await page.waitForTimeout(150);
     const ambientSent = (await inbox()).slice(nAmb);
-    const ambientDots = await bubblesNow();
+    const ambientDots = await sayingsNow();
     await send({ type: 'talk', who: pairIds[0], n: 7, text: '今天港口', done: false });
     await page.waitForTimeout(120);
-    const ambientPartial = await bubblesNow();
+    const ambientPartial = await sayingsNow();
     await send({ type: 'talk', who: pairIds[0], n: 7, text: '今天港口的风真大。', done: true, status: 'ok' });
     await send({ type: 'talk', who: pairIds[1], n: 0, text: '', done: false });
     await page.waitForTimeout(150);
-    const ambientSecond = await bubblesNow();
+    const ambientSecond = await sayingsNow();
     await send({ type: 'talk', who: pairIds[1], n: 8, text: '船都早早靠岸了。', done: true, status: 'ok' });
     await send({ type: 'ambient-end', a: pairIds[0], b: pairIds[1], status: 'ok' });
     await page.waitForTimeout(150);
     const ambientDone = await page.evaluate(() => ({ chat: window.__polis.chat, ambient: window.__polis.ambient, next: window.__polisGame.nextChatPickAt, now: performance.now() }));
-    const ambientDoneBubbles = await bubblesNow();
+    const ambientDoneBubbles = await sayingsNow();
     // 没配模型：先开口的那位还在想就散了，点收起；不再挑
     await page.evaluate(([a, b]) => window.__polisGame.ambientNow(b, a), pairIds);
     await page.waitForTimeout(100);
     await send({ type: 'ambient-end', a: pairIds[1], b: pairIds[0], status: 'nomodel' });
     await page.waitForTimeout(150);
     const noModel = await page.evaluate(() => ({ chat: window.__polis.chat, never: window.__polisGame.nextChatPickAt === Infinity }));
-    const noModelBubbles = await bubblesNow();
+    const noModelBubbles = await sayingsNow();
 
     const all = await inbox();
     const chats = all.filter((m) => m.type === 'chat');
@@ -594,7 +615,7 @@ async function chatCheck(name, browser) {
       onlyChatSent: sentNow.length === 1 && sentNow[0].type === 'chat' && sentNow[0].who === target?.id && sentNow[0].text === '今天风大吗？',
       waitsForHim: waiting.talk.mode === 'chatting' && waiting.disabled && waiting.chatting?.status === 'waiting' && waiting.closeUp === 'citizen',
       thinkingDotsOverHisHead: thinkingBubbles.some((b) => b.id === target?.id && b.typing && /^·+$/.test(b.text)),
-      yourLineOverYourHead: thinkingBubbles.some((b) => b.id === 'player' && b.text === '今天风大吗？'),
+      yourLineOverYourHead: mineAfterSend === '今天风大吗？',
       streamsIntoHisBubble: partial.some((b) => b.id === target?.id && !b.typing && b.text === '风是不小，'),
       finalLineStays: repliedBubbles.some((b) => b.id === target?.id && b.text === finalLine && b.alpha === 1),
       barResumesForTheNextLine: replied.talk.mode === 'chat' && replied.focused && !replied.disabled && replied.chatting?.status === 'typing' && replied.panel == null && replied.closeUp === 'citizen',
@@ -609,6 +630,7 @@ async function chatCheck(name, browser) {
       noModelNoLinesNoMorePicks: noModel.chat === null && noModel.never === true && !noModelBubbles.some((b) => b.id === pairIds[1] && b.typing),
       noProblems: problems.length === 0,
     };
+    result.pageErrors = await page.evaluate(() => window.__polis.errors ?? []);
     Object.assign(result, { checks, pairIds, ambientSent, ambientDone, noModel, target, lent, sentNow, waiting, thinkingBubbles, partial, replied: { ...replied, panel: undefined }, repliedBubbles, second, cancelled, afterCancel, problems, seconds: +((Date.now() - started) / 1000).toFixed(1) });
     await page.close();
     console.log(JSON.stringify(result, null, 2));
@@ -987,10 +1009,10 @@ async function controlsCheck(name, browser) {
     // M3 第三轮：夜里跟着应用的深色主题——推一条 theme，页面上的条立刻换，城里一秒多走到夜里；换回来也一样
     await send({ type: 'theme', night: true });
     await page.waitForFunction(() => window.__polis.night === 1, null, { timeout: 5000 }).catch(() => {});
-    const nightNow = await page.evaluate(() => ({ body: document.body.classList.contains('night'), k: window.__polis.night, overlay: window.__polisGame.overlay.night, pixels: window.__polis.pixelStats() }));
+    const nightNow = await page.evaluate(() => ({ body: document.body.classList.contains('night'), k: window.__polis.night, overlay: window.__polisGame.overlay.night, glow: window.__polisGame.R.glow.enabled, lamps: window.__polisGame.world.lights().length, pixels: window.__polis.pixelStats() }));
     await send({ type: 'theme', night: false });
     await page.waitForFunction(() => window.__polis.night === 0, null, { timeout: 5000 }).catch(() => {});
-    const dayAgain = await page.evaluate(() => ({ body: document.body.classList.contains('night'), k: window.__polis.night, pixels: window.__polis.pixelStats() }));
+    const dayAgain = await page.evaluate(() => ({ body: document.body.classList.contains('night'), k: window.__polis.night, glow: window.__polisGame.R.glow.enabled, pixels: window.__polis.pixelStats() }));
     // 卷轴阅读器：一卷很长的回答（含表格）能滚到最后一行，最后一行在卷轴里看得见
     const longMd = `# 长卷\n\n| 列 | 值 |\n|---|---:|\n| a | 1 |\n| b | 2 |\n\n${Array.from({ length: 80 }, (_, i) => `- 第 ${i + 1} 行：一段足够长的说明文字，确保这一卷比窗口高得多`).join('\n')}\n\n最后一行。`;
     await send({ type: 'scroll', itemId: 'long', title: '长卷', markdown: longMd, closeLabel: '收起' });
@@ -1029,6 +1051,8 @@ async function controlsCheck(name, browser) {
       athenaComesWhenCalledFromAfar: Math.hypot(farAway.athena.x - farAway.player.x, farAway.athena.z - farAway.player.z) > 12 && cameOver
         && summon.summoned === farAway.summoned + 1 && summon.steps.includes('teleport'),
       nightFollowsTheme: nightNow.body && nightNow.k === 1 && nightNow.overlay && !dayAgain.body && dayAgain.k === 0 && nightNow.pixels.mean < dayAgain.pixels.mean - 20,
+      // 夜里的辉光（灯火的散射）只在夜里开；城里有灯
+      nightGlow: nightNow.glow === true && dayAgain.glow === false && nightNow.lamps > 0,
       longScrollReachesTheEnd: readerFit.cardInside && readerFit.scrollable && readerFit.lastVisible && readerFit.table,
       neverApproves: !all.some((m) => /approv|allow|grant/i.test(m.type)),
       noProblems: problems.length === 0,

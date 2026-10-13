@@ -37,7 +37,6 @@ export const CHARACTERS = Object.freeze({
   smith: { hair: 'short', headgear: 'pilos', garment: 'exomis', beard: 'full', attribute: 'hammer', age: 'adult', wash: 0.42, jaw: 0.8 },
   sailor: { hair: 'curly', headgear: 'pilosTilted', garment: 'exomis', beard: 'stubble', attribute: 'rope', age: 'adult', wash: 0.38, jaw: 0.6 },
   librarian: { hair: 'fringe', headgear: null, garment: 'himation', beard: 'long', attribute: 'scrolls', age: 'old', wash: 0.28, jaw: 0.45 },
-  maiden: { hair: 'braids', headgear: 'diadem', garment: 'peplos', beard: null, attribute: null, age: 'young', wash: 0.08, jaw: 0.2, archaic: true, female: true },
   herald: { hair: 'short', headgear: 'petasosBack', garment: 'chlamys', beard: 'short', attribute: 'staff', age: 'adult', wash: 0.3, jaw: 0.55 },
   painter: { hair: 'sakkos', headgear: 'sakkos', garment: 'chiton', beard: null, attribute: 'brush', age: 'young', wash: 0.22, jaw: 0.3, female: true },
   artisan: { hair: 'short', headgear: 'headband', garment: 'exomis', beard: 'full', attribute: 'chisel', age: 'adult', wash: 0.4, jaw: 0.7 },

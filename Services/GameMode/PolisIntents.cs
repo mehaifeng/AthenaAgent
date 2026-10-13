@@ -54,8 +54,6 @@ public enum PolisIntentType
     SelectIsland,
     /// <summary>和一位居民说过话（记进玩家进度"已结识的居民"）。</summary>
     MeetResident,
-    /// <summary>请雅典娜试试这位居民代表的能力：新建一份委托并预填一句示范请求（不发送）。</summary>
-    TryResident,
     /// <summary>
     /// 城里对话栏的"托付"：把你写的这段话发给此刻显示的这份委托——走输入框的同一条路径（SendMessageCommand）。
     /// 只认显示着的那一份（ViewModel 核对），不能替别的会话说话；她在回答时不收。
@@ -148,6 +146,8 @@ public static class PolisIntents
     public const int MaxSayChars = 16000;
     public const int MaxDetailChars = 4000;
     public const int ProtocolVersion = 1;
+    /// <summary>和职业居民说话时 <c>who</c> 的前缀（<c>resident:scribe</c>）。</summary>
+    public const string ResidentSpeakerPrefix = "resident:";
 
     /// <summary>看起来像"审批"的类型名：单独点名拒绝，日志里一眼能认出这是一次越权尝试。</summary>
     private static readonly HashSet<string> ApprovalLikeTypes = new(StringComparer.OrdinalIgnoreCase)
@@ -177,7 +177,6 @@ public static class PolisIntents
         ["request-oracle"] = PolisIntentType.RequestOracle,
         ["select-island"] = PolisIntentType.SelectIsland,
         ["meet-resident"] = PolisIntentType.MeetResident,
-        ["try-resident"] = PolisIntentType.TryResident,
         ["say"] = PolisIntentType.Say,
         ["draft"] = PolisIntentType.Draft,
         ["chat"] = PolisIntentType.Chat,
@@ -296,8 +295,11 @@ public static class PolisIntents
                 case PolisIntentType.Chat:
                 {
                     var who = ReadString(root, "who");
-                    if (string.IsNullOrEmpty(who) || !context.KnownCitizenIds.Contains(who))
-                        return PolisIntentResult.Reject("unknown speaker");
+                    // 居民（会话 Id），或者职业居民（resident:<名字>，2026-10-13）
+                    var known = !string.IsNullOrEmpty(who) && (context.KnownCitizenIds.Contains(who)
+                        || (who.StartsWith(ResidentSpeakerPrefix, StringComparison.Ordinal) && context.KnownResidentIds.Contains(who[ResidentSpeakerPrefix.Length..])
+                            && PolisResidents.TryParse(who[ResidentSpeakerPrefix.Length..], out _)));
+                    if (!known) return PolisIntentResult.Reject("unknown speaker");
                     var raw = ReadString(root, "text");
                     if (raw == null) return PolisIntentResult.Reject("missing text");
                     var line = Clean(raw.Trim(), int.MaxValue)!;
@@ -361,7 +363,6 @@ public static class PolisIntents
                 }
 
                 case PolisIntentType.MeetResident:
-                case PolisIntentType.TryResident:
                 {
                     var id = ReadString(root, "residentId");
                     if (string.IsNullOrEmpty(id) || !context.KnownResidentIds.Contains(id) || !PolisResidents.TryParse(id, out var kind))
