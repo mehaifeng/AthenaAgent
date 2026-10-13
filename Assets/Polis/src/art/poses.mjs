@@ -18,8 +18,8 @@ export const FIDGET = Object.freeze({ everyMs: 8000, spreadMs: 600, lastsMs: 220
 /** 做事的几种样子：按工具类别（雅典娜）或居民的行当选。 */
 export const WORK_VARIANTS = Object.freeze([
   'read', 'write', 'hammer', 'forge', 'summon', 'haul', 'paint', 'announce', 'shelve', 'count', 'survey', 'carve', 'tend', 'await',
-  // 第三轮：敲门（你，需求 3）
-  'knock',
+  // 第三轮：敲门（你，需求 3）；居民的手艺（需求 4，art/crafts.mjs 的十种活）
+  'knock', 'wheel', 'spin', 'fish', 'knead', 'hoe', 'grind', 'stitch', 'dress', 'saw', 'lyre',
 ]);
 
 /** 敲门一次多长（第三轮需求 3）：抬手、叩两下、放下。game 按它把"做事 / knock"当一次性的动作放。 */
@@ -119,6 +119,72 @@ export const ARMS = Object.freeze({
   haulBackL: [0.442, -0.194, -0.123, -1.515, 0.331, -Math.PI / 2, -0.33],
   hugL: [0.078, -0.33, -0.038, -0.841, -0.938, 0, -0.277],
 });
+
+/**
+ * 居民的手艺（第三轮需求 4）：和 ARMS 一样不是手摆的，是拿真骨架（身高 1.75、体格 1 的参照人，缩放 1）按接触点解出来的，
+ * 身体按 CRAFT_BODY 摆好再解（node 的解算脚本在进度文档里记着做法）。每样两帧（单手托着东西的那一侧一帧），干活时在帧之间插值：
+ *   揉面——两只掌心朝下按在面团上（面团顶 0.9 米），从人前 0.35 米推到 0.49 米；
+ *   拉坯——两只掌心朝里贴着陶坯两侧（坯在人前 0.42 米），从坯腰（0.88 米高、离中线 0.112）收到坯颈（0.97 米、0.085）；
+ *   琢石——两拳握在斧柄尾，落斧时斧头最低的一点落在人前 0.55 米、0.58–0.6 米高的石面上；举起来时两拳在右肩上方；
+ *   锯木——锯条竖着、锯齿朝下，锯齿在木板的中线上（人前 0.42 米、0.83 米高、x −0.22）切进 1 厘米，右拳在 0.08–0.28 米之间来回；
+ *       左掌按在木板上；
+ *   锄地——锄刃最低的一点落在人前 0.85 米的地上；
+ *   研磨——左掌朝上托着研钵在腰前，杵头落在钵底、提起来离钵底 0.14 米；
+ *   缝鞋——左掌托着鞋底朝着脸，锥尖扎在鞋底面上、拉线时离开 7 厘米；
+ *   弹琴——左掌朝上托着琴身、弦面朝前，右手指尖在弦中段前 2.5 厘米、左右各 3 厘米；
+ *   纺线——左拳攥着卷线杆竖着（手的 y 朝上）、齐胸，右手指尖在腰前，纺锤竖着垂下；
+ *   钓鱼——左拳在前齐胸、右拳在右胯旁，竿朝前上 28°。
+ * 门前的工位按这个人的身高缩放（world 摆的时候乘 身高 / 1.75，离人的距离也乘），所以高矮不同的人接触点一样落在工位上。
+ * crafts.test.mjs 用参照人和真工位核对这些接触。
+ */
+export const CRAFT_ARMS = Object.freeze({
+  kneadBack: { L: [-0.39, -1, 0.345, -0.469, -1.084, -2.68, 0.6], R: [-0.531, 0.968, -0.214, -0.337, -1.1, 2.678, -0.6] },
+  kneadPush: { L: [-1.075, -1, -0.064, -0.038, -1.1, -2.662, -0.146], R: [-0.953, 1, -0.012, -0.19, -1.1, 2.68, 0.512] },
+  // 拉坯的三帧一路接着解（下一帧从上一帧的解出发）：同一个解的分支，插值时掌心沿着坯面走（离坯面 3–7 毫米），不穿进坯里
+  wheelLow: { L: [-0.653, -0.516, 0.036, -0.505, 0.412, -1.052, 0.141], R: [-0.64, 0.486, -0.025, -0.503, 0.42, 1.083, -0.325] },
+  wheelMid: { L: [-0.475, -0.546, 0.144, -0.922, 0.681, -1.009, 0.084], R: [-0.461, 0.502, -0.115, -0.927, 0.707, 1.058, -0.312] },
+  wheelHigh: { L: [-0.415, -0.559, 0.162, -1.186, 0.927, -0.991, 0.038], R: [-0.39, 0.532, -0.141, -1.2, 0.956, 1.023, -0.297] },
+  dressStrike: { L: [-0.373, -1, -0.275, -0.447, -0.274, -1.576, 0.597], R: [-0.058, 0.4, 0.013, -0.908, 0.407, 1.688, -0.215] },
+  dressRaised: { L: [-1.771, -0.799, -0.456, -1.806, -0.034, -1.558, 0.052], R: [-2.007, 0.102, 0.168, -1.943, -0.215, 1.494, -0.195] },
+  // 锯木的三帧也是一路接着解的：锯条竖着、锯齿朝下，来回的每一处锯齿都在锯口里（0.826–0.830 米）
+  sawBack: { L: [-0.716, -0.606, 0.112, -0.02, -1.1, -2.68, -0.6], R: [0.599, -0.044, -0.145, -1.305, -0.573, 1.417, -0.593] },
+  sawMid: { L: [-0.701, -0.665, 0.127, -0.023, -1.1, -2.68, -0.6], R: [0.328, -0.025, -0.157, -1.282, -0.444, 1.413, -0.507] },
+  sawPush: { L: [-0.718, -0.595, 0.11, -0.022, -1.1, -2.68, -0.6], R: [0.052, -0.03, -0.145, -1.237, -0.497, 1.419, -0.184] },
+  hoeStrike: { L: [-0.533, -0.838, -0.351, -1.253, -0.394, -1.728, 0.55], R: [-0.932, -0.056, 0.106, -0.039, -0.589, 2.185, 0.432] },
+  hoeRaised: { L: [0.439, -0.846, 0.321, -1.758, 0.2, -1.37, -0.349], R: [-0.422, 0.435, 0.146, -2.097, -0.163, 1.137, -0.201] },
+  grind: { L: [-0.49, -0.267, -0.228, -0.082, -1.1, -0.132, -0.213] },
+  grindDown: { R: [-0.122, 0.501, 0.115, -1.707, 0.075, 1.693, 0.05] },
+  grindUp: { R: [-0.568, 0.428, 0.265, -1.829, 0.538, 1.643, 0.108] },
+  stitch: { L: [0.004, -0.398, -0.048, -1.187, -0.933, -0.252, -0.307] },
+  stitchPrick: { R: [-0.234, 0.922, -0.325, -0.818, -1.1, 1.745, -0.6] },
+  stitchPull: { R: [-0.14, 0.801, -0.304, -1.145, -1.1, 1.754, -0.6] },
+  lyre: { L: [-0.066, -0.119, -0.115, -0.587, -0.935, -0.108, 0.122] },
+  lyreA: { R: [-0.529, 0.69, 0.392, -1.268, 0.218, 0.079, 0.406] },
+  lyreB: { R: [-0.299, 0.61, 0.258, -1.447, 0.159, 0.065, 0.41] },
+  spin: { L: [0.215, -0.479, 0.74, -1.651, 1.1, 0, -0.6], R: [-0.172, 0.539, -0.007, -1.015, 1.089, 0, 0.075] },
+  fish: { L: [-0.464, -0.049, -0.25, -0.809, 0.016, -1.591, -0.001], R: [0.344, 0.1, 0.045, -0.874, 0.078, 1.615, 0.064] },
+});
+
+/** 解 CRAFT_ARMS 时身体的样子（脊柱前倾、低头、膝、髋往后、两腿前后）；举起来那一帧的脊柱另记。 */
+export const CRAFT_BODY = Object.freeze({
+  knead: Object.freeze({ spine: 0.48, pushSpine: 0.58, head: 0.3, knees: [0.1, 0.1], hipsZ: -0.04 }),
+  wheel: Object.freeze({ spine: 0.52, head: 0.38, knees: [0.14, 0.14], hipsZ: -0.03 }),
+  dress: Object.freeze({ spine: 0.5, raisedSpine: 0.08, head: 0.3, legs: [-0.14, 0.12], knees: [0.2, 0.1], hipsZ: -0.04 }),
+  saw: Object.freeze({ spine: 0.5, head: 0.38, legs: [-0.12, 0.12], knees: [0.1, 0], hipsZ: -0.04 }),
+  hoe: Object.freeze({ spine: 0.48, raisedSpine: 0.16, head: 0.25, legs: [-0.18, 0.12], knees: [0.15, 0] }),
+  grind: Object.freeze({ spine: 0.14, head: 0.45 }),
+  stitch: Object.freeze({ spine: 0.12, head: 0.48 }),
+  lyre: Object.freeze({ spine: 0.02, head: 0.12, headTurn: 0.18 }),
+  spin: Object.freeze({ spine: 0.04, head: 0.22, headTurn: -0.1 }),
+  fish: Object.freeze({ spine: 0.05, head: 0.12 }),
+});
+
+function craftBody(p, b) {
+  p.spine.rx = b.spine; p.head.rx = b.head; p.head.ry = b.headTurn ?? 0;
+  if (b.legs) { p.legL.rx = b.legs[0]; p.legR.rx = b.legs[1]; }
+  if (b.knees) { p.kneeL.rx = b.knees[0]; p.kneeR.rx = b.knees[1]; }
+  if (b.hipsZ) p.hips.z = b.hipsZ;
+}
 
 /** 把一组胳膊角（ARMS 的格式）摆到一侧；mix 给了就在两组之间按 k 插值。 */
 function setArm(p, side, a, b = null, k = 0) {
@@ -476,6 +542,99 @@ function work(t, style) {
       p.elbowR.rx = -0.1 - 1.5 * up + 0.38 * knock * up;
       p.handR.rx = 0.15 * up; p.handR.rz = -0.1 * up;
       p.spine.rx = 0.03 * up; p.head.rx = 0.06 * up;
+      break;
+    }
+    // —— 第三轮（需求 4）：居民的手艺。胳膊都是 CRAFT_ARMS 里按接触点解出来的几帧，在帧之间按节拍插值；身体按 CRAFT_BODY ——
+    case 'wheel': {  // 拉坯：俯身在陶轮前，两只掌心贴着转着的陶坯两侧，从坯腰慢慢往上收到坯颈、再回到坯腰
+      const k = 0.5 - 0.5 * Math.cos(w(2600));
+      const [a, b, u] = k < 0.5 ? [CRAFT_ARMS.wheelLow, CRAFT_ARMS.wheelMid, k / 0.5] : [CRAFT_ARMS.wheelMid, CRAFT_ARMS.wheelHigh, (k - 0.5) / 0.5];
+      craftBody(p, CRAFT_BODY.wheel);
+      setArm(p, 'L', a.L, b.L, u);
+      setArm(p, 'R', a.R, b.R, u);
+      break;
+    }
+    case 'knead': {  // 揉面：俯在揉面台上，两只掌心按着面团往前推（身子跟着压下去）、收回来
+      const f = (t % 1300) / 1300;
+      const push = f < 0.55 ? smooth(f / 0.55) : 1 - smooth((f - 0.55) / 0.45);
+      craftBody(p, CRAFT_BODY.knead);
+      p.spine.rx = lerp(CRAFT_BODY.knead.spine, CRAFT_BODY.knead.pushSpine, push);
+      setArm(p, 'L', CRAFT_ARMS.kneadBack.L, CRAFT_ARMS.kneadPush.L, push);
+      setArm(p, 'R', CRAFT_ARMS.kneadBack.R, CRAFT_ARMS.kneadPush.R, push);
+      break;
+    }
+    case 'dress': {  // 琢石：两手握着斧柄尾，举过右肩、劈在身前的石面上，停一拍再举
+      const f = (t % 1400) / 1400;
+      const up = f < 0.55 ? smooth(f / 0.55) : f < 0.7 ? 1 - Math.pow(clamp01((f - 0.55) / 0.15), 1.6) : 0;
+      craftBody(p, CRAFT_BODY.dress);
+      p.spine.rx = lerp(CRAFT_BODY.dress.spine, CRAFT_BODY.dress.raisedSpine, up);
+      setArm(p, 'L', CRAFT_ARMS.dressStrike.L, CRAFT_ARMS.dressRaised.L, up);
+      setArm(p, 'R', CRAFT_ARMS.dressStrike.R, CRAFT_ARMS.dressRaised.R, up);
+      p.propL = 'stoneAxe';
+      break;
+    }
+    case 'saw': {  // 锯木：俯身在锯木架前，左掌按着木板，右手的锯沿着锯口来回拉
+      const k = 0.5 - 0.5 * Math.cos(w(1000));
+      const [a, b, u] = k < 0.5 ? [CRAFT_ARMS.sawBack, CRAFT_ARMS.sawMid, k / 0.5] : [CRAFT_ARMS.sawMid, CRAFT_ARMS.sawPush, (k - 0.5) / 0.5];
+      craftBody(p, CRAFT_BODY.saw);
+      setArm(p, 'L', a.L, b.L, u);
+      setArm(p, 'R', a.R, b.R, u);
+      p.propR = 'saw';
+      break;
+    }
+    case 'hoe': {  // 锄地：两手握锄，举到齐肩、刨进身前的土里，停一拍再举
+      const f = (t % 1600) / 1600;
+      const up = f < 0.55 ? smooth(f / 0.55) : f < 0.7 ? 1 - Math.pow(clamp01((f - 0.55) / 0.15), 1.5) : 0;
+      craftBody(p, CRAFT_BODY.hoe);
+      p.spine.rx = lerp(CRAFT_BODY.hoe.spine, CRAFT_BODY.hoe.raisedSpine, up);
+      setArm(p, 'L', CRAFT_ARMS.hoeStrike.L, CRAFT_ARMS.hoeRaised.L, up);
+      setArm(p, 'R', CRAFT_ARMS.hoeStrike.R, CRAFT_ARMS.hoeRaised.R, up);
+      p.propL = 'hoe';
+      break;
+    }
+    case 'grind': {  // 研磨：左掌托着研钵在腰前，右拳握杵竖着一下一下捣进钵底
+      const f = (t % 760) / 760;
+      const lift = f < 0.6 ? smooth(f / 0.6) : 1 - Math.pow(clamp01((f - 0.6) / 0.4), 1.4);
+      craftBody(p, CRAFT_BODY.grind);
+      setArm(p, 'L', CRAFT_ARMS.grind.L);
+      setArm(p, 'R', CRAFT_ARMS.grindDown.R, CRAFT_ARMS.grindUp.R, lift);
+      p.propL = 'mortar'; p.propR = 'pestle';
+      break;
+    }
+    case 'stitch': {  // 缝鞋：左掌托着鞋底朝着脸，右手的锥子扎进去、拉线、再扎
+      const f = (t % 1300) / 1300;
+      const pull = f < 0.4 ? smooth(f / 0.4) : f < 0.7 ? 1 : 1 - smooth((f - 0.7) / 0.3);
+      craftBody(p, CRAFT_BODY.stitch);
+      setArm(p, 'L', CRAFT_ARMS.stitch.L);
+      setArm(p, 'R', CRAFT_ARMS.stitchPrick.R, CRAFT_ARMS.stitchPull.R, pull);
+      p.propL = 'sandal'; p.propR = 'awl';
+      break;
+    }
+    case 'lyre': {  // 弹琴：左掌托着里拉琴竖在胸前，右手的指尖在弦上来回拨；头随着拍子轻轻点
+      craftBody(p, CRAFT_BODY.lyre);
+      setArm(p, 'L', CRAFT_ARMS.lyre.L);
+      setArm(p, 'R', CRAFT_ARMS.lyreA.R, CRAFT_ARMS.lyreB.R, 0.5 - 0.5 * Math.cos(w(960)));
+      p.head.rx += 0.05 * Math.sin(w(960)); p.head.rz = 0.04 * Math.sin(w(1920));
+      p.propL = 'lyre';
+      break;
+    }
+    case 'spin': {  // 纺线：左拳攥着卷线杆竖着、齐胸，右手在腰前捻线（手腕一转一转），纺锤从指尖垂下；头偏着看线
+      craftBody(p, CRAFT_BODY.spin);
+      setArm(p, 'L', CRAFT_ARMS.spin.L);
+      setArm(p, 'R', CRAFT_ARMS.spin.R);
+      const draft = 0.5 - 0.5 * Math.cos(w(3200));
+      p.elbowR.rx += 0.12 * draft;
+      p.handR.ry += 0.35 * Math.sin(w(700));
+      p.propL = 'distaff'; p.propR = 'spindle';
+      break;
+    }
+    case 'fish': {  // 钓鱼：左拳在前齐胸、右拳在右胯旁，竿朝前上；竿随手微微晃，隔一阵提一下
+      const lift = Math.max(0, Math.sin(w(7000)) - 0.9) * 6;
+      craftBody(p, CRAFT_BODY.fish);
+      setArm(p, 'L', CRAFT_ARMS.fish.L);
+      setArm(p, 'R', CRAFT_ARMS.fish.R);
+      p.shoulderL.rx -= 0.18 * lift + 0.03 * Math.sin(w(2600));
+      p.shoulderR.rx -= 0.08 * lift;
+      p.propL = 'fishingRod';
       break;
     }
     case 'await':  // 等审批：停在门槛前，两只掌心把封着红印的石板捧在胸前，静静等（设计稿 6.1）

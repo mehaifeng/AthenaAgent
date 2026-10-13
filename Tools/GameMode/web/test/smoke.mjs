@@ -45,7 +45,7 @@ try {
   for (const name of browsers) {
     const browser = await launch(name);
     try {
-      for (const check of [fixtureCheck, deliveryCheck, accumulationCheck, citizensCheck, relationsCheck, chorusCheck, doorCheck, chatCheck, debateCheck, householdCheck, controlsCheck]) {
+      for (const check of [fixtureCheck, deliveryCheck, accumulationCheck, citizensCheck, relationsCheck, chorusCheck, doorCheck, craftCheck, chatCheck, debateCheck, householdCheck, controlsCheck]) {
         if (wanted(check)) failed = !(await check(name, browser)) || failed;
       }
     } finally {
@@ -776,6 +776,133 @@ async function doorCheck(name, browser) {
       noProblems: problems.length === 0,
     };
     Object.assign(result, { checks, doors, inside, exiting, afterPush, focus, knocked, knockSent, asked: { panel: asked.panel, said: asked.said }, picked: picked.view?.title, lent, doorChat, cameOut, calledOut, pestered, nobody, problems, seconds: +((Date.now() - started) / 1000).toFixed(1) });
+    await page.close();
+    console.log(JSON.stringify(result, null, 2));
+    return Object.values(checks).every(Boolean);
+  } catch (e) {
+    result.error = e.message;
+    console.log(JSON.stringify(result, null, 2));
+    return false;
+  }
+}
+
+/**
+ * 手艺（第三轮需求 4）：家有门的居民在家门前的那几段时间干他那门活，要工位的工位摆在他面前（不挡路、按他的身高缩放），
+ * 住在公共地方的织工在那儿纺线（卷线杆、纺锤拿在手里）；你走近，干活的人停下来跟你打招呼，说完接着干；人走了，工位收掉。
+ */
+async function craftCheck(name, browser) {
+  const started = Date.now();
+  const result = { browser: `${name} ${browser.version()}`, mode: 'live, crafts' };
+  try {
+    const page = await browser.newPage({ viewport: { width: 1600, height: 1000 } });
+    const problems = [];
+    page.on('console', (m) => { if (m.type() === 'error') problems.push(`[console.error] ${m.text()}`); });
+    page.on('pageerror', (e) => problems.push(`[pageerror] ${e.message}`));
+    await page.addInitScript(HOST);
+    await page.goto(`${server.origin}/polis/index.html?mode=live`);
+    await page.waitForFunction(() => (window.__hostInbox ?? []).some((m) => m.type === 'ready') || document.title === 'error', null, { timeout: 90_000 });
+    const send = (message) => page.evaluate((m) => window.polis.receive(JSON.stringify(m)), message);
+    await send({ type: 'init', tables: {} });
+    await send({ type: 'city', key: 'ws-1', city });
+    const people = [
+      { id: 'baker-a', home: 'b:杂物', trade: 'baker', seed: 15 },
+      { id: 'weaver-a', home: 'agora:1', trade: 'weaver', seed: 4243 },
+    ];
+    const street = people.map((c, i) => ({ ...c, female: (c.seed & 1) === 1, name: `匠人${i}`, title: `委托 ${i}`, age: 'adult', outcome: 'completed', folders: [], turns: 2 }));
+    const census = (n) => ({ total: n, street: n, indoors: 0, elders: 0 });
+    await send({ type: 'citizens', citizens: { street, indoors: [], elders: [], census: census(street.length) } });
+    await page.waitForFunction(() => {
+      const g = window.__polisGame;
+      return g.world.citizens.size === 2 && [...g.world.citizens.values()].every((c) => c.figure && c.plan);
+    }, null, { timeout: 60_000 });
+    // 夹具里没有 C# 回 ambient-end：城里自己的闲聊停掉
+    await page.evaluate(() => { const g = window.__polisGame; g.ambientNow('baker-a', 'weaver-a'); g.endAmbient({ a: 'baker-a', b: 'weaver-a', status: 'nomodel' }); });
+    // 两位都拨到周期第 20 秒：出门之后、在家门前（离进屋还早）
+    const setPhase = (id, phase) => page.evaluate(({ cid, ph }) => {
+      const c = window.__polisGame.world.citizens.get(cid);
+      c.schedule.holdAt = null;
+      c.schedule.shift = performance.now() - (ph - c.plan.offset);
+    }, { cid: id, ph: phase });
+    await setPhase('baker-a', 20_000);
+    await setPhase('weaver-a', 20_000);
+    // 你站在面包师前面 4 米（看得见他、又不近到让他跟你打招呼：画面外的人不摆姿势），再站到广场上看织工
+    await page.evaluate(() => {
+      const g = window.__polisGame;
+      const b = g.world.citizens.get('baker-a');
+      const p = b.plan.home.point, yaw = b.plan.craft.homeYaw;
+      g.setFollow('player');
+      g.placePlayer(p.x + Math.sin(yaw) * 4, p.z + Math.cos(yaw) * 4, yaw + Math.PI);
+    });
+    await page.waitForTimeout(900);
+    const baker = await page.evaluate(() => {
+      const g = window.__polisGame;
+      const b = g.world.citizens.get('baker-a');
+      const yawDiff = Math.abs(Math.atan2(Math.sin(b.figure.root.rotation.y - b.plan.craft.homeYaw), Math.cos(b.figure.root.rotation.y - b.plan.craft.homeYaw)));
+      return { action: b.at.action, work: b.at.work, key: b.figure.state.key, yawDiff, door: !!b.plan.door, visible: b.figure.root.visible, worked: window.__polis.crafts?.working };
+    });
+    await page.evaluate(() => window.__polisGame.placePlayer(0, -6, 0));
+    await page.waitForTimeout(700);
+    const working = await page.evaluate(() => {
+      const g = window.__polisGame;
+      const b = g.world.citizens.get('baker-a'), w = g.world.citizens.get('weaver-a');
+      const st = g.world.stations.get('baker-a');
+      let stationObjects = 0;
+      g.R.scene.traverse((o) => { if (/^station:/.test(o.name)) stationObjects++; });
+      return {
+        station: st ? { kind: st.kind, gap: Math.hypot(st.x - b.plan.home.point.x, st.z - b.plan.home.point.z), scale: st.object.scale.x, height: b.figure.root.userData.height, visible: st.object.visible, blocks: g.world.occupancy.blocked(st.x, st.z) } : null,
+        weaver: { action: w.at.action, work: w.at.work, key: w.figure.state.key, distaff: w.figure.props.get('distaff')?.visible ?? null, spindle: w.figure.props.get('spindle')?.visible ?? null },
+        stationObjects, crafts: window.__polis.crafts,
+      };
+    });
+    // 你走到织工跟前（1.6 米）：他停下手里的活跟你打招呼，说完接着纺
+    await page.evaluate(() => {
+      const g = window.__polisGame;
+      const w = g.world.citizens.get('weaver-a');
+      const p = w.figure.root.position;
+      g.placePlayer(p.x + 1.6, p.z, -Math.PI / 2);
+    });
+    await page.waitForFunction(() => window.__polis.greeting === 'weaver-a', null, { timeout: 5000 }).catch(() => {});
+    await page.waitForTimeout(500);
+    const greeting = await page.evaluate(() => ({ greeting: window.__polis.greeting, key: window.__polisGame.world.citizens.get('weaver-a').figure.state.key }));
+    await page.evaluate(() => window.__polisGame.placePlayer(0, -6, 0));
+    await page.waitForFunction(() => window.__polis.greeting == null, null, { timeout: 6000 }).catch(() => {});
+    await page.waitForTimeout(500);
+    const after = await page.evaluate(() => window.__polisGame.world.citizens.get('weaver-a').figure.state.key);
+    // 他家的房子换了样子（城的这一版里那座建筑的体量变了）：他按新的墙、新的门重排日程，工位跟着重摆
+    const replanned = await page.evaluate(async (doc) => {
+      const g = window.__polisGame;
+      const b = g.world.citizens.get('baker-a');
+      b.plan.stale = true;
+      const next = { ...doc, buildings: doc.buildings.map((x) => (x.key === '杂物' ? { ...x, sizeClass: x.sizeClass === 3 ? 2 : 3 } : x)) };
+      window.polis.receive(JSON.stringify({ type: 'city', key: 'ws-1', city: next }));
+      await new Promise((r) => setTimeout(r, 600));
+      const c = g.world.citizens.get('baker-a');
+      return { update: window.__polis.lastUpdate, replanned: !!c.plan && !c.plan.stale, station: g.world.stations.has('baker-a') ? g.world.stations.get('baker-a').object.parent != null : null };
+    }, city);
+    // 面包师走了（这场会话删了）：工位跟着收掉
+    await send({ type: 'citizens', citizens: { street: street.filter((c) => c.id !== 'baker-a'), indoors: [], elders: [], census: census(1) } });
+    await page.waitForTimeout(400);
+    const gone = await page.evaluate(() => {
+      const g = window.__polisGame;
+      let stationObjects = 0;
+      g.R.scene.traverse((o) => { if (/^station:/.test(o.name)) stationObjects++; });
+      return { stations: g.world.stations.size, stationObjects };
+    });
+    const checks = {
+      bakerKneadsAtHome: baker.action === 'work' && baker.work === 'knead' && baker.door && baker.visible && /^work:knead/.test(baker.key ?? '') && baker.worked >= 1,
+      facesHisWork: baker.yawDiff < 0.05,
+      troughInFrontOfHim: working.station?.kind === 'trough' && working.station.visible && Math.abs(working.station.gap - 0.42 * working.station.height / 1.75) < 1e-6
+        && Math.abs(working.station.scale - working.station.height / 1.75) < 1e-9,
+      stationNeverBlocks: working.station?.blocks === false,
+      oneStationDrawn: working.stationObjects === 1 && working.crafts?.stations === 1,
+      weaverSpinsOnTheAgora: working.weaver.action === 'work' && working.weaver.work === 'spin' && working.weaver.distaff === true && working.weaver.spindle === true,
+      stopsToGreetYou: greeting.greeting === 'weaver-a' && /^(talk|wave)/.test(greeting.key ?? ''),
+      backToWorkAfter: /^work:spin/.test(after ?? ''),
+      replannedWhenHisHouseChanges: replanned.update === 'patched' && replanned.replanned,
+      stationGoesWithHim: gone.stations === 0 && gone.stationObjects === 0,
+      noProblems: problems.length === 0,
+    };
+    Object.assign(result, { checks, baker, working, greeting, after, replanned, gone, problems, seconds: +((Date.now() - started) / 1000).toFixed(1) });
     await page.close();
     console.log(JSON.stringify(result, null, 2));
     return Object.values(checks).every(Boolean);

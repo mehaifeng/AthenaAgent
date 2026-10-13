@@ -11880,6 +11880,15 @@ static async Task TestPolisRelationsAsync()
     AssertEqual(PolisRelations.Talkativeness.Count, PolisTalk.TableSizes.Temperaments, "健谈表和脾气表一样长");
     AssertEqual(PolisTalk.TableSizes.Trades, PolisTalk.TradeKeys.Count, "职业的键和职业表一样长");
     AssertEqual(PolisTalk.TradeKeys.Count, PolisTalk.TradeKeys.Distinct().Count(), "职业的键不重复");
+    // 页面的 art/crafts.mjs tradeOf 用同一个式子按种子挑职业（夹具与演示里没带职业时）：crafts.test.mjs 断言同样的十组
+    foreach (var (seed, key) in new (uint, string)[]
+             {
+                 (0u, "potter"), (1u, "carpenter"), (7u, "baker"), (12345u, "herbalist"), (2654435761u, "beekeeper"), (4294967295u, "carpenter"),
+                 (2654435769u, "musician"), (305419896u, "potter"), (99999u, "potter"), (3141592653u, "boatwright"),
+             })
+    {
+        AssertEqual(key, PolisTalk.TradeKeys[PolisTalk.TradeIndex(seed)], $"种子 {seed} 的职业与页面的 tradeOf 一致");
+    }
 
     // —— 规则 2：他对你的起点按真实的数推 ——
     var done = PolisRelations.CitizenPerson(Citizen("done-0001", "整理租赁合同", turns: 12));

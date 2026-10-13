@@ -1088,14 +1088,14 @@ function headgear(spec, M, strips, scale, surface) {
 }
 
 /** 挂在左手上的小件（其余挂在右手）。 */
-export const LEFT_HAND_PROPS = Object.freeze(['tablet', 'palette', 'abacus', 'chisel', 'tongs']);
+export const LEFT_HAND_PROPS = Object.freeze(['tablet', 'palette', 'abacus', 'chisel', 'tongs', 'distaff', 'mortar', 'sandal', 'lyre']);
 
 /**
  * 两只手一起拿的东西（M3 第三轮）：不挂在哪一只手上，每帧按两只手此刻的握点摆——展开的卷轴两根轴各在一只拳里、
  * 交付的卷轴横在两只手上、等审批的石板两手捧在胸前、祭碗托在两只掌心上、缆绳穿过两只拳头。
  * 第一版都挂在右手上：另一只手悬在空中，祭碗整个藏在手里看不见，缆绳是两根从右手伸出去的直杆。
  */
-export const TWO_HANDED_PROPS = Object.freeze(['scrollOpen', 'gift', 'sealed', 'phiale', 'rope']);
+export const TWO_HANDED_PROPS = Object.freeze(['scrollOpen', 'gift', 'sealed', 'phiale', 'rope', 'fishingRod', 'hoe', 'stoneAxe']);
 
 /**
  * 手里的几个点（手的坐标系，见 buildHand；按 1.75 米的身体）：
@@ -1109,10 +1109,12 @@ export const GRIP = Object.freeze({ fist: Object.freeze([0, -0.058, 0.027]), pal
 export const PROP_CURL = Object.freeze({
   hammer: 0.92, mallet: 0.92, chisel: 0.92, tongs: 0.92, scroll: 0.88, rope: 0.9, scrollOpen: 0.88, staff: 0.88, rod: 0.88,
   stylus: 0.55, brush: 0.55, tablet: 0.12, abacus: 0.12, palette: 0.25, phiale: 0.2, gift: 0.4, sealed: 0.55,
+  // 第三轮（需求 4）：居民的家什
+  distaff: 0.85, spindle: 0.55, fishingRod: 0.9, hoe: 0.92, stoneAxe: 0.92, mortar: 0.3, pestle: 0.92, sandal: 0.45, awl: 0.6, saw: 0.92, lyre: 0.5,
 });
 
 /** 两手一起拿的东西，每只手拿着它的哪个点。 */
-const TWO_HANDED_GRIP = Object.freeze({ scrollOpen: 'fist', rope: 'fist', gift: 'palm', sealed: 'palm', phiale: 'palm' });
+const TWO_HANDED_GRIP = Object.freeze({ scrollOpen: 'fist', rope: 'fist', gift: 'palm', sealed: 'palm', phiale: 'palm', fishingRod: 'fist', hoe: 'fist', stoneAxe: 'fist' });
 
 /** a → b 的一根圆杆（r0 在 a 端、r1 在 b 端）。 */
 function rodBetween(a, b, r0, r1, radial = 8) {
@@ -1220,12 +1222,97 @@ function buildProp(name, M, accentGift, sx = -1) {
       }
       break;
     }
+    // —— 第三轮（需求 4）：居民的家什。都不是十位职业居民的招牌（citizens.RESIDENT_SIGNATURES） ——
+    case 'distaff': {
+      // 卷线杆：左手竖着拿的一根杆，顶上一团羊毛（手腕补正，杆是竖的，和权杖同一个拿法）
+      add(new THREE.CylinderGeometry(0.011, 0.014, 0.9, 6), M.wood, [0, 0.24, 0.02]);
+      const wool = add(new THREE.SphereGeometry(0.075, 10, 8), M.papyrus, [0, 0.62, 0.02]);
+      wool.scale.set(1, 1.6, 1);
+      break;
+    }
+    case 'spindle': {
+      // 纺锤：从右手指尖垂下的一根细杆，下面一只纺轮（手腕补正，它是竖着垂的）
+      add(rodBetween([0, F[1] - 0.03, F[2]], [0, F[1] - 0.3, F[2]], 0.005, 0.006, 6), M.wood);
+      add(new THREE.CylinderGeometry(0.034, 0.034, 0.014, 12), M.terracotta, [0, F[1] - 0.25, F[2]]);
+      add(rodBetween([0, F[1] + 0.02, F[2]], [0, F[1] - 0.03, F[2]], 0.004, 0.004, 4), M.papyrus);   // 捻出来的线
+      break;
+    }
+    case 'mortar': {
+      // 研钵：托在左掌上的一只石钵（钵口朝着掌心的外面，前臂朝前、掌心朝上时钵口朝上）
+      const pts = [[0, 0], [0.05, 0.004], [0.072, 0.03], [0.078, 0.07], [0.068, 0.072], [0.06, 0.03], [0, 0.016]];
+      add(new THREE.LatheGeometry(pts.map(([x, y]) => new THREE.Vector2(x, y)), 14), M.stone, [0, P[1] - 0.045, P[2] + 0.005], [Math.PI / 2, 0, 0]);
+      break;
+    }
+    case 'pestle':
+      // 杵：攥在右拳里竖着，捣的那一头从小指那一侧伸下去（和锤柄一样横穿拳眼，前臂转到拇指朝上）
+      add(rodBetween(along(0.07), along(-0.2), 0.014, 0.024, 8), M.wood);
+      break;
+    case 'sandal': {
+      // 凉鞋：一块鞋底平托在左掌上，两道皮带
+      add(new THREE.BoxGeometry(0.095, 0.25, 0.014), M.darkWood, [0, P[1] - 0.06, P[2] + 0.008]);
+      for (const dy of [-0.03, -0.12]) add(new THREE.BoxGeometry(0.1, 0.014, 0.03), M.wood, [0, P[1] + dy, P[2] + 0.022]);
+      break;
+    }
+    case 'awl':
+      // 锥子：捏在指尖，锥尖在前下方（缝鞋时扎进鞋底）
+      pen(0.11, 0.0015, 0.004, M.bronze);
+      add(new THREE.CylinderGeometry(0.012, 0.012, 0.05, 8), M.wood, [sx * 0.05, -0.128 + 0.11 * 0.86 + 0.02, 0.052 + 0.11 * 0.12]);
+      break;
+    case 'saw': {
+      // 锯：把手横穿拳眼，锯条顺着手的方向伸出去 0.55 米，像握手枪一样握着——拳眼在锯条的面里（锯条薄的那一面朝掌心），
+      // 锯齿在小指那一侧（锯木头时朝下，落在锯木架的木板上）
+      add(rodBetween(along(-0.05), along(0.06), 0.017, 0.017, 8), M.darkWood);
+      add(new THREE.BoxGeometry(0.1, 0.55, 0.004), M.bronze, [-sx * 0.05, F[1] - 0.33, F[2]]);
+      break;
+    }
+    case 'lyre': {
+      // 里拉琴：抱在左臂里竖着——龟壳的琴身、两根弯臂、一根横梁、七根弦。琴身在掌上，弯臂朝掌心外面伸（前臂朝前、掌心朝上时是竖的）
+      const body = add(new THREE.SphereGeometry(0.11, 12, 8), M.wood, [0, P[1] - 0.05, P[2] + 0.07]);
+      body.scale.set(1, 0.45, 0.8);
+      for (const s of [-1, 1]) add(rodBetween([s * 0.07, P[1] - 0.05, P[2] + 0.1], [s * 0.1, P[1] - 0.05, P[2] + 0.42], 0.009, 0.007, 6), M.darkWood);
+      add(rodBetween([-0.11, P[1] - 0.05, P[2] + 0.4], [0.11, P[1] - 0.05, P[2] + 0.4], 0.008, 0.008, 6), M.darkWood);
+      for (let k = 0; k < 7; k++) {
+        const x = -0.06 + k * 0.02;
+        add(rodBetween([x, P[1] - 0.05, P[2] + 0.12], [x * 1.3, P[1] - 0.05, P[2] + 0.4], 0.0012, 0.0012, 3), M.papyrus);
+      }
+      break;
+    }
     default:
       throw new Error(`rig: unknown prop '${name}'`);
   }
   g.visible = false;
   return g;
 }
+
+/**
+ * 两只手握着的一根长家什（第三轮需求 4：钓竿、锄头、石斧）：杆每帧从两只拳眼穿过——手一定在杆上（不是摆出来的）。
+ * headFrom：干活的那一头在哪只手那边（锄头、石斧在右手——下面那只；钓竿的竿梢在左手——前面那只）；headLen：那一头伸出那只手多远；
+ * buttLen：另一头伸出另一只手多远。head(g)：在杆的局部坐标里（杆沿 +y，y = 0 是干活的那一头）加上头部。
+ */
+function straightTool(M, { headFrom, headLen, buttLen, radius, mat, head, after = null }) {
+  const g = new THREE.Group();
+  const shaft = mesh(new THREE.CylinderGeometry(radius, radius * 1.15, 1, 8).translate(0, 0.5, 0), mat);
+  g.add(shaft);
+  head(g);
+  const fwd = new THREE.Vector3(0, 0, 1);
+  g.userData.update = (L, R) => {
+    const near = headFrom === 'R' ? R : L, far = headFrom === 'R' ? L : R;
+    _tY.subVectors(far, near);
+    const span = Math.max(0.05, _tY.length());
+    _tY.normalize();
+    _tZ.copy(fwd).addScaledVector(_tY, -fwd.dot(_tY));
+    if (_tZ.lengthSq() < 1e-6) _tZ.set(1, 0, 0);
+    _tZ.normalize();
+    _tX.crossVectors(_tY, _tZ).normalize();
+    _tC.copy(near).addScaledVector(_tY, -headLen);
+    placeBasis(g, _tC, _tX, _tY, _tZ);
+    shaft.scale.y = headLen + span + buttLen;
+    after?.(g, _tX, _tY, _tZ, _tC);
+  };
+  return g;
+}
+
+const _down = new THREE.Vector3(0, -1, 0), _lineDir = new THREE.Vector3();
 
 const _tA = new THREE.Vector3(), _tB = new THREE.Vector3(), _tC = new THREE.Vector3(), _tX = new THREE.Vector3(), _tY = new THREE.Vector3(), _tZ = new THREE.Vector3();
 const _tM = new THREE.Matrix4();
@@ -1414,6 +1501,28 @@ function buildTwoHanded(name, M, accentGift) {
       };
       break;
     }
+    case 'hoe':
+      // 锄头：柄从右手（下面那只）往前伸 0.9 米，铁刃在柄端、和柄垂直，朝人这一边勾下去（杆的 −z：柄朝前下时刃口朝下）
+      return Object.assign(straightTool(M, { headFrom: 'R', headLen: 0.9, buttLen: 0.08, radius: 0.016, mat: M.wood, head: (h) => {
+        h.add(mesh(new THREE.BoxGeometry(0.15, 0.03, 0.2).translate(0, 0, -0.09), M.bronze));
+      } }), { visible: false });
+    case 'stoneAxe':
+      // 琢石的石斧：两只手都握在柄尾，双刃的斧头横在右手（前面那只）前面 0.42 米
+      return Object.assign(straightTool(M, { headFrom: 'R', headLen: 0.42, buttLen: 0.06, radius: 0.017, mat: M.wood, head: (h) => {
+        h.add(mesh(new THREE.BoxGeometry(0.06, 0.07, 0.3).translate(0, 0.02, 0), M.bronze));
+      } }), { visible: false });
+    case 'fishingRod':
+      // 钓竿：竿梢在左手（前面那只）前面 2.2 米、竿尾在右手后面 0.12 米；竿梢垂下一根线，直到水里
+      return Object.assign(straightTool(M, { headFrom: 'L', headLen: 2.2, buttLen: 0.12, radius: 0.008, mat: M.wood, head: (h) => {
+        const line = new THREE.Mesh(new THREE.CylinderGeometry(0.0015, 0.0015, 1.6, 3).translate(0, -0.8, 0), M.papyrus);
+        h.add(line);
+        h.userData.line = line;
+      }, after: (h, X, Y, Z, tip) => {
+        // 线垂直往下（根的 −y 在杆的坐标系里是这一个方向），长到脚底以下 0.25 米：站在栈桥上（桥面 0.1 米、浪 ±0.1 米）线一直没进水里
+        _lineDir.set(-X.y, -Y.y, -Z.y).normalize();
+        h.userData.line.quaternion.setFromUnitVectors(_down, _lineDir);
+        h.userData.line.scale.y = Math.max(0.3, tip.y + 0.25) / 1.6;
+      } }), { visible: false });
     default:
       throw new Error(`rig: unknown two-handed prop '${name}'`);
   }

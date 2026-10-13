@@ -5,6 +5,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import * as THREE from '../../../../Assets/Polis/vendor/three.bundle.mjs';
 import { citizenLook, isFemale, lookSignature, CITIZEN_VOCAB, RESIDENT_SIGNATURES } from '../../../../Assets/Polis/src/art/citizens.mjs';
+import { craftFor } from '../../../../Assets/Polis/src/art/crafts.mjs';
 import { buildCitizen, CHARACTER_SPECS } from '../../../../Assets/Polis/src/art/characters.mjs';
 import { HAIR_STYLES } from '../../../../Assets/Polis/src/art/rig.mjs';
 import { bust, CHARACTERS } from '../../../../Assets/Polis/src/art/busts.mjs';
@@ -51,10 +52,13 @@ test('look: the sex is the seed\'s lowest bit, the same seed is always the same 
     assert.ok([null, undefined, ...vocab.headgear].includes(spec.headgear), `${seed}: 头饰 ${spec.headgear}`);
     assert.ok(spec.hair in HAIR_STYLES && spec.hair.startsWith('plain'), `${seed}: 发式 ${spec.hair} 是居民的通用发式`);
     if (spec.face.female) assert.ok(!spec.beard, '女子没有胡子');
-    // 规则 2、3：十一位居民的招牌一样都不用，手里只有一卷素卷轴或空手
+    // 规则 2、3：十一位居民的招牌一样都不用；手里是一卷素卷轴、或者他那门手艺的家什（干活时才拿出来，art/crafts.mjs）
     assert.ok(!RESIDENT_SIGNATURES.headgear.includes(spec.headgear), `${seed}: 不戴居民的帽子 / 头冠 / 面纱`);
     assert.ok(!RESIDENT_SIGNATURES.garments.includes(spec.garment), `${seed}: 不穿传令官的斗篷`);
-    for (const p of spec.props) assert.ok(p === 'scroll' && !RESIDENT_SIGNATURES.props.includes(p), `${seed}: 手里只有素卷轴：${p}`);
+    const craftProps = craftFor(null, seed).props;
+    for (const p of spec.props) assert.ok((p === 'scroll' || craftProps.includes(p)) && !RESIDENT_SIGNATURES.props.includes(p), `${seed}: 手里只有素卷轴或他那门手艺的家什：${p}`);
+    assert.deepEqual(spec.props.filter((p) => p !== 'scroll'), [...craftProps], `${seed}: 他那门手艺的家什都在`);
+    assert.ok(!spec.carry || spec.carry.prop === 'scroll', `${seed}: 走路时夹着的只有卷轴`);
     assert.ok(!spec.glow && !spec.gold && !spec.accentGift, '没有雅典娜的光、侍女的金、红色的成果');
     // 半身像的参数是 busts.mjs 认得的那几种
     assert.ok(['short', 'curly', 'receding', 'long', 'bun'].includes(bs.hair), `${seed}: 半身像发式 ${bs.hair}`);

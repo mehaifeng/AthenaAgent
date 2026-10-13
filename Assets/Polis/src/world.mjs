@@ -670,6 +670,7 @@ export function buildWorld(scene, city, layout, M, options) {
       }
       const i = world.labels.indexOf(c.label);
       if (i >= 0) world.labels.splice(i, 1);
+      world.setStation(id, null);
       world.citizens.delete(id);
     }
     for (const [id, data] of want) {
@@ -681,12 +682,33 @@ export function buildWorld(scene, city, layout, M, options) {
         if (moved) existing.plan = null;   // 搬了家（最常碰的文件夹换了）：日程重算
         continue;
       }
-      const look = citizenLook(data.seed, { age: data.age ?? 'adult' });
+      const look = citizenLook(data.seed, { age: data.age ?? 'adult', trade: data.trade ?? null });
       const label = { text: data.name ?? '', kind: 'citizen', key: `citizen:${id}`, anchor: new THREE.Vector3() };
       world.labels.push(label);
       world.citizens.set(id, { id, data, look, figure: null, label, plan: null, nudge: { x: 0, z: 0 }, tier: 'C', yawNow: null });
     }
   };
+  /**
+   * 门前干活的工位（第三轮需求 4，citizens 规则 7）：一位居民一件，摆在他门前干活的地方的前面、正面朝着他；station 为 null 是收掉。
+   * 不挡路（资产登记为不参与碰撞），所以摆、挪、收都不用重盖占用栅格。
+   */
+  world.stations = new Map();   // 居民 id → { kind, x, z, yaw, object }
+  world.setStation = (id, station) => {
+    const old = world.stations.get(id);
+    if (old && (!station || old.kind !== station.kind)) {
+      disposeGroup(old.object);
+      world.stations.delete(id);
+    }
+    if (!station) return;
+    const entry = world.stations.get(id) ?? { object: add(assets.object(`prop.station-${station.kind}`)) };
+    Object.assign(entry, { kind: station.kind, x: station.x, z: station.z, yaw: station.yaw });
+    entry.object.name = `station:${id}`;
+    entry.object.position.set(station.x, world.groundAt(station.x, station.z), station.z);
+    entry.object.rotation.y = station.yaw;
+    entry.object.scale.setScalar(station.scale ?? 1);   // 按干活的人的身高（姿势是拿参照人解的，crafts 规则 4）
+    world.stations.set(id, entry);
+  };
+
   /** 建下一位还没有人物的居民；建了返回 true。 */
   world.buildNextCitizen = () => {
     for (const c of world.citizens.values()) {

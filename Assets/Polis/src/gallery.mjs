@@ -5,6 +5,7 @@
 //   index.html?gallery=figure.athena&action=walk&frames=8
 //   index.html?gallery=bust:athena
 //   index.html?gallery=citizen:12345&age=old&action=walk&frames=8   （一位居民，长相由种子定：art/citizens.mjs）
+//   index.html?gallery=citizen:12345&trade=potter&action=work&frames=8 （他那门手艺：家什按职业、要工位的摆在他面前，art/crafts.mjs）
 //   index.html?gallery=citizens&n=10&from=0&age=mixed&view=mid      （一排居民，种子与 demo.mjs 的编出来的居民相同）
 //   index.html?gallery=citizen-busts&n=12&from=0&age=mixed           （居民的半身像，对话面板里的实际大小）
 //   index.html?gallery=figure.athena&action=walk&frames=8&manifest={"figure.athena":{"model":"athena.glb","scale":1.62,"rig":"procedural"}}
@@ -19,6 +20,7 @@ import { workVariantFor, buildCitizen } from './art/characters.mjs';
 import { walkPeriod, ONE_SHOT_MS } from './art/poses.mjs';
 import { drawBust, EXPRESSIONS, CHARACTERS } from './art/busts.mjs';
 import { citizenLook } from './art/citizens.mjs';
+import { craftFor, STATION_GAPS, CRAFT_REFERENCE_HEIGHT } from './art/crafts.mjs';
 
 const VIEWS = { game: 1, mid: 2.6 };
 
@@ -74,8 +76,19 @@ export async function runGallery({ params, status }) {
   if (entry.kind === 'lineup') return citizenLineup({ R, M, params, status, place, center, view, azimuth });
 
   if (entry.kind === 'figure') {
-    const figure = citizenSeed != null ? buildCitizen(M, citizenLook(citizenSeed, { age: params.get('age') ?? 'adult' }).spec) : assets.figure(id);
+    const citizenSpec = citizenSeed != null ? citizenLook(citizenSeed, { age: params.get('age') ?? 'adult', trade: params.get('trade') }).spec : null;
+    const figure = citizenSpec ? buildCitizen(M, citizenSpec) : assets.figure(id);
     R.scene.add(figure.root);
+    // 居民干活（第三轮需求 4）：他那门手艺；要工位的，工位摆在他面前（和城里一样，正面朝着他）
+    const craft = citizenSeed != null ? craftFor(params.get('trade'), citizenSeed) : null;
+    const working = (params.get('action') ?? params.get('pose')) === 'work';
+    if (craft && working && craft.station) {
+      const station = assets.object(`prop.station-${craft.station}`);
+      const k = citizenSpec.height / CRAFT_REFERENCE_HEIGHT;
+      station.position.set(0, 0, STATION_GAPS[craft.station] * k);
+      station.scale.setScalar(k);
+      R.scene.add(station);
+    }
     R.gradePass.uniforms.uGlowStrength.value = 0;
     // &weights=1：蒙在程序化骨架上的外部人物按蒙皮权重上色（每根骨头一种颜色，按权重混合；不去色）——查权重分错了地方用
     if (params.get('weights') === '1' && figure.skinned) showWeights(R, figure);
@@ -83,7 +96,7 @@ export async function runGallery({ params, status }) {
     const action = params.get('action');
     const frames = Number(params.get('frames') ?? 0);
     const who = id.slice('figure.'.length);
-    const variant = params.get('variant') ?? workVariantFor(who, params.get('category') ?? 'write');
+    const variant = params.get('variant') ?? (craft ? craft.variant : workVariantFor(who, params.get('category') ?? 'write'));
     if (action && frames > 0) return actionSheet({ R, figure, who, action, frames, variant, status, place, entry, closeZoom: Number(params.get('zoom')) || 0 });
     const still = params.get('pose') ?? 'idle';
     figure.pose(still, Number(params.get('t') ?? 1200), { variant, duration: 1800 });
