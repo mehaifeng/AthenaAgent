@@ -443,6 +443,7 @@ export function createOverlay(canvas) {
     if (view.type === 'citizen') {
       if (view.askable) bx += button(view.answer ? ui.citizenAskAgain : ui.citizenAsk, bx, by, 'citizen-ask', { minWidth: 100 }) + 8;
       if (truncated) bx += button(ui.citizenRead, bx, by, 'citizen-read') + 8;
+      bx += button(ui.citizenTranscript, bx, by, 'citizen-transcript', { minWidth: 100 }) + 8;
       bx += button(ui.citizenOpen, bx, by, 'citizen-open', { minWidth: 110 }) + 8;
     }
     // 讲台（M-E）：提一个议题（对话栏借给辩论）

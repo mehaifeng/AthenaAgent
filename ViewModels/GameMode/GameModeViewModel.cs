@@ -584,6 +584,9 @@ public sealed partial class GameModeViewModel : ViewModelBase, IDisposable
             case PolisIntentType.AskCitizen:
                 _ = RunIntentAsync(() => AskCitizenAsync(intent.ConversationId!, intent.Text!), "ask-citizen");
                 break;
+            case PolisIntentType.CitizenTranscript:
+                PostCitizenTranscript(intent.ConversationId!);
+                break;
             case PolisIntentType.DebateStart:
                 _ = RunIntentAsync(() => StartDebateAsync(intent.Text!), "debate-start");
                 break;
@@ -750,20 +753,39 @@ public sealed partial class GameModeViewModel : ViewModelBase, IDisposable
         return L(entry.Key, entry.Fallback);
     }
 
-    /// <summary>户名（M-D）：立户那一位的称号加"一家"；没有称号（默认标题）就用他的名字。</summary>
+    /// <summary>户名（M-D）：立户那一位的名字加"一家"（2026-10-13 起名字是完整的希腊名，不再拿会话标题当称号）。</summary>
     private string HouseholdLabel(PolisCitizen founder)
     {
         var table = PolisLocale.Citizen.ToDictionary(c => c.JsKey, StringComparer.Ordinal);
         string Text(string jsKey) => L(table[jsKey].Key, table[jsKey].Fallback);
-        var who = string.IsNullOrEmpty(founder.Epithet)
-            ? PolisCitizens.Pick(founder.Female ? Text("namesFemale") : Text("namesMale"), founder.Seed >> 8)
-            : founder.Epithet;
+        var who = PolisCitizens.NameFor(founder, Text("namesMale"), Text("namesFemale"), Text("nameNth"));
         return string.Format(CultureInfo.CurrentCulture, Text("householdName"), who);
     }
 
     /// <summary>户的"样子"（钥匙、户名、人数、新旧）：变了才重推城。</summary>
     private static string HouseholdShape(IReadOnlyList<PolisHousehold> households, DateTimeOffset now)
         => string.Join(";", households.Select(h => $"{h.Key}|{h.Label}|{h.Members.Count}|{PolisBuildings.StateFor(h.LastActive, now)}"));
+
+    /// <summary>
+    /// 一位居民那场会话的预览（2026-10-13）：你和雅典娜看得见的那些话（<see cref="PolisCitizens.Transcript"/>），只推给页面的卷轴阅读器。
+    /// 会话的消息在内存里（会话树启动时全部恢复），在 UI 线程上取。
+    /// </summary>
+    private void PostCitizenTranscript(string conversationId)
+    {
+        if (_disposed || !_citizensById.TryGetValue(conversationId, out var citizen)) return;
+        var session = _shell?.AllSessions.FirstOrDefault(s => s.ConversationId == conversationId);
+        if (session == null) return;
+        var (entries, omitted) = PolisCitizens.Transcript(session.Chat.Messages.ToList());
+        Post(new
+        {
+            type = "citizen-transcript",
+            conversationId,
+            title = citizen.Title,
+            entries = entries.Select(e => new { role = e.Role, text = e.Text }).ToList(),
+            omitted
+        });
+        Flush();
+    }
 
     /// <summary>
     /// 问一位居民那场会话的事（M-C）。那场会话的消息在内存里（会话树启动时全部恢复，不读库）：在 UI 线程上取一份快照，
@@ -779,7 +801,7 @@ public sealed partial class GameModeViewModel : ViewModelBase, IDisposable
         var messages = session.Chat.Messages.ToList();
         var table = PolisLocale.Citizen.ToDictionary(c => c.JsKey, StringComparer.Ordinal);
         string Name(string jsKey) => L(table[jsKey].Key, table[jsKey].Fallback);
-        var name = PolisCitizens.NameFor(citizen, Name("namesMale"), Name("namesFemale"), Name("namePattern"));
+        var name = PolisCitizens.NameFor(citizen, Name("namesMale"), Name("namesFemale"), Name("nameNth"));
         var request = new CitizenQuestion(citizen, name, messages, question, _localization.CurrentLanguage);
         var page = _page;
         var token = _askCancel.Token;

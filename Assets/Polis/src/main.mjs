@@ -182,6 +182,7 @@ function liveHandlers() {
     // 问话的回答（M-C）：{ conversationId, status, text }——放进他的卡片，对话栏还给雅典娜
     // 先还对话栏、再放回答：栏还开着时，城里会以为你又在和雅典娜说话，不把卡片打开
     'citizen-answer': whenReady((m) => { if (talk?.lentTo?.kind === 'ask') talk.endLent(); liveGame.setCitizenAnswer(m); wake(); }),
+    'citizen-transcript': whenReady((m) => { liveGame.showCitizenTranscript(m); wake(); }),
     // 讲台前的辩论（M-E）：{ state, id, motion, round, rounds, jury, transcript, verdict, record, notice }
     debate: whenReady((m) => { liveGame.setDebate(m.debate ?? null); wake(); }),
     board: whenReady((m) => { liveGame.setBoard(m.suggestions); wake(); }),

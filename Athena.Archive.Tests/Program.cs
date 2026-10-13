@@ -11232,14 +11232,96 @@ static Task TestPolisCitizensAsync()
     AssertEqual(1, few.Count(c => c.OnStreet), "街上没满时，老居民也不上街（只有正在跑的那位）");
 
     // 名字与台词：只有名字、文件夹名、数字——正文（含工具参数里的文件名）永远不进台词
+    // 名字（2026-10-13，用户）：完整的希腊名，不拿标题拼，男女有别，同一座城里不重名
     const string male = "阿里斯提德|德摩斯|斐洛";
     const string female = "阿加莎|克里奥|菲莉亚";
-    var named = PolisCitizens.NameFor(contract, male, female, "{0}的{1}");
-    AssertTrue(named.StartsWith("整理合同的", StringComparison.Ordinal), $"有称号：{named}");
-    AssertTrue((contract.Female ? female : male).Split('|').Any(n => named.EndsWith(n, StringComparison.Ordinal)), $"名字按男女从名表里挑：{named}");
-    AssertEqual(named, PolisCitizens.NameFor(contract, male, female, "{0}的{1}"), "同一个人永远同一个名字");
-    var bare = PolisCitizens.NameFor(idle, male, female, "{0}的{1}");
-    AssertTrue((idle.Female ? female : male).Split('|').Contains(bare), $"没有称号只用名字：{bare}");
+    var named = PolisCitizens.NameFor(contract, male, female, "{0}（{1}）");
+    AssertTrue((contract.Female ? female : male).Split('|').Contains(named), $"名字就是名表里的一个，不带称号：{named}");
+    AssertFalse(named.Contains("整理合同", StringComparison.Ordinal), "标题不进名字");
+    AssertEqual(named, PolisCitizens.NameFor(contract, male, female, "{0}（{1}）"), "同一个人永远同一个名字");
+    AssertEqual("斐洛（2）", PolisCitizens.NameFor(contract with { Female = false, NameIndex = 2, NameRound = 1 }, male, female, "{0}（{1}）"), "第二轮带序号");
+    AssertEqual("克里奥", PolisCitizens.NameFor(contract with { Female = true, NameIndex = 1 }, male, female, "{0}（{1}）"), "女子从女名表里取");
+    {
+        // 一座城 300 位：每人一个不同的名字（同性别的超过 120 位时第二轮带序号）
+        var crowd = Enumerable.Range(0, 300)
+            .Select(i => new PolisCitizenSource(Commission($"c{i:D3}", "新会话", 300 - i, 1), new List<ChatMessage>()))
+            .ToList();
+        var town300 = PolisCitizens.Derive(crowd, root, "/Users/demo", buildings, market, now);
+        var maleList = string.Join("|", Enumerable.Range(0, PolisCitizens.NamesPerSex).Select(i => $"M{i}"));
+        var femaleList = string.Join("|", Enumerable.Range(0, PolisCitizens.NamesPerSex).Select(i => $"F{i}"));
+        var names = town300.Select(c => PolisCitizens.NameFor(c, maleList, femaleList, "{0}（{1}）")).ToList();
+        AssertEqual(300, names.Distinct(StringComparer.Ordinal).Count(), "300 位居民 300 个名字");
+        AssertTrue(town300.All(c => c.NameIndex >= 0 && c.NameIndex < PolisCitizens.NamesPerSex), "名字都在名表里");
+        AssertTrue(town300.Where(c => c.NameRound == 0).GroupBy(c => c.Female).All(g => g.Count() <= PolisCitizens.NamesPerSex), "第一轮每个名字只用一次");
+        AssertTrue(town300.All(c => c.NameRound == 0 || town300.Count(o => o.Female == c.Female && o.NameRound == 0) == PolisCitizens.NamesPerSex), "名表用完了才进第二轮");
+        // 来了一位新会话：老居民的名字一个都不变
+        var withNewcomer = PolisCitizens.Derive(crowd.Append(new PolisCitizenSource(Commission("newcomer", "新会话", 0.1, 0.1), new List<ChatMessage>())), root, "/Users/demo", buildings, market, now);
+        foreach (var c in town300)
+        {
+            var again = withNewcomer.Single(o => o.ConversationId == c.ConversationId);
+            AssertTrue(again.NameIndex == c.NameIndex && again.NameRound == c.NameRound, $"新来的人不改老居民的名字：{c.ConversationId}");
+        }
+        AssertEqual(301, withNewcomer.Select(c => PolisCitizens.NameFor(c, maleList, femaleList, "{0}（{1}）")).Distinct(StringComparer.Ordinal).Count(), "新来的也不和谁重名");
+        // 首选名：没人抢的时候就是种子挑的那一个（同一场会话换一座城也是同一个名字）
+        var alone = PolisCitizens.Derive(crowd.Take(1), root, "/Users/demo", buildings, market, now).Single();
+        AssertEqual((int)((alone.Seed >> 8) % (uint)PolisCitizens.NamesPerSex), alone.NameIndex, "一个人的城：首选名");
+    }
+    {
+        // 两份 locale 的名表：都正好 NamesPerSex 个、男女之间也没有重名；中文回退与 zh-CN 一致
+        var repo = FindRepositoryRoot();
+        foreach (var lang in new[] { "zh-CN", "en-US" })
+        {
+            var xaml = File.ReadAllText(Path.Combine(repo, "Assets", "Locales", $"Locale.{lang}.axaml"));
+            string[] List(string key)
+            {
+                var m = System.Text.RegularExpressions.Regex.Match(xaml, $"x:Key=\"{key}\">([^<]*)<");
+                AssertTrue(m.Success, $"{lang} 有 {key}");
+                return m.Groups[1].Value.Split('|', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries);
+            }
+            var m = List("Polis.Citizen.NamesMale");
+            var f = List("Polis.Citizen.NamesFemale");
+            AssertEqual(PolisCitizens.NamesPerSex, m.Length, $"{lang} 男名表的长度");
+            AssertEqual(PolisCitizens.NamesPerSex, f.Length, $"{lang} 女名表的长度");
+            AssertEqual(2 * PolisCitizens.NamesPerSex, m.Concat(f).Distinct(StringComparer.Ordinal).Count(), $"{lang} 名表里没有重名");
+            if (lang == "zh-CN")
+            {
+                var table = Athena.UI.ViewModels.GameMode.PolisLocale.Citizen.ToDictionary(c => c.JsKey, StringComparer.Ordinal);
+                AssertEqual(string.Join("|", m), table["namesMale"].Fallback, "男名表的中文回退与 zh-CN 一致");
+                AssertEqual(string.Join("|", f), table["namesFemale"].Fallback, "女名表的中文回退与 zh-CN 一致");
+            }
+        }
+    }
+    {
+        // 那场会话的预览：只有你和雅典娜看得见的话——工具参数、推理、隐藏的载体、工具结果、系统消息都不进
+        var reasoning = new ChatMessage { Role = "assistant", Content = "正文二" };
+        reasoning.Segments.Add(new ChatMessageSegment { Kind = ChatMessageSegmentKind.Reasoning, Text = "推理里的字" });
+        reasoning.Segments.Add(new ChatMessageSegment { Kind = ChatMessageSegmentKind.Markdown, Text = "正文二" });
+        var convo = new List<ChatMessage>
+        {
+            new() { Role = "system", Content = "系统提示" },
+            new() { Role = "user", Content = "第一问" },
+            Bubble("正文一", Tool("read_system_file", root + "/合同/工具参数里的文件.docx", ToolCallStatus.Success)),
+            new() { Role = "assistant", Content = "隐藏载体", IsHidden = true },
+            new() { Role = "tool", Content = "工具结果" },
+            new() { Role = "user", Content = "第二问" },
+            reasoning,
+            new() { Role = "user", Content = "   " },
+        };
+        var (entries, omitted) = PolisCitizens.Transcript(convo);
+        CollectionAssert(new[] { "user:第一问", "assistant:正文一", "user:第二问", "assistant:正文二" }, entries.Select(e => $"{e.Role}:{e.Text}"), "只有看得见的四条，按原来的先后");
+        AssertEqual(0, omitted, "都放得下");
+        var all = string.Join("\n", entries.Select(e => e.Text));
+        foreach (var hidden in new[] { "系统提示", "工具参数里的文件", "隐藏载体", "工具结果", "推理里的字" })
+            AssertFalse(all.Contains(hidden, StringComparison.Ordinal), $"预览里没有：{hidden}");
+        var (newest, cut) = PolisCitizens.Transcript(convo, maxMessages: 2);
+        CollectionAssert(new[] { "第二问", "正文二" }, newest.Select(e => e.Text), "条数用完：留最新的");
+        AssertEqual(2, cut, "告诉页面前面还有几条");
+        var (byChars, cutByChars) = PolisCitizens.Transcript(convo, maxChars: 7);
+        CollectionAssert(new[] { "第二问", "正文二" }, byChars.Select(e => e.Text), "字数用完：留最新的");
+        AssertEqual(2, cutByChars, "字数用完也数得出前面几条");
+        var (huge, _) = PolisCitizens.Transcript(new List<ChatMessage> { new() { Role = "user", Content = new string('长', 50) } }, maxChars: 10);
+        AssertEqual(new string('长', 10), huge.Single().Text, "最新的一条也放不下：留开头，不是一条都没有");
+    }
     string Fallback(string key, string fallback) => fallback;
     var lines = PolisCitizens.Lines(contract, Fallback);
     AssertTrue(lines.Count is >= 2 and <= 3, "两到三句");
@@ -11337,6 +11419,8 @@ static async Task TestPolisCitizenAnswersAsync()
     {
         KnownCitizenIds = new HashSet<string> { "c1" }
     };
+    var preview = PolisIntents.Validate("""{"v":1,"type":"citizen-transcript","conversationId":"c1"}""", context);
+    AssertTrue(preview.Accepted && preview.Intent!.Type == PolisIntentType.CitizenTranscript && preview.Intent.ConversationId == "c1", "这座城的居民可以预览");
     var ok = PolisIntents.Validate("""{"v":1,"type":"ask-citizen","conversationId":"c1","question":"  租期多久？ "}""", context);
     AssertTrue(ok.Accepted && ok.Intent!.Type == PolisIntentType.AskCitizen && ok.Intent.ConversationId == "c1" && ok.Intent.Text == "租期多久？", "问这座城的居民：问题去掉首尾空白");
     AssertTrue(PolisIntents.Validate($$"""{"v":1,"type":"ask-citizen","conversationId":"c1","question":"{{new string('问', 300)}}"}""", context).Accepted, "300 字正好");
@@ -11348,6 +11432,9 @@ static async Task TestPolisCitizenAnswersAsync()
         ("""{"v":1,"type":"ask-citizen","conversationId":"c1"}""", "没有问题"),
         ("""{"v":1,"type":"ask-citizen","conversationId":"c1","question":42}""", "问题不是字符串"),
         ($$"""{"v":1,"type":"ask-citizen","conversationId":"c1","question":"{{new string('问', 301)}}"}""", "301 字：整条拒绝，不截断"),
+        ("""{"v":1,"type":"citizen-transcript","conversationId":"c2"}""", "预览：会话存在但不是这座城的居民"),
+        ("""{"v":1,"type":"citizen-transcript","conversationId":"nope"}""", "预览：编造的会话"),
+        ("""{"v":1,"type":"citizen-transcript"}""", "预览：没有会话"),
     })
         AssertFalse(PolisIntents.Validate(body, context).Accepted, $"拒绝：{why}");
 

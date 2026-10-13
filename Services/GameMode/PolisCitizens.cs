@@ -39,7 +39,8 @@ public sealed record PolisCitizenSource(PolisCommission Commission, IReadOnlyLis
 /// 一位居民（M-B，2026-10-13）：一场会话就是城里的一个人。<see cref="Seed"/> 决定他的长相（页面的 art/citizens.mjs）、
 /// 名字与说话的口吻；<see cref="Home"/> 是他住的地方——那场会话碰过最多的顶层文件夹（<c>b:&lt;文件夹&gt;</c>），
 /// 没碰过文件夹的住在公共地方（广场一圈、市集、图书馆、神庙、港口）；<see cref="Folders"/> 是他常去的文件夹（最多三处）。
-/// 只有名字、文件夹名、数字和日期，没有任何消息正文。
+/// 只有名字、文件夹名、数字和日期，没有任何消息正文。<see cref="NameIndex"/> / <see cref="NameRound"/> 是他在希腊名表里的位置
+/// （<see cref="PolisCitizens.AssignNames"/>：同一座城里不重名）。
 /// </summary>
 public sealed record PolisCitizen(
     string ConversationId,
@@ -56,7 +57,9 @@ public sealed record PolisCitizen(
     PolisCitizenOutcome Outcome,
     int AgeDays,
     DateTimeOffset UpdatedAt,
-    DateTimeOffset StartedAt);
+    DateTimeOffset StartedAt,
+    int NameIndex = 0,
+    int NameRound = 0);
 
 /// <summary>这座城的人口：一共几位，街上几位，屋里几位（街上满了），几位老居民（一年多没出门，名字刻在家门口的碑上）。</summary>
 public sealed record PolisCensus(int Total, int OnStreet, int Indoors, int Elders);
@@ -79,6 +82,11 @@ public static class PolisCitizens
     public const int MaxEpithetLatin = 12;
     /// <summary>"常去的文件夹"最多列几处。</summary>
     public const int MaxFolders = 3;
+    /// <summary>
+    /// 希腊名表男女各多少个（<c>Polis.Citizen.NamesMale</c> / <c>NamesFemale</c>，中英两份一一对应——换界面语言，同一个人还是同一个名字）。
+    /// <c>Athena.Archive.Tests</c> 核对两份 locale 的名表都正好这么长、没有重名。
+    /// </summary>
+    public const int NamesPerSex = 120;
 
     /// <summary>没有文件夹可归的居民住的公共地方（站点名与页面的 layout.sitePoint 一致），按种子分摊。</summary>
     public static IReadOnlyList<string> PublicHomes { get; } = new[]
@@ -182,7 +190,7 @@ public static class PolisCitizens
                 Math.Max(0, (int)Math.Floor((now - c.UpdatedAt).TotalDays)), c.UpdatedAt, c.StartedAt));
         }
 
-        var ordered = all
+        var ordered = AssignNames(all)
             .OrderByDescending(c => c.UpdatedAt)
             .ThenBy(c => c.ConversationId, StringComparer.Ordinal)
             .ToList();
@@ -241,15 +249,96 @@ public static class PolisCitizens
     }
 
     /// <summary>
-    /// 居民的名字：从希腊名表（男女各一份，"|" 分隔）里按种子挑一个，有称号就按 <paramref name="pattern"/> 拼上（中文"{0}的{1}"）。
+    /// 一座城里的人起名字（2026-10-13，用户：完整的希腊名，不拿会话标题拼，同一座城里不重名，男女有别）。
+    /// 按会话开始的先后（最老的先挑；同时开始的按会话 Id），每人先按种子挑一个首选名，被占了就按种子定的步长往后找一个空着的——
+    /// 新来的会话永远不会改动老居民的名字。同性别的人多过名表，第二轮从头再分一遍，名字后面带上序号（<c>Polis.Citizen.NameNth</c>）。
+    /// 删掉一位老居民，曾经因为他而让开首选名的后来者会拿回首选名——名字从会话树推导、从不另存，这是唯一会变名字的时候。
     /// </summary>
-    public static string NameFor(PolisCitizen citizen, string maleNames, string femaleNames, string pattern)
+    public static IReadOnlyList<PolisCitizen> AssignNames(IEnumerable<PolisCitizen> citizens, int namesPerSex = NamesPerSex)
+    {
+        ArgumentNullException.ThrowIfNull(citizens);
+        if (namesPerSex <= 0) throw new ArgumentOutOfRangeException(nameof(namesPerSex));
+        var list = citizens.ToList();
+        var taken = new Dictionary<(bool Female, int Round), HashSet<int>>();
+        var assigned = new Dictionary<string, (int Index, int Round)>(StringComparer.Ordinal);
+        foreach (var c in list.OrderBy(c => c.StartedAt).ThenBy(c => c.ConversationId, StringComparer.Ordinal))
+        {
+            var preferred = (int)((c.Seed >> 8) % (uint)namesPerSex);
+            // 步长与名表长度互质，绕一整圈才回到首选名：每个名字都试得到
+            var stride = 1 + (int)((c.Seed >> 20) % (uint)Math.Max(1, namesPerSex - 1));
+            while (Gcd(stride, namesPerSex) != 1) stride++;
+            for (var round = 0; ; round++)
+            {
+                if (!taken.TryGetValue((c.Female, round), out var used))
+                    taken[(c.Female, round)] = used = new HashSet<int>();
+                if (used.Count >= namesPerSex) continue;
+                var index = preferred;
+                while (used.Contains(index)) index = (index + stride) % namesPerSex;
+                used.Add(index);
+                assigned[c.ConversationId] = (index, round);
+                break;
+            }
+        }
+        return list.Select(c => assigned.TryGetValue(c.ConversationId, out var n) ? c with { NameIndex = n.Index, NameRound = n.Round } : c).ToList();
+    }
+
+    private static int Gcd(int a, int b)
+    {
+        while (b != 0) (a, b) = (b, a % b);
+        return Math.Abs(a);
+    }
+
+    /// <summary>
+    /// 居民的名字：希腊名表（男女各一份，"|" 分隔）里 <see cref="PolisCitizen.NameIndex"/> 那一个；第二轮起按 <paramref name="nthPattern"/>
+    /// 带上序号（中文"{0}（{1}）"，{1} 从 2 起）。名表比 <see cref="NamesPerSex"/> 短（locale 缺词条）时取模，不抛。
+    /// </summary>
+    public static string NameFor(PolisCitizen citizen, string maleNames, string femaleNames, string nthPattern)
     {
         ArgumentNullException.ThrowIfNull(citizen);
-        var name = Pick(citizen.Female ? femaleNames : maleNames, citizen.Seed >> 8);
-        return string.IsNullOrEmpty(citizen.Epithet)
+        var names = (citizen.Female ? femaleNames : maleNames).Split('|', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        if (names.Length == 0) return string.Empty;
+        var name = names[citizen.NameIndex % names.Length];
+        return citizen.NameRound == 0
             ? name
-            : string.Format(CultureInfo.CurrentCulture, pattern, citizen.Epithet, name);
+            : string.Format(CultureInfo.CurrentCulture, nthPattern, name, citizen.NameRound + 1);
+    }
+
+    /// <summary>预览里最多带多少条消息、多少字（新的优先；再多的只告诉页面前面还有几条）。</summary>
+    public const int TranscriptMaxMessages = 300;
+    public const int TranscriptMaxChars = 120_000;
+
+    /// <summary>
+    /// 那场会话的预览（2026-10-13，用户：居民的卡片上能点开看那场会话，只显示你和雅典娜说的话，工具一概不显示）。
+    /// 只取气泡里看得见的正文（<see cref="PolisCitizenAnswers.VisibleText"/>：用户消息的内容、雅典娜的正文段；隐藏的工具调用载体、
+    /// 工具结果、系统消息、推理、工具参数都不要），从新往旧取到条数或字数用完为止，再按原来的先后排回去。
+    /// </summary>
+    public static (IReadOnlyList<(string Role, string Text)> Entries, int Omitted) Transcript(
+        IReadOnlyList<ChatMessage> messages,
+        int maxMessages = TranscriptMaxMessages,
+        int maxChars = TranscriptMaxChars)
+    {
+        ArgumentNullException.ThrowIfNull(messages);
+        var visible = messages
+            .Where(m => !m.IsHidden && m.Role is ("user" or "assistant"))
+            .Select(m => (m.Role, Text: PolisCitizenAnswers.VisibleText(m)))
+            .Where(e => e.Text.Length > 0)
+            .ToList();
+        var kept = new List<(string Role, string Text)>();
+        var chars = 0;
+        for (var i = visible.Count - 1; i >= 0 && kept.Count < maxMessages; i--)
+        {
+            var text = visible[i].Text;
+            if (chars + text.Length > maxChars)
+            {
+                // 最新的那一条也放不下：留它的开头，免得预览一条都没有
+                if (kept.Count == 0) kept.Add((visible[i].Role, text[..maxChars]));
+                break;
+            }
+            chars += text.Length;
+            kept.Add(visible[i]);
+        }
+        kept.Reverse();
+        return (kept, visible.Count - kept.Count);
     }
 
     /// <summary>

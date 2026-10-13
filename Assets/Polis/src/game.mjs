@@ -157,6 +157,24 @@ export const UI_ZH = Object.freeze({
   askHint: 'Enter 问 · Esc 不问了',
   askTimeout: '他想了想，没说出来。',
   askReaderTitle: '{name}说',
+  // 居民卡片上那场会话的信息与预览（2026-10-13）
+  citizenTranscript: '看看那场会话',
+  citizenInfoCommission: '委托：{title}',
+  citizenInfoUntitled: '（还没有标题）',
+  citizenInfoState: '{outcome} · 完成了 {turns} 回合',
+  citizenInfoDays: '{days} 天前动过',
+  citizenInfoToday: '今天动过',
+  citizenInfoFolders: '常去：{folders}',
+  outcomeRunning: '正在办',
+  outcomeScheduled: '定时任务',
+  outcomeInterrupted: '做到一半停下了',
+  outcomeCompleted: '办完了',
+  outcomeOpen: '还没开头',
+  transcriptTitle: '{name}的那场会话：{title}',
+  transcriptYou: '你',
+  transcriptAthena: '雅典娜',
+  transcriptOmitted: '（更早的 {count} 条没有列出）',
+  transcriptEmpty: '这场会话里还没有说过话。',
   // 讲台前的辩论（M-E）
   interactBema: '上讲台辩论',
   bemaTitle: '讲台',
@@ -192,6 +210,33 @@ export const ANSWER_KEEP_MS = 10 * 60_000;
 export const ANSWER_LINES = 8;
 
 /** 居民打招呼与闲聊的话（"|" 分隔；闲聊是"甲说|乙答"一对）。实时模式下由 C# 按界面语言覆盖（Polis.Citizen.*）。 */
+const fillText = (template, vars) => String(template ?? '').replace(/\{(\w+)\}/g, (_, k) => vars[k] ?? '');
+
+/** 居民卡片上那场会话的信息（2026-10-13）：委托的标题、办到哪一步与完成了几回合、多久前动过、常去的文件夹。只有标题、数字和文件夹名。 */
+export function citizenInfoLines(data, ui) {
+  const outcome = ui[`outcome${String(data.outcome ?? 'open').replace(/^./, (c) => c.toUpperCase())}`] ?? ui.outcomeOpen;
+  const lines = [
+    fillText(ui.citizenInfoCommission, { title: data.title || ui.citizenInfoUntitled }),
+    fillText(ui.citizenInfoState, { outcome, turns: data.turns ?? 0 }),
+    data.days > 0 ? fillText(ui.citizenInfoDays, { days: data.days }) : ui.citizenInfoToday,
+  ];
+  if (data.folders?.length) lines.push(fillText(ui.citizenInfoFolders, { folders: data.folders.join('、') }));
+  return lines;
+}
+
+/**
+ * 那场会话的预览（C# 的 citizen-transcript）拼成给卷轴阅读器的 Markdown：每条一个小标题（你 / 雅典娜）加正文。
+ * 只有你和雅典娜看得见的话——C# 那边已经把工具、推理拿掉了；字只经阅读器的 textContent 进 DOM。
+ */
+export function transcriptMarkdown(m, ui) {
+  const entries = Array.isArray(m?.entries) ? m.entries : [];
+  if (entries.length === 0) return ui.transcriptEmpty;
+  const parts = [];
+  if (m.omitted > 0) parts.push(`*${fillText(ui.transcriptOmitted, { count: m.omitted })}*`);
+  for (const e of entries) parts.push(`#### ${e.role === 'user' ? ui.transcriptYou : ui.transcriptAthena}`, String(e.text ?? ''));
+  return parts.join('\n\n');
+}
+
 export const CITIZEN_ZH = Object.freeze({
   greet: '你好呀。|日安。|又见面了。|今天天气不错。|你也出来走走？',
   'chat.wind': '今天海上风大。|是啊，船都早早靠了岸。',
@@ -1627,7 +1672,8 @@ export function createGame({ params, status, send, onTalk = null, onUiBlocked = 
           return { type: 'citizen', bust: c.look.bust, expression: 'speak', title: c.data.name ?? '', lines: [], askable,
             answer: { question: a.question ? `${ui.askYou}${a.question}` : '', text: a.text, status: a.status, maxLines: ANSWER_LINES } };
         }
-        const lines = [...(c.data.lines ?? [])];
+        // 那场会话的信息（标题、办到哪一步、多久前动过、常去哪儿）和人口；"看看那场会话"打开预览
+        const lines = citizenInfoLines(c.data, ui);
         if (citizens.census) lines.push(fill(ui.censusLine, { total: citizens.census.total, street: citizens.census.street }));
         return { type: 'citizen', bust: c.look.bust, expression: 'speak', title: c.data.name ?? '', lines, askable };
       }
@@ -1900,6 +1946,14 @@ export function createGame({ params, status, send, onTalk = null, onUiBlocked = 
     if (asked && !panel && !card && !talkingToAthena()) { openPanel({ type: 'citizen', id }); status.citizenOpened = id; }
   }
 
+  /** C# 推来的那场会话预览（citizen-transcript）：进卷轴阅读器。只认这座城里此刻有的居民。 */
+  function showCitizenTranscript(m) {
+    const c = world?.citizens.get(m?.conversationId);
+    if (!c) return;
+    status.transcript = { id: c.id, entries: Array.isArray(m.entries) ? m.entries.length : 0, omitted: m.omitted ?? 0 };
+    onRead?.({ title: fill(ui.transcriptTitle, { name: c.data.name ?? '', title: m.title || c.data.title || ui.citizenInfoUntitled }), markdown: transcriptMarkdown(m, ui) });
+  }
+
   /** 一位居民的卡片（M-B）：他说的那几句、这座城的人口，"去看那份委托"。他站定、转身、挥手（animateCitizens）。 */
   function openCitizen(id) {
     if (!world?.citizens.has(id)) return;
@@ -2004,6 +2058,10 @@ export function createGame({ params, status, send, onTalk = null, onUiBlocked = 
       case 'resident-try':
         if (panel?.type === 'resident') send('try-resident', { residentId: panel.id });
         panel = null;
+        break;
+      case 'citizen-transcript':
+        // 看看那场会话：C# 回 citizen-transcript，进卷轴阅读器（卡片留着）
+        if (panel?.type === 'citizen') send('citizen-transcript', { conversationId: panel.id });
         break;
       case 'citizen-open':
         // 一位居民 = 一份委托：走会话树的同一条路径（9.2）
@@ -2169,6 +2227,7 @@ export function createGame({ params, status, send, onTalk = null, onUiBlocked = 
     get audience() { return new Map(audienceOf); },
     get stage() { return stage(); },
     setCitizenAnswer,
+    showCitizenTranscript,
     /** 此刻在问的那一位（测试用）。 */
     get asking() { return ask ? { ...ask } : null; },
     /** 让一位居民向你打招呼（运动自检用：保证走路那一段有居民头顶的话要逐帧核对）。 */

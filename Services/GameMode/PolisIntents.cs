@@ -68,6 +68,11 @@ public enum PolisIntentType
     /// 不替你说任何话：回答只回到页面（居民的卡片），不进任何会话。
     /// </summary>
     AskCitizen,
+    /// <summary>
+    /// 看看一位居民那场会话（2026-10-13）：只认这座城里此刻有的居民。C# 回 <c>citizen-transcript</c>——你和雅典娜看得见的那些话，
+    /// 工具、推理一概不带；只回到页面的卷轴阅读器（模型写的字只经 textContent 进 DOM）。
+    /// </summary>
+    CitizenTranscript,
     /// <summary>在讲台前提一个议题，开一场辩论（M-E）：议题去掉首尾空白后 1–200 字，超长整条拒绝。</summary>
     DebateStart,
     /// <summary>你这一轮的论点（1–600 字，超长整条拒绝）。只在等你说的时候收（ViewModel 核对状态）。</summary>
@@ -169,6 +174,7 @@ public static class PolisIntents
         ["say"] = PolisIntentType.Say,
         ["draft"] = PolisIntentType.Draft,
         ["ask-citizen"] = PolisIntentType.AskCitizen,
+        ["citizen-transcript"] = PolisIntentType.CitizenTranscript,
         ["debate-start"] = PolisIntentType.DebateStart,
         ["debate-say"] = PolisIntentType.DebateSay,
         ["debate-end"] = PolisIntentType.DebateEnd,
@@ -292,6 +298,14 @@ public static class PolisIntents
                     if (question.Length > PolisCitizenAnswers.MaxQuestionChars)
                         return PolisIntentResult.Reject($"question longer than {PolisCitizenAnswers.MaxQuestionChars} characters");
                     return new PolisIntentResult(new PolisIntent(type) { ConversationId = id, Text = question }, null);
+                }
+
+                case PolisIntentType.CitizenTranscript:
+                {
+                    var id = ReadString(root, "conversationId");
+                    if (string.IsNullOrEmpty(id) || !context.KnownCitizenIds.Contains(id))
+                        return PolisIntentResult.Reject("unknown citizen");
+                    return new PolisIntentResult(new PolisIntent(type) { ConversationId = id }, null);
                 }
 
                 case PolisIntentType.PlaceItem:

@@ -101,7 +101,7 @@ public static class PolisAccumulation
         string L(string jsKey) => localize(table[jsKey].Key, table[jsKey].Fallback);
         var male = L("namesMale");
         var female = L("namesFemale");
-        var pattern = L("namePattern");
+        var nth = L("nameNth");
         var census = PolisCitizens.Census(citizens);
         return new
         {
@@ -110,19 +110,20 @@ public static class PolisAccumulation
                 id = c.ConversationId,
                 seed = c.Seed,
                 female = c.Female,
-                name = PolisCitizens.NameFor(c, male, female, pattern),
+                name = PolisCitizens.NameFor(c, male, female, nth),
                 title = c.Title,
                 home = c.Home,
                 age = c.Age.ToString().ToLowerInvariant(),
                 outcome = c.Outcome.ToString().ToLowerInvariant(),
                 folders = c.Folders,
                 turns = c.Turns,
+                days = c.AgeDays,
                 lines = PolisCitizens.Lines(c, localize)
             }).ToList(),
             elders = citizens.Where(c => c.Elder).Take(MaxElderNames).Select(c => new
             {
                 id = c.ConversationId,
-                name = PolisCitizens.NameFor(c, male, female, pattern),
+                name = PolisCitizens.NameFor(c, male, female, nth),
                 home = c.Home
             }).ToList(),
             census = new { total = census.Total, street = census.OnStreet, indoors = census.Indoors, elders = census.Elders }

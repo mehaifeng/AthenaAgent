@@ -15,6 +15,8 @@ export const INTENT_TYPES = Object.freeze([
   'say', 'draft',
   // M-C：问一位居民他那场会话的事（回答只回到页面，不进任何会话）
   'ask-citizen',
+  // 看看一位居民那场会话（只回你和雅典娜看得见的话，进卷轴阅读器）
+  'citizen-transcript',
   // M-E：讲台前的辩论（提议题、一轮的论点、不辩了）
   'debate-start', 'debate-say', 'debate-end',
 ]);

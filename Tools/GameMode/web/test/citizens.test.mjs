@@ -15,7 +15,8 @@ import { createLayout } from '../../../../Assets/Polis/src/layout.mjs';
 import { createAssetLibrary } from '../../../../Assets/Polis/src/art/assets.mjs';
 import { buildWorld } from '../../../../Assets/Polis/src/world.mjs';
 import { demoAccumulation, demoCitizens } from '../../../../Assets/Polis/src/demo.mjs';
-import { CITIZEN_ZH } from '../../../../Assets/Polis/src/game.mjs';
+import { CITIZEN_ZH, UI_ZH, citizenInfoLines, transcriptMarkdown } from '../../../../Assets/Polis/src/game.mjs';
+import { parseMarkdown } from '../../../../Assets/Polis/src/reader.mjs';
 
 const fixture = JSON.parse(readFileSync(new URL('../fixtures/synthetic.json', import.meta.url), 'utf8'));
 /**
@@ -304,4 +305,16 @@ test('small talk: one pair at a time, only idle people with enough time left, ne
   }
   assert.deepEqual([...kinds].sort(), ['own', 'small']);
   assert.ok(chat.greet.split('|').includes(greetLine(42, chat.greet, 0)), '打招呼的话来自表里');
+});
+
+test('card (2026-10-13): the citizen\'s card shows that conversation\'s facts, and the preview is a reader document of only your and Athena\'s words', () => {
+  const lines = citizenInfoLines({ title: '整理合同', outcome: 'completed', turns: 3, days: 5, folders: ['合同', '账本'] }, UI_ZH);
+  assert.deepEqual(lines, ['委托：整理合同', '办完了 · 完成了 3 回合', '5 天前动过', '常去：合同、账本']);
+  assert.deepEqual(citizenInfoLines({ title: '', outcome: 'running', turns: 0, days: 0, folders: [] }, UI_ZH), ['委托：（还没有标题）', '正在办 · 完成了 0 回合', '今天动过']);
+  const md = transcriptMarkdown({ entries: [{ role: 'user', text: '第一问' }, { role: 'assistant', text: '**答**了' }], omitted: 4 }, UI_ZH);
+  const blocks = parseMarkdown(md);
+  assert.deepEqual(blocks.filter((b) => b.type === 'heading').map((b) => b.inline.map((c) => c.text).join('')), ['你', '雅典娜']);
+  assert.ok(md.startsWith('*（更早的 4 条没有列出）*'), '告诉你前面还有几条');
+  assert.ok(md.includes('第一问') && md.includes('**答**了'), '正文原样交给阅读器（Markdown 由阅读器解析、只经 textContent 进 DOM）');
+  assert.equal(transcriptMarkdown({ entries: [] }, UI_ZH), UI_ZH.transcriptEmpty);
 });

@@ -4567,7 +4567,9 @@ static void TestGameModeSwitchAndFailures()
         if (init.GetProperty("tables").GetProperty("ui").GetProperty("talkSend").GetString() != localization.GetString("Polis.Ui.TalkSend", "<missing>"))
             throw new InvalidOperationException("页面的界面词条必须从 locale 文件推给页面（Polis.Ui.*）。");
         var city = page.Messages.Last(m => m.GetProperty("type").GetString() == "city").GetProperty("city");
-        var keys = city.GetProperty("buildings").EnumerateArray().Select(b => b.GetProperty("key").GetString()).OrderBy(k => k, StringComparer.Ordinal).ToList();
+        // 民居（M-D）由累积那一轮并进推给页面的城，跑得快时已经在这一份里了：它们是这座城自己的户，不是文件夹，这里不数
+        var keys = city.GetProperty("buildings").EnumerateArray().Select(b => b.GetProperty("key").GetString())
+            .Where(k => !k!.StartsWith("household:", StringComparison.Ordinal)).OrderBy(k => k, StringComparer.Ordinal).ToList();
         if (!keys.SequenceEqual(new[] { "合同", "照片" }.OrderBy(k => k, StringComparer.Ordinal)))
             throw new InvalidOperationException($"推给页面的城邦必须是这个工作区的顶层文件夹，实际 [{string.Join(", ", keys)}]。");
         PumpTimers(() => File.Exists(Path.Combine(paths.GetWorkspacesDirectory(), workspace.Id, "game", "polis.json")), 10000,
@@ -5424,10 +5426,29 @@ static void TestGameModeCitizens()
         var first = street[0];
         if (first.GetProperty("home").GetString() != "b:合同" || !first.GetProperty("folders").EnumerateArray().Any(f => f.GetString() == "合同"))
             throw new InvalidOperationException($"碰过「合同」的那位住在合同那座楼前，实际 {first.GetProperty("home").GetString()}。");
-        if (!first.GetProperty("name").GetString()!.Contains("整理合同", StringComparison.Ordinal))
-            throw new InvalidOperationException($"名字带着那件事的称号，实际 {first.GetProperty("name").GetString()}。");
+        // 名字（2026-10-13，用户）：完整的希腊名，不拿会话标题拼，同一座城里不重名
+        if (first.GetProperty("name").GetString()!.Contains("整理合同", StringComparison.Ordinal))
+            throw new InvalidOperationException($"名字不再带会话标题，实际 {first.GetProperty("name").GetString()}。");
+        var everyName = street.Select(c => c.GetProperty("name").GetString()).Concat(payload.GetProperty("elders").EnumerateArray().Select(e => e.GetProperty("name").GetString())).ToList();
+        if (everyName.Distinct(StringComparer.Ordinal).Count() != everyName.Count || everyName.Any(string.IsNullOrEmpty))
+            throw new InvalidOperationException($"同一座城里不重名：{string.Join("、", everyName)}");
         if (payload.GetRawText().Contains(secret, StringComparison.Ordinal))
             throw new InvalidOperationException("推给页面的居民里不能有任何消息正文。");
+
+        // —— 看看那场会话（2026-10-13）：只有你和雅典娜看得见的话，工具调用不带；只认这座城的居民 ——
+        page.Send($$"""{"v":1,"type":"citizen-transcript","conversationId":"{{here[0].ConversationId}}"}""");
+        PumpTimers(() => Of("citizen-transcript").Count > 0, 5000, "预览要把那场会话推回页面（citizen-transcript）。");
+        var transcript = Of("citizen-transcript")[^1];
+        var transcriptEntries = transcript.GetProperty("entries").EnumerateArray().Select(e => e.GetProperty("role").GetString() + ":" + e.GetProperty("text").GetString()).ToList();
+        if (!transcriptEntries.SequenceEqual(new[] { "user:请看看 " + secret, "assistant:看完了 " + secret })
+            || transcript.GetProperty("conversationId").GetString() != here[0].ConversationId
+            || transcript.GetRawText().Contains("租赁合同.docx", StringComparison.Ordinal))
+            throw new InvalidOperationException($"预览只有你和雅典娜说的两句，工具参数不带：{transcript}");
+        var transcriptsBefore = Of("citizen-transcript").Count;
+        page.Send("""{"v":1,"type":"citizen-transcript","conversationId":"made-up"}""");
+        Dispatcher.UIThread.RunJobs();
+        if (Of("citizen-transcript").Count != transcriptsBefore)
+            throw new InvalidOperationException("编造的会话不给预览。");
         var seed = first.GetProperty("seed").GetUInt32();
         if (seed != PolisCitizens.SeedOf(here[0].ConversationId) || first.GetProperty("female").GetBoolean() != PolisCitizens.IsFemale(seed))
             throw new InvalidOperationException("居民的种子与男女由会话 Id 定（页面按它生成长相）。");
@@ -5442,8 +5463,8 @@ static void TestGameModeCitizens()
             throw new InvalidOperationException($"问的是这位居民、问题去掉首尾空白：实际「{asked.Question}」问 {asked.Citizen.ConversationId}。");
         if (!asked.Messages.SequenceEqual(here[0].Chat.Messages))
             throw new InvalidOperationException("问话只拿那一场会话的消息（不读别的会话）。");
-        if (!asked.CitizenName.Contains("整理合同", StringComparison.Ordinal))
-            throw new InvalidOperationException($"问话带着他的名字：{asked.CitizenName}");
+        if (asked.CitizenName != first.GetProperty("name").GetString())
+            throw new InvalidOperationException($"问话带着他在城里的名字：{asked.CitizenName}");
         var reply = Of("citizen-answer")[^1];
         if (reply.GetProperty("conversationId").GetString() != here[0].ConversationId || reply.GetProperty("status").GetString() != "ok"
             || reply.GetProperty("text").GetString() != "我记得，那份合同最后定在三年。")
@@ -5515,8 +5536,10 @@ static void TestGameModeCitizens()
             throw new InvalidOperationException("神殿的街上是那 3 场全局对话的居民。");
         PumpTimers(() => City() == "sanctuary" && Houses().Count == 1, 6000, "神殿里三场标题相像的全局对话聚成一户、盖一座民居。");
         var sanctuaryHouse = Houses().Single();
-        if (sanctuaryHouse.GetProperty("label").GetString() != "闲谈一家" || sanctuaryStreet.Any(c => c.GetProperty("home").GetString() != "b:" + sanctuaryHouse.GetProperty("key").GetString()))
-            throw new InvalidOperationException($"神殿的三位住进「闲谈一家」：{sanctuaryHouse}");
+        // 户名是立户那一位的希腊名加「一家」（2026-10-13 起不再拿会话标题当称号）
+        var sanctuaryNames = sanctuaryStreet.Select(c => c.GetProperty("name").GetString() + "一家").ToHashSet(StringComparer.Ordinal);
+        if (!sanctuaryNames.Contains(sanctuaryHouse.GetProperty("label").GetString()!) || sanctuaryStreet.Any(c => c.GetProperty("home").GetString() != "b:" + sanctuaryHouse.GetProperty("key").GetString()))
+            throw new InvalidOperationException($"神殿的三位住进以立户那位命名的一户：{sanctuaryHouse}");
         page.Send($$"""{"v":1,"type":"select-conversation","conversationId":"{{here[0].ConversationId}}"}""");
         PumpTimers(() => ReferenceEquals(shell.SelectedConversation, here[0]), 5000, "别的城的会话也能选（与点橄榄树一样走会话树）。");
     }

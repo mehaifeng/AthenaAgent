@@ -114,6 +114,24 @@ public static class PolisLocale
         ("askHint", "Polis.Ui.AskHint", "Enter 问 · Esc 不问了"),
         ("askTimeout", "Polis.Ui.AskTimeout", "他想了想，没说出来。"),
         ("askReaderTitle", "Polis.Ui.AskReaderTitle", "{name}说"),
+        // 居民卡片上那场会话的信息与预览（2026-10-13）
+        ("citizenTranscript", "Polis.Ui.CitizenTranscript", "看看那场会话"),
+        ("citizenInfoCommission", "Polis.Ui.CitizenInfoCommission", "委托：{title}"),
+        ("citizenInfoUntitled", "Polis.Ui.CitizenInfoUntitled", "（还没有标题）"),
+        ("citizenInfoState", "Polis.Ui.CitizenInfoState", "{outcome} · 完成了 {turns} 回合"),
+        ("citizenInfoDays", "Polis.Ui.CitizenInfoDays", "{days} 天前动过"),
+        ("citizenInfoToday", "Polis.Ui.CitizenInfoToday", "今天动过"),
+        ("citizenInfoFolders", "Polis.Ui.CitizenInfoFolders", "常去：{folders}"),
+        ("outcomeRunning", "Polis.Ui.OutcomeRunning", "正在办"),
+        ("outcomeScheduled", "Polis.Ui.OutcomeScheduled", "定时任务"),
+        ("outcomeInterrupted", "Polis.Ui.OutcomeInterrupted", "做到一半停下了"),
+        ("outcomeCompleted", "Polis.Ui.OutcomeCompleted", "办完了"),
+        ("outcomeOpen", "Polis.Ui.OutcomeOpen", "还没开头"),
+        ("transcriptTitle", "Polis.Ui.TranscriptTitle", "{name}的那场会话：{title}"),
+        ("transcriptYou", "Polis.Ui.TranscriptYou", "你"),
+        ("transcriptAthena", "Polis.Ui.TranscriptAthena", "雅典娜"),
+        ("transcriptOmitted", "Polis.Ui.TranscriptOmitted", "（更早的 {count} 条没有列出）"),
+        ("transcriptEmpty", "Polis.Ui.TranscriptEmpty", "这场会话里还没有说过话。"),
         // M-E（2026-10-13）：讲台前的辩论
         ("interactBema", "Polis.Ui.InteractBema", "上讲台辩论"),
         ("bemaTitle", "Polis.Ui.BemaTitle", "讲台"),
@@ -166,15 +184,16 @@ public static class PolisLocale
     };
 
     /// <summary>
-    /// 居民（M-B，2026-10-13）：希腊名表（男女各一份）、称号的拼法（C# 用来起名字），跟你打招呼的话与两个人碰上时的闲聊
+    /// 居民（M-B，2026-10-13）：希腊名表（男女各一份，各 PolisCitizens.NamesPerSex 个，中英一一对应）、重名时的序号拼法（C# 用来起名字），跟你打招呼的话与两个人碰上时的闲聊
     /// （页面挑；每条闲聊是"甲说|乙答"一对）。他自己的那几句（办到哪一步、常去哪儿）在 C# 里按事实填好，见 <see cref="Services.GameMode.PolisCitizens.LineFallbacks"/>。
     /// </summary>
     public static IReadOnlyList<(string JsKey, string Key, string Fallback)> Citizen { get; } = new[]
     {
-        ("namesMale", "Polis.Citizen.NamesMale", "狄米特里|阿里斯通|克里同|斐德若|吕西斯|卡尔米德|欧绪弗洛|美诺|泰阿泰德|色诺芬|赫蒙|斐洛"),
-        ("namesFemale", "Polis.Citizen.NamesFemale", "菲莉丝|达芙妮|克莱奥|海伦娜|伊瑞涅|塔伊丝|狄俄提玛|阿斯帕西娅|墨利萨|卡丽丝|科林娜|米尔托"),
-        ("namePattern", "Polis.Citizen.NamePattern", "{0}的{1}"),
-        // M-D：户名（{0} 是立户那一位的称号，没有称号时是他的名字）
+        ("namesMale", "Polis.Citizen.NamesMale", "德米特里俄斯|阿里斯通|克里同|斐德若|吕西斯|卡尔米德|欧绪弗洛|美诺|泰阿泰德|色诺芬|赫蒙|斐洛|阿尔基比亚德|阿伽通|埃斯基涅斯|阿那克萨戈拉|安提丰|阿波罗多洛斯|阿尔刻拉俄斯|阿尔基塔斯|阿里斯提德|阿里斯塔克斯|阿里斯提波|卡隆达斯|凯瑞丰|达蒙|德摩斯梯尼|狄奥多托斯|第欧根尼|狄翁|恩培多克勒|伊壁鸠鲁|埃拉托色尼|欧几里得|欧多克索斯|欧里庇得斯|格劳孔|高尔吉亚|赫卡泰俄斯|赫拉克利特|赫谟根尼|希庇亚斯|希波克拉底|伊克提诺斯|伊索克拉底|卡利亚斯|卡利克勒斯|克贝|客蒙|克里斯提尼|克里昂|克里底亚|克特西波|拉刻斯|莱昂|吕库古|吕山德|吕西阿斯|墨兰提俄斯|美勒托|美涅克塞努|米太亚德|米隆|尼基阿斯|尼各马可|保萨尼亚斯|伯里克利|斐多|菲狄亚斯|菲洛劳斯|福基翁|品达|玻勒马霍斯|波利克里托斯|普拉克西特列斯|普罗狄科|普罗泰戈拉|皮浪|西米亚斯|西蒙尼德斯|梭伦|索福克勒斯|斯彪西波|斯特西克鲁斯|泰勒斯|地米斯托克利|忒奥多洛斯|泰奥弗拉斯托斯|修昔底德|色拉叙布洛斯|色拉叙马霍斯|蒂迈欧|提蒙|克桑提波斯|芝诺|宙克西斯|安德罗克勒斯|卡利马科斯|欧迈尼斯|尼坎德罗斯|菲利波斯|斯特法诺斯|忒阿格涅斯|希厄隆|波吕克拉特斯|列奥尼达|克列奥门尼|伯拉西达|福尔米昂|科农|伊菲克拉特斯|卡布里亚斯|提摩透斯|伊巴密浓达|佩洛皮达斯|阿基米德|阿里斯托克塞诺斯|欧弗拉诺尔|阿佩莱斯|帕拉西奥斯"),
+        ("namesFemale", "Polis.Citizen.NamesFemale", "菲莉丝|达芙妮|克莱奥|海伦娜|伊瑞涅|塔伊丝|狄俄提玛|阿斯帕西娅|墨利萨|卡丽丝|科林娜|米尔托|阿伽里斯忒|阿格诺狄刻|阿尔刻斯提斯|安德洛玛刻|安提戈涅|阿尼忒|阿里阿德涅|阿瑞忒|阿尔西诺伊|阿克西奥特亚|贝勒尼基|克洛伊|克律西斯|达摩|得伊阿涅拉|厄勒克特拉|厄尔庇尼刻|埃里娜|欧阿德涅|欧多基娅|欧妮刻|欧佛洛绪涅|欧律狄刻|格吕刻拉|哈耳摩尼亚|赫耳弥俄涅|希帕基娅|希帕提娅|伊俄卡斯忒|伊斯墨涅|卡利斯托|卡珊德拉|克莱奥布林娜|克莉奥帕特拉|库狄珀|拉伊丝|兰庇托|勒达|吕西斯特拉忒|墨伽拉|墨林娜|墨洛珀|墨特罗多拉|墨罗|密耳里涅|瑙西卡|涅埃拉|尼卡瑞忒|诺西丝|奥林匹娅丝|潘忒亚|珀涅罗珀|珀里克提俄涅|淮德拉|菲林娜|芙丽涅|普拉克西拉|罗多珀|萨福|忒勒西拉|忒阿诺|忒奥多忒|提玛瑞塔|克桑提珀|佐伊|阿伽忒|阿尔克墨涅|阿玛瑞丽丝|安图萨|阿尔基珀|阿塔兰忒|卡里克罗|德摩|多尔卡丝|欧部勒|欧克勒亚|伽勒涅|戈尔戈|赫洛|伊俄勒|卡利洛厄|克莱托|科瑞|吕山德拉|墨利忒|谟涅萨瑞忒|尼开亚|尼俄柏|俄诺涅|潘菲勒|菲莱妮丝|菲拉|波吕克塞娜|罗得|斯特拉托妮刻|塔利亚|忒奥法尼娅|忒萨勒|提曼德拉|克塞尼娅|阿格莱亚|安提俄珀|伊安忒|卡利俄珀|吕西珀|墨尔波墨涅|乌拉妮娅|菲罗墨拉"),
+        // 同性别的人多过名表时，第二轮起名字后面带序号（{1} 从 2 起）
+        ("nameNth", "Polis.Citizen.NameNth", "{0}（{1}）"),
+        // M-D：户名（{0} 是立户那一位的名字）
         ("householdName", "Polis.Household.NamePattern", "{0}一家"),
         ("greet", "Polis.Citizen.Greet", "你好呀。|日安。|又见面了。|今天天气不错。|你也出来走走？"),
         ("chat.wind", "Polis.Citizen.Chat.Wind", "今天海上风大。|是啊，船都早早靠了岸。"),
