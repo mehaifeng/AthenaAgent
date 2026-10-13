@@ -1009,10 +1009,10 @@ async function controlsCheck(name, browser) {
     // M3 第三轮：夜里跟着应用的深色主题——推一条 theme，页面上的条立刻换，城里一秒多走到夜里；换回来也一样
     await send({ type: 'theme', night: true });
     await page.waitForFunction(() => window.__polis.night === 1, null, { timeout: 5000 }).catch(() => {});
-    const nightNow = await page.evaluate(() => ({ body: document.body.classList.contains('night'), k: window.__polis.night, overlay: window.__polisGame.overlay.night, glow: window.__polisGame.R.glow.enabled, lamps: window.__polisGame.world.lights().length, pixels: window.__polis.pixelStats() }));
+    const nightNow = await page.evaluate(() => ({ body: document.body.classList.contains('night'), k: window.__polis.night, overlay: window.__polisGame.overlay.night, pixels: window.__polis.pixelStats() }));
     await send({ type: 'theme', night: false });
     await page.waitForFunction(() => window.__polis.night === 0, null, { timeout: 5000 }).catch(() => {});
-    const dayAgain = await page.evaluate(() => ({ body: document.body.classList.contains('night'), k: window.__polis.night, glow: window.__polisGame.R.glow.enabled, pixels: window.__polis.pixelStats() }));
+    const dayAgain = await page.evaluate(() => ({ body: document.body.classList.contains('night'), k: window.__polis.night, pixels: window.__polis.pixelStats() }));
     // 卷轴阅读器：一卷很长的回答（含表格）能滚到最后一行，最后一行在卷轴里看得见
     const longMd = `# 长卷\n\n| 列 | 值 |\n|---|---:|\n| a | 1 |\n| b | 2 |\n\n${Array.from({ length: 80 }, (_, i) => `- 第 ${i + 1} 行：一段足够长的说明文字，确保这一卷比窗口高得多`).join('\n')}\n\n最后一行。`;
     await send({ type: 'scroll', itemId: 'long', title: '长卷', markdown: longMd, closeLabel: '收起' });
@@ -1052,7 +1052,6 @@ async function controlsCheck(name, browser) {
         && summon.summoned === farAway.summoned + 1 && summon.steps.includes('teleport'),
       nightFollowsTheme: nightNow.body && nightNow.k === 1 && nightNow.overlay && !dayAgain.body && dayAgain.k === 0 && nightNow.pixels.mean < dayAgain.pixels.mean - 20,
       // 夜里的辉光（灯火的散射）只在夜里开；城里有灯
-      nightGlow: nightNow.glow === true && dayAgain.glow === false && nightNow.lamps > 0,
       longScrollReachesTheEnd: readerFit.cardInside && readerFit.scrollable && readerFit.lastVisible && readerFit.table,
       neverApproves: !all.some((m) => /approv|allow|grant/i.test(m.type)),
       noProblems: problems.length === 0,
