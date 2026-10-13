@@ -7,14 +7,18 @@
 // stop-turn（请她停下），都带着这份委托的 Id，C# 只认此刻显示的那一份（PolisIntents）。整块界面的文字都用 textContent，
 // 输入框的内容只经 .value 读写——没有任何 HTML 拼接（12.4）。
 //
-// 问话（M-C）：居民卡片上的"问他那件事"把这条栏借给那位居民——左边换成他的半身像，Enter 发 ask-citizen（他那场会话的 Id + 你的问题），
-// 不是 say：问话不进任何会话、不替你对雅典娜说一个字。借用期间你写给雅典娜的草稿原样收着、不同步，Esc 或回答到了就还回去。
+// 借用（M-C 问话、M-E 辩论）：这条栏可以借出去——问一位居民（左边换成他的半身像，Enter 发 ask-citizen）、在讲台前辩论
+// （先提议题发 debate-start，再一轮轮发 debate-say）。借出去的时候 Enter 发的是那一种意图，不是 say：问话和辩论都不进任何会话、
+// 不替你对雅典娜托付一个字。借用期间你写给雅典娜的草稿原样收着、不同步，Esc（不问了 / 不辩了）或者事情办完就还回去。
 import { drawBust } from './art/busts.mjs';
 
 /** 一次托付最多多少字（与 C# 的 PolisIntents.MaxSayChars 一致；超过的输入框本身就打不进去）。 */
 export const MAX_SAY_CHARS = 16000;
 /** 一个问题最多多少字（与 C# 的 PolisCitizenAnswers.MaxQuestionChars 一致）。 */
 export const MAX_QUESTION_CHARS = 300;
+/** 辩论的议题与一轮论点最多多少字（与 C# 的 PolisDebate.MaxMotionChars / MaxArgumentChars 一致）。 */
+export const MAX_MOTION_CHARS = 200;
+export const MAX_ARGUMENT_CHARS = 600;
 const DRAFT_DEBOUNCE_MS = 400;
 
 /** 小像：收起时是一枚圆章（只露脸），展开时是整张半身像。 */
@@ -51,28 +55,57 @@ export function talkView(state, draft, ui, open = false) {
 }
 
 /**
- * 问话时这条栏显示什么（纯逻辑，Node 单测）。mode：'ask' 在写问题、'asking' 问出去了在等他答。
+ * 借出去的栏这一刻显示什么（纯逻辑，Node 单测）。mode：'lent' 在写、'waiting' 发出去了在等。lent 是 askLend / debateLend 给的那一份。
  */
-export function askView(mode, target, question, ui) {
-  const name = target?.name ?? '';
-  const q = String(question ?? '').trim();
+export function lentView(mode, lent, text) {
+  const t = String(text ?? '').trim();
   return {
-    name,
-    status: mode === 'asking' ? fill(ui.askWaiting, { name }) : ui.askStatus ?? '',
-    // 等他答的时候栏一直展开着（状态行写着"他在想"），占位字空着，不说两遍
-    placeholder: mode === 'asking' ? '' : fill(ui.askPlaceholder, { name }),
-    send: ui.askSend ?? '',
-    hint: ui.askHint ?? '',
-    canSend: mode === 'ask' && !!target?.conversationId && q.length > 0 && q.length <= MAX_QUESTION_CHARS,
-    disabled: mode === 'asking',
+    name: lent?.name ?? '',
+    status: mode === 'waiting' ? lent?.waitingStatus ?? '' : lent?.status ?? '',
+    // 等的时候栏一直展开着（状态行写着在等什么），占位字空着，不说两遍
+    placeholder: mode === 'waiting' ? '' : lent?.placeholder ?? '',
+    send: lent?.sendLabel ?? '',
+    hint: lent?.hint ?? '',
+    canSend: mode === 'lent' && !!lent?.id && t.length > 0 && t.length <= (lent.maxChars ?? MAX_SAY_CHARS),
+    disabled: mode === 'waiting',
   };
+}
+
+/** 借给一位居民问话（M-C）：他的半身像与名字，Enter 发 ask-citizen。 */
+export function askLend(target, ui) {
+  const name = String(target?.name ?? '');
+  const id = target?.conversationId ? String(target.conversationId) : null;
+  return {
+    kind: 'ask', waitingKind: 'asking', id, name, bust: target?.bust ?? null,
+    status: ui.askStatus ?? '', waitingStatus: fill(ui.askWaiting, { name }), placeholder: fill(ui.askPlaceholder, { name }),
+    sendLabel: ui.askSend ?? '', hint: ui.askHint ?? '', maxChars: MAX_QUESTION_CHARS,
+    intent: (text) => ['ask-citizen', { conversationId: id, question: text }],
+  };
+}
+
+/** 借给讲台前的辩论（M-E）：stage 'motion' 提议题（debate-start），'argue' 第 round 轮的论点（debate-say）。左边是雅典娜——她是你的对手。 */
+export function debateLend({ stage, round = 1, rounds = 3, motion = '', id = 'debate' }, ui) {
+  const argue = stage === 'argue';
+  return {
+    kind: 'debate', waitingKind: 'debating', id: String(id), name: ui.debateName ?? '', bust: 'athena',
+    status: argue ? fill(ui.debateArgueStatus, { motion }) : ui.debateMotionStatus ?? '',
+    waitingStatus: argue ? ui.debateAthenaThinking ?? '' : '',
+    placeholder: argue ? fill(ui.debateArguePlaceholder, { round, rounds }) : ui.debateMotionPlaceholder ?? '',
+    sendLabel: ui.debateSend ?? '', hint: ui.debateHint ?? '', maxChars: argue ? MAX_ARGUMENT_CHARS : MAX_MOTION_CHARS,
+    intent: (text) => (argue ? ['debate-say', { text }] : ['debate-start', { motion: text }]),
+  };
+}
+
+/** 问话时这条栏显示什么（M-C 的说法，保留给测试）：mode 'ask' 在写问题、'asking' 问出去了在等他答。 */
+export function askView(mode, target, question, ui) {
+  return lentView(mode === 'asking' ? 'waiting' : mode === 'ask' ? 'lent' : mode, askLend(target, ui), question);
 }
 
 /**
  * @param {HTMLElement} root  index.html 里的 #talk（结构是静态的标记，这里只填文字、读写 .value）
- * @param {{ send: (type: string, fields?: object) => void, onOpen?: () => void, onAsk?: (event: 'sent'|'cancel', info?: object) => void }} options
+ * @param {{ send: (type: string, fields?: object) => void, onOpen?: () => void, onLent?: (event: 'sent'|'cancel', info: { kind: string, id: string, text?: string }) => void }} options
  */
-export function createTalk(root, { send, onOpen = null, onAsk = null }) {
+export function createTalk(root, { send, onOpen = null, onLent = null }) {
   const doc = root.ownerDocument;
   const win = doc.defaultView;
   const q = (selector) => root.querySelector(selector);
@@ -94,15 +127,15 @@ export function createTalk(root, { send, onOpen = null, onAsk = null }) {
   let draftTimer = null;
   let lastDraft = null;      // 最近一次同步给 C# 的草稿（相同的不再发）
   let drawn = '';
-  let mode = 'talk';         // 'talk' 和雅典娜说话；'ask' 问一位居民（写问题）；'asking' 问出去了，等他答
-  let askTarget = null;      // { conversationId, name, bust }
-  let savedDraft = '';       // 借给居民期间收着的、你写给雅典娜的草稿
+  let mode = 'talk';         // 'talk' 和雅典娜说话；'lent' 借出去了（在写）；'waiting' 发出去了，在等
+  let lent = null;           // askLend / debateLend 给的那一份
+  let savedDraft = '';       // 借出去期间收着的、你写给雅典娜的草稿
   let focusWhenShown = false;
 
   function drawPortrait(expression) {
     const p = open ? PORTRAIT.open : PORTRAIT.collapsed;
     const dpr = Math.min(win.devicePixelRatio || 1, 2);
-    const who = mode !== 'talk' && askTarget?.bust ? askTarget.bust : 'athena';
+    const who = mode !== 'talk' && lent?.bust ? lent.bust : 'athena';
     const key = `${typeof who === 'object' ? who.key ?? 'citizen' : who}:${expression}:${open}:${dpr}`;
     if (key === drawn) return;
     drawn = key;
@@ -126,7 +159,7 @@ export function createTalk(root, { send, onOpen = null, onAsk = null }) {
   }
 
   function render() {
-    if (mode !== 'talk') return renderAsk();
+    if (mode !== 'talk') return renderLent();
     input.disabled = false;
     root.classList.remove('asking');
     const view = talkView(state, input.value, ui, open);
@@ -152,9 +185,9 @@ export function createTalk(root, { send, onOpen = null, onAsk = null }) {
     drawPortrait(view.expression);
   }
 
-  /** 问话时的样子：他的半身像与名字、"问"键、等他答时输入框停用。 */
-  function renderAsk() {
-    const view = askView(mode, askTarget, input.value, ui);
+  /** 借出去时的样子：借用者的半身像与名字、它自己的按键与提示、等的时候输入框停用。 */
+  function renderLent() {
+    const view = lentView(mode, lent, input.value);
     nameEl.textContent = view.name;
     statusEl.textContent = view.status ?? '';
     input.placeholder = view.placeholder ?? '';
@@ -174,20 +207,24 @@ export function createTalk(root, { send, onOpen = null, onAsk = null }) {
     const appearing = root.hidden && !hidden;
     root.hidden = hidden;
     if (appearing) autosize();
-    drawPortrait(mode === 'asking' ? 'neutral' : 'smile');
+    drawPortrait(mode === 'waiting' ? 'neutral' : 'smile');
   }
 
-  /** 把这条栏借给一位居民（卡片上的"问他那件事"）：收着写给雅典娜的草稿，换上他，展开并聚焦。 */
-  function openAsk(target) {
-    if (!target?.conversationId) return false;
+  /**
+   * 把这条栏借出去（问一位居民、讲台前辩论）：第一次借时收着写给雅典娜的草稿；已经借着的（辩论的下一轮）只换一份说法。
+   * 展开并聚焦，输入框清空。
+   */
+  function lend(config) {
+    if (!config?.id) return false;
     if (mode === 'talk') {
       if (draftTimer != null) flushDraft();
       savedDraft = input.value;
     }
-    mode = 'ask';
-    askTarget = { conversationId: String(target.conversationId), name: String(target.name ?? ''), bust: target.bust ?? null };
+    mode = 'lent';
+    lent = config;
     input.value = '';
-    input.maxLength = MAX_QUESTION_CHARS;
+    input.disabled = false;
+    input.maxLength = config.maxChars ?? MAX_SAY_CHARS;
     drawn = '';
     open = false;
     setOpen(true);
@@ -197,11 +234,12 @@ export function createTalk(root, { send, onOpen = null, onAsk = null }) {
     return true;
   }
 
-  /** 还回来：雅典娜的草稿放回输入框（没有改过，不重新同步）。cancelled 为真时告诉城里"不问了"。 */
-  function endAsk(cancelled = false) {
+  /** 还回来：雅典娜的草稿放回输入框（没有改过，不重新同步）。cancelled 为真时告诉城里"不问了 / 不辩了"。 */
+  function endLent(cancelled = false) {
     if (mode === 'talk') return;
+    const was = lent;
     mode = 'talk';
-    askTarget = null;
+    lent = null;
     input.disabled = false;
     input.maxLength = MAX_SAY_CHARS;
     input.value = savedDraft;
@@ -211,18 +249,19 @@ export function createTalk(root, { send, onOpen = null, onAsk = null }) {
     open = true;
     setOpen(false);
     render();
-    if (cancelled) onAsk?.('cancel');
+    if (cancelled && was) onLent?.('cancel', { kind: was.kind, id: was.id });
   }
 
-  /** 问出去：只发 ask-citizen（他那场会话的 Id 与问题），等他答（城里会把回答放进他的卡片）。 */
-  function submitAsk() {
-    const question = input.value.trim();
-    if (!askView(mode, askTarget, question, ui).canSend) return false;
-    send('ask-citizen', { conversationId: askTarget.conversationId, question });
-    mode = 'asking';
+  /** 发出去：只发借用者那一种意图（ask-citizen / debate-start / debate-say），然后等。 */
+  function submitLent() {
+    const text = input.value.trim();
+    if (!lentView(mode, lent, text).canSend) return false;
+    const [type, fields] = lent.intent(text);
+    send(type, fields);
+    mode = 'waiting';
     input.value = '';
     render();
-    onAsk?.('sent', { conversationId: askTarget.conversationId, question });
+    onLent?.('sent', { kind: lent.kind, id: lent.id, text });
     return true;
   }
 
@@ -236,7 +275,7 @@ export function createTalk(root, { send, onOpen = null, onAsk = null }) {
 
   function flushDraft() {
     if (draftTimer != null) { win.clearTimeout(draftTimer); draftTimer = null; }
-    if (mode !== 'talk') return;   // 借给居民的这段时间，输入框里是问题，不是草稿
+    if (mode !== 'talk') return;   // 借出去的这段时间，输入框里是问题或论点，不是草稿
     if (!state.conversationId || input.value === lastDraft) return;
     lastDraft = input.value;
     send('draft', { conversationId: state.conversationId, text: input.value });
@@ -265,7 +304,7 @@ export function createTalk(root, { send, onOpen = null, onAsk = null }) {
     if (mode !== 'talk') {
       if (suppressed) return false;
       setOpen(true);
-      if (focus && mode === 'ask') input.focus();
+      if (focus && mode === 'lent') input.focus();
       return true;
     }
     if (!available || suppressed) return false;
@@ -292,21 +331,22 @@ export function createTalk(root, { send, onOpen = null, onAsk = null }) {
     if (e.isComposing || e.keyCode === 229) return;   // 输入法正在选字：这个 Enter 是确认候选词
     if (e.key === 'Enter' && !e.shiftKey && !e.altKey && !e.ctrlKey && !e.metaKey) {
       e.preventDefault();
-      if (mode === 'ask') submitAsk();
+      if (mode === 'lent') submitLent();
       else if (mode === 'talk') submit();
     } else if (e.key === 'Escape') {
       e.preventDefault();
-      // 写问题时、等他答时按 Esc 都是"不问了"：栏马上还给雅典娜（他的回答到了也只记在他的卡片上，不再弹出来）
-      if (mode !== 'talk') endAsk(true);
+      // 借出去时按 Esc（写着、等着都算）是"不问了 / 不辩了"：栏马上还给雅典娜
+      if (mode !== 'talk') endLent(true);
       else close();
     }
   });
   // 焦点离开整条对话栏（点回城里、点了别的窗口）：草稿立刻同步，栏收成一行；正在写问题时就是不问了
   root.addEventListener('focusout', (e) => {
     if (e.relatedTarget && root.contains(e.relatedTarget)) return;
-    if (mode === 'ask') { endAsk(true); return; }
-    // 问出去之后输入框停用、焦点自己掉了：栏留着展开，状态行写着"他在想"
-    if (mode === 'asking') return;
+    // 问话写到一半点回城里：就是不问了。辩论不这样——你会转头看一眼陪审团，焦点回来还接着辩
+    if (mode === 'lent' && lent?.kind === 'ask') { endLent(true); return; }
+    // 借出去时（尤其发出去之后输入框停用、焦点自己掉了）：栏留着展开，状态行写着在等什么
+    if (mode !== 'talk') return;
     flushDraft();
     setOpen(false);
   });
@@ -315,7 +355,7 @@ export function createTalk(root, { send, onOpen = null, onAsk = null }) {
     if (e.target.closest?.('button')) return;
     if (doc.activeElement !== input) openTalk({ focus: true });
   });
-  sendButton.addEventListener('click', () => { if (mode === 'ask') submitAsk(); else if (mode === 'talk') submit(); });
+  sendButton.addEventListener('click', () => { if (mode === 'lent') submitLent(); else if (mode === 'talk') submit(); });
   stopButton.addEventListener('click', () => { if (state.busy) send('stop-turn'); });
   win.addEventListener('blur', flushDraft);
 
@@ -338,7 +378,7 @@ export function createTalk(root, { send, onOpen = null, onAsk = null }) {
       };
       if (switched || typeof message.draft === 'string') {
         const draft = typeof message.draft === 'string' ? message.draft : '';
-        // 借给居民的时候：输入框里是问题，雅典娜的草稿先收着，还回来时再放进去
+        // 借出去的时候：输入框里是问题或论点，雅典娜的草稿先收着，还回来时再放进去
         if (mode !== 'talk') savedDraft = draft;
         else input.value = draft;
         lastDraft = draft;
@@ -346,7 +386,7 @@ export function createTalk(root, { send, onOpen = null, onAsk = null }) {
       }
       available = !!state.conversationId;
       // 预填（委托板、居民的示范、退回）要的是和雅典娜说话：正在写的问题让位
-      if (message.open && mode === 'ask') endAsk(true);
+      if (message.open && mode !== 'talk') endLent(true);
       render();
       if (message.open) openTalk({ focus: true });
     },
@@ -354,23 +394,32 @@ export function createTalk(root, { send, onOpen = null, onAsk = null }) {
     close,
     submit,
     flushDraft,
-    openAsk,
-    /** 回答到了（或者等太久了）：还回来。 */
-    endAsk: () => endAsk(false),
-    get mode() { return mode; },
+    /** 借给一位居民问话（M-C）。 */
+    openAsk: (target) => lend(askLend(target, ui)),
+    /** 借给讲台前的辩论（M-E）：{ stage: 'motion' | 'argue', round, rounds, motion, id }。 */
+    openDebate: (options) => lend(debateLend(options, ui)),
+    /** 事情办完（回答到了、辩论进了裁决、等太久了）：还回来。 */
+    endLent: () => endLent(false),
+    endAsk: () => endLent(false),
+    /** 'talk'，或者借出去时借用者的说法：'ask' / 'asking'、'debate' / 'debating'。 */
+    get mode() { return mode === 'talk' ? 'talk' : mode === 'lent' ? lent.kind : lent.waitingKind; },
+    get lentTo() { return lent ? { kind: lent.kind, id: lent.id } : null; },
     setTables(table) { ui = { ...table }; drawn = ''; render(); },
     setSuppressed(value) {
       if (suppressed === !!value) return;
       suppressed = !!value;
       if (suppressed && open && mode === 'talk') close();
       render();
-      if (!suppressed && focusWhenShown && mode === 'ask') input.focus();
+      if (!suppressed && focusWhenShown && mode === 'lent') input.focus();
       focusWhenShown = false;
     },
     get isOpen() { return open; },
     get available() { return available && !suppressed; },
     get value() { return input.value; },
     set value(text) { input.value = String(text ?? ''); autosize(); render(); scheduleDraft(); },
-    get state() { return { ...state, open, suppressed, available, mode, asking: askTarget?.conversationId ?? null }; },
+    get state() {
+      const exposed = mode === 'talk' ? 'talk' : mode === 'lent' ? lent.kind : lent.waitingKind;
+      return { ...state, open, suppressed, available, mode: exposed, asking: lent?.kind === 'ask' ? lent.id : null, lentTo: lent?.kind ?? null };
+    },
   };
 }

@@ -29,6 +29,9 @@ export const OVERLAY_PALETTES = Object.freeze({
   }),
 });
 
+/** 不放在行首的标点（避头）。 */
+const NO_LINE_START = '。，、；：！？）」』”’》〉．,.;:!?)]';
+
 export function createOverlay(canvas) {
   const ctx = canvas.getContext('2d');
   let dpr = 1;
@@ -352,12 +355,15 @@ export function createOverlay(canvas) {
     ctx.stroke();
   }
 
-  /** 把一段话按宽度折成几行（面板里的说明文字；名字与模型写的话一样画在 canvas 上）。 */
+  /**
+   * 把一段话按宽度折成几行（面板里的说明文字；名字与模型写的话一样画在 canvas 上）。
+   * 句末与收尾的标点不放到行首（避头）：多出半个字宽也挤在上一行末尾——辩论牌上一行只剩一个"。"的截图审查。
+   */
   function wrap(text, maxWidth, maxLines = 4) {
     const out = [];
     let line = '';
     for (const ch of String(text ?? '')) {
-      if (ctx.measureText(line + ch).width > maxWidth && line) {
+      if (ctx.measureText(line + ch).width > maxWidth && line && !NO_LINE_START.includes(ch)) {
         out.push(line);
         line = '';
         if (out.length === maxLines) break;
@@ -439,11 +445,64 @@ export function createOverlay(canvas) {
       if (truncated) bx += button(ui.citizenRead, bx, by, 'citizen-read') + 8;
       bx += button(ui.citizenOpen, bx, by, 'citizen-open', { minWidth: 110 }) + 8;
     }
+    // 讲台（M-E）：提一个议题（对话栏借给辩论）
+    if (view.type === 'bema') bx += button(ui.bemaPropose, bx, by, 'bema-propose', { minWidth: 110 }) + 8;
     if (view.type === 'oracle') {
       if (view.exists && view.latest) bx += button(ui.latestScroll, bx, by, 'oracle-latest') + 8;
       if (!view.exists) bx += button(ui.requestOracle, bx, by, 'oracle-request', { minWidth: 120 }) + 8;
     }
-    button(view.type === 'resident' || view.type === 'citizen' ? ui.dismiss : ui.close, x + w - 16 - 84, by, 'panel-close');
+    button(view.type === 'resident' || view.type === 'citizen' || view.type === 'bema' ? ui.dismiss : ui.close, x + w - 16 - 84, by, 'panel-close');
+  }
+
+  /**
+   * 顶上的辩论牌（M-E）：议题、第几轮（或在想 / 在商议）、最近的一来一回（谁说的 + 折成最多三行）、裁决（谁赢、票数、一句理由）、
+   * 战绩，右上角"结束"。不挡对话栏：它在顶上，栏在底下，同时都在。
+   */
+  function debateBoard(view, ui, top = 0) {
+    const W = window.innerWidth;
+    const w = Math.min(620, W - 40);
+    const x = (W - w) / 2;
+    const textW = w - 32;
+    ctx.font = `400 13px ${FONT}`;
+    const rows = [];
+    for (const l of view.lines ?? []) rows.push({ who: l.who, parts: wrap(l.text, textW - 56, 3) });
+    const reason = view.verdict?.reason ? wrap(view.verdict.reason, textW, 2) : [];
+    const h = 22 + 22 + (view.state ? 20 : 0) + rows.reduce((n, r) => n + r.parts.length * 18 + 6, 0)
+      + (view.verdict ? 26 + 20 + reason.length * 18 : 0) + (view.record ? 22 : 0) + 12;
+    const y0 = 18 + top;
+    paper(x, y0, w, h);
+    const text = (str, tx, ty, maxW, font, color) => {
+      ctx.font = font;
+      ctx.fillStyle = color;
+      ctx.textAlign = 'left';
+      ctx.textBaseline = 'top';
+      ctx.fillText(str, tx, ty, maxW);
+    };
+    text(view.title, x + 16, y0 + 14, w - 32 - 90, `600 15px ${FONT}`, palette.ink);
+    let ly = y0 + 40;
+    if (view.state) { text(view.state, x + 16, ly, textW, `400 13px ${FONT}`, palette.inkSoft); ly += 20; }
+    for (const r of rows) {
+      text(r.who, x + 16, ly, 50, `600 13px ${FONT}`, palette.ink);
+      r.parts.forEach((part, k) => text(part, x + 16 + 56, ly + k * 18, textW - 56, `400 13px ${FONT}`, palette.ink));
+      ly += r.parts.length * 18 + 6;
+    }
+    if (view.verdict) {
+      // 胜负都用墨色、靠字说：点缀红只属于"轮到你了"
+      text(view.verdict.headline, x + 16, ly + 4, textW, `600 15px ${FONT}`, palette.ink);
+      ly += 26;
+      text(view.verdict.votes, x + 16, ly, textW, `400 13px ${FONT}`, palette.ink);
+      ly += 20;
+      for (const part of reason) { text(part, x + 16, ly, textW, `400 13px ${FONT}`, palette.inkSoft); ly += 18; }
+    }
+    if (view.record) text(view.record, x + 16, ly + 2, textW, `400 12px ${FONT}`, palette.inkSoft);
+    let bx = x + w - 16;
+    for (const b of [...(view.buttons ?? [])].reverse()) {
+      ctx.font = `600 13px ${FONT}`;
+      const bw = Math.max(64, ctx.measureText(b.label).width + 26);   // 与 button() 的量法一致
+      bx -= bw;
+      button(b.label, bx, y0 + 10, b.id, { minWidth: 64 });
+      bx -= 8;
+    }
   }
 
   /** 摆放时顶上的提示：点一个空底座；或者直接放进默认的场馆；或者取消。 */
@@ -642,6 +701,7 @@ export function createOverlay(canvas) {
     if (frame.notices && !frame.placing) notices(frame.notices, frame.ui, top);
     if (frame.fog) fog(frame.fog, frame.ui);
     else if (frame.herald) herald(frame.herald, frame.ui, top);
+    else if (frame.debate) debateBoard(frame.debate, frame.ui, top);
     if (frame.placing && !frame.fog) placingHint(frame.placing, frame.ui, top);
     if (frame.card && !frame.fog) card(frame.card, frame.ui);
     else if (frame.panel && !frame.fog) dialog(frame.panel, frame.ui);

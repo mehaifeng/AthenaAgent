@@ -72,7 +72,7 @@ async function main() {
   // 对话栏只在实时模式里有：夹具里没有人在听
   if (live) {
     // 问话（M-C）：对话栏借给一位居民时，问出去 / 不问了告诉城里（他站定、镜头留在你们两个身上、等太久了替他说"没想起来"）
-    talk = createTalk(document.getElementById('talk'), { send, onOpen: () => liveGame?.releaseKeys(), onAsk: (event, info) => liveGame?.askEvent(event, info) });
+    talk = createTalk(document.getElementById('talk'), { send, onOpen: () => liveGame?.releaseKeys(), onLent: (event, info) => liveGame?.lentEvent(event, info) });
     window.__polisTalk = talk;
   }
   const game = createGame({
@@ -87,7 +87,9 @@ async function main() {
     defaultView: 'free',
     talkOpen: () => !!talk?.isOpen,
     onAsk: talk ? (target) => { talk.openAsk(target); } : null,
-    onAskEnd: () => talk?.endAsk(),
+    // 讲台前的辩论（M-E）：栏借给辩论（提议题、一轮轮的论点）；办完了还回来——只还给借它的那一种（问话不受辩论影响）
+    onDebate: talk ? (options) => { talk.openDebate(options); } : null,
+    onLendEnd: (kind) => { if (talk?.lentTo?.kind === kind) talk.endLent(); },
     onRead: ({ title, markdown }) => openReader(document, document.getElementById('reader'), { title, markdown, closeLabel: game.ui.close ?? '收起' }),
   });
   window.__polisGame = game;
@@ -179,7 +181,9 @@ function liveHandlers() {
     citizens: whenReady((m) => { liveGame.setCitizens(m.citizens ?? null); wake(); }),
     // 问话的回答（M-C）：{ conversationId, status, text }——放进他的卡片，对话栏还给雅典娜
     // 先还对话栏、再放回答：栏还开着时，城里会以为你又在和雅典娜说话，不把卡片打开
-    'citizen-answer': whenReady((m) => { talk?.endAsk(); liveGame.setCitizenAnswer(m); wake(); }),
+    'citizen-answer': whenReady((m) => { if (talk?.lentTo?.kind === 'ask') talk.endLent(); liveGame.setCitizenAnswer(m); wake(); }),
+    // 讲台前的辩论（M-E）：{ state, id, motion, round, rounds, jury, transcript, verdict, record, notice }
+    debate: whenReady((m) => { liveGame.setDebate(m.debate ?? null); wake(); }),
     board: whenReady((m) => { liveGame.setBoard(m.suggestions); wake(); }),
     oracle: whenReady((m) => { liveGame.setOracle(m.oracle ?? null); wake(); }),
     islands: whenReady((m) => { liveGame.setIslands(m.islands); wake(); }),

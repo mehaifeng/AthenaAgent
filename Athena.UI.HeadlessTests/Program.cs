@@ -87,6 +87,7 @@ if (Environment.GetEnvironmentVariable("ATHENA_HEADLESS_ONLY") == "game-mode")
     TestGameModeCityLifecycle();
     TestGameModeAccumulation();
     TestGameModeCitizens();
+    TestGameModeDebate();
     Environment.Exit(0);
 }
 OwlAnimationTests.Run(outputPath);
@@ -204,6 +205,7 @@ TestGameModeSwitchAndFailures();
 TestGameModeCityLifecycle();
 TestGameModeAccumulation();
 TestGameModeCitizens();
+TestGameModeDebate();
 TestColorSchemeSwitching();
 TestColorSchemeApplyCounting();
 TestColorSchemeShellPanelRepaint();
@@ -4467,7 +4469,7 @@ static void TestGameModeSwitchAndFailures()
         // 两个计时都留足余量：就绪计时从创建页面起算，到测试替页面报 ready 之间隔着一次调度；
         // 保留期要盖过切回对话时整棵气泡树的重建——CI 机器比开发机慢得多，几百毫秒的余量会偶发失败
         gameMode = new GameModeViewModel(session, previewHost, new PolisSaveStore(paths, Log.Logger), watcher, localization,
-            new HeadlessCronTaskReader(), new PolisAssetStore(Path.Combine(root, "AthenaData", "Game", "assets"), Log.Logger), new HeadlessCitizenAnswerService())
+            new HeadlessCronTaskReader(), new PolisAssetStore(Path.Combine(root, "AthenaData", "Game", "assets"), Log.Logger), new HeadlessCitizenAnswerService(), new HeadlessPolisDebateService())
         {
             ReadyTimeout = TimeSpan.FromSeconds(2),
             ReleaseDelay = TimeSpan.FromSeconds(2)
@@ -4800,7 +4802,7 @@ static void TestGameModeCityLifecycle()
     GameModeViewModel Start(Action<GameModeViewModel>? configure = null)
     {
         var vm = new GameModeViewModel(session, previewHost, store, watcher, localization,
-            cronReader, new PolisAssetStore(Path.Combine(root, "AthenaData", "Game", "assets"), Log.Logger), new HeadlessCitizenAnswerService());
+            cronReader, new PolisAssetStore(Path.Combine(root, "AthenaData", "Game", "assets"), Log.Logger), new HeadlessCitizenAnswerService(), new HeadlessPolisDebateService());
         configure?.Invoke(vm);
         shell = new MainWindowViewModel(
             chatService: null, configService: null, promptService: null, logService: null, knowledgeBaseService: null,
@@ -5154,7 +5156,7 @@ static void TestGameModeAccumulation()
     Window? window = null;
     try
     {
-        gameMode = new GameModeViewModel(session, previewHost, store, watcher, localization, cronReader, new PolisAssetStore(assetsDir, Log.Logger), new HeadlessCitizenAnswerService());
+        gameMode = new GameModeViewModel(session, previewHost, store, watcher, localization, cronReader, new PolisAssetStore(assetsDir, Log.Logger), new HeadlessCitizenAnswerService(), new HeadlessPolisDebateService());
         var structural = typeof(GameModeViewModel).GetConstructors().SelectMany(c => c.GetParameters()).Select(p => p.ParameterType)
             .Concat(typeof(GameModeViewModel).GetFields(System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Public).Select(f => f.FieldType))
             .ToList();
@@ -5371,7 +5373,7 @@ static void TestGameModeCitizens()
     Window? window = null;
     try
     {
-        gameMode = new GameModeViewModel(session, previewHost, store, watcher, localization, new HeadlessCronTaskReader(), new PolisAssetStore(Path.Combine(root, "assets"), Log.Logger), answers);
+        gameMode = new GameModeViewModel(session, previewHost, store, watcher, localization, new HeadlessCronTaskReader(), new PolisAssetStore(Path.Combine(root, "assets"), Log.Logger), answers, new HeadlessPolisDebateService());
         shell = new MainWindowViewModel(
             chatService: null, configService: null, promptService: null, logService: null, knowledgeBaseService: null,
             localizationService: localization, fileSystemService: null, platformPathService: null, functionRegistry: null,
@@ -5511,6 +5513,160 @@ static void TestGameModeCitizens()
         if (Directory.Exists(root)) Directory.Delete(root, recursive: true);
     }
     Console.WriteLine("[PASS] game mode citizens: one citizen per conversation, the 32 most recent on the street and the rest counted, elders on steles, the one who worked in a folder lives there, no message text reaches the page, a deleted conversation's citizen is gone, the sanctuary's citizens are its global chats, the card's button selects through the session tree, and asking a citizen sends only that conversation's messages, answers only to the page (a missing model is a sentence, not an error) and refuses other cities' citizens, made-up ids, empty and overlong questions");
+}
+
+static void TestGameModeDebate()
+{
+    var root = Path.Combine(Path.GetTempPath(), "athena-polis-debate-" + Guid.NewGuid().ToString("N"));
+    var rootA = Path.Combine(root, "我的工作区");
+    Directory.CreateDirectory(Path.Combine(rootA, "合同"));
+    File.WriteAllText(Path.Combine(rootA, "合同", "租赁合同.docx"), "lease");
+    var previousFactory = PolisPageFactory.Create;
+    var pages = new List<FakePolisPage>();
+    PolisPageFactory.Create = uri => { var p = new FakePolisPage(uri); pages.Add(p); return p; };
+    var configService = new HeadlessConfigService(new AppConfig());
+    var session = new AppConfigurationSession(configService);
+    session.Current.MainLayout.GameMode = true;
+    var paths = new TemporaryPathService(Path.Combine(root, "AthenaData"));
+    var store = new PolisSaveStore(paths, Log.Logger);
+    var watcher = new WorkspaceWatcherService();
+    var previewHost = new OfficePreviewHost();
+    var localization = new LocalizationService();
+    var wsA = new WorkspaceProfile { Name = "我的工作区", DirectoryPath = rootA, CreatedAt = DateTime.Now.AddDays(-30) };
+    var workspaceService = new HeadlessWorkspaceService(new List<WorkspaceProfile> { wsA });
+    var debates = new HeadlessPolisDebateService();
+    var sink = new CapturingLogSink();
+    var previousLogger = Log.Logger;
+    var capturingLogger = new LoggerConfiguration().MinimumLevel.Verbose().WriteTo.Sink(sink).CreateLogger();
+    Log.Logger = capturingLogger;
+
+    GameModeViewModel? gameMode = null;
+    MainWindowViewModel? shell = null;
+    Window? window = null;
+    try
+    {
+        gameMode = new GameModeViewModel(session, previewHost, store, watcher, localization, new HeadlessCronTaskReader(),
+            new PolisAssetStore(Path.Combine(root, "assets"), Log.Logger), new HeadlessCitizenAnswerService(), debates);
+        shell = new MainWindowViewModel(
+            chatService: null, configService: null, promptService: null, logService: null, knowledgeBaseService: null,
+            localizationService: localization, fileSystemService: null, platformPathService: null, functionRegistry: null,
+            tokenService: null, attachmentStoreService: null, systemAudioService: null, archiveService: null,
+            imageGenerationSessionService: null, workspaceService: workspaceService, configurationSession: session, gameMode: gameMode);
+        PumpTimers(() => !shell.IsConversationTreeLoading, 5000, "测试外壳的会话树没有加载完。");
+        var groupA = shell.ConversationGroups.First(g => g.Workspace?.Id == wsA.Id);
+        groupA.Conversations.Clear();
+        var chat = new MainConversationViewModel();
+        chat.Messages.Add(new ChatMessage { Role = "user", Content = "整理合同", Timestamp = DateTime.Now.AddHours(-1) });
+        var conv = new ConversationSessionItemViewModel(chat, wsA, null) { Title = "整理合同", UpdatedAt = DateTime.Now.AddHours(-1) };
+        groupA.Conversations.Add(conv);
+        window = new Window { Width = 900, Height = 700, Content = new Athena.UI.Views.GameMode.PolisView { DataContext = gameMode } };
+        window.Show();
+        shell.SelectedConversation = conv;
+        PumpTimers(() => pages.Count > 0 && !pages[^1].Disposed, 5000, "游戏模式没有创建页面。");
+        var page = pages[^1];
+        page.Navigate(true);
+        page.Send("""{"v":1,"type":"ready"}""");
+        List<JsonElement> Of(string type) => page.Messages.Where(m => m.GetProperty("type").GetString() == type).ToList();
+        JsonElement Debate() => Of("debate")[^1].GetProperty("debate");
+        string State() => Debate().GetProperty("state").GetString()!;
+        int Rejections() => sink.Events.Count(e => e.Level == Serilog.Events.LogEventLevel.Warning && e.RenderMessage().StartsWith("Rejected a polis page intent", StringComparison.Ordinal));
+        PumpTimers(() => Of("debate").Count > 0, 10000, "页面就绪就要推讲台的现状（战绩）。");
+        if (State() != "idle" || Debate().GetProperty("record").GetProperty("wins").GetInt32() != 0)
+            throw new InvalidOperationException($"一开始讲台空着、战绩是零：{Debate()}");
+        var messagesBefore = chat.Messages.Count;
+
+        // —— 一场完整的辩论：三轮你说她驳，然后陪审团判票、记战绩 ——
+        page.Send("""{"v":1,"type":"debate-start","motion":"  周末应该完全不碰工作  "}""");
+        PumpTimers(() => State() == "awaiting", 5000, "提了议题就开一场，等你说第一轮。");
+        if (Debate().GetProperty("motion").GetString() != "周末应该完全不碰工作" || Debate().GetProperty("round").GetInt32() != 1)
+            throw new InvalidOperationException($"议题去掉首尾空白，第一轮：{Debate()}");
+        for (var round = 1; round <= 3; round++)
+        {
+            page.Send($$"""{"v":1,"type":"debate-say","text":"第 {{round}} 轮：休息让人第二天更有效率。"}""");
+            if (round < 3)
+                PumpTimers(() => State() == "awaiting" && Debate().GetProperty("round").GetInt32() == round + 1, 5000, $"第 {round} 轮她驳完，轮到你说第 {round + 1} 轮。");
+        }
+        PumpTimers(() => State() == "done", 5000, "三轮之后陪审团判票。");
+        var done = Debate();
+        if (done.GetProperty("verdict").GetProperty("votesForYou").GetInt32() != 7 || done.GetProperty("verdict").GetProperty("winner").GetString() != "you"
+            || done.GetProperty("record").GetProperty("wins").GetInt32() != 1)
+            throw new InvalidOperationException($"判票：七票给你，你赢，战绩一胜：{done}");
+        var transcript = done.GetProperty("transcript").EnumerateArray().Select(t => t.GetProperty("side").GetString()).ToList();
+        if (!transcript.SequenceEqual(new[] { "you", "athena", "you", "athena", "you", "athena" }))
+            throw new InvalidOperationException($"一来一回三轮：{string.Join(",", transcript)}");
+        if (debates.AthenaCalls.Count != 3 || debates.JudgeCalls.Count != 1 || debates.Records.Count != 1 || debates.Records[0].Motion != "周末应该完全不碰工作")
+            throw new InvalidOperationException($"雅典娜三次、裁判一次、记一场：{debates.AthenaCalls.Count}/{debates.JudgeCalls.Count}/{debates.Records.Count}");
+        if (debates.AthenaCalls[1].Transcript.Count != 3 || debates.AthenaCalls[1].Transcript[^1].Text != "第 2 轮：休息让人第二天更有效率。")
+            throw new InvalidOperationException("她每一轮看到的是这一场到此为止的发言（你刚说的那句在最后）。");
+        if (chat.Messages.Count != messagesBefore || chat.InputText.Length > 0)
+            throw new InvalidOperationException("辩论不进任何会话：没有新消息，也不写进输入框。");
+        // 判完之后再说一轮：不收
+        page.Send("""{"v":1,"type":"debate-say","text":"再来一轮"}""");
+        PumpTimersFor(200);
+        if (debates.AthenaCalls.Count != 3) throw new InvalidOperationException("判完了不再收论点。");
+
+        // —— 不辩了：作废，不记战绩 ——
+        page.Send("""{"v":1,"type":"debate-end"}""");
+        PumpTimers(() => State() == "idle", 5000, "不辩了：讲台回到空着。");
+        page.Send("""{"v":1,"type":"debate-start","motion":"猫比狗更适合当宠物"}""");
+        PumpTimers(() => State() == "awaiting", 5000, "第二场开始。");
+        page.Send("""{"v":1,"type":"debate-end"}""");
+        PumpTimers(() => State() == "idle", 5000, "第二场作废。");
+        if (debates.Records.Count != 1 || Debate().GetProperty("record").GetProperty("wins").GetInt32() != 1)
+            throw new InvalidOperationException("没判完的不记战绩。");
+
+        // —— 雅典娜说不出来：替她让一轮，辩论照常往下走；裁判没给出裁决：算平局 ——
+        debates.Athena = _ => new PolisDebateReply(PolisDebateCallStatus.Failed);
+        debates.Judge = _ => new PolisDebateJudgement(PolisDebateCallStatus.Ok, PolisDebateVerdict.NoVerdict("陪审团没能给出裁决，算平局。"));
+        page.Send("""{"v":1,"type":"debate-start","motion":"早起比熬夜好"}""");
+        PumpTimers(() => State() == "awaiting", 5000, "第三场开始。");
+        page.Send("""{"v":1,"type":"debate-say","text":"早上脑子清楚。"}""");
+        PumpTimers(() => State() == "awaiting" && Debate().GetProperty("round").GetInt32() == 2, 5000, "她说不出来也往下走。");
+        var given = Debate().GetProperty("transcript").EnumerateArray().Last().GetProperty("text").GetString()!;
+        if (!given.Contains("让给你", StringComparison.Ordinal))
+            throw new InvalidOperationException($"她说不出来时替她说一句（这一轮让给你）：{given}");
+        page.Send("""{"v":1,"type":"debate-say","text":"第二轮。"}""");
+        PumpTimers(() => State() == "awaiting" && Debate().GetProperty("round").GetInt32() == 3, 5000, "第三轮。");
+        page.Send("""{"v":1,"type":"debate-say","text":"第三轮。"}""");
+        PumpTimers(() => State() == "done", 5000, "判了。");
+        if (Debate().GetProperty("verdict").GetProperty("winner").GetString() != "tie" || Debate().GetProperty("record").GetProperty("ties").GetInt32() != 1)
+            throw new InvalidOperationException($"没有裁决算平局，记一场平：{Debate()}");
+        page.Send("""{"v":1,"type":"debate-end"}""");
+        PumpTimers(() => State() == "idle", 5000, "散场。");
+
+        // —— 每小时上限：开不成，讲台说一句 ——
+        debates.Limit = debates.Reserved;
+        var before = Of("debate").Count;
+        page.Send("""{"v":1,"type":"debate-start","motion":"再来一场"}""");
+        PumpTimers(() => Of("debate").Count > before, 5000, "开不成也要推一句话回去。");
+        if (State() != "idle" || !Debate().GetProperty("notice").GetString()!.Contains("辩得够多", StringComparison.Ordinal))
+            throw new InvalidOperationException($"超过每小时上限：讲台空着，说一句「辩得够多了」：{Debate()}");
+
+        // —— 意图的边界：201 字的议题、空的论点、不在等你说时的论点 ——
+        debates.Limit = 1000;
+        var rejectedBefore = Rejections();
+        page.Send($$"""{"v":1,"type":"debate-start","motion":"{{new string('题', 201)}}"}""");
+        page.Send("""{"v":1,"type":"debate-say","text":"   "}""");
+        page.Send($$"""{"v":1,"type":"debate-say","text":"{{new string('论', 601)}}"}""");
+        PumpTimers(() => Rejections() >= rejectedBefore + 3, 3000, "超长的议题、空的论点、超长的论点都要被拒并记 Warning。");
+        PumpTimersFor(150);
+        if (State() != "idle") throw new InvalidOperationException("被拒的议题不开辩论。");
+    }
+    finally
+    {
+        window?.Close();
+        Dispatcher.UIThread.RunJobs();
+        shell?.Dispose();
+        gameMode?.Dispose();
+        watcher.Dispose();
+        previewHost.Dispose();
+        session.Dispose();
+        PolisPageFactory.Create = previousFactory;
+        Log.Logger = previousLogger;
+        capturingLogger.Dispose();
+        if (Directory.Exists(root)) Directory.Delete(root, recursive: true);
+    }
+    Console.WriteLine("[PASS] game mode debate: a motion opens three rounds of you then Athena, the jury's verdict is posted and recorded, a debate ended early records nothing, Athena failing gives up her round instead of stalling, no verdict is a tie, the hourly cap is a sentence, overlong or empty motions and arguments are refused, and no conversation is touched");
 }
 
 // 无头宿主里 RunJobs 只清空排队的操作，不推进平台计时器的截止时间（OwlAnimationTests 记过这一条）；
@@ -13529,6 +13685,47 @@ sealed class CapturingLogSink : ILogEventSink
 /// <summary>
 /// 定时任务的只读视图（游戏模式只拿这一半）：测试往里放任务、推进运行记录，再触发一次变更通知。
 /// </summary>
+/// <summary>辩论（M-E）的替身：按 <see cref="Athena"/> / <see cref="Judge"/> 回答，记下每次调用与战绩；<see cref="Limit"/> 是每小时上限。</summary>
+sealed class HeadlessPolisDebateService : IPolisDebateService
+{
+    private int _reserved;
+    public int Limit { get; set; } = 10;
+    public int Reserved => Volatile.Read(ref _reserved);
+    public List<PolisDebateSession> AthenaCalls { get; } = new();
+    public List<PolisDebateSession> JudgeCalls { get; } = new();
+    public List<PolisContestRecord> Records { get; } = new();
+    public Func<PolisDebateSession, PolisDebateReply> Athena { get; set; } = s => new PolisDebateReply(PolisDebateCallStatus.Ok, $"第 {s.Round} 轮：休息不是不工作。");
+    public Func<PolisDebateSession, PolisDebateJudgement> Judge { get; set; } = _ => new PolisDebateJudgement(PolisDebateCallStatus.Ok, new PolisDebateVerdict(7, "you", "正方的例子更具体。", true));
+
+    public bool TryReserveDebate() => Interlocked.Increment(ref _reserved) <= Limit;
+
+    public Task<PolisDebateReply> AthenaRespondAsync(PolisDebateSession session, string language, CancellationToken cancellationToken = default)
+    {
+        lock (AthenaCalls) AthenaCalls.Add(session);
+        return Task.FromResult(Athena(session));
+    }
+
+    public Task<PolisDebateJudgement> JudgeAsync(PolisDebateSession session, string language, string noVerdictReason, CancellationToken cancellationToken = default)
+    {
+        lock (JudgeCalls) JudgeCalls.Add(session);
+        return Task.FromResult(Judge(session));
+    }
+
+    public Task<PolisContestSummary> LoadSummaryAsync(CancellationToken cancellationToken = default)
+    {
+        lock (Records) return Task.FromResult(PolisDebate.Summarize(Records));
+    }
+
+    public Task<PolisContestSummary> RecordAsync(PolisContestRecord record, CancellationToken cancellationToken = default)
+    {
+        lock (Records)
+        {
+            Records.Add(record);
+            return Task.FromResult(PolisDebate.Summarize(Records));
+        }
+    }
+}
+
 /// <summary>问话（M-C）的替身：记下每一次问了谁、拿到的是哪一场会话的消息，按 <see cref="Reply"/> 回答。</summary>
 sealed class HeadlessCitizenAnswerService : ICitizenAnswerService
 {

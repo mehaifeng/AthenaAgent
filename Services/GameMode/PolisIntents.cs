@@ -67,7 +67,13 @@ public enum PolisIntentType
     /// 问一位居民那场会话的事（M-C）：只认这座城里此刻有的居民，问题去掉首尾空白后 1–300 字，超长整条拒绝。
     /// 不替你说任何话：回答只回到页面（居民的卡片），不进任何会话。
     /// </summary>
-    AskCitizen
+    AskCitizen,
+    /// <summary>在讲台前提一个议题，开一场辩论（M-E）：议题去掉首尾空白后 1–200 字，超长整条拒绝。</summary>
+    DebateStart,
+    /// <summary>你这一轮的论点（1–600 字，超长整条拒绝）。只在等你说的时候收（ViewModel 核对状态）。</summary>
+    DebateSay,
+    /// <summary>不辩了 / 辩完离开：这场作废（没判完的不记战绩）。</summary>
+    DebateEnd
 }
 
 /// <summary>校验通过的一条意图。路径已换算成磁盘上的绝对路径（<see cref="FullPath"/>）。</summary>
@@ -163,6 +169,9 @@ public static class PolisIntents
         ["say"] = PolisIntentType.Say,
         ["draft"] = PolisIntentType.Draft,
         ["ask-citizen"] = PolisIntentType.AskCitizen,
+        ["debate-start"] = PolisIntentType.DebateStart,
+        ["debate-say"] = PolisIntentType.DebateSay,
+        ["debate-end"] = PolisIntentType.DebateEnd,
     };
 
     /// <summary>页面那一侧用的名字（测试与文档用）。</summary>
@@ -206,7 +215,22 @@ public static class PolisIntents
                 case PolisIntentType.StopTurn:
                 case PolisIntentType.Relocate:
                 case PolisIntentType.RequestOracle:
+                case PolisIntentType.DebateEnd:
                     return new PolisIntentResult(new PolisIntent(type), null);
+
+                case PolisIntentType.DebateStart:
+                case PolisIntentType.DebateSay:
+                {
+                    var field = type == PolisIntentType.DebateStart ? "motion" : "text";
+                    var max = type == PolisIntentType.DebateStart ? PolisDebate.MaxMotionChars : PolisDebate.MaxArgumentChars;
+                    var raw = ReadString(root, field);
+                    if (raw == null) return PolisIntentResult.Reject($"missing {field}");
+                    var text = Clean(raw.Trim(), int.MaxValue)!;
+                    if (text.Length == 0) return PolisIntentResult.Reject($"empty {field}");
+                    // 和托付、问话一样不截断：截掉半句，议题或论点就变了
+                    if (text.Length > max) return PolisIntentResult.Reject($"{field} longer than {max} characters");
+                    return new PolisIntentResult(new PolisIntent(type) { Text = text }, null);
+                }
 
                 case PolisIntentType.Failed:
                     return new PolisIntentResult(new PolisIntent(type)

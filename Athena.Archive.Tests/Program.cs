@@ -239,6 +239,7 @@ var tests = new (string Name, Func<Task> Run)[]
     ("polis deliveries: a turn is delivered once when its bubble stops streaming, history is never re-delivered, and only the running turn's tool targets count as hers", TestPolisDeliveriesAsync),
     ("polis citizens: one citizen per conversation, seeded by its id, living where it worked most; the 32 most recent on the street, elders on steles, and no message text in any line", TestPolisCitizensAsync),
     ("polis citizen answers: a citizen answers from his own conversation's visible passages only, within budget, through the companion (or title) role, one question at a time and 30 an hour; the page can only ask this city's citizens", TestPolisCitizenAnswersAsync),
+    ("polis debate: three rounds of you then Athena, a strict jury verdict where anything less is a tie, a global record kept atomically, the main model for Athena and the companion (or title) role for the jury, ten an hour, and bounded motions and arguments", TestPolisDebateAsync),
     ("polis collection: accepted items are placed, moved and taken down in the save only; a lost item keeps its pedestal and only a click removes it; v2 saves migrate", TestPolisCollectionAsync),
     ("polis grove: one olive tree per completed commission, ordered by when it started, aged by its turns, derived from sessions alone", TestPolisGroveDerivationAsync),
     ("polis residents: each capability brings its resident at its first successful use, every registered tool has one, and the town re-derives from the archive", TestPolisResidentDerivationAsync),
@@ -11425,6 +11426,208 @@ static async Task TestPolisCitizenAnswersAsync()
         clock.Advance(TimeSpan.FromMinutes(61));
         AssertTrue(service.TryReserveSlot(), "一小时之后又可以问");
     }
+}
+
+static async Task TestPolisDebateAsync()
+{
+    var now = new DateTimeOffset(2026, 10, 13, 9, 0, 0, TimeSpan.Zero);
+
+    // —— 状态机：你说 → 她驳，三轮；第三轮她驳完进入裁决；判完结束。走错一步就抛 ——
+    var d = PolisDebate.Start("  周末应该完全不碰工作 ", now);
+    AssertTrue(d.State == PolisDebateState.AwaitingUser && d.Round == 1 && d.Motion == "周末应该完全不碰工作" && d.Transcript.Count == 0, "开一场：等你说第一轮，议题去掉首尾空白");
+    var threw = false;
+    try { PolisDebate.AthenaSays(d, "抢先"); } catch (InvalidOperationException) { threw = true; }
+    AssertTrue(threw, "没轮到她：她不能先说");
+    for (var round = 1; round <= PolisDebate.Rounds; round++)
+    {
+        d = PolisDebate.UserSays(d, $"第 {round} 轮：休息让人更有效率。");
+        AssertEqual(PolisDebateState.AthenaSpeaking, d.State, $"第 {round} 轮你说完轮到她");
+        threw = false;
+        try { PolisDebate.UserSays(d, "插话"); } catch (InvalidOperationException) { threw = true; }
+        AssertTrue(threw, "她在想的时候你不能再说");
+        d = PolisDebate.AthenaSays(d, $"第 {round} 轮：工作也会追上门来。");
+    }
+    AssertEqual(PolisDebateState.Judging, d.State, "三轮之后进入裁决");
+    AssertEqual(PolisDebate.Rounds * 2, d.Transcript.Count, "六次发言");
+    d = PolisDebate.Judge(d, new PolisDebateVerdict(7, "you", "例子更具体。", true));
+    AssertTrue(d.State == PolisDebateState.Done && d.Verdict!.VotesForYou == 7, "判完结束");
+    AssertTrue(PolisDebate.WinnerOf(6) == "you" && PolisDebate.WinnerOf(4) == "athena" && PolisDebate.WinnerOf(5) == "tie", "十票里多于五票你赢、少于五票她赢、五票平");
+
+    // —— 提示词：她站反方、先回应再立论、120 字以内、只带这场辩论；裁判按论证不按立场、只输出一个 JSON 对象 ——
+    var mid = PolisDebate.UserSays(PolisDebate.AthenaSays(PolisDebate.UserSays(PolisDebate.Start("周末应该完全不碰工作", now), "休息让人更有效率。"), "工作也会追上门来。"), "那就关掉通知。");
+    var (athenaSystem, athenaUser) = PolisDebate.AthenaPrompt(mid, "zh-CN");
+    foreach (var part in new[] { "雅典娜", "「周末应该完全不碰工作」", "反方", "先回应", "120", "不要 Markdown", "议题所用的语言" })
+        AssertTrue(athenaSystem.Contains(part, StringComparison.Ordinal), $"她的系统提示含「{part}」");
+    foreach (var part in new[] { "第 1 轮 正方：休息让人更有效率。", "第 1 轮 反方：工作也会追上门来。", "第 2 轮 正方：那就关掉通知。", "现在是第 2 轮（共 3 轮）", "正方刚说：「那就关掉通知。」" })
+        AssertTrue(athenaUser.Contains(part, StringComparison.Ordinal), $"她看到的发言含「{part}」：{athenaUser}");
+    var (judgeSystem, judgeUser) = PolisDebate.JudgePrompt(d, "zh-CN");
+    foreach (var part in new[] { "votes_for_you", "只输出一个 JSON 对象", "不按你自己对议题的立场", "十位陪审员" })
+        AssertTrue(judgeSystem.Contains(part, StringComparison.Ordinal), $"裁判的系统提示含「{part}」");
+    AssertTrue(judgeUser.Contains("议题：「周末应该完全不碰工作」", StringComparison.Ordinal) && judgeUser.Contains("第 3 轮 反方", StringComparison.Ordinal), "裁判看到议题与全部发言");
+    var (enSystem, _) = PolisDebate.AthenaPrompt(mid, "en-US");
+    var (enJudge, _) = PolisDebate.JudgePrompt(d, "en-US");
+    AssertTrue(enSystem.Contains("against it", StringComparison.Ordinal) && enSystem.Contains("80 words", StringComparison.Ordinal) && enJudge.Contains("votes_for_you", StringComparison.Ordinal), "英文提示同样的规则");
+
+    // —— 裁判的判读：只认一个完整、无歧义的对象；其余都是"没有裁决"，算平局 ——
+    ApprovalJudgeReply Reply(string text, bool completed = true, bool truncated = false) => new(text, null, completed ? "stop" : "incomplete", completed, truncated, 40, 0);
+    const string noVerdict = "陪审团没能给出裁决，算平局。";
+    var ok = PolisDebate.InterpretVerdict(Reply("""{"votes_for_you":7,"reason":"例子更具体。"}"""), noVerdict);
+    AssertTrue(ok.Judged && ok.VotesForYou == 7 && ok.Winner == "you" && ok.Reason == "例子更具体。", "一个完整的对象：七票，你赢");
+    AssertTrue(PolisDebate.InterpretVerdict(Reply("<think>正方的例子更具体</think>\n{\"votes_for_you\":3}"), noVerdict) is { Judged: true, VotesForYou: 3, Winner: "athena" }, "思考块之后的对象照读");
+    AssertTrue(PolisDebate.InterpretVerdict(Reply("```json\n{\"votes_for_you\":5,\"reason\":\"不相上下\"}\n```"), noVerdict) is { Judged: true, Winner: "tie" }, "代码围栏里的对象照读");
+    foreach (var (reply, why) in new[]
+    {
+        (Reply("""{"votes_for_you":7,"reason":"例子"}""", truncated: true), "截断了（哪怕正好停在完整对象之后）"),
+        (Reply("""{"votes_for_you":7}""", completed: false), "没有正常结束"),
+        (Reply("  "), "空的"),
+        (Reply("""{"votes_for_you":2,"votes_for_you":9}"""), "重复的键"),
+        (Reply("""{"votes_for_you":11}"""), "票数超过十"),
+        (Reply("""{"votes_for_you":-1}"""), "票数是负的"),
+        (Reply("""{"votes_for_you":6.5}"""), "票数不是整数"),
+        (Reply("""{"votes_for_you":"7"}"""), "票数是字符串"),
+        (Reply("""[{"votes_for_you":7}]"""), "数组不是对象"),
+        (Reply("<think>还在想正方的第二轮"), "思考块没有结束"),
+        (Reply("""{"winner":"you"}"""), "没有票数"),
+        (Reply("""七票给正方。{"votes_for_you":7}"""), "对象前面有别的字"),
+    })
+    {
+        var v = PolisDebate.InterpretVerdict(reply, noVerdict);
+        AssertTrue(!v.Judged && v.VotesForYou == PolisDebate.Jury / 2 && v.Winner == "tie" && v.Reason == noVerdict, $"不是裁决、算平局：{why}");
+    }
+    var longReason = PolisDebate.InterpretVerdict(Reply($$"""{"votes_for_you":8,"reason":"{{new string('理', 200)}}"}"""), noVerdict);
+    AssertTrue(longReason.Judged && longReason.Reason.Length == PolisDebate.MaxReasonChars + 1, "理由太长截断");
+
+    // —— 战绩：全局的 contests.json，先写临时文件再替换；读不懂的改名留着、从空的重新记；最多 500 场 ——
+    var dir = Path.Combine(Path.GetTempPath(), "athena-contests-" + Guid.NewGuid().ToString("N"));
+    var path = Path.Combine(dir, "Game", "contests.json");
+    var silent = new LoggerConfiguration().CreateLogger();
+    try
+    {
+        using (var store = new PolisContestStore(path, silent))
+        {
+            AssertEqual(0, (await store.LoadAsync()).Count, "没有文件：空的战绩");
+            await store.AppendAsync(new PolisContestRecord(now, "甲", 7, "you", true));
+            await store.AppendAsync(new PolisContestRecord(now.AddMinutes(5), "乙", 3, "athena", true));
+            var three = await store.AppendAsync(new PolisContestRecord(now.AddMinutes(9), "丙", 5, "tie", false));
+            AssertEqual(new PolisContestSummary(1, 1, 1), PolisDebate.Summarize(three), "一胜一负一平");
+            AssertFalse(Directory.EnumerateFiles(Path.GetDirectoryName(path)!, "*.tmp", SearchOption.AllDirectories).Any(), "不留临时文件");
+        }
+        using (var reopened = new PolisContestStore(path, silent))
+        {
+            var loaded = await reopened.LoadAsync();
+            AssertTrue(loaded.Count == 3 && loaded[0].Motion == "甲" && loaded[2].Judged == false, "重新打开读回同样的三场");
+        }
+        File.WriteAllText(path, "{ not json");
+        using (var broken = new PolisContestStore(path, silent))
+        {
+            AssertEqual(0, (await broken.LoadAsync()).Count, "坏了的文件：从空的战绩重新记");
+            AssertTrue(Directory.EnumerateFiles(Path.GetDirectoryName(path)!, "contests.json.corrupt-*").Any(), "坏了的文件改名留着，不删");
+            await broken.AppendAsync(new PolisContestRecord(now, "丁", 6, "you", true));
+            AssertEqual(1, (await broken.LoadAsync()).Count, "之后照常记");
+        }
+        File.WriteAllText(path, """{ "schemaVersion": 2, "debates": [] }""");
+        using (var newer = new PolisContestStore(path, silent))
+        {
+            AssertEqual(0, (await newer.LoadAsync()).Count, "更新的版本写的：不认、不覆盖");
+            AssertTrue(Directory.EnumerateFiles(Path.GetDirectoryName(path)!, "contests.json.corrupt-*").Count() >= 1, "也改名留着");
+        }
+        using (var many = new PolisContestStore(Path.Combine(dir, "many.json"), silent))
+        {
+            IReadOnlyList<PolisContestRecord> all = Array.Empty<PolisContestRecord>();
+            for (var i = 0; i < PolisContestStore.MaxRecords + 5; i++) all = await many.AppendAsync(new PolisContestRecord(now.AddMinutes(i), $"第{i}场", 6, "you", true));
+            AssertTrue(all.Count == PolisContestStore.MaxRecords && all[0].Motion == "第5场", "最多记 500 场，最旧的先丢");
+        }
+
+        // —— 服务：雅典娜用主对话模型（带主角色的温度），裁判用陪伴角色（没配借标题生成角色、不发温度）；每小时十场 ——
+        AppConfig Config(bool main, bool companion, bool title, ProviderProtocol protocol = ProviderProtocol.ChatCompletions)
+        {
+            var config = new AppConfig();
+            var provider = new OpenAiProviderConfiguration { Id = "p", DisplayName = "P", ProviderPreset = "Deepseek", BaseUrl = "https://debate.test/v1", ApiKey = "test-key", Protocol = protocol };
+            config.AiModels.Providers.Add(provider);
+            if (main) { config.AiModels.MainConversation.ProviderId = "p"; config.AiModels.MainConversation.Model = "main-model"; }
+            if (companion) { config.AiModels.Companion.ProviderId = "p"; config.AiModels.Companion.Model = "companion-model"; }
+            if (title) { config.AiModels.TitleGeneration.ProviderId = "p"; config.AiModels.TitleGeneration.Model = "title-model"; }
+            return config;
+        }
+        var clock = new TestSystemClock(now);
+        {
+            var handler = new JudgeHttpHandler(HttpStatusCode.OK, JudgeChatReply("stop", "<think>先回应休息</think>\n休息固然好，**可工作**不会等你。", 60, 20));
+            using var http = new HttpClient(handler);
+            using var service = PolisDebateService.CreateWithTransport(new OpenAiModelRuntimeFactory(new TestConfigService(Config(main: true, companion: false, title: true))), clock,
+                new PolisContestStore(Path.Combine(dir, "svc.json"), silent), silent, new HttpClientPipelineTransport(http));
+            var reply = await service.AthenaRespondAsync(mid, "zh-CN");
+            AssertTrue(reply.Status == PolisDebateCallStatus.Ok && reply.Text == "休息固然好，可工作不会等你。", $"她的话剥掉思考块与粗体：{reply}");
+            using var request = JsonDocument.Parse(handler.RequestBodies.Single());
+            var root = request.RootElement;
+            AssertEqual("main-model", root.GetProperty("model").GetString(), "雅典娜用主对话模型");
+            AssertTrue(root.TryGetProperty("temperature", out var temperature) && Math.Abs(temperature.GetDouble() - 0.7) < 1e-6, "主角色带它的温度 0.7");
+            AssertTrue(root.GetProperty("messages")[1].GetProperty("content").GetString()!.Contains("那就关掉通知", StringComparison.Ordinal), "发出去的是这场辩论的发言");
+            var cap = root.TryGetProperty("max_completion_tokens", out var mct) ? mct.GetInt32() : root.GetProperty("max_tokens").GetInt32();
+            AssertEqual(PolisDebateService.AthenaMaxOutputTokens, cap, "她一轮的输出上限");
+        }
+        {
+            var handler = new JudgeHttpHandler(HttpStatusCode.OK, JudgeChatReply("stop", """{"votes_for_you":4,"reason":"反方回应更直接。"}""", 30, 0));
+            using var http = new HttpClient(handler);
+            using var service = PolisDebateService.CreateWithTransport(new OpenAiModelRuntimeFactory(new TestConfigService(Config(main: true, companion: false, title: true))), clock,
+                new PolisContestStore(Path.Combine(dir, "svc2.json"), silent), silent, new HttpClientPipelineTransport(http));
+            var judged = await service.JudgeAsync(d, "zh-CN", noVerdict);
+            AssertTrue(judged.Status == PolisDebateCallStatus.Ok && judged.Verdict is { Judged: true, VotesForYou: 4, Winner: "athena" }, $"裁判判四票：{judged}");
+            using var request = JsonDocument.Parse(handler.RequestBodies.Single());
+            AssertEqual("title-model", request.RootElement.GetProperty("model").GetString(), "陪伴角色没配：借标题生成角色当裁判");
+            AssertFalse(request.RootElement.TryGetProperty("temperature", out _), "裁判是辅助角色，不发温度");
+        }
+        {
+            var handler = new JudgeHttpHandler(HttpStatusCode.OK, JudgeChatReply("length", """{"votes_for_you":9""", 1024, 1000));
+            using var http = new HttpClient(handler);
+            using var service = PolisDebateService.CreateWithTransport(new OpenAiModelRuntimeFactory(new TestConfigService(Config(main: true, companion: true, title: false))), clock,
+                new PolisContestStore(Path.Combine(dir, "svc3.json"), silent), silent, new HttpClientPipelineTransport(http));
+            var cut = await service.JudgeAsync(d, "zh-CN", noVerdict);
+            AssertTrue(cut.Status == PolisDebateCallStatus.Ok && cut.Verdict is { Judged: false, Winner: "tie" } && cut.Verdict.Reason == noVerdict, "裁判被截断：没有裁决，算平局");
+            AssertTrue(handler.RequestBodies.Single().Contains("companion-model", StringComparison.Ordinal), "配了陪伴角色就用它");
+        }
+        {
+            var handler = new JudgeHttpHandler(HttpStatusCode.OK, JudgeChatReply("stop", "不该被调用", 5, 0));
+            using var http = new HttpClient(handler);
+            using var service = PolisDebateService.CreateWithTransport(new OpenAiModelRuntimeFactory(new TestConfigService(Config(main: false, companion: false, title: false))), clock,
+                new PolisContestStore(Path.Combine(dir, "svc4.json"), silent), silent, new HttpClientPipelineTransport(http));
+            AssertEqual(PolisDebateCallStatus.NoModel, (await service.AthenaRespondAsync(mid, "zh-CN")).Status, "主对话没配：NoModel");
+            AssertEqual(PolisDebateCallStatus.NoModel, (await service.JudgeAsync(d, "zh-CN", noVerdict)).Status, "陪伴与标题都没配：NoModel");
+            AssertEqual(0, handler.RequestBodies.Count, "没配模型不发请求");
+            for (var i = 0; i < PolisDebateService.MaxDebatesPerHour; i++) AssertTrue(service.TryReserveDebate(), $"第 {i + 1} 场在上限内");
+            AssertFalse(service.TryReserveDebate(), "每小时最多十场");
+            clock.Advance(TimeSpan.FromMinutes(61));
+            AssertTrue(service.TryReserveDebate(), "一小时之后又可以");
+        }
+        {
+            var handler = new JudgeHttpHandler(HttpStatusCode.BadRequest, """{"error":{"message":"bad"}}""");
+            using var http = new HttpClient(handler);
+            using var service = PolisDebateService.CreateWithTransport(new OpenAiModelRuntimeFactory(new TestConfigService(Config(main: true, companion: true, title: true))), clock,
+                new PolisContestStore(Path.Combine(dir, "svc5.json"), silent), silent, new HttpClientPipelineTransport(http));
+            AssertEqual(PolisDebateCallStatus.Failed, (await service.AthenaRespondAsync(mid, "zh-CN")).Status, "供应商报错：Failed（不是异常）");
+            AssertEqual(PolisDebateCallStatus.Failed, (await service.JudgeAsync(d, "zh-CN", noVerdict)).Status, "裁判那边也一样");
+        }
+    }
+    finally
+    {
+        if (Directory.Exists(dir)) Directory.Delete(dir, recursive: true);
+    }
+
+    // —— 意图：议题 1–200 字、论点 1–600 字，去掉首尾空白，超长整条拒绝；debate-end 不带字段 ——
+    var context = new PolisIntentContext(null, new HashSet<string>(), new HashSet<string>());
+    var start = PolisIntents.Validate("""{"v":1,"type":"debate-start","motion":"  周末不碰工作  "}""", context);
+    AssertTrue(start.Accepted && start.Intent!.Type == PolisIntentType.DebateStart && start.Intent.Text == "周末不碰工作", "提议题：去掉首尾空白");
+    AssertTrue(PolisIntents.Validate($$"""{"v":1,"type":"debate-start","motion":"{{new string('题', 200)}}"}""", context).Accepted, "200 字正好");
+    AssertTrue(PolisIntents.Validate($$"""{"v":1,"type":"debate-say","text":"{{new string('论', 600)}}"}""", context).Accepted, "600 字正好");
+    AssertTrue(PolisIntents.Validate("""{"v":1,"type":"debate-end"}""", context) is { Accepted: true, Intent.Type: PolisIntentType.DebateEnd }, "不辩了");
+    foreach (var (body, why) in new[]
+    {
+        ($$"""{"v":1,"type":"debate-start","motion":"{{new string('题', 201)}}"}""", "201 字的议题：整条拒绝，不截断"),
+        ("""{"v":1,"type":"debate-start","motion":"   "}""", "空议题"),
+        ("""{"v":1,"type":"debate-start"}""", "没有议题"),
+        ($$"""{"v":1,"type":"debate-say","text":"{{new string('论', 601)}}"}""", "601 字的论点"),
+        ("""{"v":1,"type":"debate-say","text":42}""", "论点不是字符串"),
+    })
+        AssertFalse(PolisIntents.Validate(body, context).Accepted, $"拒绝：{why}");
 }
 
 static async Task TestPolisCollectionAsync()

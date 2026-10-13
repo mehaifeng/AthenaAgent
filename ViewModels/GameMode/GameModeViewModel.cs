@@ -155,6 +155,15 @@ public sealed partial class GameModeViewModel : ViewModelBase, IDisposable
     private readonly ICitizenAnswerService _citizenAnswers;
     /// <summary>页面关掉、视图模型释放时，还在路上的问话一并取消。</summary>
     private readonly CancellationTokenSource _askCancel = new();
+    private readonly IPolisDebateService _debates;
+    /// <summary>讲台前此刻的那一场辩论（M-E；讲台只有一座，同一时刻只有一场）。</summary>
+    private PolisDebateSession? _debate;
+    /// <summary>这一场的调用；作废、换城、释放时取消。</summary>
+    private CancellationTokenSource? _debateCancel;
+    private PolisContestSummary _debateRecord = PolisContestSummary.Empty;
+    private bool _debateRecordLoaded;
+    /// <summary>没开成、或者雅典娜 / 裁判没能开口时给页面的一句话（本地化），推一次就清掉。</summary>
+    private string? _debateNotice;
     private IReadOnlySet<string> _knownIslands = new HashSet<string>(StringComparer.Ordinal);
     private DateTimeOffset _cityArrivedAt = DateTimeOffset.MinValue;
     private readonly HashSet<string> _noticedRuns = new(StringComparer.Ordinal);
@@ -167,7 +176,8 @@ public sealed partial class GameModeViewModel : ViewModelBase, IDisposable
         ILocalizationService localization,
         ICronTaskReader cronTasks,
         PolisAssetStore assetStore,
-        ICitizenAnswerService citizenAnswers)
+        ICitizenAnswerService citizenAnswers,
+        IPolisDebateService debates)
     {
         _configuration = configurationSession ?? throw new ArgumentNullException(nameof(configurationSession));
         _previewHost = previewHost ?? throw new ArgumentNullException(nameof(previewHost));
@@ -177,6 +187,7 @@ public sealed partial class GameModeViewModel : ViewModelBase, IDisposable
         _cronTasks = cronTasks ?? throw new ArgumentNullException(nameof(cronTasks));
         _assetStore = assetStore ?? throw new ArgumentNullException(nameof(assetStore));
         _citizenAnswers = citizenAnswers ?? throw new ArgumentNullException(nameof(citizenAnswers));
+        _debates = debates ?? throw new ArgumentNullException(nameof(debates));
         _cronTasks.TasksChanged += OnCronTasksChanged;
         _isGameMode = _configuration.Current.MainLayout.GameMode;
         _night = !string.Equals(_configuration.Current.Theme, "Light", StringComparison.OrdinalIgnoreCase);
@@ -569,7 +580,170 @@ public sealed partial class GameModeViewModel : ViewModelBase, IDisposable
             case PolisIntentType.AskCitizen:
                 _ = RunIntentAsync(() => AskCitizenAsync(intent.ConversationId!, intent.Text!), "ask-citizen");
                 break;
+            case PolisIntentType.DebateStart:
+                _ = RunIntentAsync(() => StartDebateAsync(intent.Text!), "debate-start");
+                break;
+            case PolisIntentType.DebateSay:
+                _ = RunIntentAsync(() => DebateSayAsync(intent.Text!), "debate-say");
+                break;
+            case PolisIntentType.DebateEnd:
+                EndDebate("page");
+                break;
         }
+    }
+
+    // —— 城里的竞技：讲台前的辩论（M-E）——
+    // 状态机是 PolisDebate（纯函数），这里只做三件事：调用（线程池上，回 UI 线程推页面）、作废晚到的回答（按这一场的 Id）、记战绩。
+    // 雅典娜说不出来时替她说一句（这一轮让给你），辩论照常往下走；裁判没给出裁决算平局——没有一处会卡住，也没有一处弹错误框。
+
+    /// <summary>开一场：一次只有一场；每小时最多十场（服务占位）。</summary>
+    private async Task StartDebateAsync(string motion)
+    {
+        if (_disposed) return;
+        if (_debate != null && _debate.State != PolisDebateState.Done)
+        {
+            _logger.Information("Polis debate start ignored: a debate is already running");
+            return;
+        }
+        if (!_debates.TryReserveDebate())
+        {
+            _debate = null;
+            _debateNotice = DebateText("Limited");
+            await PostDebateAsync();
+            return;
+        }
+        _debateCancel?.Cancel();
+        _debateCancel?.Dispose();
+        _debateCancel = new CancellationTokenSource();
+        _debate = PolisDebate.Start(motion, DateTimeOffset.Now);
+        _logger.Information("Polis debate started ({Length} chars motion)", motion.Length);
+        await PostDebateAsync();
+    }
+
+    /// <summary>你这一轮：记下 → 她想 → 她说（说不出来替她让一轮）→ 三轮之后裁判。</summary>
+    private async Task DebateSayAsync(string text)
+    {
+        if (_disposed || _debate is not { State: PolisDebateState.AwaitingUser } current || _debateCancel == null) return;
+        var id = current.Id;
+        var token = _debateCancel.Token;
+        _debate = PolisDebate.UserSays(current, text);
+        await PostDebateAsync();
+        var language = _localization.CurrentLanguage;
+        var asked = _debate;
+        PolisDebateReply reply;
+        try
+        {
+            reply = await Task.Run(() => _debates.AthenaRespondAsync(asked, language, token), token);
+        }
+        catch (OperationCanceledException)
+        {
+            return;   // 作废了（你走开了、换城了）：没有人等她这一句
+        }
+        if (_disposed || _debate?.Id != id || _debate.State != PolisDebateState.AthenaSpeaking) return;
+        var line = reply.Status == PolisDebateCallStatus.Ok && !string.IsNullOrWhiteSpace(reply.Text)
+            ? reply.Text!
+            : DebateText(reply.Status == PolisDebateCallStatus.NoModel ? "AthenaNoModel" : "AthenaFailed");
+        _debate = PolisDebate.AthenaSays(_debate, line);
+        await PostDebateAsync();
+        if (_debate.State == PolisDebateState.Judging) await JudgeDebateAsync(id, token);
+    }
+
+    private async Task JudgeDebateAsync(string id, CancellationToken token)
+    {
+        var language = _localization.CurrentLanguage;
+        var session = _debate!;
+        var noVerdict = DebateText("NoVerdict");
+        PolisDebateJudgement judgement;
+        try
+        {
+            judgement = await Task.Run(() => _debates.JudgeAsync(session, language, noVerdict, token), token);
+        }
+        catch (OperationCanceledException)
+        {
+            return;
+        }
+        if (_disposed || _debate?.Id != id || _debate.State != PolisDebateState.Judging) return;
+        var verdict = judgement.Status == PolisDebateCallStatus.Ok && judgement.Verdict != null
+            ? judgement.Verdict
+            : PolisDebateVerdict.NoVerdict(DebateText(judgement.Status == PolisDebateCallStatus.NoModel ? "JudgeNoModel" : "NoVerdict"));
+        _debate = PolisDebate.Judge(_debate, verdict);
+        _logger.Information("Polis debate judged: {Votes} of {Jury} for you ({Winner}, judged {Judged})", verdict.VotesForYou, PolisDebate.Jury, verdict.Winner, verdict.Judged);
+        try
+        {
+            _debateRecord = await _debates.RecordAsync(new PolisContestRecord(DateTimeOffset.Now, _debate.Motion, verdict.VotesForYou, verdict.Winner, verdict.Judged), CancellationToken.None);
+            _debateRecordLoaded = true;
+        }
+        catch (Exception ex)
+        {
+            // 战绩没写进去不影响这一场：页面照样看到裁决；下次记的时候从文件里读到的是没有这一场的战绩
+            _logger.Warning(ex, "Could not record the debate result");
+        }
+        await PostDebateAsync();
+    }
+
+    /// <summary>作废这一场（页面说不辩了、你出海了、视图模型释放）。没判完的不记战绩。</summary>
+    private void EndDebate(string why)
+    {
+        if (_debate == null && _debateCancel == null) return;
+        _debateCancel?.Cancel();
+        _debateCancel?.Dispose();
+        _debateCancel = null;
+        var wasRunning = _debate is { State: not PolisDebateState.Done };
+        _debate = null;
+        if (wasRunning) _logger.Information("Polis debate ended before the verdict ({Why})", why);
+        if (!_disposed) _ = RunIntentAsync(PostDebateAsync, "debate-end");
+    }
+
+    /// <summary>把讲台的现状推给页面：这一场（没有就是 idle）、战绩、要说的那一句。</summary>
+    private async Task PostDebateAsync()
+    {
+        if (_disposed) return;
+        if (!_debateRecordLoaded)
+        {
+            try
+            {
+                _debateRecord = await _debates.LoadSummaryAsync(CancellationToken.None);
+            }
+            catch (Exception ex)
+            {
+                _logger.Warning(ex, "Could not load the debate record");
+            }
+            _debateRecordLoaded = true;
+        }
+        if (_disposed) return;
+        var d = _debate;
+        var notice = _debateNotice;
+        _debateNotice = null;
+        Post(new
+        {
+            type = "debate",
+            debate = new
+            {
+                state = d == null ? "idle" : d.State switch
+                {
+                    PolisDebateState.AwaitingUser => "awaiting",
+                    PolisDebateState.AthenaSpeaking => "athena",
+                    PolisDebateState.Judging => "judging",
+                    _ => "done"
+                },
+                id = d?.Id,
+                motion = d?.Motion,
+                round = d?.Round ?? 0,
+                rounds = PolisDebate.Rounds,
+                jury = PolisDebate.Jury,
+                transcript = d?.Transcript.Select(t => new { side = t.Side, text = t.Text }).ToList(),
+                verdict = d?.Verdict == null ? null : new { votesForYou = d.Verdict.VotesForYou, winner = d.Verdict.Winner, reason = d.Verdict.Reason, judged = d.Verdict.Judged },
+                record = new { wins = _debateRecord.Wins, losses = _debateRecord.Losses, ties = _debateRecord.Ties },
+                notice,
+            }
+        });
+        Flush();
+    }
+
+    private string DebateText(string what)
+    {
+        var entry = PolisLocale.Debate.First(d => d.What == what);
+        return L(entry.Key, entry.Fallback);
     }
 
     /// <summary>
@@ -726,6 +900,8 @@ public sealed partial class GameModeViewModel : ViewModelBase, IDisposable
         Post(new { type = "visibility", visible = _windowVisible && IsGameMode });
         // 地址里带过一次主题；创建页面之后主题又变过的话以此刻为准（直接到位，不过渡）
         Post(new { type = "theme", night = _night, instant = true });
+        // 讲台的战绩（全局，不属于哪座城）：页面刚就绪就推一次，讲台的卡片上才有"你 n 胜 m 负"
+        _ = RunIntentAsync(PostDebateAsync, "debate-record");
         _cityKey = null;
         _accumulationKey = null;
         if (_session != null) _ = ActivateSessionAsync(_session, voyage: false);
@@ -894,8 +1070,12 @@ public sealed partial class GameModeViewModel : ViewModelBase, IDisposable
     /// </summary>
     private async Task LoadCityAsync(WorkspaceProfile? workspace)
     {
-        // 离开上一座城：记下离开的时刻（传令官下次只报这之后的事）
-        if (_cityKey != null && _cityKey != (workspace?.Id ?? "sanctuary")) await StampDepartureAsync();
+        // 离开上一座城：记下离开的时刻（传令官下次只报这之后的事）；讲台前没辩完的那一场作废（你已经出海了）
+        if (_cityKey != null && _cityKey != (workspace?.Id ?? "sanctuary"))
+        {
+            if (_debate != null) EndDebate("city-changed");
+            await StampDepartureAsync();
+        }
         _cityLoad?.Cancel();
         _cityLoad?.Dispose();
         var cts = new CancellationTokenSource();
@@ -1799,6 +1979,9 @@ public sealed partial class GameModeViewModel : ViewModelBase, IDisposable
         _disposed = true;
         _askCancel.Cancel();
         _askCancel.Dispose();
+        _debateCancel?.Cancel();
+        _debateCancel?.Dispose();
+        _debateCancel = null;
         _flushTimer.Stop();
         _readyTimer?.Stop();
         _releaseTimer?.Stop();

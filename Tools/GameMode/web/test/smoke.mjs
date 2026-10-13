@@ -13,6 +13,7 @@
 //   输入法选字时的 Enter 不托付；预填（composer open）展开并聚焦；你在远处开口，她过来（远了化作一道光）。
 //   居民即会话（M-B）：街上最多 32 位、最近的不超过 4 位全套；走到一位跟前按 E 开他的卡片，卡片的按钮选中那场会话；碑上刻着老居民。
 //   问话（M-C）：卡片上的"问他那件事"把对话栏借给他，回车只发 ask-citizen；回答回到卡片（长的读全文），对话栏还给雅典娜；页面从不自己发问。
+//   辩论（M-E）：讲台前按 E 开讲台的卡片；议题与论点在借给辩论的对话栏里写，回车只发 debate-start / debate-say；判票时居民围过来，判完按票数挥手；"结束"与 Esc 发 debate-end。
 //   bin/Debug/net10.0/.playwright/node/darwin-arm64/node Tools/GameMode/web/test/smoke.mjs [chromium,webkit]
 import { readFileSync, mkdtempSync, writeFileSync, rmSync } from 'node:fs';
 import { deflateSync, crc32 } from 'node:zlib';
@@ -45,6 +46,7 @@ try {
       failed = !(await accumulationCheck(name, browser)) || failed;
       failed = !(await citizensCheck(name, browser)) || failed;
       failed = !(await askCheck(name, browser)) || failed;
+      failed = !(await debateCheck(name, browser)) || failed;
       failed = !(await controlsCheck(name, browser)) || failed;
     } finally {
       await browser.close();
@@ -569,6 +571,146 @@ async function askCheck(name, browser) {
       noProblems: problems.length === 0,
     };
     Object.assign(result, { checks, target, lent, sentNow, waiting, answered: { ...answered, view: answered.view ? { ...answered.view, bust: undefined } : null }, reader: { open: reader.open, scripts: reader.scripts }, cancelled, afterCancel, problems, seconds: +((Date.now() - started) / 1000).toFixed(1) });
+    await page.close();
+    console.log(JSON.stringify(result, null, 2));
+    return Object.values(checks).every(Boolean);
+  } catch (e) {
+    result.error = e.message;
+    console.log(JSON.stringify(result, null, 2));
+    return false;
+  }
+}
+
+/**
+ * 讲台前的辩论（M-E）：走到讲台前按 E——讲台的卡片（战绩、"提一个议题"）；议题与每一轮的论点都在借给辩论的对话栏里写，
+ * 回车只发 debate-start / debate-say（不是 say、不同步草稿）；她走到舞台的一侧被留住；判票时街上的居民围过来站成半圆，
+ * 判完按票数的比例为你挥手；"结束"或 Esc 发 debate-end；页面从不自己开辩、不自己陈述。
+ */
+async function debateCheck(name, browser) {
+  const started = Date.now();
+  const result = { browser: `${name} ${browser.version()}`, mode: 'live, debate' };
+  try {
+    const page = await browser.newPage({ viewport: { width: 1600, height: 1000 } });
+    const problems = [];
+    page.on('console', (m) => { if (m.type() === 'error') problems.push(`[console.error] ${m.text()}`); });
+    page.on('pageerror', (e) => problems.push(`[pageerror] ${e.message}`));
+    await page.addInitScript(HOST);
+    await page.goto(`${server.origin}/polis/index.html?mode=live`);
+    await page.waitForFunction(() => (window.__hostInbox ?? []).some((m) => m.type === 'ready') || document.title === 'error', null, { timeout: 90_000 });
+    const send = (message) => page.evaluate((m) => window.polis.receive(JSON.stringify(m)), message);
+    const inbox = () => page.evaluate(() => window.__hostInbox);
+    await send({ type: 'init', tables: {} });
+    await send({ type: 'city', key: 'ws-1', city });
+    const street = Array.from({ length: 10 }, (_, i) => ({
+      id: `conv-${i}`, seed: (Math.imul(i + 21, 2654435761) >>> 0), female: false, name: `第${i}位`, title: `委托 ${i}`,
+      home: ['agora:0', 'agora:1', 'agora:2', 'agora:3', 'agora:4', 'agora:5', 'market', 'agora:0', 'agora:2', 'agora:4'][i], age: 'adult', outcome: 'completed', folders: [], turns: 2,
+      lines: ['那件事已经办完了。'],
+    }));
+    await send({ type: 'citizens', citizens: { street, elders: [], census: { total: 10, street: 10, indoors: 0, elders: 0 } } });
+    await send({ type: 'composer', conversationId: 'c-1', busy: false, queued: false, waiting: false, compressing: false, canSend: true, attachments: [], draft: '写给雅典娜的半句话' });
+    const record = { wins: 2, losses: 1, ties: 0 };
+    await send({ type: 'debate', debate: { state: 'idle', record } });
+    await page.waitForFunction(() => { const g = window.__polisGame; return g.world.citizens.size === 10 && [...g.world.citizens.values()].every((c) => c.figure && c.plan); }, null, { timeout: 60_000 });
+    await page.waitForTimeout(300);
+
+    // 走到讲台的台阶前（按 E 的那一点上，面朝讲台），按 E：讲台的卡片——旁边站着居民也是讲台先被挑中
+    const stand = await page.evaluate(() => {
+      const g = window.__polisGame;
+      const st = g.stage;
+      g.setFollow('player');
+      g.placePlayer(st.interact.x, st.interact.z, Math.atan2(-st.front.x, -st.front.z));
+      return { interact: st.interact, audience: st.audience.length };
+    });
+    await page.waitForTimeout(250);
+    const focus = await page.evaluate(() => window.__polis.focus);
+    await page.keyboard.press('KeyE');
+    await page.waitForTimeout(200);
+    const card = await page.evaluate(() => ({ view: window.__polisGame.panelView(), regions: window.__polisGame.regions.map((r) => r.id) }));
+    // 提一个议题：栏借给辩论
+    await page.evaluate(() => window.__polisGame.onButton('bema-propose'));
+    await page.waitForTimeout(200);
+    const motionBar = await page.evaluate(() => ({ talk: window.__polisTalk.state, value: window.__polisTalk.value, focused: document.activeElement?.classList.contains('talk-input'), placeholder: document.querySelector('#talk .talk-input').placeholder }));
+    let n = (await inbox()).length;
+    await page.keyboard.type('周末应该完全不碰工作');
+    await page.keyboard.press('Enter');
+    await page.waitForTimeout(200);
+    const startSent = (await inbox()).slice(n);
+    // C# 开了一场：等你说第一轮
+    const base = { id: 'd1', motion: '周末应该完全不碰工作', rounds: 3, jury: 10, record };
+    await send({ type: 'debate', debate: { ...base, state: 'awaiting', round: 1, transcript: [] } });
+    await page.waitForTimeout(400);
+    const round1 = await page.evaluate(() => ({ talk: window.__polisTalk.state, placeholder: document.querySelector('#talk .talk-input').placeholder, athena: window.__polisGame.athenaSim.state(), closeUp: window.__polis.closeUp }));
+    n = (await inbox()).length;
+    await page.keyboard.type('休息让人第二天更有效率。');
+    await page.keyboard.press('Enter');
+    await page.waitForTimeout(200);
+    const saySent = (await inbox()).slice(n);
+    const waiting = await page.evaluate(() => ({ talk: window.__polisTalk.state, disabled: document.querySelector('#talk .talk-input').disabled }));
+    await send({ type: 'debate', debate: { ...base, state: 'athena', round: 1, transcript: [{ side: 'you', text: '休息让人第二天更有效率。' }] } });
+    await send({ type: 'debate', debate: { ...base, state: 'awaiting', round: 2, transcript: [{ side: 'you', text: '休息让人第二天更有效率。' }, { side: 'athena', text: '休息固然好，可工作不会等你。周一的邮件会把周末的轻松全吃掉。' }] } });
+    await page.waitForTimeout(300);
+    const round2 = await page.evaluate(() => ({ talk: window.__polisTalk.state, placeholder: document.querySelector('#talk .talk-input').placeholder, regions: window.__polisGame.regions.map((r) => r.id) }));
+    // 三轮说完：裁决。栏还给雅典娜，陪审团围过来
+    const transcript = [
+      { side: 'you', text: '休息让人第二天更有效率。' }, { side: 'athena', text: '休息固然好，可工作不会等你。' },
+      { side: 'you', text: '那就关掉通知。' }, { side: 'athena', text: '关掉通知，问题不会消失。' },
+      { side: 'you', text: '问题可以等到周一。' }, { side: 'athena', text: '有些问题等不起。' },
+    ];
+    await send({ type: 'debate', debate: { ...base, state: 'judging', round: 3, transcript } });
+    await page.waitForTimeout(300);
+    const judging = await page.evaluate(() => ({ talk: window.__polisTalk.state, value: window.__polisTalk.value, audience: window.__polisGame.audience.size }));
+    await page.waitForTimeout(9500);   // 走得最远的也在九秒内到
+    const gathered = await page.evaluate(() => {
+      const g = window.__polisGame;
+      const st = g.stage;
+      const people = [...g.audience.entries()].map(([id, a]) => {
+        const c = g.world.citizens.get(id);
+        const p = c.figure.root.position;
+        return { id, x: p.x, z: p.z, to: a.to, onSpot: Math.hypot(p.x - a.to.x, p.z - a.to.z) < 0.35, walkable: g.layout.walkable({ x: p.x, z: p.z }), nearStage: Math.hypot(p.x - st.stage.x, p.z - st.stage.z) < 6 };
+      });
+      return { count: people.length, people };
+    });
+    await send({ type: 'debate', debate: { ...base, state: 'done', round: 3, transcript, verdict: { votesForYou: 7, winner: 'you', reason: '正方的例子更具体。', judged: true }, record: { wins: 3, losses: 1, ties: 0 } } });
+    await page.waitForTimeout(600);
+    const done = await page.evaluate(() => ({ supporters: window.__polis.supporters, audience: window.__polisGame.audience.size, regions: window.__polisGame.regions.map((r) => r.id), debate: window.__polis.debate }));
+    n = (await inbox()).length;
+    await page.evaluate(() => window.__polisGame.onButton('debate-close'));
+    await page.waitForTimeout(200);
+    const closeSent = (await inbox()).slice(n);
+    const after = await page.evaluate(() => ({ debate: window.__polisGame.debate, audience: window.__polisGame.audience.size }));
+    await send({ type: 'debate', debate: { state: 'idle', record: { wins: 3, losses: 1, ties: 0 } } });
+    // Esc：第二场辩到一半按 Esc——不辩了
+    await send({ type: 'debate', debate: { ...base, id: 'd2', motion: '猫比狗更适合当宠物', state: 'awaiting', round: 1, transcript: [] } });
+    await page.waitForTimeout(300);
+    const lent2 = await page.evaluate(() => window.__polisTalk.state.mode);
+    n = (await inbox()).length;
+    await page.keyboard.press('Escape');
+    await page.waitForTimeout(200);
+    const escSent = (await inbox()).slice(n);
+    const afterEsc = await page.evaluate(() => ({ talk: window.__polisTalk.state, value: window.__polisTalk.value, debate: window.__polisGame.debate }));
+    const all = await inbox();
+    const of = (list, type) => list.filter((m) => m.type === type);
+    const checks = {
+      bemaFocus: focus?.type === 'bema',
+      bemaCardWithRecord: card.view?.type === 'bema' && card.view.lines.some((l) => l.includes('2') && l.includes('1')) && card.regions.includes('bema-propose'),
+      barLentForMotion: motionBar.talk.mode === 'debate' && motionBar.focused && motionBar.value === '' && motionBar.placeholder.includes('议题'),
+      onlyDebateStartSent: startSent.length === 1 && startSent[0].type === 'debate-start' && startSent[0].motion === '周末应该完全不碰工作',
+      roundOneLent: round1.talk.mode === 'debate' && round1.placeholder.includes('1') && round1.placeholder.includes('3'),
+      athenaGoesToTheStage: round1.athena.queued > 0 || String(round1.athena.step?.to ?? round1.athena.position).startsWith('pt:'),
+      closeUpOnTheDebate: round1.closeUp === 'debate',
+      onlyDebateSaySent: saySent.length === 1 && saySent[0].type === 'debate-say' && saySent[0].text === '休息让人第二天更有效率。',
+      waitsForAthena: waiting.talk.mode === 'debating' && waiting.disabled,
+      roundTwoLent: round2.talk.mode === 'debate' && round2.placeholder.includes('2') && round2.regions.includes('debate-close'),
+      barGivenBackForJudging: judging.talk.mode === 'talk' && judging.value === '写给雅典娜的半句话',
+      juryGathers: judging.audience > 0 && gathered.count === judging.audience && gathered.people.every((p) => p.onSpot && p.walkable && p.nearStage),
+      supportersWave: done.supporters === Math.round((done.audience * 7) / 10) && done.supporters > 0,
+      verdictOnTheBoard: done.debate?.state === 'done' && done.debate.votesForYou === 7 && done.regions.includes('debate-close'),
+      closeEndsIt: closeSent.length === 1 && closeSent[0].type === 'debate-end' && after.debate === null && after.audience === 0,
+      escEndsIt: lent2 === 'debate' && escSent.length === 1 && escSent[0].type === 'debate-end' && afterEsc.talk.mode === 'talk' && afterEsc.value === '写给雅典娜的半句话' && afterEsc.debate === null,
+      neverDebatesByItself: of(all, 'debate-start').length === 1 && of(all, 'debate-say').length === 1 && !all.some((m) => m.type === 'say' || (m.type === 'draft' && /周末|休息/.test(m.text ?? ''))),
+      noProblems: problems.length === 0,
+    };
+    Object.assign(result, { checks, stand, focus, round1: { mode: round1.talk.mode, placeholder: round1.placeholder, athena: round1.athena, closeUp: round1.closeUp }, judging, gathered: { count: gathered.count, offSpot: gathered.people.filter((p) => !p.onSpot || !p.walkable || !p.nearStage) }, done, problems, seconds: +((Date.now() - started) / 1000).toFixed(1) });
     await page.close();
     console.log(JSON.stringify(result, null, 2));
     return Object.values(checks).every(Boolean);

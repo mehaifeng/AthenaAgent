@@ -114,6 +114,41 @@ public static class PolisLocale
         ("askHint", "Polis.Ui.AskHint", "Enter 问 · Esc 不问了"),
         ("askTimeout", "Polis.Ui.AskTimeout", "他想了想，没说出来。"),
         ("askReaderTitle", "Polis.Ui.AskReaderTitle", "{name}说"),
+        // M-E（2026-10-13）：讲台前的辩论
+        ("interactBema", "Polis.Ui.InteractBema", "上讲台辩论"),
+        ("bemaTitle", "Polis.Ui.BemaTitle", "讲台"),
+        ("bemaBody", "Polis.Ui.BemaBody", "提一个议题，你站正方，雅典娜站反方，辩三轮；街上的居民当陪审团。"),
+        ("bemaRecord", "Polis.Ui.BemaRecord", "你 {wins} 胜 {losses} 负 {ties} 平"),
+        ("bemaPropose", "Polis.Ui.BemaPropose", "提一个议题"),
+        ("debateName", "Polis.Ui.DebateName", "辩论"),
+        ("debateMotionStatus", "Polis.Ui.DebateMotionStatus", "你站正方，雅典娜站反方"),
+        ("debateMotionPlaceholder", "Polis.Ui.DebateMotionPlaceholder", "提一个议题……（比如：周末应该完全不碰工作）"),
+        ("debateArguePlaceholder", "Polis.Ui.DebateArguePlaceholder", "第 {round} / {rounds} 轮：说你的论点……"),
+        ("debateArgueStatus", "Polis.Ui.DebateArgueStatus", "议题：{motion}"),
+        ("debateSend", "Polis.Ui.DebateSend", "陈述"),
+        ("debateHint", "Polis.Ui.DebateHint", "Enter 陈述 · Esc 不辩了"),
+        ("debateAthenaThinking", "Polis.Ui.DebateAthenaThinking", "雅典娜在想她的反驳……"),
+        ("debateJudging", "Polis.Ui.DebateJudging", "陪审团在商议……"),
+        ("debateRound", "Polis.Ui.DebateRound", "第 {round} / {rounds} 轮"),
+        ("debateYou", "Polis.Ui.DebateYou", "你"),
+        ("debateAthena", "Polis.Ui.DebateAthena", "雅典娜"),
+        ("debateVotes", "Polis.Ui.DebateVotes", "陪审团：正方 {you} 票，反方 {athena} 票"),
+        ("debateYouWin", "Polis.Ui.DebateYouWin", "你赢了"),
+        ("debateAthenaWins", "Polis.Ui.DebateAthenaWins", "雅典娜赢了"),
+        ("debateTie", "Polis.Ui.DebateTie", "平局"),
+        ("debateClose", "Polis.Ui.DebateClose", "结束"),
+    };
+
+    /// <summary>
+    /// 辩论（M-E）里 C# 替人说的那几句：没开成、雅典娜说不出来（这一轮让给你）、裁判没给出裁决（算平局）。永远是一句话，不是错误框。
+    /// </summary>
+    public static IReadOnlyList<(string What, string Key, string Fallback)> Debate { get; } = new[]
+    {
+        ("Limited", "Polis.Debate.Limited", "这一个钟头辩得够多了，歇一会儿再来。"),
+        ("AthenaNoModel", "Polis.Debate.AthenaNoModel", "（雅典娜没法开口：设置里还没给「主对话」选模型。这一轮让给你。）"),
+        ("AthenaFailed", "Polis.Debate.AthenaFailed", "（雅典娜想了想，这一轮让给你。）"),
+        ("JudgeNoModel", "Polis.Debate.JudgeNoModel", "陪审团没有发言人：设置里还没给「虚拟宠物与城里的居民」或「标题生成」选模型，算平局。"),
+        ("NoVerdict", "Polis.Debate.NoVerdict", "陪审团没能给出裁决，算平局。"),
     };
 
     /// <summary>
@@ -276,6 +311,7 @@ public static class PolisLocale
         .Concat(Herald.Select(h => h.Key))
         .Concat(Citizen.Select(c => c.Key))
         .Concat(CitizenAsk.Select(c => c.Key))
+        .Concat(Debate.Select(d => d.Key))
         .Concat(Services.GameMode.PolisCitizens.LineFallbacks.Keys)
         .Distinct(StringComparer.Ordinal);
 

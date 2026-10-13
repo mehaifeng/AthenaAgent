@@ -867,6 +867,14 @@ public partial class App : Application, IAsyncDisposable
                 sp.GetRequiredService<OpenAiModelRuntimeFactory>(),
                 sp.GetRequiredService<ISystemClock>(),
                 Log.Logger));
+        // 城里的竞技（M-E）：讲台前的辩论——雅典娜用主对话模型，陪审团用陪伴角色；战绩是全局的 Game/contests.json
+        services.AddSingleton<Athena.UI.Services.GameMode.IPolisDebateService>(sp =>
+            new Athena.UI.Services.GameMode.PolisDebateService(
+                sp.GetRequiredService<OpenAiModelRuntimeFactory>(),
+                sp.GetRequiredService<ISystemClock>(),
+                new Athena.UI.Services.GameMode.PolisContestStore(
+                    Path.Combine(sp.GetRequiredService<IPlatformPathService>().GetAppDataDirectory(), "Game", "contests.json"), Log.Logger),
+                Log.Logger));
         services.AddSingleton<Athena.UI.ViewModels.GameMode.GameModeViewModel>(sp =>
             new Athena.UI.ViewModels.GameMode.GameModeViewModel(
                 sp.GetRequiredService<AppConfigurationSession>(),
@@ -877,7 +885,8 @@ public partial class App : Application, IAsyncDisposable
                 // 只读：神庙看每日神谕设没设、传令官报结果；游戏结构上建不了任务（神谕只能由雅典娜调用 create_task，走审批）
                 sp.GetRequiredService<ICronTaskReader>(),
                 sp.GetRequiredService<Athena.UI.Services.GameMode.PolisAssetStore>(),
-                sp.GetRequiredService<Athena.UI.Services.GameMode.ICitizenAnswerService>()));
+                sp.GetRequiredService<Athena.UI.Services.GameMode.ICitizenAnswerService>(),
+                sp.GetRequiredService<Athena.UI.Services.GameMode.IPolisDebateService>()));
         services.AddSingleton<AboutViewModel>();
         services.AddTransient<AppSettingsWindowViewModel>();
         services.AddTransient<ProviderModelsViewModel>();

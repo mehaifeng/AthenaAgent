@@ -21,6 +21,7 @@ import {
 } from './controls.mjs';
 import { createAthena, stepProgress } from './athena.mjs';
 import { planCitizen, citizenAt, separate, assignTiers, pickChat, chatLineAt, greetLine, TOWN } from './citizens.mjs';
+import { debateStage, assignAudience, supportersCount, bubbleExcerpt, DEBATE } from './debate.mjs';
 import { createRenderer } from './render.mjs';
 import { createOverlay } from './overlay.mjs';
 import { makeMaterials, setNightWindows } from './art/materials.mjs';
@@ -156,6 +157,29 @@ export const UI_ZH = Object.freeze({
   askHint: 'Enter 问 · Esc 不问了',
   askTimeout: '他想了想，没说出来。',
   askReaderTitle: '{name}说',
+  // 讲台前的辩论（M-E）
+  interactBema: '上讲台辩论',
+  bemaTitle: '讲台',
+  bemaBody: '提一个议题，你站正方，雅典娜站反方，辩三轮；街上的居民当陪审团。',
+  bemaRecord: '你 {wins} 胜 {losses} 负 {ties} 平',
+  bemaPropose: '提一个议题',
+  debateName: '辩论',
+  debateMotionStatus: '你站正方，雅典娜站反方',
+  debateMotionPlaceholder: '提一个议题……（比如：周末应该完全不碰工作）',
+  debateArguePlaceholder: '第 {round} / {rounds} 轮：说你的论点……',
+  debateArgueStatus: '议题：{motion}',
+  debateSend: '陈述',
+  debateHint: 'Enter 陈述 · Esc 不辩了',
+  debateAthenaThinking: '雅典娜在想她的反驳……',
+  debateJudging: '陪审团在商议……',
+  debateRound: '第 {round} / {rounds} 轮',
+  debateYou: '你',
+  debateAthena: '雅典娜',
+  debateVotes: '陪审团：正方 {you} 票，反方 {athena} 票',
+  debateYouWin: '你赢了',
+  debateAthenaWins: '雅典娜赢了',
+  debateTie: '平局',
+  debateClose: '结束',
 });
 
 /** 问出去之后最多等多久（C# 那边一次调用 20 秒就放弃；多留 5 秒给排队和回传）。 */
@@ -192,7 +216,7 @@ export const CITIZEN_ZH = Object.freeze({
  * @param {string} [options.defaultView] 缺省视角：自由（你是主角）
  * @param {() => boolean} [options.talkOpen] 对话栏此刻是不是展开着（M3：你站着和她说话、她听着；托付之后你比划两秒）
  */
-export function createGame({ params, status, send, onTalk = null, onUiBlocked = null, onViewChange = null, modalOpen = () => false, topInset = 0, defaultView = 'free', talkOpen = () => false, onAsk = null, onAskEnd = null, onRead = null }) {
+export function createGame({ params, status, send, onTalk = null, onUiBlocked = null, onViewChange = null, modalOpen = () => false, topInset = 0, defaultView = 'free', talkOpen = () => false, onAsk = null, onLendEnd = null, onDebate = null, onRead = null }) {
   const R = createRenderer({
     canvas: document.getElementById('scene'),
     ao: params.get('ao') !== '0', shadows: params.get('shadows') !== '0',
@@ -231,7 +255,18 @@ export function createGame({ params, status, send, onTalk = null, onUiBlocked = 
   let ask = null;                    // { id, status, question, sentAt }
   const answers = new Map();         // id → { question, text, status, at }
   /** 对话栏开着、而且是在和雅典娜说话（不是借给了一位居民）。 */
-  const talkingToAthena = () => talkOpen() && !ask;
+  const talkingToAthena = () => talkOpen() && !ask && !lentToDebate();
+  // 讲台前的辩论（M-E）：C# 推来的这一场（没有就是 null）、战绩、舞台站位（这座城算一次）、围过来的陪审团
+  let debate = null;                 // { state, id, motion, round, rounds, jury, transcript, verdict, record }
+  let debateRecord = { wins: 0, losses: 0, ties: 0 };
+  let stageInfo = null;              // debate.debateStage 的结果（换城清掉）
+  const audienceOf = new Map();      // 居民 id → { index, from, to, ms, start, dist, supporter }
+  let debateSeen = { id: null, athenaTurns: 0, lentRound: 0, gathered: false, doneAt: 0 };
+  let debateNotice = null;           // { text, until }：没开成之类 C# 替人说的那一句
+  let motionPending = false;         // 对话栏借给了"提一个议题"，还没收到这一场
+  const debateActive = () => !!debate;
+  /** 对话栏此刻借给了辩论（提议题、或者在辩）。 */
+  const lentToDebate = () => motionPending || (!!debate && (debate.state === 'awaiting' || debate.state === 'athena'));
   let suggestions = [];        // [{ id, line }]
   let oracle = null;           // { exists, title, body, latestConversationId }
   let islands = [];            // 海图
@@ -305,6 +340,8 @@ export function createGame({ params, status, send, onTalk = null, onUiBlocked = 
   let glide = null;   // 镜头被"请"去某处（摆放时看场馆）：{ to, until }
   // M3（决定 4）近景：对话栏开着（你和雅典娜说话）、居民的卡片开着，镜头推近到两个人中间、俯角放低；收起就退回原来的远近
   const CLOSE_UP = { zoom: 4.6, elevation: 26, tauMs: 380 };
+  /** 陪审团判票与判完（M-E）：镜头看着舞台，远一点、高一点，两圈半圆的人都在画面里（截图审查：退回原来的远近，人只有几像素高）。 */
+  const JURY_VIEW = { zoom: 2.4, elevation: 36 };
   let closeUp = null;    // { kind: 'talk' | 'resident', id, saved: { zoom, elevation } }
   // 退出近景之后往回走的目标：{ zoom, elevation }。退回要走两秒多，这期间你滚了滚轮，远近就归你（zoom 置空）、拖动转了镜头，俯角就归你
   // （elevation 置空）——否则每帧都把它拽回记住的值，滚轮像是失灵，只有往回滚、或者停手等它走完才"恢复"（2026-10-12）
@@ -380,8 +417,15 @@ export function createGame({ params, status, send, onTalk = null, onUiBlocked = 
         chatTalk = null;
         greeting = null;
         citizenTiers = new Map();
-        if (ask) { ask = null; status.asking = null; onAskEnd?.(); }
+        if (ask) { ask = null; status.asking = null; onLendEnd?.('ask'); }
         answers.clear();
+        if (debate || motionPending) onLendEnd?.('debate');
+        debate = null;
+        motionPending = false;
+        stageInfo = null;
+        audienceOf.clear();
+        debateSeen = { id: null, athenaTurns: 0, lentRound: 0, gathered: false, doneAt: 0 };
+        status.debate = null;
       }
       // 存档里这座城的远近：靠岸时镜头推回的就是它（没有存档就推回出港前的远近）
       if (p && Number.isFinite(p.zoom)) { camera.zoom = p.zoom; camera.updateProjectionMatrix(); if (voyage) voyage.restoreZoom = p.zoom; }
@@ -521,7 +565,7 @@ export function createGame({ params, status, send, onTalk = null, onUiBlocked = 
 
   /** 留住她：你离她 2.5 米以内、或者对话栏开着——她不再走开（athena.mjs 的 hold）。 */
   function athenaHeld() {
-    if (talkingToAthena()) return true;
+    if (talkingToAthena() || debateActive()) return true;
     const a = world?.athena;
     return !!a && a.visible && Math.hypot(a.position.x - player.pos.x, a.position.z - player.pos.z) < NEAR_ATHENA;
   }
@@ -699,6 +743,152 @@ export function createGame({ params, status, send, onTalk = null, onUiBlocked = 
     citizenTiers = assignTiers(list, citizenTiers);
   }
 
+  // —— 讲台前的辩论（M-E）：舞台站位、陪审团、C# 推来的这一场 ——
+  /** 这座城的舞台（讲台在广场上，每座城都有）：第一次用到时算一次，换城清掉。 */
+  function stage() {
+    if (stageInfo || !world?.agora?.userData.bema || !layout) return stageInfo;
+    const b = world.agora.userData.bema;
+    const o = world.agora.position;
+    stageInfo = debateStage({ bema: { x: o.x + b.x, z: o.z + b.z }, center: { x: o.x, z: o.z }, walkable: layout.walkable });
+    return stageInfo;
+  }
+
+  function audiencePos(aud, wall) {
+    const f = ease(Math.min(1, Math.max(0, (wall - aud.start) / Math.max(1, aud.ms))));
+    return { x: aud.from.x + (aud.to.x - aud.from.x) * f, z: aud.from.z + (aud.to.z - aud.from.z) * f };
+  }
+
+  /** 判票了：看得见、离舞台不远的居民走到陪审团的站位上（debate.assignAudience）。 */
+  function gatherAudience(wall) {
+    const st = stage();
+    if (!st || !world) return;
+    const candidates = [];
+    for (const c of world.citizens.values()) {
+      if (!c.figure?.root.visible || ask?.id === c.id || (panel?.type === 'citizen' && panel.id === c.id)) continue;
+      const p = c.figure.root.position;
+      if (Math.hypot(p.x - st.stage.x, p.z - st.stage.z) > DEBATE.gatherRadius) continue;
+      candidates.push({ id: c.id, x: p.x, z: p.z });
+    }
+    for (const [id, a] of assignAudience(candidates, st.audience, layout.walkable, { stage: st.stage })) {
+      audienceOf.set(id, { ...a, start: wall, dist: Math.hypot(a.to.x - a.from.x, a.to.z - a.from.z), supporter: false });
+    }
+    status.audience = audienceOf.size;
+  }
+
+  /** 判完了：按票数的比例，前面几位为你挥手。 */
+  function markSupporters(votesForYou, jury) {
+    const list = [...audienceOf.values()].sort((a, b) => a.index - b.index);
+    const k = supportersCount(list.length, votesForYou, jury);
+    list.forEach((a, i) => { a.supporter = i < k; });
+    status.supporters = k;
+  }
+
+  /** 散场：陪审团从站位上慢慢回到各自的日程（和收起卡片一样的回位），雅典娜不再被留住。 */
+  function teardownDebate(wall) {
+    for (const [id, aud] of audienceOf) {
+      const c = world?.citizens.get(id);
+      if (!c?.at) continue;
+      const p = audiencePos(aud, wall);
+      c.release = { dx: p.x - (c.at.x + c.nudge.x), dz: p.z - (c.at.z + c.nudge.z), at: wall };
+    }
+    audienceOf.clear();
+    status.audience = 0;
+    status.supporters = 0;
+    debateSeen = { id: null, athenaTurns: 0, lentRound: 0, gathered: false, doneAt: 0 };
+  }
+
+  /** 你在页面上说不辩了（Esc、"结束"、走远了、判完很久了）：告诉 C#，自己先散场（C# 随后推 idle）。 */
+  function endDebateFromPage() {
+    if (!debate && !motionPending) return;
+    if (debate) send('debate-end');
+    if (lentToDebate()) onLendEnd?.('debate');
+    motionPending = false;
+    debate = null;
+    status.debate = null;
+    teardownDebate(performance.now());
+  }
+
+  /** C# 推来的讲台现状。 */
+  function setDebate(d) {
+    if (d?.record) debateRecord = { wins: d.record.wins ?? 0, losses: d.record.losses ?? 0, ties: d.record.ties ?? 0 };
+    if (d?.notice) debateNotice = { text: String(d.notice), until: performance.now() + 6000 };
+    const next = d && d.state && d.state !== 'idle' ? d : null;
+    const prev = debate;
+    debate = next;
+    status.debate = next ? { state: next.state, round: next.round, id: next.id, votesForYou: next.verdict?.votesForYou ?? null } : null;
+    const wall = performance.now();
+    if (!next) {
+      if (prev) teardownDebate(wall);
+      // 没开成（这一个钟头辩得够多了）：借出去的栏还回来
+      if (motionPending) { motionPending = false; onLendEnd?.('debate'); }
+      return;
+    }
+    if (next.id !== debateSeen.id) {
+      if (prev) teardownDebate(wall);
+      debateSeen = { id: next.id, athenaTurns: 0, lentRound: 0, gathered: false, doneAt: 0 };
+      motionPending = false;
+      // 她走到舞台的一侧（远了化作一道光过来），站定面对你
+      const st = stage();
+      if (st && athenaSim) athenaSim.goTo(`pt:${st.athena.x.toFixed(2)},${st.athena.z.toFixed(2)}`, clock);
+    }
+    const herTurns = (next.transcript ?? []).filter((t) => t.side === 'athena');
+    if (herTurns.length > debateSeen.athenaTurns) {
+      debateSeen.athenaTurns = herTurns.length;
+      say(bubbleExcerpt(herTurns[herTurns.length - 1].text), clock, 3000);
+    }
+    if (next.state === 'awaiting' && debateSeen.lentRound !== next.round) {
+      debateSeen.lentRound = next.round;
+      onDebate?.({ stage: 'argue', round: next.round, rounds: next.rounds ?? 3, motion: next.motion ?? '', id: next.id });
+    }
+    if (next.state === 'judging' || next.state === 'done') onLendEnd?.('debate');
+    if ((next.state === 'judging' || next.state === 'done') && !debateSeen.gathered) {
+      debateSeen.gathered = true;
+      gatherAudience(wall);
+    }
+    if (next.state === 'done' && !debateSeen.doneAt) {
+      debateSeen.doneAt = wall;
+      markSupporters(next.verdict?.votesForYou ?? 5, next.jury ?? 10);
+    }
+  }
+
+  /** 顶上的辩论牌：议题、第几轮（或在商议 / 裁决）、最近一来一回、战绩。 */
+  function debateBoardView() {
+    const now = performance.now();
+    if (!debate) {
+      if (debateNotice && now < debateNotice.until) return { title: ui.bemaTitle, lines: [debateNotice.text], buttons: [] };
+      return null;
+    }
+    const d = debate;
+    const rounds = d.rounds ?? 3;
+    const state = d.state === 'judging' ? ui.debateJudging
+      : d.state === 'athena' ? ui.debateAthenaThinking
+        : d.state === 'done' ? ''
+          : fill(ui.debateRound, { round: d.round, rounds });
+    const transcript = d.transcript ?? [];
+    const lastYou = [...transcript].reverse().find((t) => t.side === 'you');
+    const lastHer = [...transcript].reverse().find((t) => t.side === 'athena');
+    const lines = [];
+    if (lastYou) lines.push({ who: ui.debateYou, text: lastYou.text });
+    if (lastHer && transcript.indexOf(lastHer) > transcript.indexOf(lastYou)) lines.push({ who: ui.debateAthena, text: lastHer.text });
+    let verdict = null;
+    if (d.state === 'done' && d.verdict) {
+      const jury = d.jury ?? 10;
+      const v = d.verdict.votesForYou ?? jury / 2;
+      verdict = {
+        headline: d.verdict.winner === 'you' ? ui.debateYouWin : d.verdict.winner === 'athena' ? ui.debateAthenaWins : ui.debateTie,
+        votes: fill(ui.debateVotes, { you: v, athena: jury - v }),
+        reason: d.verdict.reason ?? '',
+        winner: d.verdict.winner,
+      };
+    }
+    return {
+      title: `${ui.debateName}：${d.motion ?? ''}`,
+      state, lines, verdict,
+      record: fill(ui.bemaRecord, debateRecord),
+      buttons: [{ id: 'debate-close', label: ui.debateClose }],
+    };
+  }
+
   /**
    * 居民即会话（M-B）：日程（citizens.citizenAt）→ 避让（separate）→ 分档（assignTiers：离你最近的 4 位全套、画面里其余的
    * 布料停着、画面外的不摆不画）→ 闲聊与打招呼 → 摆姿势。人物一帧最多建两位（world.buildNextCitizen）：几十位一起建会卡住一帧。
@@ -719,12 +909,15 @@ export function createGame({ params, status, send, onTalk = null, onUiBlocked = 
       live.push(c);
     }
     // 避让：居民之间互相让；雅典娜与十一位居民是站在那儿的人（不被推），你是推不动的石头——挡在你面前的人侧身让开
-    const people = live.map((c) => ({ id: c.id, x: c.at.x, z: c.at.z, nudge: c.nudge, movable: !((panel?.type === 'citizen' && panel.id === c.id) || ask?.id === c.id) }));
+    const people = live.map((c) => ({ id: c.id, x: c.at.x, z: c.at.z, nudge: c.nudge, movable: !((panel?.type === 'citizen' && panel.id === c.id) || ask?.id === c.id || audienceOf.has(c.id)) }));
     for (const r of world.residents.values()) people.push({ id: `resident:${r.kind}`, x: r.figure.root.position.x, z: r.figure.root.position.z, movable: false });
     if (world.athena.visible) people.push({ id: 'athena', x: world.athena.position.x, z: world.athena.position.z, movable: false });
     const nudges = separate(people, player.pos, layout.walkable);
     for (const c of live) c.nudge = nudges.get(c.id) ?? c.nudge;
     const posOf = (c) => {
+      // 陪审团（M-E）：走到讲台前的站位、站在那儿，日程先放一边
+      const aud = audienceOf.get(c.id);
+      if (aud) return audiencePos(aud, wall);
       let x = c.at.x + c.nudge.x, z = c.at.z + c.nudge.z;
       if (c.hold) { x = c.hold.x; z = c.hold.z; }
       else if (c.release) {
@@ -741,7 +934,7 @@ export function createGame({ params, status, send, onTalk = null, onUiBlocked = 
     if (!chatTalk && wall >= nextChatPickAt) {
       nextChatPickAt = wall + 500;
       const candidates = live
-        .filter((c) => c.at.action === 'idle' && !c.hold && citizenTiers.get(c.id) !== 'C' && greeting?.id !== c.id)
+        .filter((c) => c.at.action === 'idle' && !c.hold && citizenTiers.get(c.id) !== 'C' && greeting?.id !== c.id && !audienceOf.has(c.id))
         .map((c) => { const p = posOf(c); return { id: c.id, x: p.x, z: p.z, idleLeft: c.at.idleLeft, inView: true, seed: c.data.seed, lines: c.data.lines ?? [] }; });
       chatTalk = pickChat(candidates, player.pos, chatCooldown, wall, citizenWords, { night: nightK > 0.5 });
       if (chatTalk) chatCooldown.set(chatTalk.key, wall);
@@ -752,7 +945,7 @@ export function createGame({ params, status, send, onTalk = null, onUiBlocked = 
     if (!greeting) {
       let best = null;
       for (const c of live) {
-        if (c.at.action !== 'idle' || c.at.idleLeft < TOWN.chatLineMs + 300 || citizenTiers.get(c.id) === 'C') continue;
+        if (c.at.action !== 'idle' || c.at.idleLeft < TOWN.chatLineMs + 300 || citizenTiers.get(c.id) === 'C' || audienceOf.has(c.id)) continue;
         if (chatTalk && (chatTalk.a === c.id || chatTalk.b === c.id)) continue;
         const p = posOf(c);
         const d = Math.hypot(p.x - player.pos.x, p.z - player.pos.z);
@@ -793,7 +986,25 @@ export function createGame({ params, status, send, onTalk = null, onUiBlocked = 
       const style = { speed: TOWN.speed, stride: 1.25, seed: c.data.seed % 9973, cloth: tier === 'A' || panelOpen };
       const greetingNow = greeting?.id === c.id;
       const inChat = !!chatLine && (chatLine.speaker === c.id || chatLine.listener === c.id);
-      if (panelOpen || greetingNow) {
+      const aud = audienceOf.get(c.id);
+      if (aud && !panelOpen) {
+        // 陪审团：走过来（比平时快一点），到了面朝舞台；判完之后为你投票的人隔一会儿挥一次手
+        const f = Math.min(1, Math.max(0, (wall - aud.start) / Math.max(1, aud.ms)));
+        if (f < 1) {
+          action = 'walk';
+          yaw = Math.atan2(aud.to.x - aud.from.x, aud.to.z - aud.from.z);
+          t = ((aud.dist * f) / DEBATE.walkSpeed) * 1000;
+          style.speed = DEBATE.walkSpeed;
+        } else {
+          action = 'idle';
+          yaw = aud.to.yaw;
+          if (aud.supporter && debate?.state === 'done' && debateSeen.doneAt) {
+            const phase = (wall - debateSeen.doneAt + aud.index * 330) % DEBATE.waveEveryMs;
+            if (phase < ONE_SHOT_MS.wave) { action = 'wave'; t = phase; }
+          }
+          if (stageInfo) style.lookAt = playerHead.set(stageInfo.stage.x, 1.5, stageInfo.stage.z);
+        }
+      } else if (panelOpen || greetingNow) {
         yaw = Math.atan2(player.pos.x - x, player.pos.z - z);
         if (panelOpen && c.cardAt == null) c.cardAt = wall;
         const since = wall - (greetingNow ? greeting.start : c.cardAt);
@@ -1021,6 +1232,9 @@ export function createGame({ params, status, send, onTalk = null, onUiBlocked = 
     if (!world || voyage || reveal || fogInfo) return null;
     // 问一位居民（M-C）：对话栏借给了他，镜头看你和他，不看她
     if (ask && world.citizens.get(ask.id)?.figure) return { kind: 'citizen', id: ask.id };
+    // 讲台前辩论时：对话栏借给了辩论，镜头看你和她（和平时开口一样的近景）；判票与判完看整个舞台和围过来的陪审团
+    if (lentToDebate() && talkOpen()) return { kind: 'debate', id: null };
+    if (debate && (debate.state === 'judging' || debate.state === 'done') && stageInfo) return { kind: 'jury', id: null };
     if (talkOpen()) return { kind: 'talk', id: null };
     if (panel?.type === 'resident' && world.residents.has(panel.id)) return { kind: 'resident', id: panel.id };
     if (panel?.type === 'citizen' && world.citizens.get(panel.id)?.figure) return { kind: 'citizen', id: panel.id };
@@ -1045,15 +1259,20 @@ export function createGame({ params, status, send, onTalk = null, onUiBlocked = 
     }
     const k = snap ? 1 : 1 - Math.exp(-dt / CLOSE_UP.tauMs);
     if (closeUp) {
-      const other = closeUp.kind === 'talk' ? world.athena.position
-        : closeUp.kind === 'citizen' ? world.citizens.get(closeUp.id).figure.root.position
-          : world.residents.get(closeUp.id).figure.root.position;
-      const far = Math.hypot(other.x - player.pos.x, other.z - player.pos.z) > 12;
-      closeUpFocus.set(far ? player.pos.x : (player.pos.x + other.x) / 2, 1.1, far ? player.pos.z : (player.pos.z + other.z) / 2);
+      if (closeUp.kind === 'jury') {
+        // 舞台中心（你走开超过 25 米这一场就散了，所以不必像近景那样防"太远"）
+        closeUpFocus.set(stageInfo.stage.x, 1.1, stageInfo.stage.z);
+      } else {
+        const other = closeUp.kind === 'talk' || closeUp.kind === 'debate' ? world.athena.position
+          : closeUp.kind === 'citizen' ? world.citizens.get(closeUp.id).figure.root.position
+            : world.residents.get(closeUp.id).figure.root.position;
+        const far = Math.hypot(other.x - player.pos.x, other.z - player.pos.z) > 12;
+        closeUpFocus.set(far ? player.pos.x : (player.pos.x + other.x) / 2, 1.1, far ? player.pos.z : (player.pos.z + other.z) / 2);
+      }
       const delta = closeUpFocus.sub(controls.target).multiplyScalar(k);
       controls.target.add(delta);
       camera.position.add(delta);
-      approachView(CLOSE_UP, k);
+      approachView(closeUp.kind === 'jury' ? JURY_VIEW : CLOSE_UP, k);
       return true;
     }
     if (restoring) {
@@ -1137,8 +1356,15 @@ export function createGame({ params, status, send, onTalk = null, onUiBlocked = 
     if (ask?.status === 'waiting' && wall - ask.sentAt > ASK_TIMEOUT_MS) {
       const id = ask.id;
       // 先把对话栏还回去（它还开着，卡片就会以为你又在和雅典娜说话、不打扰），再把这句放进他的卡片
-      onAskEnd?.();
+      onLendEnd?.('ask');
       setCitizenAnswer({ conversationId: id, status: 'timeout', text: ui.askTimeout });
+    }
+    // 辩论（M-E）：你走开太远、或者判完很久了——散场
+    if (debate) {
+      const st = stage();
+      const far = st && Math.hypot(player.pos.x - st.stage.x, player.pos.z - st.stage.z) > DEBATE.leaveDistance;
+      const stale = debate.state === 'done' && debateSeen.doneAt && wall - debateSeen.doneAt > DEBATE.doneHoldMs;
+      if (far || stale) endDebateFromPage();
     }
     applyEffects(wall, dt);
     focus = pickFocus(pose);
@@ -1231,6 +1457,7 @@ export function createGame({ params, status, send, onTalk = null, onUiBlocked = 
       hud,
       notices: notices.length ? notices : null,
       herald,
+      debate: herald ? null : debateBoardView(),
       fog: fogInfo,
       card: card ? cardView(card) : null,
       panel: panelView(),
@@ -1379,6 +1606,8 @@ export function createGame({ params, status, send, onTalk = null, onUiBlocked = 
         if (citizens.census) lines.push(fill(ui.censusLine, { total: citizens.census.total, street: citizens.census.street }));
         return { type: 'citizen', bust: c.look.bust, expression: 'speak', title: c.data.name ?? '', lines, askable };
       }
+      case 'bema':
+        return { type: 'bema', bust: 'herald', expression: 'speak', title: ui.bemaTitle, lines: [ui.bemaBody, fill(ui.bemaRecord, debateRecord)] };
       case 'stele': {
         const s = world?.steles.get(panel.id);
         if (!s) return null;
@@ -1468,8 +1697,9 @@ export function createGame({ params, status, send, onTalk = null, onUiBlocked = 
    * 城里能互动的东西，各自的位置和够得着的距离（米）：雅典娜、居民、地上待收的成果与底座上的藏品（遗失的只剩底座）、
    * 摆放时的空底座、橄榄树、委托板、神庙（神谕）、三处场馆。priority 小的先挑（摆放时空底座最先）。
    */
-  const REACH = Object.freeze({ slot: 1.5, item: 1.7, athena: 2.2, resident: 2.0, citizen: 2.0, board: 2.6, tree: 2.2, stele: 1.8, oracle: 3.2, venue: 3.2 });
-  const PRIORITY = Object.freeze({ slot: 0, item: 1, athena: 2, resident: 3, citizen: 3.5, board: 4, tree: 5, stele: 5.5, oracle: 6, venue: 7 });
+  const REACH = Object.freeze({ slot: 1.5, item: 1.7, athena: 2.2, resident: 2.0, citizen: 2.0, board: 2.6, bema: 2.4, tree: 2.2, stele: 1.8, oracle: 3.2, venue: 3.2 });
+  // 讲台排在成果之后、雅典娜之前：广场上总有居民在讲台边转悠，排在他们后面，走到台阶前按 E 常常打开的是哪位居民的卡片（冒烟踩过）
+  const PRIORITY = Object.freeze({ slot: 0, item: 1, bema: 1.5, athena: 2, resident: 3, citizen: 3.5, board: 4, tree: 5, stele: 5.5, oracle: 6, venue: 7 });
   function interactables(pose) {
     const list = [];
     if (!world) return list;
@@ -1490,6 +1720,8 @@ export function createGame({ params, status, send, onTalk = null, onUiBlocked = 
     for (const r of world.residents.values()) add('resident', r.figure.root.position.x, r.figure.root.position.z, { id: r.kind });
     for (const c of world.citizens.values()) if (c.figure?.root.visible) add('citizen', c.figure.root.position.x, c.figure.root.position.z, { id: c.id });
     for (const s of world.steles.values()) add('stele', s.x, s.z, { id: s.home });
+    // 讲台（M-E）：台阶前那一点（实时模式才有：夹具里没有人跟你辩）。在辩、在判的时候按 E 没有事可做，不给提示
+    if (onDebate && stage() && (!debate || debate.state === 'awaiting')) add('bema', stageInfo.interact.x, stageInfo.interact.z, { id: 'bema' });
     for (const t of world.groveTrees) add('tree', t.base.x, t.base.z, { id: t.conversationId, title: t.title });
     if (world.agora?.userData.board) {
       const b = tmpPick.copy(world.agora.userData.board).add(world.agora.position);
@@ -1527,6 +1759,7 @@ export function createGame({ params, status, send, onTalk = null, onUiBlocked = 
       case 'resident': return fill(ui.interactResident, { name: residents.find((r) => r.kind === target.id)?.name ?? target.id });
       case 'citizen': return fill(ui.interactCitizen, { name: clip(world?.citizens.get(target.id)?.data.name ?? '', 16) });
       case 'stele': return ui.interactStele;
+      case 'bema': return ui.interactBema;
       case 'item': return fill(ui.interactItem, { title: clip((items.get(target.id)?.item.title ?? '').replace(/^《|》$/g, '')) });
       case 'slot': return ui.interactPlace;
       case 'tree': return fill(ui.interactTree, { title: clip(target.title) });
@@ -1547,6 +1780,11 @@ export function createGame({ params, status, send, onTalk = null, onUiBlocked = 
       case 'resident': openResident(target.id); break;
       case 'citizen': openCitizen(target.id); break;
       case 'stele': openPanel({ type: 'stele', id: target.id }); break;
+      case 'bema':
+        // 正在等你说：直接把栏借过来；没有在辩：讲台的卡片（战绩、提一个议题）
+        if (debate?.state === 'awaiting') onDebate?.({ stage: 'argue', round: debate.round, rounds: debate.rounds ?? 3, motion: debate.motion ?? '', id: debate.id });
+        else if (!debate) openPanel({ type: 'bema' });
+        break;
       case 'tree':
         // 一棵树 = 一份委托：走会话树的同一条路径（9.2）
         send('select-conversation', { conversationId: target.id });
@@ -1747,6 +1985,17 @@ export function createGame({ params, status, send, onTalk = null, onUiBlocked = 
         if (panel?.type === 'citizen') send('select-conversation', { conversationId: panel.id });
         panel = null;
         break;
+      case 'bema-propose':
+        // 提一个议题：卡片收起（先让对话栏不再让位），栏借给辩论；回车发 debate-start
+        if (panel?.type !== 'bema' || !onDebate) break;
+        panel = null;
+        syncUiBlocked();
+        motionPending = true;
+        onDebate({ stage: 'motion', id: 'motion' });
+        break;
+      case 'debate-close':
+        endDebateFromPage();
+        break;
       case 'citizen-ask': {
         // 问话（M-C）：卡片收起，对话栏借给他（main.mjs 的 onAsk → talk.openAsk）；他站定面朝你，镜头留在你们两个身上
         if (panel?.type !== 'citizen' || !onAsk) break;
@@ -1834,6 +2083,7 @@ export function createGame({ params, status, send, onTalk = null, onUiBlocked = 
     /** Esc：收起摆放提示、卡片或面板（一次一层）。 */
     dismiss() {
       if (placing) { placing = null; status.placing = null; } else if (card) card = null; else if (panel) panel = null;
+      else if (debate) endDebateFromPage();
     },
     /** 镜头此刻的方位角与仰角（度）：测试用。 */
     cameraAngles() {
@@ -1868,16 +2118,31 @@ export function createGame({ params, status, send, onTalk = null, onUiBlocked = 
     },
     /** 居民此刻的分档（测试用）。 */
     get citizenTiers() { return citizenTiers; },
-    /** 对话栏那边的问话进展（talk.mjs 的 onAsk）：'sent' 问出去了，开始等；'cancel' 不问了。 */
-    askEvent(event, info = {}) {
-      if (!ask) return;
-      if (event === 'sent' && info.conversationId === ask.id) {
-        ask = { ...ask, status: 'waiting', question: String(info.question ?? ''), sentAt: performance.now() };
-      } else if (event === 'cancel') {
-        ask = null;
-        status.asking = null;
+    /**
+     * 对话栏借出去之后的进展（talk.mjs 的 onLent）：问话——'sent' 问出去了开始等、'cancel' 不问了；
+     * 辩论——'cancel' 是不辩了（提议题时按 Esc 什么也不发；辩到一半按 Esc 发 debate-end）。
+     */
+    lentEvent(event, info = {}) {
+      if (info.kind === 'ask') {
+        if (!ask) return;
+        if (event === 'sent' && info.id === ask.id) {
+          ask = { ...ask, status: 'waiting', question: String(info.text ?? ''), sentAt: performance.now() };
+        } else if (event === 'cancel') {
+          ask = null;
+          status.asking = null;
+        }
+      } else if (info.kind === 'debate') {
+        if (event === 'cancel') {
+          if (debate) endDebateFromPage();
+          motionPending = false;
+        }
       }
     },
+    setDebate,
+    /** 讲台此刻的现状与陪审团（测试用）。 */
+    get debate() { return debate ? { ...debate } : null; },
+    get audience() { return new Map(audienceOf); },
+    get stage() { return stage(); },
     setCitizenAnswer,
     /** 此刻在问的那一位（测试用）。 */
     get asking() { return ask ? { ...ask } : null; },
