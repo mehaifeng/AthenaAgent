@@ -4728,6 +4728,16 @@ static void TestGameModeSwitchAndFailures()
         pages[^1].Navigate(true);
         pages[^1].Send("""{"v":1,"type":"ready"}""");
         PumpTimers(() => gameMode.PageState == PolisPageState.Ready && !gameMode.HasFailure, 5000, "重试成功之后失败面板必须收起。");
+
+        // 第 5 处：玩着玩着浏览器进程没了（Linux 上 WebKit 超内存被终止）。之前什么都不报，游戏区永远白着，切工作区也救不回来
+        ExpectFailure(PolisFailureStage.ProcessGone, "GameMode.Failure.ProcessGone", () => pages[^1].Terminate("exceeded-memory-limit"));
+        if (!gameMode.FailureDetail.Contains("exceeded-memory-limit", StringComparison.Ordinal))
+            throw new InvalidOperationException($"进程退出的原因要进技术细节，实际「{gameMode.FailureDetail}」。");
+        gameMode.RetryCommand.Execute(null);
+        PumpTimers(() => pages.Count == 6, 5000, "进程退出之后重试没有重新创建页面。");
+        pages[^1].Navigate(true);
+        pages[^1].Send("""{"v":1,"type":"ready"}""");
+        PumpTimers(() => gameMode.PageState == PolisPageState.Ready && !gameMode.HasFailure, 5000, "进程退出后重试成功，失败面板必须收起。");
     }
     finally
     {
@@ -13894,6 +13904,7 @@ sealed class FakePolisPage(Uri uri) : IPolisPage
     public bool Disposed { get; private set; }
     public event EventHandler<bool>? NavigationCompleted;
     public event EventHandler<string?>? MessageReceived;
+    public event EventHandler<string>? ProcessTerminated;
 
     public Task InvokeScriptAsync(string script)
     {
@@ -13904,6 +13915,8 @@ sealed class FakePolisPage(Uri uri) : IPolisPage
     public void Navigate(bool success) => NavigationCompleted?.Invoke(this, success);
 
     public void Send(string json) => MessageReceived?.Invoke(this, json);
+
+    public void Terminate(string reason) => ProcessTerminated?.Invoke(this, reason);
 
     public void Dispose() => Disposed = true;
 

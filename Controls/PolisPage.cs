@@ -20,6 +20,9 @@ internal interface IPolisPage : IPolisPageChannel, IDisposable
 
     /// <summary>页面经 invokeCSharpAction 发来的一条消息（原文，校验在 ViewModel 里做）。</summary>
     event EventHandler<string?>? MessageReceived;
+
+    /// <summary>承载页面的浏览器进程中途退出（参数：原因）。可能在任意线程上触发。</summary>
+    event EventHandler<string>? ProcessTerminated;
 }
 
 /// <summary>
@@ -41,6 +44,7 @@ internal sealed class NativeWebViewPolisPage : IPolisPage
 
     private readonly NativeWebView _webView;
     private bool _navigated;
+    private readonly object? _processWatch;   // GTK 只持有它的弱引用：页面活着它就得活着
     private bool _disposed;
 
     public NativeWebViewPolisPage(Uri uri)
@@ -55,6 +59,8 @@ internal sealed class NativeWebViewPolisPage : IPolisPage
         _webView.WebMessageReceived += OnWebMessageReceived;
         // Linux：内嵌的 WebKitGTK 收不到顶层焦点，输入法不工作；由宿主补焦点
         GtkWebViewFocusBridge.Attach(_webView);
+        // Linux：WebKit 的网页进程崩溃或被终止时，NativeWebView 不报任何事件——自己接 GTK 信号
+        _processWatch = GtkWebProcessWatch.Attach(_webView, reason => ProcessTerminated?.Invoke(this, reason));
         // 挂载是异步的（NativeWebView.OnAttached 经调度器回抛），挂载失败时靠它找到是哪一个页面失败了
         _pendingAttach = this;
     }
@@ -64,6 +70,8 @@ internal sealed class NativeWebViewPolisPage : IPolisPage
     public event EventHandler<bool>? NavigationCompleted;
 
     public event EventHandler<string?>? MessageReceived;
+
+    public event EventHandler<string>? ProcessTerminated;
 
     /// <summary>挂载阶段的失败（第 1 处的异步那一半）：由 App 的调度器未处理异常兜底转来。</summary>
     public event EventHandler<Exception>? AttachFailed;

@@ -582,7 +582,10 @@ export function buildWorld(scene, city, layout, M, options) {
       if (want.has(id)) continue;
       if (c.figure) {
         root.remove(c.figure.root);
-        c.figure.root.traverse((o) => { if (o.isMesh && o.geometry && !o.geometry.userData?.shared) o.geometry.dispose(); });
+        c.figure.root.traverse((o) => {
+          if (o.isMesh && o.geometry && !o.geometry.userData?.shared) o.geometry.dispose();
+          if (o.isSkinnedMesh) o.skeleton?.dispose();   // 骨骼纹理（每个蒙皮网格一张），不释放就留在显存里
+        });
       }
       const i = world.labels.indexOf(c.label);
       if (i >= 0) world.labels.splice(i, 1);
@@ -696,6 +699,8 @@ export function buildWorld(scene, city, layout, M, options) {
     scene.remove(root);
     const seen = new Set();
     root.traverse((o) => {
+      // 蒙皮人物的骨骼纹理：只释放几何体时，每换一次城留下一张（实测 Chromium 里 renderer.info.memory.textures 每次 +1）
+      if (o.isSkinnedMesh) o.skeleton?.dispose();
       if (!o.isMesh || !o.geometry || seen.has(o.geometry) || o.geometry.userData?.shared) return;
       seen.add(o.geometry);
       o.geometry.dispose();

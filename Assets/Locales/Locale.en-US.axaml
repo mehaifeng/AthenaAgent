@@ -1455,6 +1455,7 @@
     <system:String x:Key="GameMode.Failure.Timeout">The game page never reported that it was ready</system:String>
     <system:String x:Key="GameMode.Failure.WebGl">WebGL 2 is not available here, so the polis cannot be drawn</system:String>
     <system:String x:Key="GameMode.Failure.Script">The game page ran into an error</system:String>
+    <system:String x:Key="GameMode.Failure.ProcessGone">The game page's browser process quit unexpectedly</system:String>
     <system:String x:Key="GameMode.Failure.DetailHint">Technical details below — please include them when you report this.</system:String>
     <system:String x:Key="GameMode.Failure.Retry">Retry</system:String>
     <system:String x:Key="GameMode.Failure.Return">Back to conversation</system:String>

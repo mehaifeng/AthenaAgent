@@ -41,7 +41,12 @@ public enum PolisFailureStage
     /// <summary>页面自检失败（没有 WebGL 2、脚本出错、运行时出错）。</summary>
     Page,
     /// <summary>页面迟迟不报"就绪"。</summary>
-    Timeout
+    Timeout,
+    /// <summary>
+    /// 跑着跑着，承载页面的浏览器进程没了（崩溃、超出内存上限被 WebKit 终止）。此后画面是白的、脚本推不进去，
+    /// 不报出来就是一个永远白着、切工作区也救不回来的游戏区。
+    /// </summary>
+    ProcessGone
 }
 
 /// <summary>
@@ -432,6 +437,10 @@ public sealed partial class GameModeViewModel : ViewModelBase, IDisposable
     /// <summary>第 1 处：WebView 创建或挂载失败。</summary>
     public void OnPageCreateFailed(Exception? error)
         => Fail(PolisFailureStage.Create, L("GameMode.Failure.Create", "The embedded browser (WebView) could not be created on this system"), error?.ToString() ?? string.Empty);
+
+    /// <summary>第 5 处：页面的浏览器进程中途退出（参数：平台给的原因）。</summary>
+    public void OnPageProcessGone(string reason)
+        => Fail(PolisFailureStage.ProcessGone, L("GameMode.Failure.ProcessGone", "The game page's browser process quit unexpectedly"), reason);
 
     /// <summary>第 2 处：页面加载失败。</summary>
     public void OnNavigationCompleted(bool success)

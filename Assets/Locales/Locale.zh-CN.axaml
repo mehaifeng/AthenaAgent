@@ -1455,6 +1455,7 @@
     <system:String x:Key="GameMode.Failure.Timeout">游戏页面迟迟没有就绪</system:String>
     <system:String x:Key="GameMode.Failure.WebGl">这里的网页环境不支持 WebGL 2，城邦画不出来</system:String>
     <system:String x:Key="GameMode.Failure.Script">游戏页面出错了</system:String>
+    <system:String x:Key="GameMode.Failure.ProcessGone">游戏页面的浏览器进程意外退出了</system:String>
     <system:String x:Key="GameMode.Failure.DetailHint">下面是技术细节，反馈时请一并附上。</system:String>
     <system:String x:Key="GameMode.Failure.Retry">重试</system:String>
     <system:String x:Key="GameMode.Failure.Return">回到对话</system:String>
