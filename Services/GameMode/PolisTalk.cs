@@ -21,8 +21,15 @@ public sealed record PolisWorldFacts(string CityName, bool Sanctuary, bool Night
 /// <summary>和他说过的话：你说的、他答的（一来一回为一轮）。</summary>
 public sealed record PolisTalkTurn(string You, string Them);
 
-/// <summary>一次说话调用要发的东西：系统提示与依次的消息（role 为 user / assistant）。</summary>
-public sealed record PolisTalkPrompt(string System, IReadOnlyList<(string Role, string Text)> Messages);
+/// <summary>
+/// 一次说话调用要发的东西：系统提示与依次的消息（role 为 user / assistant）。<see cref="MaxReplyChars"/> 是回答留多少字
+/// （气泡里的一句话是 <see cref="PolisTalk.MaxBubbleChars"/>；围观的人起哄要回一段 JSON，留得长一些）。<see cref="Raw"/> 为真时
+/// 回答只剥掉思考块、去掉首尾空白，不按气泡整理（不收换行、不去引号）——JSON 的代码围栏要靠换行认。
+/// </summary>
+public sealed record PolisTalkPrompt(string System, IReadOnlyList<(string Role, string Text)> Messages, int MaxReplyChars = PolisTalk.MaxBubbleChars, bool Raw = false);
+
+/// <summary>辩论时围观的人的一句：喝彩（cheer）、嘘（boo）或者一句短评（comment）。</summary>
+public sealed record PolisCrowdReaction(string Kind, string Text);
 
 /// <summary>
 /// 城里的人怎么说话（2026-10-13，用户：和 NPC 说话时，他的上下文要有游戏世界的信息和他自己的性格，而不是只按他那场会话回答——
@@ -289,6 +296,63 @@ public static class PolisTalk
     public static string Overheard(string line, string language) => IsChinese(language)
         ? $"（你在街上，听见城的主人在你旁边说）{line.Trim()}"
         : $"(In the street, you overhear the city's owner say nearby) {line.Trim()}";
+
+    /// <summary>围观的人一句最多多少字、一轮最多几句。</summary>
+    public const int MaxCrowdChars = 24;
+    public const int MaxCrowdReactions = 3;
+    public static IReadOnlyList<string> CrowdKinds { get; } = new[] { "cheer", "boo", "comment" };
+
+    /// <summary>
+    /// 辩论时围观的人起哄（2026-10-13，用户：NPC 对回复进行简短评价或者喝彩或者嘘声；每轮一次模型调用）：
+    /// 世界观 + 议题 + 这一轮你说的、雅典娜说的 → 恰好一个 JSON 对象 {"reactions":[{"kind":"cheer|boo|comment","text":"…"}]}，
+    /// 两到三句，每句不超过 <see cref="MaxCrowdChars"/> 字，界面语言。只有辩论里的话，没有任何会话正文。
+    /// </summary>
+    public static PolisTalkPrompt BuildCrowd(PolisWorldFacts world, string motion, int round, string yourArgument, string herArgument, string language)
+    {
+        var zh = IsChinese(language);
+        var system = string.Join("\n\n", WorldText(world, language), zh
+            ? $"广场上正在辩论，议题是「{motion}」：城的主人站正方，雅典娜站反方。你是围在讲台前看热闹的一群居民，各有各的脾气。"
+              + $"听完这一轮，写两到三位围观者脱口而出的反应：喝彩（cheer）、嘘声（boo）或者一句短评（comment），可以向着任何一方，也可以挑刺。每句不超过 {MaxCrowdChars} 个字，口语，用中文。"
+              + "只回答恰好一个 JSON 对象，不要别的字：{\"reactions\":[{\"kind\":\"cheer\",\"text\":\"……\"}]}。"
+            : $"A debate is on in the agora. The motion: \"{motion}\". The city's owner argues for it, Athena against. You are the townsfolk crowding round the platform, each with a temper of their own. "
+              + $"After this round, write what two or three onlookers blurt out: a cheer (cheer), a boo (boo) or a short remark (comment), for either side or picking holes. At most {MaxCrowdChars} characters each, spoken, in English. "
+              + "Reply with exactly one JSON object and nothing else: {\"reactions\":[{\"kind\":\"cheer\",\"text\":\"...\"}]}.");
+        var user = zh
+            ? $"第 {round} 轮。\n城的主人：{yourArgument.Trim()}\n雅典娜：{herArgument.Trim()}"
+            : $"Round {round}.\nThe owner: {yourArgument.Trim()}\nAthena: {herArgument.Trim()}";
+        return new PolisTalkPrompt(system, new[] { ("user", user) }, MaxReplyChars: 1200, Raw: true);
+    }
+
+    /// <summary>
+    /// 读围观的人的回答：恰好一个 JSON 对象（思考块、代码围栏照审批评判员的规矩剥掉），reactions 里 kind 认得、text 不空的，
+    /// 最多 <see cref="MaxCrowdReactions"/> 句，每句截到 <see cref="MaxCrowdChars"/> 字。读不出来就是一句也没有（不预置台词）。
+    /// </summary>
+    public static IReadOnlyList<PolisCrowdReaction> ParseCrowd(string? raw)
+    {
+        if (string.IsNullOrWhiteSpace(raw) || !ApprovalJudgeOutput.TryExtractJson(raw, out var json, out _)) return Array.Empty<PolisCrowdReaction>();
+        try
+        {
+            using var doc = System.Text.Json.JsonDocument.Parse(json, new System.Text.Json.JsonDocumentOptions { AllowDuplicateProperties = false });
+            if (doc.RootElement.ValueKind != System.Text.Json.JsonValueKind.Object
+                || !doc.RootElement.TryGetProperty("reactions", out var list) || list.ValueKind != System.Text.Json.JsonValueKind.Array)
+                return Array.Empty<PolisCrowdReaction>();
+            var outList = new List<PolisCrowdReaction>();
+            foreach (var r in list.EnumerateArray())
+            {
+                if (outList.Count >= MaxCrowdReactions) break;
+                if (r.ValueKind != System.Text.Json.JsonValueKind.Object) continue;
+                var kind = r.TryGetProperty("kind", out var k) && k.ValueKind == System.Text.Json.JsonValueKind.String ? k.GetString() : null;
+                var text = r.TryGetProperty("text", out var t) && t.ValueKind == System.Text.Json.JsonValueKind.String ? PolisCitizenAnswers.Sanitize(t.GetString(), MaxCrowdChars) : null;
+                if (kind == null || !CrowdKinds.Contains(kind) || text == null) continue;
+                outList.Add(new PolisCrowdReaction(kind, text));
+            }
+            return outList;
+        }
+        catch (System.Text.Json.JsonException)
+        {
+            return Array.Empty<PolisCrowdReaction>();
+        }
+    }
 
     /// <summary>记住这一轮：追加到末尾，超过 <see cref="MaxHistoryTurns"/> 轮就忘掉最旧的。</summary>
     public static IReadOnlyList<PolisTalkTurn> Remember(IReadOnlyList<PolisTalkTurn>? history, string you, string them)

@@ -134,3 +134,15 @@ test('the bar lent to the debate: a motion of 1–200 characters sends debate-st
     assert.ok(typeof ui[key] === 'string' && ui[key].length > 0, `UI_ZH.${key}`);
   }
 });
+
+test('the dais (2026-10-13): with a dais the stage is its centre and you and Athena stand at its two ends facing each other, you at the end nearer the agora centre', async () => {
+  const { debateStage, DEBATE } = await import('../../../../Assets/Polis/src/debate.mjs');
+  const { AGORA_DAIS } = await import('../../../../Assets/Polis/src/art/civic.mjs');
+  const st = debateStage({ bema: { x: -4.4, z: -2.05 }, center: { x: 0, z: 0 }, walkable: () => true, dais: { x: AGORA_DAIS.x, z: AGORA_DAIS.z, len: AGORA_DAIS.len } });
+  assert.deepEqual(st.stage, { x: AGORA_DAIS.x, z: AGORA_DAIS.z });
+  assert.equal(st.you.x, AGORA_DAIS.x + AGORA_DAIS.len / 2 - DEBATE.daisInset, '你在离广场中心近的那一端');
+  assert.equal(st.athena.x, AGORA_DAIS.x - AGORA_DAIS.len / 2 + DEBATE.daisInset, '她在讲台那一端');
+  assert.ok(Math.abs(st.you.yaw - Math.atan2(st.athena.x - st.you.x, 0)) < 1e-9 && Math.abs(st.athena.yaw - Math.atan2(st.you.x - st.athena.x, 0)) < 1e-9, '面对面');
+  assert.ok(st.audience.every((a) => Math.hypot(a.x - st.stage.x, a.z - st.stage.z) > AGORA_DAIS.len / 2), '围观的人站在辩台外面');
+  assert.ok(AGORA_DAIS.h < 0.35, '辩台低于挡路的身体那一段（是地面，不挡广场上的路）');
+});

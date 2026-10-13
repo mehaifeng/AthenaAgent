@@ -124,7 +124,7 @@ public sealed class PolisTalkService : IPolisTalkService, IDisposable
                 raw.Append(delta);
                 if (onVisible == null) return;
                 var visible = PolisTalk.VisibleSoFar(raw.ToString());
-                if (visible.Length > PolisTalk.MaxBubbleChars) visible = visible[..PolisTalk.MaxBubbleChars];
+                if (visible.Length > prompt.MaxReplyChars) visible = visible[..prompt.MaxReplyChars];
                 if (visible == shown) return;
                 shown = visible;
                 onVisible(visible);
@@ -158,7 +158,10 @@ public sealed class PolisTalkService : IPolisTalkService, IDisposable
                 }
             }
 
-            var answer = PolisCitizenAnswers.Sanitize(ConversationTitleGenerator.StripReasoning(raw.ToString()), PolisTalk.MaxBubbleChars);
+            var stripped = ConversationTitleGenerator.StripReasoning(raw.ToString());
+            var answer = prompt.Raw
+                ? (string.IsNullOrWhiteSpace(stripped) ? null : stripped.Trim() is var t && t.Length > prompt.MaxReplyChars ? t[..prompt.MaxReplyChars] : stripped.Trim())
+                : PolisCitizenAnswers.Sanitize(stripped, prompt.MaxReplyChars);
             if (answer == null)
             {
                 _logger.Debug("Polis talk model returned nothing usable ({Role}, {Purpose})", role, purpose);

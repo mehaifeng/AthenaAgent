@@ -21,7 +21,7 @@ import {
 } from './controls.mjs';
 import { createAthena, stepProgress, ATHENA } from './athena.mjs';
 import { planCitizen, citizenAt, newScheduleClock, scheduleClock, holdSchedule, resumeSchedule, separate, assignTiers, pickChat, nextChatAfter, greetLine, TOWN } from './citizens.mjs';
-import { debateStage, assignAudience, supportersCount, bubbleExcerpt, DEBATE } from './debate.mjs';
+import { debateStage, assignAudience, supportersCount, DEBATE } from './debate.mjs';
 import { createRenderer } from './render.mjs';
 import { createOverlay } from './overlay.mjs';
 import { makeMaterials, setNightWindows } from './art/materials.mjs';
@@ -333,6 +333,7 @@ export function createGame({ params, status, send, onTalk = null, onUiBlocked = 
   const talkingToAthena = () => talkOpen() && talkMode() === 'talk' && !convo && !lentToDebate();
   // 你自己说话（2026-10-13）：接你话的那一位（他站定、转身朝你，直到说完再留一会儿）；有一段写好的话在雅典娜那里等你
   let heard = null;                  // { id, until }
+  let crowdQueue = [];               // 围观的人还没说出口的起哄：{ id, text, kind, at }
   // 递卷轴：排着的成果（id），此刻在递的那一件 { itemId, phase: 'chase'|'give', target, chasedAt, giveAt }，你上次动的时刻
   let handovers = [];
   let handover = null;
@@ -925,7 +926,8 @@ export function createGame({ params, status, send, onTalk = null, onUiBlocked = 
     if (stageInfo || !world?.agora?.userData.bema || !layout) return stageInfo;
     const b = world.agora.userData.bema;
     const o = world.agora.position;
-    stageInfo = debateStage({ bema: { x: o.x + b.x, z: o.z + b.z }, center: { x: o.x, z: o.z }, walkable: layout.walkable });
+    const d = world.agora.userData.dais;
+    stageInfo = debateStage({ bema: { x: o.x + b.x, z: o.z + b.z }, center: { x: o.x, z: o.z }, walkable: layout.walkable, dais: d ? { x: o.x + d.x, z: o.z + d.z, len: d.len } : null });
     return stageInfo;
   }
 
@@ -951,6 +953,25 @@ export function createGame({ params, status, send, onTalk = null, onUiBlocked = 
     status.audience = audienceOf.size;
   }
 
+  /**
+   * 围观的人起哄（C# 的 debate-crowd：{ id, round, reactions: [{ kind, text }] }，2026-10-13）：放到已经站好的围观者头顶，
+   * 一句接一句（DEBATE.crowdStaggerMs），每轮换几个人说（上一轮说过的往后排）。没人围观就没人说。
+   */
+  function setDebateCrowd(m) {
+    if (!debate || m?.id !== debate.id || !Array.isArray(m.reactions) || m.round <= (debateSeen.crowdRound ?? 0)) return;
+    debateSeen.crowdRound = m.round;
+    const wall = performance.now();
+    const spoke = debateSeen.crowdSpoke ?? new Set();
+    const ready = [...audienceOf].filter(([, a]) => wall - a.start >= a.ms).map(([id]) => id)
+      .sort((a, b) => (spoke.has(a) ? 1 : 0) - (spoke.has(b) ? 1 : 0));
+    m.reactions.slice(0, ready.length).forEach((r, k) => {
+      crowdQueue.push({ id: ready[k], text: String(r.text ?? ''), kind: String(r.kind ?? 'comment'), at: wall + k * DEBATE.crowdStaggerMs });
+      spoke.add(ready[k]);
+    });
+    debateSeen.crowdSpoke = spoke;
+    status.crowd = crowdQueue.map((q) => ({ id: q.id, text: q.text, kind: q.kind }));
+  }
+
   /** 判完了：按票数的比例，前面几位为你挥手。 */
   function markSupporters(votesForYou, jury) {
     const list = [...audienceOf.values()].sort((a, b) => a.index - b.index);
@@ -968,6 +989,7 @@ export function createGame({ params, status, send, onTalk = null, onUiBlocked = 
       c.release = { dx: p.x - (c.at.x + c.nudge.x), dz: p.z - (c.at.z + c.nudge.z), at: wall };
     }
     audienceOf.clear();
+    crowdQueue = [];
     status.audience = 0;
     status.supporters = 0;
     debateSeen = { id: null, athenaTurns: 0, lentRound: 0, gathered: false, doneAt: 0 };
@@ -1001,16 +1023,21 @@ export function createGame({ params, status, send, onTalk = null, onUiBlocked = 
     }
     if (next.id !== debateSeen.id) {
       if (prev) teardownDebate(wall);
-      debateSeen = { id: next.id, athenaTurns: 0, lentRound: 0, gathered: false, doneAt: 0 };
+      debateSeen = { id: next.id, athenaTurns: 0, lentRound: 0, gathered: false, doneAt: 0, crowdRound: 0 };
       motionPending = false;
-      // 她走到舞台的一侧（远了化作一道光过来），站定面对你
+      // 议题定下了（2026-10-13，用户）：你和她各站上辩台的一端、面对面（她远了就跑过来；你自己走上去，按方向键就由你）；
+      // 附近的居民这就围过来看——不再等到判票
       const st = stage();
       if (st && athenaSim) athenaSim.goTo(`pt:${st.athena.x.toFixed(2)},${st.athena.z.toFixed(2)}`, clock);
+      if (st) player.autoTo = { x: st.you.x, z: st.you.z, yaw: st.you.yaw };
+      if (!debateSeen.gathered) { debateSeen.gathered = true; gatherAudience(wall); }
     }
     const herTurns = (next.transcript ?? []).filter((t) => t.side === 'athena');
     if (herTurns.length > debateSeen.athenaTurns) {
       debateSeen.athenaTurns = herTurns.length;
-      say(bubbleExcerpt(herTurns[herTurns.length - 1].text), clock, 3000);
+      // 她这一轮的话整句在她头顶（2026-10-13，用户：不在对话框里）；按字数留着
+      const text = herTurns[herTurns.length - 1].text ?? '';
+      say(text, clock, SPEECH.holdMs + SPEECH.perCharMs * [...text].length);
     }
     if (next.state === 'awaiting' && debateSeen.lentRound !== next.round) {
       debateSeen.lentRound = next.round;
@@ -1040,12 +1067,8 @@ export function createGame({ params, status, send, onTalk = null, onUiBlocked = 
       : d.state === 'athena' ? ui.debateAthenaThinking
         : d.state === 'done' ? ''
           : fill(ui.debateRound, { round: d.round, rounds });
-    const transcript = d.transcript ?? [];
-    const lastYou = [...transcript].reverse().find((t) => t.side === 'you');
-    const lastHer = [...transcript].reverse().find((t) => t.side === 'athena');
+    // 一来一回的话在两人的头顶（2026-10-13，用户：她的回复出现在她头顶的气泡，不在对话框里）——牌上只留议题、轮次、裁决、战绩
     const lines = [];
-    if (lastYou) lines.push({ who: ui.debateYou, text: lastYou.text });
-    if (lastHer && transcript.indexOf(lastHer) > transcript.indexOf(lastYou)) lines.push({ who: ui.debateAthena, text: lastHer.text });
     let verdict = null;
     if (d.state === 'done' && d.verdict) {
       const jury = d.jury ?? 10;
@@ -1088,6 +1111,11 @@ export function createGame({ params, status, send, onTalk = null, onUiBlocked = 
       else resumeSchedule(c.schedule, wall);
       c.at = citizenAt(c.plan, scheduleClock(c.schedule, wall));
       live.push(c);
+    }
+    // 围观的人起哄：到了时候就说出口（头顶留一阵再淡出）
+    if (crowdQueue.length) {
+      for (const q of crowdQueue.filter((x) => wall >= x.at)) sayings.set(q.id, { text: q.text, typing: false, at: q.at, doneAt: q.at, n: -1 });
+      crowdQueue = crowdQueue.filter((x) => wall < x.at);
     }
     // 避让：居民之间互相让；雅典娜与十一位居民是站在那儿的人（不被推），你是推不动的石头——挡在你面前的人侧身让开
     const people = live.map((c) => ({ id: c.id, x: c.at.x, z: c.at.z, nudge: c.nudge, movable: !((panel?.type === 'citizen' && panel.id === c.id) || convo?.id === c.id || audienceOf.has(c.id)) }));
@@ -1346,12 +1374,21 @@ export function createGame({ params, status, send, onTalk = null, onUiBlocked = 
   let athenaY = null, athenaYaw = null;
 
   function updatePlayer(wall, dt) {
-    const dir = movementAllowed() ? moveDirection(pressed, cameraAzimuth()) : null;
+    let dir = movementAllowed() ? moveDirection(pressed, cameraAzimuth()) : null;
+    // 自己走上辩台（辩论议题定下时，2026-10-13）：你一按方向键就由你
+    if (dir) player.autoTo = null;
+    else if (player.autoTo) {
+      const dx = player.autoTo.x - player.pos.x, dz = player.autoTo.z - player.pos.z, d = Math.hypot(dx, dz);
+      if (d < 0.06) {
+        player.yaw = turnToward(player.yaw, player.autoTo.yaw, 1 - Math.exp(-dt / 120));
+        if (Math.abs(player.yaw - player.autoTo.yaw) < 0.02) player.autoTo = null;
+      } else dir = { x: dx / d, z: dz / d, limit: d };
+    }
     const speed = PLAYER_SPEED * (running ? RUN_FACTOR : 1);
     let action = 'idle';
     const style = { speed, stride: running ? 2.2 : 2.0, seed: 1 };
     if (dir) {
-      const step = (speed * Math.min(dt, 100)) / 1000;
+      const step = Math.min((speed * Math.min(dt, 100)) / 1000, dir.limit ?? Infinity);
       const next = slide(player.pos, { x: dir.x * step, z: dir.z * step }, layout.walkable);
       const moved = Math.hypot(next.x - player.pos.x, next.z - player.pos.z);
       player.yaw = turnToward(player.yaw, Math.atan2(dir.x, dir.z), 1 - Math.exp(-dt / 70));
@@ -2440,6 +2477,8 @@ export function createGame({ params, status, send, onTalk = null, onUiBlocked = 
           status.chatting = null;
         }
       } else if (info.kind === 'debate') {
+        // 你这一轮的论点在你头顶（议题本身在辩论牌上）
+        if (event === 'sent' && debate) mine = { text: String(info.text ?? ''), at: performance.now() };
         if (event === 'cancel') {
           if (debate) endDebateFromPage();
           motionPending = false;
@@ -2453,6 +2492,9 @@ export function createGame({ params, status, send, onTalk = null, onUiBlocked = 
     get stage() { return stage(); },
     setTalk,
     endAmbient,
+    setDebateCrowd,
+    /** 顶上的辩论牌此刻的样子（测试用）。 */
+    debateBoardView,
     speak,
     prefillWaiting,
     /** 此刻在递的那一件（测试用）。 */

@@ -718,17 +718,29 @@ async function debateCheck(name, browser) {
     const base = { id: 'd1', motion: '周末应该完全不碰工作', rounds: 3, jury: 10, record };
     await send({ type: 'debate', debate: { ...base, state: 'awaiting', round: 1, transcript: [] } });
     await page.waitForTimeout(400);
-    const round1 = await page.evaluate(() => ({ talk: window.__polisTalk.state, placeholder: document.querySelector('#talk .talk-input').placeholder, athena: window.__polisGame.athenaSim.state(), closeUp: window.__polis.closeUp }));
+    const round1 = await page.evaluate(() => ({ talk: window.__polisTalk.state, placeholder: document.querySelector('#talk .talk-input').placeholder, athena: window.__polisGame.athenaSim.state(), closeUp: window.__polis.closeUp, audience: window.__polisGame.audience.size }));
+    // 议题定下：你自己走上辩台的一端（2026-10-13，用户：日晷前增加一座讲台，两方选手站上去）
+    const onDais = await page.waitForFunction(() => {
+      const g = window.__polisGame, st = g.stage, p = g.player;
+      return !!st.dais && Math.hypot(p.x - st.you.x, p.z - st.you.z) < 0.15;
+    }, null, { timeout: 8000 }).then(() => true, () => false);
+    const daisNow = await page.evaluate(() => { const g = window.__polisGame, st = g.stage; return { dais: st.dais, you: st.you, athena: st.athena, playerY: g.world.player.position.y, athenaTo: g.athenaSim.state().step.to ?? null, queued: g.athenaSim.state().queued }; });
     n = (await inbox()).length;
     await page.keyboard.type('休息让人第二天更有效率。');
     await page.keyboard.press('Enter');
     await page.waitForTimeout(200);
     const saySent = (await inbox()).slice(n);
+    const yourLine = await page.evaluate(() => window.__polisGame.mine?.text ?? null);
     const waiting = await page.evaluate(() => ({ talk: window.__polisTalk.state, disabled: document.querySelector('#talk .talk-input').disabled }));
     await send({ type: 'debate', debate: { ...base, state: 'athena', round: 1, transcript: [{ side: 'you', text: '休息让人第二天更有效率。' }] } });
     await send({ type: 'debate', debate: { ...base, state: 'awaiting', round: 2, transcript: [{ side: 'you', text: '休息让人第二天更有效率。' }, { side: 'athena', text: '休息固然好，可工作不会等你。周一的邮件会把周末的轻松全吃掉。' }] } });
     await page.waitForTimeout(300);
-    const round2 = await page.evaluate(() => ({ talk: window.__polisTalk.state, placeholder: document.querySelector('#talk .talk-input').placeholder, regions: window.__polisGame.regions.map((r) => r.id) }));
+    const round2 = await page.evaluate(() => ({ talk: window.__polisTalk.state, placeholder: document.querySelector('#talk .talk-input').placeholder, regions: window.__polisGame.regions.map((r) => r.id), said: window.__polis.said, board: window.__polisGame.debateBoardView?.() ?? null }));
+    // 围观的人起哄（C# 每轮一次模型调用）：放到已经站好的围观者头顶，一句接一句
+    await page.waitForFunction(() => { const g = window.__polisGame; return [...g.audience.values()].some((a) => performance.now() - a.start >= a.ms); }, null, { timeout: 12_000 }).catch(() => {});
+    await send({ type: 'debate-crowd', id: 'd1', round: 1, reactions: [{ kind: 'cheer', text: '说得好！' }, { kind: 'boo', text: '嘘——邮件可不等人' }] });
+    await page.waitForTimeout(2200);
+    const crowd = await page.evaluate(() => { const g = window.__polisGame; return [...g.sayings].filter(([id]) => g.audience.has(id)).map(([id, v]) => ({ id, text: v.text })); });
     // 三轮说完：裁决。栏还给雅典娜，陪审团围过来
     const transcript = [
       { side: 'you', text: '休息让人第二天更有效率。' }, { side: 'athena', text: '休息固然好，可工作不会等你。' },
@@ -776,6 +788,11 @@ async function debateCheck(name, browser) {
       onlyDebateStartSent: startSent.length === 1 && startSent[0].type === 'debate-start' && startSent[0].motion === '周末应该完全不碰工作',
       roundOneLent: round1.talk.mode === 'debate' && round1.placeholder.includes('1') && round1.placeholder.includes('3'),
       athenaGoesToTheStage: round1.athena.queued > 0 || String(round1.athena.step?.to ?? round1.athena.position).startsWith('pt:'),
+      bothOnTheDais: onDais && !!daisNow.dais && daisNow.playerY > 0.15 && Math.abs(daisNow.you.z - daisNow.dais.z) < 1e-6 && Math.abs(daisNow.athena.z - daisNow.dais.z) < 1e-6
+        && Math.abs(daisNow.you.x - daisNow.athena.x) > 2 && (daisNow.queued > 0 || daisNow.athenaTo === `pt:${daisNow.athena.x.toFixed(2)},${daisNow.athena.z.toFixed(2)}`),
+      crowdGathersFromTheStart: round1.audience > 0,
+      wordsOverTheirHeads: yourLine === '休息让人第二天更有效率。' && round2.said === '休息固然好，可工作不会等你。周一的邮件会把周末的轻松全吃掉。' && (round2.board?.lines ?? []).length === 0,
+      crowdReacts: crowd.length === 2 && crowd.some((c) => c.text === '说得好！') && crowd.some((c) => c.text === '嘘——邮件可不等人') && new Set(crowd.map((c) => c.id)).size === 2,
       closeUpOnTheDebate: round1.closeUp === 'debate',
       onlyDebateSaySent: saySent.length === 1 && saySent[0].type === 'debate-say' && saySent[0].text === '休息让人第二天更有效率。',
       waitsForAthena: waiting.talk.mode === 'debating' && waiting.disabled,
@@ -789,7 +806,7 @@ async function debateCheck(name, browser) {
       neverDebatesByItself: of(all, 'debate-start').length === 1 && of(all, 'debate-say').length === 1 && !all.some((m) => m.type === 'say' || (m.type === 'draft' && /周末|休息/.test(m.text ?? ''))),
       noProblems: problems.length === 0,
     };
-    Object.assign(result, { checks, stand, focus, round1: { mode: round1.talk.mode, placeholder: round1.placeholder, athena: round1.athena, closeUp: round1.closeUp }, judging, gathered: { count: gathered.count, offSpot: gathered.people.filter((p) => !p.onSpot || !p.walkable || !p.nearStage) }, done, problems, seconds: +((Date.now() - started) / 1000).toFixed(1) });
+    Object.assign(result, { checks, stand, focus, onDais, daisNow, yourLine, crowd, said: round2.said, round1: { mode: round1.talk.mode, placeholder: round1.placeholder, athena: round1.athena, closeUp: round1.closeUp }, judging, gathered: { count: gathered.count, offSpot: gathered.people.filter((p) => !p.onSpot || !p.walkable || !p.nearStage) }, done, problems, seconds: +((Date.now() - started) / 1000).toFixed(1) });
     await page.close();
     console.log(JSON.stringify(result, null, 2));
     return Object.values(checks).every(Boolean);

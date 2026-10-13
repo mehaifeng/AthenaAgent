@@ -1,9 +1,10 @@
 // 城里的竞技（M-E，2026-10-13）：广场讲台前的辩论。这里只有纯函数（Node 单测 debate.test.mjs）：舞台怎么站、
 // 观众围成怎样的半圆、谁被叫过来、几个人为你挥手。状态机、提示词、裁判都在 C#（Services/GameMode/PolisDebate.cs）。
 //
-// 舞台：讲台（agora 的 userData.bema，传令官站在上面主持）朝广场中心的那一面是正面。正面 2.6 米处是舞台中心，你和雅典娜
-// 各站一侧（相距 2.4 米，面对面），陪审团在舞台中心之外围成两圈半圆（3.4 / 4.6 米，张开 ±77°），每个站位都要能站
-// （layout.walkable）；站不了的点往外找一点，再不行就不要这个位置。
+// 舞台：讲台（agora 的 userData.bema，传令官站在上面主持）朝广场中心的那一面是正面。正面 2.6 米处是舞台中心，陪审团在
+// 舞台中心之外围成两圈半圆（3.4 / 4.6 米，张开 ±77°），每个站位都要能站（layout.walkable）；站不了的点往外找一点，再不行就不要
+// 这个位置。2026-10-13 起（用户）舞台中心是一座辩台（civic.AGORA_DAIS），你和雅典娜各站它的一端、面对面（daisInset 米往里）；
+// 没有辩台的旧城还是各站舞台中心一侧 1.2 米。
 
 export const DEBATE = Object.freeze({
   interactAhead: 1.4,       // 按 E 的那一点：讲台中心往正面走这么远（台阶前）
@@ -19,6 +20,8 @@ export const DEBATE = Object.freeze({
   doneHoldMs: 45_000,       // 判完之后多久自己散场
   leaveDistance: 25,        // 你走开这么远，这一场作废
   waveEveryMs: 2600,        // 支持你的人每隔这么久挥一次手
+  daisInset: 0.45,          // 站在辩台的一端：离端头这么远
+  crowdStaggerMs: 900,      // 围观的人起哄，一句接一句隔这么久
 });
 
 const unit = (x, z) => { const l = Math.hypot(x, z) || 1; return { x: x / l, z: z / l }; };
@@ -40,14 +43,17 @@ export function nearestStandable(p, walkable) {
  * 舞台的站位。bema、center：世界坐标的讲台中心与广场中心；walkable：layout.walkable。
  * 返回 { interact, stage, you, athena, audience: [{ x, z, yaw }], front }——yaw 是面朝讲台（观众）或面朝对手（你和她）。
  */
-export function debateStage({ bema, center, walkable }) {
+export function debateStage({ bema, center, walkable, dais = null }) {
   const front = unit(center.x - bema.x, center.z - bema.z);
   const side = { x: -front.z, z: front.x };
   const at = (d, s = 0) => ({ x: bema.x + front.x * d + side.x * s, z: bema.z + front.z * d + side.z * s });
-  const stage = at(DEBATE.stageAhead);
+  const stage = dais ? { x: dais.x, z: dais.z } : at(DEBATE.stageAhead);
   const interact = nearestStandable(at(DEBATE.interactAhead), walkable) ?? at(DEBATE.interactAhead);
-  const you = nearestStandable(at(DEBATE.stageAhead, DEBATE.sideOffset), walkable) ?? stage;
-  const athena = nearestStandable(at(DEBATE.stageAhead, -DEBATE.sideOffset), walkable) ?? stage;
+  // 辩台两端（沿 x）：你在离广场中心近的那一端，她在讲台那一端
+  const end = dais ? dais.len / 2 - DEBATE.daisInset : 0;
+  const nearCenter = dais && Math.abs(dais.x + end - center.x) < Math.abs(dais.x - end - center.x) ? 1 : -1;
+  const you = dais ? { x: dais.x + nearCenter * end, z: dais.z } : nearestStandable(at(DEBATE.stageAhead, DEBATE.sideOffset), walkable) ?? stage;
+  const athena = dais ? { x: dais.x - nearCenter * end, z: dais.z } : nearestStandable(at(DEBATE.stageAhead, -DEBATE.sideOffset), walkable) ?? stage;
   const yawTo = (from, to) => Math.atan2(to.x - from.x, to.z - from.z);
   const audience = [];
   const taken = [you, athena];
@@ -65,7 +71,7 @@ export function debateStage({ bema, center, walkable }) {
     }
   });
   return {
-    front, stage, interact,
+    front, stage, interact, dais: dais ? { ...dais } : null,
     you: { ...you, yaw: yawTo(you, athena) },
     athena: { ...athena, yaw: yawTo(athena, you) },
     audience: audience.slice(0, DEBATE.maxAudience),

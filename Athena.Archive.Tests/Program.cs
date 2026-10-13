@@ -11508,6 +11508,20 @@ static async Task TestPolisTalkAsync()
     AssertFalse(residentPrompt.System.Contains("你记得的", StringComparison.Ordinal) || residentPrompt.System.Contains("托付过的那件事", StringComparison.Ordinal), "职业居民没有托付过的事，也没有记得的那一段");
     AssertTrue(prompt.System.Contains("不能替雅典娜办事", StringComparison.Ordinal), "居民也只是聊天");
 
+    // —— 辩论时围观的人起哄（2026-10-13）：世界观、议题和这一轮的两段话；恰好一个 JSON 对象，读不出来就一句也没有 ——
+    var crowdPrompt = PolisTalk.BuildCrowd(world, "周末应该完全不碰工作", 2, "休息让人更有效率。", "工作不会等你。", "zh-CN");
+    foreach (var part in new[] { "「周末应该完全不碰工作」", "喝彩（cheer）", "嘘声（boo）", "短评（comment）", $"不超过 {PolisTalk.MaxCrowdChars} 个字", "恰好一个 JSON 对象" })
+        AssertTrue(crowdPrompt.System.Contains(part, StringComparison.Ordinal), $"起哄的系统提示含「{part}」");
+    AssertTrue(crowdPrompt.Messages.Single().Text.Contains("第 2 轮", StringComparison.Ordinal) && crowdPrompt.Messages.Single().Text.Contains("城的主人：休息让人更有效率。", StringComparison.Ordinal)
+        && crowdPrompt.Messages.Single().Text.Contains("雅典娜：工作不会等你。", StringComparison.Ordinal), "这一轮的两段话");
+    AssertTrue(crowdPrompt.Raw && crowdPrompt.MaxReplyChars > PolisTalk.MaxBubbleChars, "回一段 JSON：原文、留得长");
+    var parsed = PolisTalk.ParseCrowd("""{"reactions":[{"kind":"cheer","text":"说得好！"},{"kind":"boo","text":"嘘——"},{"kind":"dance","text":"跳"},{"kind":"comment","text":""},{"kind":"comment","text":"有点道理"},{"kind":"cheer","text":"再来"}]}""");
+    CollectionAssert(new[] { "cheer:说得好！", "boo:嘘——", "comment:有点道理" }, parsed.Select(r => $"{r.Kind}:{r.Text}"), "认得的 kind、不空的话，最多三句");
+    AssertEqual(PolisTalk.MaxCrowdChars + 1, PolisTalk.ParseCrowd($$"""{"reactions":[{"kind":"comment","text":"{{new string('长', 60)}}"}]}""").Single().Text.Length, "太长的截到 24 字加省略号");
+    AssertEqual(1, PolisTalk.ParseCrowd("<think>想想</think>\n```json\n{\"reactions\":[{\"kind\":\"cheer\",\"text\":\"好\"}]}\n```").Count, "思考块与代码围栏照评判员的规矩剥掉");
+    foreach (var bad in new[] { "", "好！", "[{\"kind\":\"cheer\",\"text\":\"好\"}]", "{\"reactions\":\"好\"}", "{\"reactions\":[],\"reactions\":[{\"kind\":\"cheer\",\"text\":\"好\"}]}", "<think>没想完", "{\"reactions\":[{\"kind\":\"cheer\",\"text\":\"好\"}" })
+        AssertEqual(0, PolisTalk.ParseCrowd(bad).Count, $"读不出来就一句也没有（不预置台词）：{bad}");
+
     // —— 流式看得见的字：思考块没合上一个字都不给，合上之后只给后面的；半个开标签也不露 ——
     AssertEqual(string.Empty, PolisTalk.VisibleSoFar("<think>想一想租"), "思考块没合上：什么都不给");
     AssertEqual(string.Empty, PolisTalk.VisibleSoFar("<th"), "半个开标签：先别露");
@@ -11584,6 +11598,15 @@ static async Task TestPolisTalkAsync()
         AssertTrue(reply.Status == PolisTalkStatus.Ok && reply.Text == "我记得是三年。", $"Responses 协议同样流式地说：{reply}");
         CollectionAssert(new[] { "我记得", "我记得是三年。" }, seen, "Responses 的增量也边收边给");
         AssertTrue(handler.LastRequestBody!.Contains("companion-model", StringComparison.Ordinal) && !handler.LastRequestBody.Contains("\"temperature\"", StringComparison.Ordinal), "配了陪伴角色就用它，不发 temperature");
+    }
+    {
+        // 原文模式（围观的人回一段 JSON）：换行、引号都留着，代码围栏才认得出
+        using var handler = new SseHttpHandler(ChatSse("```json\n", "{\"reactions\":[{\"kind\":\"cheer\",\"text\":\"好\"}]}", "\n```"));
+        using var http = new HttpClient(handler);
+        using var service = PolisTalkService.CreateWithTransport(new OpenAiModelRuntimeFactory(new TestConfigService(RoleConfig(ProviderProtocol.ChatCompletions, companion: true))), clock, silentLogger, new HttpClientPipelineTransport(http));
+        var reply = await service.TalkAsync(PolisTalkPurpose.Crowd, crowdPrompt);
+        AssertEqual("```json\n{\"reactions\":[{\"kind\":\"cheer\",\"text\":\"好\"}]}\n```", reply.Text, "原文模式不收换行");
+        AssertEqual(1, PolisTalk.ParseCrowd(reply.Text).Count, "读得出来");
     }
     {
         var handler = new JudgeHttpHandler(HttpStatusCode.BadRequest, """{"error":{"message":"bad"}}""");

@@ -286,6 +286,9 @@ export function buildBoat(M) {
 // 广场：委托板（一块立着的大理石碑，带小山花，碑面上钉着三张建议）、日晷与传令官的讲台、两条石凳、一尊方柱头像。
 // 委托板的三张纸条在城里不写字（文字画在叠加层上）；有几条建议就钉几张。
 // ------------------------------------------------------------------
+/** 辩台（广场局部坐标）：讲台正前方 2.6 米处，长 3.4 米，沿 x 放，两端各站一位辩手。 */
+export const AGORA_DAIS = Object.freeze({ x: -2.0, z: -0.95, len: 3.4, depth: 1.2, h: 0.22 });
+
 export function buildAgora(M) {
   const kit = new Kit();
   kit.box(M.marble, 2.2, 0.25, 1.0, 0, 0.125, -4.2);
@@ -313,6 +316,11 @@ export function buildAgora(M) {
   kit.add(M.bronze, new THREE.ExtrudeGeometry(gnomon, { depth: 0.02, bevelEnabled: false }), m4(dial.x - 0.01, dial.y + 0.05, dial.z + 0.19, Math.PI / 2));
   kit.box(M.marble, 1.6, 0.22, 1.2, -4.4, 0.11, -1.9);
   kit.box(M.marble, 1.1, 0.22, 0.8, -4.4, 0.33, -2.05);
+  // 辩台（2026-10-13，用户：日晷前的讲台增加一个，辩论议题定下时两方选手站上去）：讲台正前方一座低矮的长条石台，
+  // 你和雅典娜各站一端、面对面，传令官仍在他的讲台上主持。0.22 米高——低于挡路的身体那一段（0.35–1.6 米），是地面不是障碍，
+  // 广场上的路照样从上面走
+  kit.box(M.marble, AGORA_DAIS.len, AGORA_DAIS.h, AGORA_DAIS.depth, AGORA_DAIS.x, AGORA_DAIS.h / 2, AGORA_DAIS.z);
+  kit.box(M.marble, AGORA_DAIS.len + 0.08, 0.04, AGORA_DAIS.depth + 0.08, AGORA_DAIS.x, AGORA_DAIS.h - 0.02, AGORA_DAIS.z);
   const notices = [];
   for (let i = 0; i < 3; i++) {
     const sheet = new THREE.Mesh(new THREE.PlaneGeometry(0.34, 0.44), M.papyrus);
@@ -329,11 +337,13 @@ export function buildAgora(M) {
   group.userData.board = new THREE.Vector3(0, 1.8, -4.2);
   group.userData.sundial = new THREE.Vector3(-4.6, 1.2, -3.4);
   group.userData.bema = new THREE.Vector3(-4.4, 0.44, -2.05);
+  group.userData.dais = { x: AGORA_DAIS.x, z: AGORA_DAIS.z, len: AGORA_DAIS.len, y: AGORA_DAIS.h };
   // 讲台的两级是地面（world.groundAt）：传令官站在上一级的台面上，不是站在街面上、腿陷进石头 0.43 米
   // （M3 第四轮，用户：他出门、回来都从讲台的侧面穿过去）；你踩上下一级的前沿也落在 0.22 米的台面上
   group.userData.floors = [
     { minX: -4.4 - 0.8, maxX: -4.4 + 0.8, minZ: -1.9 - 0.6, maxZ: -1.9 + 0.6, y: 0.22 },
     { minX: -4.4 - 0.55, maxX: -4.4 + 0.55, minZ: -2.05 - 0.4, maxZ: -2.05 + 0.4, y: 0.44 },
+    { minX: AGORA_DAIS.x - AGORA_DAIS.len / 2, maxX: AGORA_DAIS.x + AGORA_DAIS.len / 2, minZ: AGORA_DAIS.z - AGORA_DAIS.depth / 2, maxZ: AGORA_DAIS.z + AGORA_DAIS.depth / 2, y: AGORA_DAIS.h },
   ];
   return group;
 }

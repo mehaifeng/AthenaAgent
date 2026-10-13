@@ -5660,10 +5660,12 @@ static void TestGameModeDebate()
     GameModeViewModel? gameMode = null;
     MainWindowViewModel? shell = null;
     Window? window = null;
+    // 围观的人起哄（2026-10-13）：每轮她说完，Crowd 池一次调用，回一段 JSON
+    var crowdTalk = new HeadlessPolisTalkService { Reply = _ => new PolisTalkReply(PolisTalkStatus.Ok, """{"reactions":[{"kind":"cheer","text":"说得好！"},{"kind":"boo","text":"嘘——"}]}""") };
     try
     {
         gameMode = new GameModeViewModel(session, previewHost, store, watcher, localization, new HeadlessCronTaskReader(),
-            new PolisAssetStore(Path.Combine(root, "assets"), Log.Logger), new HeadlessPolisTalkService(), debates);
+            new PolisAssetStore(Path.Combine(root, "assets"), Log.Logger), crowdTalk, debates);
         shell = new MainWindowViewModel(
             chatService: null, configService: null, promptService: null, logService: null, knowledgeBaseService: null,
             localizationService: localization, fileSystemService: null, platformPathService: null, functionRegistry: null,
@@ -5717,6 +5719,15 @@ static void TestGameModeDebate()
             throw new InvalidOperationException("她每一轮看到的是这一场到此为止的发言（你刚说的那句在最后）。");
         if (chat.Messages.Count != messagesBefore || chat.InputText.Length > 0)
             throw new InvalidOperationException("辩论不进任何会话：没有新消息，也不写进输入框。");
+        // 围观的人起哄：每轮她说完一次 Crowd 调用（提示词里是议题和这一轮的两段话），推 debate-crowd
+        PumpTimers(() => Of("debate-crowd").Count >= 3, 5000, "三轮各推一次围观的人起哄（debate-crowd）。");
+        var crowdCalls = crowdTalk.Calls.Where(c => c.Purpose == PolisTalkPurpose.Crowd).ToList();
+        if (crowdCalls.Count != 3 || !crowdCalls[1].Prompt.Messages[^1].Text.Contains("第 2 轮：休息让人第二天更有效率。", StringComparison.Ordinal)
+            || !crowdCalls[0].Prompt.System.Contains("周末应该完全不碰工作", StringComparison.Ordinal))
+            throw new InvalidOperationException($"每轮一次 Crowd 调用，带着议题和这一轮的话：{crowdCalls.Count}");
+        var crowdPost = Of("debate-crowd")[0];
+        if (crowdPost.GetProperty("round").GetInt32() != 1 || crowdPost.GetProperty("reactions").EnumerateArray().Select(r => r.GetProperty("kind").GetString() + ":" + r.GetProperty("text").GetString()).FirstOrDefault() != "cheer:说得好！")
+            throw new InvalidOperationException($"读出来的起哄原样推给页面：{crowdPost}");
         // 判完之后再说一轮：不收
         page.Send("""{"v":1,"type":"debate-say","text":"再来一轮"}""");
         PumpTimersFor(200);

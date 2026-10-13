@@ -196,6 +196,8 @@ function liveHandlers() {
     'citizen-transcript': whenReady((m) => { liveGame.showCitizenTranscript(m); wake(); }),
     // 讲台前的辩论（M-E）：{ state, id, motion, round, rounds, jury, transcript, verdict, record, notice }
     debate: whenReady((m) => { liveGame.setDebate(m.debate ?? null); wake(); }),
+    // 围观的人起哄（2026-10-13）：{ id, round, reactions: [{ kind, text }] }——放到围观者的头顶
+    'debate-crowd': whenReady((m) => { liveGame.setDebateCrowd(m); wake(); }),
     board: whenReady((m) => { liveGame.setBoard(m.suggestions); wake(); }),
     oracle: whenReady((m) => { liveGame.setOracle(m.oracle ?? null); wake(); }),
     islands: whenReady((m) => { liveGame.setIslands(m.islands); wake(); }),

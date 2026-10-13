@@ -660,7 +660,43 @@ public sealed partial class GameModeViewModel : ViewModelBase, IDisposable
             : DebateText(reply.Status == PolisDebateCallStatus.NoModel ? "AthenaNoModel" : "AthenaFailed");
         _debate = PolisDebate.AthenaSays(_debate, line);
         await PostDebateAsync();
+        // 围观的人起哄（2026-10-13）：她真说了才有（让给你的那一轮没有可评的）；不等它，裁判照常往下走
+        if (reply.Status == PolisDebateCallStatus.Ok) _ = RunIntentAsync(() => CrowdReactAsync(id, token), "debate-crowd");
         if (_debate.State == PolisDebateState.Judging) await JudgeDebateAsync(id, token);
+    }
+
+    /// <summary>
+    /// 辩论时围观的人起哄（2026-10-13，用户：NPC 对回复进行简短评价或者喝彩或者嘘声；每轮一次模型调用）。陪伴角色的 Crowd 池；
+    /// 提示词只有世界观、议题和这一轮的两段话（<see cref="PolisTalk.BuildCrowd"/>）。读出两到三句就推 <c>debate-crowd</c>，
+    /// 页面把它们放到围观者的头顶；没配模型、超限、失败、读不出来都是一句也没有——不预置台词。晚到的按这一场的 Id 丢掉。
+    /// </summary>
+    private async Task CrowdReactAsync(string id, CancellationToken token)
+    {
+        var session = _debate;
+        if (_disposed || session == null || session.Id != id) return;
+        var you = session.Transcript.LastOrDefault(t => t.Side == "you")?.Text;
+        var her = session.Transcript.LastOrDefault(t => t.Side == "athena")?.Text;
+        if (you == null || her == null) return;
+        var round = session.Transcript.Count(t => t.Side == "athena");
+        var prompt = PolisTalk.BuildCrowd(WorldFacts(), session.Motion, round, you, her, _localization.CurrentLanguage);
+        PolisTalkReply reply;
+        try
+        {
+            reply = await Task.Run(() => _talk.TalkAsync(PolisTalkPurpose.Crowd, prompt, null, token), token);
+        }
+        catch (OperationCanceledException)
+        {
+            return;
+        }
+        if (_disposed || _debate?.Id != id || reply.Status != PolisTalkStatus.Ok) return;
+        var reactions = PolisTalk.ParseCrowd(reply.Text);
+        if (reactions.Count == 0)
+        {
+            _logger.Debug("Polis debate crowd reply could not be read");
+            return;
+        }
+        Post(new { type = "debate-crowd", id, round, reactions = reactions.Select(r => new { kind = r.Kind, text = r.Text }).ToList() });
+        Flush();
     }
 
     private async Task JudgeDebateAsync(string id, CancellationToken token)
