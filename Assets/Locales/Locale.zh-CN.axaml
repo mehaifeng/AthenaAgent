@@ -1510,7 +1510,6 @@
     <system:String x:Key="Polis.Ui.ChartMissing">找不到文件夹</system:String>
     <!-- 居民即会话（M-B，2026-10-13）：每场会话一位居民。名字表、称号的拼法、他那几句、打招呼与闲聊（"|" 分隔说法；闲聊是"甲说|乙答"一对） -->
     <system:String x:Key="Polis.Ui.InteractCitizen">和{name}说话</system:String>
-    <system:String x:Key="Polis.Ui.CitizenOpen">去看那份委托</system:String>
     <system:String x:Key="Polis.Ui.CensusLine">这座城里住着 {total} 位居民，街上有 {street} 位</system:String>
     <system:String x:Key="Polis.Ui.InteractStele">读碑上的名字</system:String>
     <system:String x:Key="Polis.Ui.SteleTitle">老居民</system:String>

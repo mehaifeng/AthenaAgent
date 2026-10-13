@@ -153,7 +153,6 @@ export const UI_ZH = Object.freeze({
   chartMissing: '找不到文件夹',
   // 居民即会话（M-B）
   interactCitizen: '和{name}说话',
-  citizenOpen: '去看那份委托',
   censusLine: '这座城里住着 {total} 位居民，街上有 {street} 位',
   interactStele: '读碑上的名字',
   steleTitle: '老居民',
@@ -2209,7 +2208,7 @@ export function createGame({ params, status, send, onTalk = null, onUiBlocked = 
     onRead?.({ title: fill(ui.transcriptTitle, { name: c.data.name ?? '', title: m.title || c.data.title || ui.citizenInfoUntitled }), markdown: transcriptMarkdown(m, ui) });
   }
 
-  /** 一位居民的卡片（M-B）：他说的那几句、这座城的人口，"去看那份委托"。他站定、转身、挥手（animateCitizens）。 */
+  /** 一位居民的卡片（M-B）：那场会话的信息、这座城的人口，"聊几句""看看那场会话"。他站定、转身、挥手（animateCitizens）。 */
   function openCitizen(id) {
     if (!world?.citizens.has(id)) return;
     openPanel({ type: 'citizen', id });
@@ -2326,11 +2325,6 @@ export function createGame({ params, status, send, onTalk = null, onUiBlocked = 
       case 'citizen-transcript':
         // 看看那场会话：C# 回 citizen-transcript，进卷轴阅读器（卡片留着）
         if (panel?.type === 'citizen') send('citizen-transcript', { conversationId: panel.id });
-        break;
-      case 'citizen-open':
-        // 一位居民 = 一份委托：走会话树的同一条路径（9.2）
-        if (panel?.type === 'citizen') send('select-conversation', { conversationId: panel.id });
-        panel = null;
         break;
       case 'bema-propose':
         // 提一个议题：卡片收起（先让对话栏不再让位），栏借给辩论；回车发 debate-start

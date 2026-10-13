@@ -447,10 +447,9 @@ async function citizensCheck(name, browser) {
     await page.keyboard.press('KeyE');
     await page.waitForTimeout(200);
     const card = await page.evaluate(() => ({ opened: window.__polis.citizenOpened, panel: window.__polis.panel, view: window.__polisGame.panelView?.() ?? null }));
-    const n = await inboxLength();
-    await page.evaluate(() => window.__polisGame.onButton('citizen-open'));
-    const opened = await sentSince(n);
-    const foldedAfterOpen = await page.evaluate(() => window.__polisGame.panelView() == null);   // 按了"去看那份委托"，卡片收起
+    // 卡片上的按钮（这一帧画出来的）：有"看看那场会话"，没有"去看那份委托"（2026-10-13 第三轮，用户：拿掉）
+    const cardButtons = await page.evaluate(() => (window.__polisGame.regions ?? []).map((r) => r.id));
+    await page.evaluate(() => window.__polisGame.onButton('panel-close'));
 
     // 碑：走到它跟前按 E，卡片列出刻在上面的名字
     const stele = await page.evaluate(() => {
@@ -487,7 +486,7 @@ async function citizensCheck(name, browser) {
       focusOnCitizen: target != null && focus?.type === 'citizen' && focus.id === target,
       cardOpens: card.opened === target && card.panel === 'citizen',
       cardShowsCensus: (card.view?.lines ?? []).some((l) => /42/.test(l)),
-      cardSelectsConversation: of(opened, 'select-conversation')?.conversationId === target && foldedAfterOpen,
+      cardHasNoCommissionButton: cardButtons.includes('citizen-transcript') && !cardButtons.includes('citizen-open'),
       steleOpens: stele === 'agora:0' && steleFocus?.type === 'stele' && steleCard.panel === 'stele',
       listShrinks: shrunk.size === 5 && shrunk.figures === 5 && shrunk.steles === 0,
       noProblems: problems.length === 0,

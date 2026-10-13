@@ -98,7 +98,6 @@ public static class PolisLocale
         ("chartMissing", "Polis.Ui.ChartMissing", "找不到文件夹"),
         // M-B（2026-10-13）：居民即会话
         ("interactCitizen", "Polis.Ui.InteractCitizen", "和{name}说话"),
-        ("citizenOpen", "Polis.Ui.CitizenOpen", "去看那份委托"),
         ("censusLine", "Polis.Ui.CensusLine", "这座城里住着 {total} 位居民，街上有 {street} 位"),
         ("interactStele", "Polis.Ui.InteractStele", "读碑上的名字"),
         ("steleTitle", "Polis.Ui.SteleTitle", "老居民"),

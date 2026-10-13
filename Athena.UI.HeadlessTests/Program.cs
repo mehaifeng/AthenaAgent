@@ -5573,9 +5573,9 @@ static void TestGameModeCitizens()
             throw new InvalidOperationException("没配模型：不说任何话，ambient-end nomodel。");
         answers.Reply = _ => new PolisTalkReply(PolisTalkStatus.Ok, "好的。");
 
-        // —— 居民卡片上的「去看那次委托」= 选中那场会话（会话树的同一条路径） ——
+        // —— 选中一场会话（橄榄树、神谕、传令官的那几行；居民卡片上的那个按钮 2026-10-13 第三轮拿掉了）= 会话树的同一条路径 ——
         page.Send($$"""{"v":1,"type":"select-conversation","conversationId":"{{here[5].ConversationId}}"}""");
-        PumpTimers(() => ReferenceEquals(shell.SelectedConversation, here[5]), 5000, "居民卡片的按钮要选中他那场会话。");
+        PumpTimers(() => ReferenceEquals(shell.SelectedConversation, here[5]), 5000, "select-conversation 要选中那场会话。");
 
         // —— 删掉一场会话，他就不在了（居民从会话树推导，从不另存） ——
         PumpTimers(() => City() == wsA.Id, 10000, "同一座城：不重新装城。");
@@ -5639,7 +5639,7 @@ static void TestGameModeCitizens()
         capturingLogger.Dispose();
         if (Directory.Exists(root)) Directory.Delete(root, recursive: true);
     }
-    Console.WriteLine("[PASS] game mode citizens: one citizen per conversation, the 32 most recent on the street and the rest counted, elders on steles, the one who worked in a folder lives there, no message text reaches the page, a deleted conversation's citizen is gone, the sanctuary's citizens are its global chats, the card's button selects through the session tree, citizens with no folder gather into households whose houses (named for the household) join the city posted to the page and whose plots are saved, and asking a citizen sends only that conversation's messages, answers only to the page (a missing model is a sentence, not an error) and refuses other cities' citizens, made-up ids, empty and overlong questions");
+    Console.WriteLine("[PASS] game mode citizens: one citizen per conversation, the 32 most recent on the street and the rest counted, elders on steles, the one who worked in a folder lives there, no message text reaches the page, a deleted conversation's citizen is gone, the sanctuary's citizens are its global chats, select-conversation selects through the session tree, citizens with no folder gather into households whose houses (named for the household) join the city posted to the page and whose plots are saved, and asking a citizen sends only that conversation's messages, answers only to the page (a missing model is a sentence, not an error) and refuses other cities' citizens, made-up ids, empty and overlong questions");
 }
 
 static void TestGameModeDebate()

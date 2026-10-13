@@ -443,11 +443,11 @@ export function createOverlay(canvas) {
     let bx = textX;
     // 职业居民（2026-10-13）：聊几句（工具能力撤下了，没有"请雅典娜试试"）
     if (view.type === 'resident' && view.askable) bx += button(ui.citizenChat, bx, by, 'resident-chat', { minWidth: 90 }) + 8;
-    // 居民即会话（M-B）：聊几句（对话栏借给他，他的话在他头顶）、看看那场会话、去看他那份委托（走会话树的同一条路径）
+    // 居民即会话（M-B）：聊几句（对话栏借给他，他的话在他头顶）、看看那场会话。
+    // "去看那份委托"拿掉了（2026-10-13 第三轮，用户）：卡片是和这个人打交道的地方，选会话走会话树
     if (view.type === 'citizen') {
       if (view.askable) bx += button(ui.citizenChat, bx, by, 'citizen-chat', { minWidth: 90 }) + 8;
       bx += button(ui.citizenTranscript, bx, by, 'citizen-transcript', { minWidth: 100 }) + 8;
-      bx += button(ui.citizenOpen, bx, by, 'citizen-open', { minWidth: 110 }) + 8;
     }
     // 讲台（M-E）：提一个议题（对话栏借给辩论）
     if (view.type === 'bema') bx += button(ui.bemaPropose, bx, by, 'bema-propose', { minWidth: 110 }) + 8;

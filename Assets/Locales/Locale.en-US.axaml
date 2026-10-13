@@ -1510,7 +1510,6 @@
     <system:String x:Key="Polis.Ui.ChartMissing">Folder missing</system:String>
     <!-- Citizens are conversations (M-B, 2026-10-13): one citizen per conversation. Name lists, the epithet pattern, their own lines, greetings and small talk ("|" separates variants; small talk is an "A says|B answers" pair) -->
     <system:String x:Key="Polis.Ui.InteractCitizen">Talk to {name}</system:String>
-    <system:String x:Key="Polis.Ui.CitizenOpen">Open that commission</system:String>
     <system:String x:Key="Polis.Ui.CensusLine">{total} citizens live in this city; {street} are out in the streets</system:String>
     <system:String x:Key="Polis.Ui.InteractStele">Read the names on the stele</system:String>
     <system:String x:Key="Polis.Ui.SteleTitle">Old citizens</system:String>
