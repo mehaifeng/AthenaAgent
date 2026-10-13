@@ -5,6 +5,7 @@
 import * as THREE from '../../vendor/three.bundle.mjs';
 import { mergeGeometries } from '../../vendor/three.bundle.mjs';
 import { lerp, deg } from './noise.mjs';
+import { glassUv, LAMP_KINDS } from './lamps.mjs';
 
 const KEEP = ['position', 'normal', 'uv'];
 
@@ -29,6 +30,18 @@ export class Kit {
     this.byMaterial = new Map();
     this.instances = new Map();
     this.objects = [];
+    this.lights = [];
+  }
+
+  /**
+   * 登记一处夜里的灯火（建筑本地坐标；n 是它朝外的方向，灯笼为 0）：建城时换算成世界坐标烘进光照图（lamps.mjs），
+   * 街面和墙脚靠它被照亮。kind 取 LAMP_KINDS 的默认强度与照多远。
+   */
+  light(kind, x, y, z, { nx = 0, nz = 0, power, radius } = {}) {
+    const base = LAMP_KINDS[kind];
+    if (!base) throw new Error(`Kit: unknown light kind ${kind}`);
+    this.lights.push({ kind, x, y, z, nx, nz, power: power ?? base.power, radius: radius ?? base.radius });
+    return this;
   }
 
   add(material, geometry, matrix = null) {
@@ -78,6 +91,7 @@ export class Kit {
       group.add(inst);
     }
     for (const obj of this.objects) group.add(obj);
+    if (this.lights.length) group.userData.lights = [...(group.userData.lights ?? []), ...this.lights];
     return group;
   }
 }
@@ -253,11 +267,25 @@ export function podium(kit, mat, w, d, { steps = 3, stepH = 0.25, stepT = 0.3, z
  * 门：门洞（深色；夜里透出屋里的灯火）+ 门楣；返回门的高度。门总是亮的——不少建筑（金库、仓房）只有这一个开口，
  * 它不亮整座房子夜里就是黑的；明暗的变化交给窗。
  */
-export function door(kit, M, w, h, x, y, z, { lintel = M.wood, frame = null } = {}) {
-  kit.box(M.windowLit ?? M.dark, w, h, 0.08, x, y + h / 2, z + 0.02);
+export function door(kit, M, w, h, x, y, z, { lintel = M.wood, frame = null, lantern = 0 } = {}) {
+  litOpening(kit, M, w, h, 0.08, x, y + h / 2, z + 0.02, true);
   kit.box(lintel, w + 0.3, 0.14, 0.14, x, y + h + 0.07, z + 0.05);
   if (frame) for (const sx of [-1, 1]) kit.box(frame, 0.12, h, 0.1, x + sx * (w / 2 + 0.06), y + h / 2, z + 0.04);
+  // 门边挂壁灯（lantern = -1 左 / 1 右 / 'both' 两边）：夜里门前一片街面靠它亮起来
+  if (lantern && M.lanternPane) for (const sx of lantern === 'both' ? [-1, 1] : [lantern]) wallLantern(kit, M, x + sx * (w / 2 + 0.42), y + h + 0.32, z);
   return h;
+}
+
+/**
+ * 透出灯火的开口（门洞、窗洞、神庙的门）：UV 编好位置和火苗相位（lamps.mjs 的 glassUv），登记一处朝外（+z）的灯火。
+ * 没有 windowLit 的材质表（极简的测试桩）就是一块深色。
+ */
+export function litOpening(kit, M, w, h, d, x, y, z, isDoor, power) {
+  if (!M.windowLit) return kit.box(M.dark, w, h, d, x, y, z);
+  kit.add(M.windowLit, glassUv(new THREE.BoxGeometry(w, h, d), { x, y, z, door: isDoor }), m4(x, y, z));
+  // 光从开口中间偏下出来（屋里的灯放在桌上、地上）
+  kit.light(isDoor ? 'door' : 'window', x, y - h * 0.15, z + d / 2, { nz: 1, ...(power ? { power: LAMP_KINDS[isDoor ? 'door' : 'window'].power * power } : {}) });
+  return kit;
 }
 
 /**
@@ -265,7 +293,8 @@ export function door(kit, M, w, h, x, y, z, { lintel = M.wood, frame = null } = 
  */
 export function window_(kit, M, w, h, x, y, z) {
   const lit = M.windowLit && windowLitAt(x, y, z);
-  kit.box(lit ? M.windowLit : M.dark, w, h, 0.06, x, y, z + 0.02);
+  if (lit) litOpening(kit, M, w, h, 0.06, x, y, z + 0.02, false, y > 3 ? 0.7 : 1);
+  else kit.box(M.dark, w, h, 0.06, x, y, z + 0.02);
   kit.box(M.stone, w + 0.16, 0.07, 0.16, x, y - h / 2 - 0.035, z + 0.06);
 }
 
@@ -273,6 +302,96 @@ export function window_(kit, M, w, h, x, y, z) {
 export function windowLitAt(x, y, z) {
   const h = Math.sin(x * 12.9898 + y * 78.233 + z * 37.719) * 43758.5453;
   return h - Math.floor(h) > 0.25;
+}
+
+/**
+ * 吊灯笼（2026-10-13，用户：柱廊的灯笼只是两个发光几何体，完全没有设计）。照庞贝出土的青铜提灯：
+ * 顶上一枚挂钩和一段椭圆环的链子；尖顶的铜盖，盖尖一颗圆钮、盖沿一道箍；一圈六片刮薄的牛角做灯罩（lanternPane，
+ * 夜里从里面透出火光，片与片之间是铜骨）、上下两道铜箍；底下一只浅铜盘，盘底垂一颗滴珠。
+ * (x, yHook, z) 是挂钩的位置，drop 是链长，scale 整体缩放（壁灯用小一号）。返回灯罩中心的高度。
+ */
+export function lantern(kit, M, x, yHook, z, { drop = 0.4, scale = 1 } = {}) {
+  const s = scale, b = M.bronze;
+  // 挂钩：一枚小圆盘钉在梁下，下面一个环
+  kit.cylinder(b, 0.05 * s, 0.06 * s, 0.03 * s, x, yHook - 0.015 * s, z, 10);
+  kit.add(b, new THREE.TorusGeometry(0.03 * s, 0.007 * s, 5, 10), m4(x, yHook - 0.06 * s, z));
+  // 链子：一节节椭圆环，相邻两节转 90°
+  const linkL = 0.062 * s, top = yHook - 0.085 * s, yTop = yHook - drop;
+  const links = Math.max(1, Math.round((top - yTop - 0.04 * s) / linkL));
+  for (let i = 0; i < links; i++) {
+    kit.instance('lantern-link', () => new THREE.TorusGeometry(0.02, 0.0055, 4, 10), b,
+      m4(x, top - (i + 0.5) * ((top - yTop - 0.04 * s) / links), z, (i % 2) * Math.PI / 2, 0, 0, s, s * 1.55, s));
+  }
+  // 提环与盖：提环、盖尖的圆钮、尖顶（两段，下段外撇）、盖沿一道箍
+  kit.add(b, new THREE.TorusGeometry(0.045 * s, 0.008 * s, 5, 12), m4(x, yTop - 0.01 * s, z));
+  kit.add(b, new THREE.SphereGeometry(0.028 * s, 8, 6), m4(x, yTop - 0.065 * s, z));
+  kit.cylinder(b, 0.018 * s, 0.07 * s, 0.09 * s, x, yTop - 0.12 * s, z, 12);
+  kit.cylinder(b, 0.07 * s, 0.2 * s, 0.09 * s, x, yTop - 0.205 * s, z, 12);
+  kit.add(b, new THREE.TorusGeometry(0.198 * s, 0.014 * s, 5, 24), m4(x, yTop - 0.25 * s, z, 0, Math.PI / 2));
+  // 灯罩：六片牛角（开口圆筒，UV 一圈 0..1——着色器按六片画铜骨），六根铜骨，上下两道箍
+  const bodyTop = yTop - 0.26 * s, bodyH = 0.34 * s, bodyY = bodyTop - bodyH / 2, r = 0.168 * s;
+  kit.add(M.lanternPane ?? M.windowLit ?? M.dark, glassUv(new THREE.CylinderGeometry(r, r * 0.94, bodyH, 18, 1, true), { x, y: bodyY, z }), m4(x, bodyY, z));
+  for (let k = 0; k < 6; k++) {
+    const a = (k / 6) * Math.PI * 2;
+    kit.box(b, 0.022 * s, bodyH + 0.02 * s, 0.022 * s, x + Math.cos(a) * (r + 0.004 * s), bodyY, z + Math.sin(a) * (r + 0.004 * s), -a);
+  }
+  for (const yy of [bodyTop, bodyTop - bodyH]) kit.add(b, new THREE.TorusGeometry(r + 0.012 * s, 0.013 * s, 5, 24), m4(x, yy, z, 0, Math.PI / 2));
+  // 底盘与滴珠
+  const yBase = bodyTop - bodyH;
+  kit.cylinder(b, 0.19 * s, 0.12 * s, 0.05 * s, x, yBase - 0.025 * s, z, 16);
+  kit.add(b, new THREE.SphereGeometry(0.03 * s, 8, 6), m4(x, yBase - 0.075 * s, z));
+  kit.cylinder(b, 0.022 * s, 0.002 * s, 0.09 * s, x, yBase - 0.135 * s, z, 8);
+  kit.light('lantern', x, bodyY, z, { power: LAMP_KINDS.lantern.power * Math.min(1, s * 1.2) });
+  return bodyY;
+}
+
+/**
+ * 街灯（2026-10-13，用户：外面的街道没有被打亮）：街口的一根青铜灯柱。方石座上三只兽足撑起一根收分的细柱，
+ * 柱上两颗圆节，柱顶一只承盘，伸出一根带卷草托的铜臂，臂端吊一盏灯笼（lantern）。本地原点在柱脚，臂朝 +z
+ * （放的时候转向街口）。柱子只有 9 厘米粗，挡路的只是脚下一小圈；灯笼最低处在 2 米以上。
+ */
+export function lampPost(kit, M) {
+  const b = M.bronze, H = 2.85;
+  kit.box(M.stone, 0.46, 0.22, 0.46, 0, 0.11, 0);
+  kit.box(M.stone, 0.36, 0.06, 0.36, 0, 0.25, 0);
+  for (let k = 0; k < 3; k++) {
+    const a = (k / 3) * Math.PI * 2 + Math.PI / 6;
+    kit.box(b, 0.05, 0.22, 0.05, Math.sin(a) * 0.1, 0.38, Math.cos(a) * 0.1, a, 0.5);
+    kit.add(b, new THREE.SphereGeometry(0.038, 8, 6), m4(Math.sin(a) * 0.15, 0.3, Math.cos(a) * 0.15, 0, 0, 0, 1, 0.7, 1));
+  }
+  kit.cylinder(b, 0.07, 0.09, 0.12, 0, 0.5, 0, 12);
+  kit.cylinder(b, 0.032, 0.045, H - 0.56, 0, 0.56 + (H - 0.56) / 2, 0, 10);
+  for (const y of [1.15, 2.05]) kit.add(b, new THREE.SphereGeometry(0.06, 10, 8), m4(0, y, 0, 0, 0, 0, 1, 0.75, 1));
+  kit.cylinder(b, 0.13, 0.05, 0.08, 0, H + 0.04, 0, 14);
+  kit.add(b, new THREE.SphereGeometry(0.04, 8, 6), m4(0, H + 0.12, 0));
+  // 臂与卷草托（和壁灯同一种做法），臂端吊灯笼
+  const reach = 0.55, y = H - 0.1;
+  kit.box(b, 0.03, 0.03, reach, 0, y, reach / 2);
+  const strut = Math.hypot(0.24, reach * 0.7);
+  kit.box(b, 0.022, 0.022, strut, 0, y - 0.12, reach * 0.35, 0, -Math.atan2(0.24, reach * 0.7));
+  kit.add(b, new THREE.TorusGeometry(0.07, 0.01, 5, 14, Math.PI * 1.5), m4(0, y - 0.075, reach * 0.42, Math.PI / 2, 0, Math.PI * 0.25));
+  kit.add(b, new THREE.SphereGeometry(0.024, 8, 6), m4(0, y, reach));
+  lantern(kit, M, 0, y - 0.02, reach, { drop: 0.12, scale: 0.85 });
+  return kit;
+}
+
+/**
+ * 壁灯：墙上一块铜板，伸出一根带卷草托的铜臂，臂端吊一盏小一号的灯笼（lantern）。(x, y, z) 是铜板贴墙的位置（墙面 z），
+ * 臂向 +z 伸出 0.42 米。挂在门边 2 米多高，最低处也在身体那一段（0.35–1.6 米）之上，不挡路。
+ */
+export function wallLantern(kit, M, x, y, z) {
+  const b = M.bronze, reach = 0.42;
+  kit.box(b, 0.12, 0.26, 0.03, x, y - 0.06, z + 0.02);
+  kit.add(b, new THREE.SphereGeometry(0.018, 6, 4), m4(x, y + 0.04, z + 0.04));
+  kit.add(b, new THREE.SphereGeometry(0.018, 6, 4), m4(x, y - 0.16, z + 0.04));
+  // 臂：一根平伸的方铜条，下面一根斜撑，斜撑和臂之间一个四分之三圈的卷草
+  kit.box(b, 0.026, 0.026, reach, x, y, z + reach / 2 + 0.03);
+  const strut = Math.hypot(0.2, reach * 0.7);
+  kit.box(b, 0.02, 0.02, strut, x, y - 0.1, z + reach * 0.35 + 0.03, 0, -Math.atan2(0.2, reach * 0.7));
+  kit.add(b, new THREE.TorusGeometry(0.06, 0.009, 5, 14, Math.PI * 1.5), m4(x, y - 0.065, z + reach * 0.42, Math.PI / 2, 0, Math.PI * 0.25));
+  // 臂端一颗圆钮，灯笼吊在它下面
+  kit.add(b, new THREE.SphereGeometry(0.022, 8, 6), m4(x, y, z + reach + 0.03));
+  return lantern(kit, M, x, y - 0.02, z + reach, { drop: 0.1, scale: 0.72 });
 }
 
 /**

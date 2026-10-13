@@ -13,6 +13,75 @@ import { EffectComposer, RenderPass, GTAOPass, OutputPass, ShaderPass, RoomEnvir
  */
 export const FILL = Object.freeze({ day: 0xe4dfd6, night: 0x15181d });
 
+/**
+ * 夜里的辉光（2026-10-13，用户：灯火没有散射）：灯火的光在空气里散开一圈。在色调映射之前（线性、半浮点的缓冲里）
+ * 取出亮过 threshold 的部分，降到 1/2、1/4、1/8、1/16 各模糊一遍再叠回去——近处一圈紧的、远处一圈宽而淡的。
+ * 白天关掉（白天的高光不需要它，也省掉这几遍绘制）；夜里强度跟着 nightK。月光下的墙远到不了阈值，亮的只有灯火和雅典娜。
+ */
+export const GLOW = Object.freeze({ threshold: 0.75, knee: 0.6, strength: 0.95, levels: 4, weights: [0.55, 0.75, 0.9, 1.0] });
+
+function createGlowPass() {
+  const camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
+  const quad = new THREE.Mesh(new THREE.PlaneGeometry(2, 2));
+  quad.frustumCulled = false;
+  const vertexShader = /* glsl */`varying vec2 vUv; void main() { vUv = uv; gl_Position = vec4(position.xy, 0.0, 1.0); }`;
+  const material = (fragmentShader, uniforms) => new THREE.ShaderMaterial({ vertexShader, fragmentShader, uniforms, depthTest: false, depthWrite: false });
+  // 取亮处：四个点平均（源是全分辨率，直接取一点会在降采样时闪），超过阈值的部分软过渡进来
+  const bright = material(/* glsl */`
+    uniform sampler2D tIn; uniform vec2 uTexel; uniform float uThreshold, uKnee; varying vec2 vUv;
+    void main() {
+      vec3 c = 0.25 * (texture2D(tIn, vUv + uTexel * vec2(-0.5, -0.5)).rgb + texture2D(tIn, vUv + uTexel * vec2(0.5, -0.5)).rgb
+                     + texture2D(tIn, vUv + uTexel * vec2(-0.5, 0.5)).rgb + texture2D(tIn, vUv + uTexel * vec2(0.5, 0.5)).rgb);
+      float l = max(c.r, max(c.g, c.b));
+      gl_FragColor = vec4(c * smoothstep(uThreshold, uThreshold + uKnee, l), 1.0);
+    }`, { tIn: { value: null }, uTexel: { value: new THREE.Vector2() }, uThreshold: { value: GLOW.threshold }, uKnee: { value: GLOW.knee } });
+  // 可分离的高斯（9 个采样点借线性过滤折成 5 次取样）
+  const blur = material(/* glsl */`
+    uniform sampler2D tIn; uniform vec2 uStep; varying vec2 vUv;
+    void main() {
+      vec3 c = texture2D(tIn, vUv).rgb * 0.2270270;
+      c += (texture2D(tIn, vUv + uStep * 1.3846154).rgb + texture2D(tIn, vUv - uStep * 1.3846154).rgb) * 0.3162162;
+      c += (texture2D(tIn, vUv + uStep * 3.2307692).rgb + texture2D(tIn, vUv - uStep * 3.2307692).rgb) * 0.0702703;
+      gl_FragColor = vec4(c, 1.0);
+    }`, { tIn: { value: null }, uStep: { value: new THREE.Vector2() } });
+  const compose = material(/* glsl */`
+    uniform sampler2D tIn, tG0, tG1, tG2, tG3; uniform vec4 uWeights; uniform float uStrength; varying vec2 vUv;
+    void main() {
+      vec3 g = texture2D(tG0, vUv).rgb * uWeights.x + texture2D(tG1, vUv).rgb * uWeights.y + texture2D(tG2, vUv).rgb * uWeights.z + texture2D(tG3, vUv).rgb * uWeights.w;
+      vec4 c = texture2D(tIn, vUv);
+      gl_FragColor = vec4(c.rgb + g * uStrength, c.a);
+    }`, { tIn: { value: null }, tG0: { value: null }, tG1: { value: null }, tG2: { value: null }, tG3: { value: null }, uWeights: { value: new THREE.Vector4(...GLOW.weights) }, uStrength: { value: 0 } });
+  const target = () => new THREE.WebGLRenderTarget(1, 1, { type: THREE.HalfFloatType, depthBuffer: false });
+  const levels = Array.from({ length: GLOW.levels }, () => ({ a: target(), b: target() }));
+  const draw = (renderer, mat, to) => { quad.material = mat; renderer.setRenderTarget(to); renderer.render(quad, camera); };
+
+  return {
+    enabled: false, needsSwap: true, clear: false, renderToScreen: false,
+    strength: 0,
+    setSize(w, h) {
+      levels.forEach((lv, i) => {
+        const lw = Math.max(1, Math.round(w / 2 ** (i + 1))), lh = Math.max(1, Math.round(h / 2 ** (i + 1)));
+        lv.a.setSize(lw, lh); lv.b.setSize(lw, lh);
+      });
+    },
+    render(renderer, writeBuffer, readBuffer) {
+      bright.uniforms.tIn.value = readBuffer.texture;
+      bright.uniforms.uTexel.value.set(1 / readBuffer.width, 1 / readBuffer.height);
+      draw(renderer, bright, levels[0].a);
+      levels.forEach((lv, i) => {
+        if (i > 0) { blur.uniforms.tIn.value = levels[i - 1].a.texture; blur.uniforms.uStep.value.set(0, 0); draw(renderer, blur, lv.a); }
+        blur.uniforms.tIn.value = lv.a.texture; blur.uniforms.uStep.value.set(1 / lv.a.width, 0); draw(renderer, blur, lv.b);
+        blur.uniforms.tIn.value = lv.b.texture; blur.uniforms.uStep.value.set(0, 1 / lv.b.height); draw(renderer, blur, lv.a);
+      });
+      compose.uniforms.tIn.value = readBuffer.texture;
+      levels.forEach((lv, i) => { compose.uniforms[`tG${i}`].value = lv.a.texture; });
+      compose.uniforms.uStrength.value = this.strength;
+      draw(renderer, compose, this.renderToScreen ? null : writeBuffer);
+    },
+    dispose() { levels.forEach((lv) => { lv.a.dispose(); lv.b.dispose(); }); [bright, blur, compose].forEach((m) => m.dispose()); quad.geometry.dispose(); },
+  };
+}
+
 export function createRenderer({ canvas, ao = true, shadows = true, grade = false, accent = true }) {
   const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, preserveDrawingBuffer: true });
   renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
@@ -59,6 +128,8 @@ export function createRenderer({ canvas, ao = true, shadows = true, grade = fals
   gtao.updatePdMaterial({ lumaPhi: 10, depthPhi: 2, normalPhi: 3, radius: 6, samples: 16 });
   gtao.blendIntensity = 1.0;
   if (ao) composer.addPass(gtao);
+  const glow = createGlowPass();
+  composer.addPass(glow);
   composer.addPass(new OutputPass());
 
   const maskTarget = new THREE.WebGLRenderTarget(size.x, size.y);
@@ -209,6 +280,8 @@ export function createRenderer({ canvas, ao = true, shadows = true, grade = fals
     scene.environmentIntensity = lerp(DAY.env, NIGHT.env);
     renderer.toneMappingExposure = lerp(DAY.exposure, NIGHT.exposure);
     gradePass.uniforms.uNight.value = night;
+    glow.strength = GLOW.strength * night;
+    glow.enabled = night > 0.01;
     fill = FILL_RGB.day.map((d, i) => d + (FILL_RGB.night[i] - d) * night);
     gradePass.uniforms.uFill.value.set(...fill);
   }
@@ -216,7 +289,7 @@ export function createRenderer({ canvas, ao = true, shadows = true, grade = fals
   setNight(0);
 
   return {
-    renderer, scene, camera, composer, gradePass, gtao, sun, hemi, size,
+    renderer, scene, camera, composer, gradePass, gtao, glow, sun, hemi, size,
     applyFrustum, resize, syncMatrices, projectUv, projectCss, placeSun, render, setNight,
     get night() { return night; },
     /** 地图外此刻的纯色（显示空间的 0..1 分量）：测试与截图核对用。 */

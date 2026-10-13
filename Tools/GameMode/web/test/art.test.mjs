@@ -571,3 +571,77 @@ test('night windows: houses and workshops have lit window panes, ruins none, and
   setNightWindows(pane, 3);
   assert.equal(pane.windowLit.emissiveIntensity, WINDOW_GLOW, '夜里亮到 WINDOW_GLOW 为止');
 });
+
+test('night lamps: the glass shading, the street light field and the lanterns', async () => {
+  // 2026-10-13，用户：夜里的灯火材质太僵硬，没有散射，外面的街道没有被打亮，柱廊的灯笼只是两个发光几何体
+  const L = await import('../../../../Assets/Polis/src/art/lamps.mjs');
+  const { Kit, door, lantern, wallLantern, lampPost } = await import('../../../../Assets/Polis/src/art/kit.mjs');
+  const { buildHouse, buildStoaLibrary } = await import('../../../../Assets/Polis/src/art/buildings.mjs');
+  const { setNightWindows, WINDOW_GLOW, LANTERN_GLOW } = await import('../../../../Assets/Polis/src/art/materials.mjs');
+  const { rng } = await import('../../../../Assets/Polis/src/art/noise.mjs');
+
+  // 补丁全都落在 three.js 现在的 chunk 上（chunk 改名时 replace 什么也不做——灯火会悄悄没了），缺 chunk 就抛错
+  const standard = () => ({ vertexShader: THREE.ShaderLib.standard.vertexShader, fragmentShader: THREE.ShaderLib.standard.fragmentShader, uniforms: {} });
+  const lit = standard();
+  L.patchLampLit(lit);
+  assert.ok(lit.vertexShader.includes('vLampWorld = ( modelMatrix * lampWorld ).xyz;'), '受光材质算出世界坐标');
+  assert.ok(lit.fragmentShader.includes('texture2D( uLampMap, lampUv )') && lit.fragmentShader.includes('totalEmissiveRadiance += diffuseColor.rgb * uLampColor'), '读光照图、按底色加进自发光');
+  assert.equal(lit.uniforms.uLampMap, L.LAMP_UNIFORMS.uLampMap, '全城共用一份光照图');
+  for (const kind of ['window', 'pane']) {
+    const glass = standard();
+    L.patchLampGlass(glass, kind);
+    assert.ok(glass.vertexShader.includes('vGlassUv = uv;') && glass.fragmentShader.includes('float flick ='), `${kind}：灯火的明暗分布与火苗`);
+  }
+  assert.throws(() => L.patchLampLit({ vertexShader: 'void main() {}', fragmentShader: 'void main() {}', uniforms: {} }), /not found/, '找不到 chunk 就抛错');
+
+  // 光照图：门朝 +z，门外亮、门里（墙后）不亮、照不到的地方是 0；灯笼四周一样亮；G 通道是灯的高度
+  const rect = { minX: -10, maxX: 10, minZ: -10, maxZ: 10 };
+  const doorLight = { x: 0, y: 1, z: 0, nx: 0, nz: 1, ...L.LAMP_KINDS.door };
+  const f1 = L.lampField([doorLight], rect);
+  assert.ok(L.lampAt(f1, 0, 2) > 0.3, `门前亮（${L.lampAt(f1, 0, 2).toFixed(2)}）`);
+  assert.ok(L.lampAt(f1, 0, -1.5) < 0.02, `墙后（屋里）不亮（${L.lampAt(f1, 0, -1.5).toFixed(3)}）`);
+  assert.equal(L.lampAt(f1, 0, 9), 0, '照不到的地方是 0');
+  const f2 = L.lampField([{ x: 0, y: 2.5, z: 0, nx: 0, nz: 0, ...L.LAMP_KINDS.lantern }], rect);
+  const ring = [[2, 0], [-2, 0], [0, 2], [0, -2]].map(([x, z]) => L.lampAt(f2, x, z));
+  assert.ok((Math.max(...ring) - Math.min(...ring)) / Math.max(...ring) < 0.15 && ring[0] > 0.3, `灯笼四周一样亮（${ring.map((v) => v.toFixed(2))}，差别只来自像素中心）`);
+  const center = (f2.height / 2 * f2.width + f2.width / 2) * 4;
+  assert.ok(Math.abs(f2.data[center + 1] / 255 * L.LAMP_HEIGHT_RANGE - 2.5) < 0.05, '记着灯的高度：高过它的屋顶不被照亮');
+  assert.throws(() => L.lampField([{ ...doorLight, x: NaN }], rect), /not a number/);
+
+  // 开口与灯笼登记光源：门朝外；民居有门灯和壁灯，废墟一盏都没有；柱廊的两盏是吊灯笼，带牛角灯罩
+  const M = stubMaterials();
+  const k = new Kit();
+  door(k, M, 1, 2, 0, 0, 3);
+  assert.deepEqual([k.lights[0].kind, k.lights[0].nz, k.lights[0].z], ['door', 1, 3.06], '门登记一处朝外的灯火');
+  const kinds = (g) => (g.userData.lights ?? []).map((l) => l.kind);
+  for (const subtype of ['courtyard', 'pergola', 'twin', 'balcony']) {
+    const house = buildHouse(M, { key: `lamp-${subtype}`, sizeClass: 3, subtype, state: 'active' }, rng(7));
+    assert.ok(kinds(house).includes('door') && kinds(house).includes('lantern'), `民居 ${subtype}：门里的灯和门边的壁灯`);
+  }
+  assert.equal(kinds(buildHouse(M, { key: 'lamp-ruin', sizeClass: 2, subtype: 'courtyard', state: 'ruin' }, rng(3))).length, 0, '废墟没有灯');
+  const stoa = buildStoaLibrary(M, { key: 'lamp-stoa', sizeClass: 2, subtype: 'straight', state: 'active' }, rng(5));
+  assert.equal(kinds(stoa).filter((x) => x === 'lantern').length, 2, '柱廊两盏灯笼');
+  let panes = 0;
+  stoa.traverse((o) => { if (o.isMesh && o.material === M.lanternPane) panes++; });
+  assert.ok(panes > 0, '灯笼的灯罩是牛角片（lanternPane），不是一块发光的圆柱');
+
+  // 灯笼挂在身体那一段（0.35–1.6 米，挡路的高度）之上：壁灯、街灯都不挡路，只有街灯的柱子挡脚下一小圈
+  const lowest = (build) => { const kk = new Kit(); build(kk); return new THREE.Box3().setFromObject(kk.build()).min.y; };
+  assert.ok(lowest((kk) => wallLantern(kk, M, 0, 2.05 + 0.32 + 0.25, 0)) > 1.6, '民居门边的壁灯最低处在 1.6 米以上');
+  const post = new Kit();
+  lampPost(post, M);
+  const postGroup = post.build();
+  assert.ok(postGroup.userData.lights[0].y > 2, '街灯的灯笼在 2 米以上');
+  const parts = lantern(new Kit(), M, 0, 3, 0, { drop: 0.5 });
+  assert.ok(parts < 3 - 0.5, '灯罩挂在链子下面');
+
+  // 夜色一到：窗、灯笼的角片、街上的光照图一起亮
+  const mats = { windowLit: new THREE.MeshStandardMaterial(), lanternPane: new THREE.MeshStandardMaterial() };
+  setNightWindows(mats, 1, 12.5);
+  assert.equal(mats.windowLit.emissiveIntensity, WINDOW_GLOW);
+  assert.equal(mats.lanternPane.emissiveIntensity, LANTERN_GLOW);
+  assert.equal(L.LAMP_UNIFORMS.uLampK.value, 1);
+  assert.equal(L.LAMP_UNIFORMS.uLampTime.value, 12.5, '火苗跟着时间跳');
+  setNightWindows(mats, 0);
+  assert.equal(L.LAMP_UNIFORMS.uLampK.value, 0, '白天街上没有灯光');
+});

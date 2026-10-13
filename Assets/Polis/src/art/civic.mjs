@@ -5,7 +5,7 @@
 import * as THREE from '../../vendor/three.bundle.mjs';
 import {
   Kit, m4, deg, doricColumn, column, triglyphGeometry, palmette, gable, gabledRoof, frontGabledRoof, flatRoof, podium, door,
-  window_, colonnade, groundPlane,
+  window_, colonnade, groundPlane, litOpening,
 } from './kit.mjs';
 import { amphoraBody } from './props.mjs';
 import { venueSlotLocal, TERRACE, PLOT_SIZE } from '../civic-layout.mjs';
@@ -37,7 +37,7 @@ export function buildTemple(M, { nx = 6, nz = 7 } = {}) {
 
   const cellaW = spanX - 2 * 1.05 * AX, cellaL = spanZ - 2 * 1.45 * AX;
   kit.box(M.wall, cellaW, H_COL, cellaL, 0, yS + H_COL / 2, -0.2);
-  kit.box(M.windowLit ?? M.dark, 2.1, 4.1, 0.12, 0, yS + 2.05, -0.2 + cellaL / 2 + 0.02);
+  litOpening(kit, M, 2.1, 4.1, 0.12, 0, yS + 2.05, -0.2 + cellaL / 2 + 0.02, true, 1.4);   // 神庙的大门：里面供着灯
   for (const sx of [-1, 1]) kit.box(M.wall, 0.6, H_COL, 0.5, sx * (cellaW / 2 - 0.3), yS + H_COL / 2, -0.2 + cellaL / 2 + 0.2);
 
   const yA = yS + H_COL;
@@ -119,7 +119,7 @@ export function buildTholos(M) {
     kit.instance('tholos-col', () => doricColumn(colH, { detail: 'low' }), M.marble, m4(Math.sin(a) * (R - 0.35), y0, Math.cos(a) * (R - 0.35), a));
   }
   kit.cylinder(M.wall, R - 1.6, R - 1.6, colH, 0, y0 + colH / 2, 0, 40);
-  kit.box(M.windowLit ?? M.dark, 1.3, 2.6, 0.2, 0, y0 + 1.3, R - 1.56);
+  litOpening(kit, M, 1.3, 2.6, 0.2, 0, y0 + 1.3, R - 1.56, true, 1.2);
   kit.cylinder(M.marble, R + 0.15, R + 0.15, 0.55, 0, y0 + colH + 0.27, 0, 48);
   kit.add(M.tile, new THREE.ConeGeometry(R + 0.35, 2.9, 48, 1, true), m4(0, y0 + colH + 0.55 + 1.45, 0));
   kit.add(M.marble, palmette(0.9, 0.6), m4(0, y0 + colH + 3.3, 0));
@@ -417,7 +417,7 @@ export function buildArchive(M) {
   const W = 8.2, D = 4.6, H = 3.4, zc = -PLOT_SIZE / 2 + D / 2 + 0.6;
   const y0 = podium(kit, M.marble, W, D, { steps: 3, stepH: 0.2, stepT: 0.22, z: zc });
   kit.box(M.wall, W - 0.6, H, D - 1.6, 0, y0 + H / 2, zc - 0.8);
-  door(kit, M, 1.5, 2.6, 0, y0, zc + D / 2 - 1.6 - 0.02, { lintel: M.marble });
+  door(kit, M, 1.5, 2.6, 0, y0, zc + D / 2 - 1.6 - 0.02, { lintel: M.marble, lantern: 'both' });
   for (const sx of [-1, 1]) {
     window_(kit, M, 0.7, 0.9, sx * 2.4, y0 + 1.9, zc + D / 2 - 1.62);
   }
@@ -454,7 +454,7 @@ export function buildVault(M) {
     const inset = c % 2 === 0 ? 0 : 0.04;
     kit.box(M.vaultStone, W - inset, H / courses - 0.05, D - inset, 0, y, zc);
   }
-  door(kit, M, 2.0, 2.7, 0, y0, zc + D / 2, { lintel: M.stone, frame: M.stone });
+  door(kit, M, 2.0, 2.7, 0, y0, zc + D / 2, { lintel: M.stone, frame: M.stone, lantern: 'both' });
   for (const sx of [-1, 1]) {
     kit.box(M.bronze, 0.92, 2.6, 0.06, sx * 0.48, y0 + 1.3, zc + D / 2 + 0.06);
     for (let k = 0; k < 4; k++) for (let j = 0; j < 3; j++) kit.add(M.bronze, new THREE.SphereGeometry(0.04, 6, 4), m4(sx * (0.2 + j * 0.28), y0 + 0.5 + k * 0.6, zc + D / 2 + 0.1));

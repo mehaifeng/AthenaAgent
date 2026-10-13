@@ -8,7 +8,7 @@
 // 港前第 z = 2 行加了三处场馆（彩绘柱廊、书库、金库，每处 12 个底座）和橄榄林的台地；广场上加了日晷与传令官的讲台，
 // 委托板上钉着建议的纸条；居民站在各自能力的建筑旁；设立了神谕，神庙前立起三足鼎。
 import * as THREE from '../vendor/three.bundle.mjs';
-import { groundPlane, Kit, m4 } from './art/kit.mjs';
+import { groundPlane, Kit, m4, lampPost } from './art/kit.mjs';
 import { rng, hashSeed } from './art/noise.mjs';
 import { oliveGeometries, OLIVE_STAGES } from './art/plants.mjs';
 import { buildSlotMarker } from './art/items.mjs';
@@ -18,6 +18,7 @@ import { BOAT_MOORING, BOAT_CLEAT } from './art/civic.mjs';
 import { BLOCK, STREET, PLOT } from './layout.mjs';
 import { venueSlotLocal, groveSpot, VENUES, SLOTS_PER_VENUE } from './civic-layout.mjs';
 import { createOccupancy, footprintOf, footprintOfGeometry, BLOCKING_HEIGHT } from './footprint.mjs';
+import { lampField, setLampField } from './art/lamps.mjs';
 
 /** 公共建筑的名字。实时模式里由 C# 按界面语言推来（locale 文件），这里是独立打开页面时的默认值。 */
 export const PUBLIC_NAMES = Object.freeze({
@@ -651,6 +652,45 @@ export function buildWorld(scene, city, layout, M, options) {
     }
   };
 
+  /**
+   * 街灯（art/kit.mjs 的 lampPost；2026-10-13，用户：外面的街道没有被打亮）：每个十字街口立一根，在四个街角里
+   * 按位置挑一个空着的（地块边上往里 0.45 米，不占街面），灯臂伸向街口。门窗的光只够照到门前，地块 12.5 米、门离街边
+   * 还有 3 米，街口和广场四角要靠它们。码头那一排只立在北边的角上（南边是海）。挑角的时候先看占用栅格：
+   * 柱子周围 0.9 米之内有东西挡着（建筑、树、院墙）就换一个角，四个都不行就不立。
+   */
+  function placeLampPosts() {
+    world.lampPosts = [];
+    const geo = new Kit();
+    lampPost(geo, M);
+    const proto = geo.build();
+    const footprint = footprintOf(proto);
+    const inset = STREET / 2 + 0.45;
+    const clear = (x, z) => [[0, 0], [0.9, 0], [-0.9, 0], [0, 0.9], [0, -0.9]].every(([dx, dz]) => !occupancy.blocked(x + dx, z + dz))
+      && insideMap(x, z, 2);
+    for (let i = iMin; i < iMax; i++) {
+      for (let j = Math.round(b.minZ / BLOCK); (j + 0.5) * BLOCK <= layout.quayZ + 0.01; j++) {
+        const X = (i + 0.5) * BLOCK, Z = (j + 0.5) * BLOCK;
+        const quay = Math.abs(Z - layout.quayZ) < 0.01;
+        const corners = [[1, -1], [-1, -1], [1, 1], [-1, 1]].filter(([, sz]) => !quay || sz < 0);
+        const start = hashSeed(`lamp:${i},${j}`) % corners.length;
+        for (let k = 0; k < corners.length; k++) {
+          const [sx, sz] = corners[(start + k) % corners.length];
+          const x = X + sx * inset, z = Z + sz * inset;
+          if (!clear(x, z)) continue;
+          const post = proto.clone();
+          post.position.set(x, 0, z);
+          post.rotation.y = Math.atan2(-sx, -sz);   // 灯臂（+z）伸向街口
+          post.userData.footprint = footprint;
+          post.userData.lights = proto.userData.lights;
+          add(post);
+          world.lampPosts.push({ x, z, object: post });
+          break;
+        }
+      }
+    }
+    if (world.lampPosts.length) world.rebuildOccupancy();
+  }
+
   /** 整座城拆掉（换城、或者城长出了新的一圈）。共享的材质留着，几何体（包括这座城共用的那几份）全部释放。 */
   world.dispose = () => {
     scene.remove(root);
@@ -663,6 +703,7 @@ export function buildWorld(scene, city, layout, M, options) {
   };
 
   world.rebuildOccupancy();
+  placeLampPosts();
 
   // 海的岸（art/water.mjs）：码头石岸、栈桥、三处场馆的台地、橄榄林的台地（几块连成一排，并成一个矩形）——
   // 世界坐标里的矩形 [minX, minZ, maxX, maxZ]。白沫贴着它们，离它们越近水越浅；game 每帧连同时间、船一起交给海的材质
@@ -678,6 +719,31 @@ export function buildWorld(scene, city, layout, M, options) {
     ...seaTerraces.map((t) => rectOf([t])),
     ...(groveTerraces.length ? [rectOf(groveTerraces.map((g) => g.object))] : []),
   ];
+
+  // —— 夜里的灯火照到外面（art/lamps.mjs）：每座建筑登记的灯（kit.light，建筑本地坐标）换成世界坐标，烘成一张光照图 ——
+  world.lights = () => {
+    root.updateMatrixWorld(true);
+    const out = [], p = new THREE.Vector3(), n = new THREE.Vector3();
+    root.traverse((o) => {
+      if (!o.userData.lights || !o.visible) return;
+      for (const l of o.userData.lights) {
+        p.set(l.x, l.y, l.z).applyMatrix4(o.matrixWorld);
+        n.set(l.nx, 0, l.nz).transformDirection(o.matrixWorld);
+        const facing = l.nx !== 0 || l.nz !== 0;
+        out.push({ kind: l.kind, x: p.x, y: p.y, z: p.z, nx: facing ? n.x : 0, nz: facing ? n.z : 0, power: l.power, radius: l.radius });
+      }
+    });
+    return out;
+  };
+  world.refreshLamps = () => {
+    world.lampField = lampField(world.lights(), map);
+    setLampField(world.lampField);
+  };
+  for (const name of ['replaceBuilding', 'vacate']) {
+    const inner = world[name];
+    world[name] = (...args) => { const result = inner(...args); world.refreshLamps(); return result; };
+  }
+  world.refreshLamps();
   return world;
 }
 

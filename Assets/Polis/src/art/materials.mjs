@@ -6,6 +6,7 @@ import * as THREE from '../../vendor/three.bundle.mjs';
 import { valueNoise, fbm, field, textureFrom, tone, smooth, rng, normalFrom } from './noise.mjs';
 import { makeWaterMaterial } from './water.mjs';
 import { FACE_LOOKS, faceMaterialKey, faceTexture } from './face.mjs';
+import { installPatch, patchLampGlass, patchLampLit, setLampNight } from './lamps.mjs';
 
 export function makeMaterials() {
   const n1 = valueNoise(11), n2 = valueNoise(23), n3 = valueNoise(37), n4 = valueNoise(41), n5 = valueNoise(53);
@@ -109,7 +110,7 @@ export function makeMaterials() {
     m.color.setRGB(r, g, b);
     return m;
   });
-  return {
+  const M = {
     tileShades,
     plasterShades,
     marble,
@@ -121,8 +122,12 @@ export function makeMaterials() {
     // 作坊木棚的苇顶：浅草色、顺坡的一道道苇秆（第一版用深木色的一块板，俯视是一个黑洞）
     reed: tiled(0xc1a66c),
     dark: new THREE.MeshStandardMaterial({ color: 0x1c1a18, roughness: 0.9 }),
-    // 窗洞：白天和 dark 一样是黑的；夜里（深色主题）透出油灯的暖光（setNightWindows，2026-10-12 用户：夜里窗户要有灯火）
-    windowLit: new THREE.MeshStandardMaterial({ color: 0x1c1a18, roughness: 0.9, emissive: 0xff8f33, emissiveIntensity: 0 }),
+    // 窗洞与门洞：白天和 dark 一样是黑的；夜里（深色主题）透出油灯的暖光（setNightWindows，2026-10-12 用户：夜里窗户要有灯火）。
+    // 光的颜色与明暗分布在着色器里（lamps.mjs 的 patchLampGlass：灯在屋里偏下、四周墙厚一圈暗、窗格、半掩的门、火苗跳），
+    // emissive 只当总闸用，所以是白的
+    windowLit: installPatch(new THREE.MeshStandardMaterial({ color: 0x1c1a18, roughness: 0.9, emissive: 0xffffff, emissiveIntensity: 0 }), 'glass-window', (sh) => patchLampGlass(sh, 'window')),
+    // 灯笼的角片（刮薄的牛角，lamps.mjs 的 patchLampGlass 'pane'）：白天是半透的琥珀色，夜里从里面透出火光
+    lanternPane: installPatch(new THREE.MeshStandardMaterial({ color: 0xc9a46a, roughness: 0.55, emissive: 0xffffff, emissiveIntensity: 0 }), 'glass-pane', (sh) => patchLampGlass(sh, 'pane')),
     shadowGap: new THREE.MeshStandardMaterial({ color: 0x2c2723, roughness: 1 }),
     wood: new THREE.MeshStandardMaterial({ color: 0x7d5a3a, roughness: 0.85 }),
     darkWood: new THREE.MeshStandardMaterial({ color: 0x51392a, roughness: 0.9 }),
@@ -186,13 +191,26 @@ export function makeMaterials() {
     hide: new THREE.MeshStandardMaterial({ color: 0x9a7354, roughness: 0.84, side: THREE.DoubleSide }),
     greyHair: new THREE.MeshStandardMaterial({ color: 0xb8b2aa, roughness: 0.7 }),
   };
+  // 夜里街上的灯照到的一切（lamps.mjs 的 patchLampLit）：除了灯火本身和水（水有自己的着色器），每一份受光材质都读光照图
+  for (const value of Object.values(M)) {
+    for (const m of Array.isArray(value) ? value : [value]) {
+      if (!m?.isMeshStandardMaterial || m === M.water || m.userData.lampPatch) continue;
+      installPatch(m, 'lamp-lit', patchLampLit);
+    }
+  }
+  return M;
 }
 
 /** 夜里窗洞的灯火有多亮（emissiveIntensity）：k = 1 是深夜。色调映射之后读得出是一盏暖黄的油灯，又不会亮过雅典娜的光。 */
-export const WINDOW_GLOW = 1.5;
+export const WINDOW_GLOW = 1.15;
+/** 灯笼角片的亮度：挂在外面、没有墙挡，比窗亮一些。 */
+export const LANTERN_GLOW = 2.2;
 
-/** 夜色 k（0 白天 → 1 夜里）换成窗洞的灯火：所有窗共用一份材质，一次设好。 */
-export function setNightWindows(M, k) {
-  M.windowLit.emissiveIntensity = WINDOW_GLOW * Math.min(1, Math.max(0, k));
+/** 夜色 k（0 白天 → 1 夜里）换成灯火：所有窗共用一份材质，一次设好；街上的光照图跟着一起亮。timeSec 推着火苗跳。 */
+export function setNightWindows(M, k, timeSec) {
+  const kk = Math.min(1, Math.max(0, k));
+  M.windowLit.emissiveIntensity = WINDOW_GLOW * kk;
+  if (M.lanternPane) M.lanternPane.emissiveIntensity = LANTERN_GLOW * kk;
+  setLampNight(kk, timeSec);
 }
 

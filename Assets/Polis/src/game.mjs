@@ -25,6 +25,7 @@ import { debateStage, assignAudience, supportersCount, DEBATE } from './debate.m
 import { createRenderer } from './render.mjs';
 import { createOverlay } from './overlay.mjs';
 import { makeMaterials, setNightWindows } from './art/materials.mjs';
+import { setLampNight } from './art/lamps.mjs';
 import { swellHeight } from './art/water.mjs';
 import { createAssetLibrary } from './art/assets.mjs';
 import { setClothWind } from './art/rig.mjs';
@@ -1580,6 +1581,7 @@ export function createGame({ params, status, send, onTalk = null, onUiBlocked = 
     clock = Math.max(clock, now);
     setClothWind(windAt(wall));   // 海上吹来的风：全城的衣摆、面纱、斗篷都吃它（M3）
     stepNight(dt);
+    if (nightK > 0) setLampNight(nightK, wall / 1000);   // 灯火里的火苗跟着墙钟跳
     updatePlayer(wall, dt);
     // 2026-10-13：远处开口不再把她叫过来——要和她说话，走到她身边（talk.openAthena）；一回合做完了，她跑过来递卷轴
     stepHandover(now, wall);
