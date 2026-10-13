@@ -1584,6 +1584,28 @@
     <!-- 户与民居（M-D，2026-10-13）：户名与新立一户时雅典娜说的那一句 -->
     <system:String x:Key="Polis.Household.NamePattern">{0}一家</system:String>
     <system:String x:Key="Polis.Ui.HouseholdFounded">「{name}」在城里安了家。</system:String>
+    <!-- 第三轮（需求 3，敲门）：门里的人怎么应（本地的话，按关系分组）、门板上的面板与对话栏 -->
+    <system:String x:Key="Polis.Ui.InteractKnock">敲「{name}」的门</system:String>
+    <system:String x:Key="Polis.Ui.KnockSound">咚、咚</system:String>
+    <system:String x:Key="Polis.Ui.DoorNobody">（没有人应门）</system:String>
+    <system:String x:Key="Polis.Ui.DoorWho">谁呀？|谁在敲门？|来了来了。</system:String>
+    <system:String x:Key="Polis.Ui.DoorPestered">别敲了！|又敲？听见了！</system:String>
+    <system:String x:Key="Polis.Ui.DoorTitle">{name}的门</system:String>
+    <system:String x:Key="Polis.Ui.DoorPickHint">屋里有人。你要找谁？</system:String>
+    <system:String x:Key="Polis.Ui.DoorPick">找这位</system:String>
+    <system:String x:Key="Polis.Ui.DoorCall">请他出来</system:String>
+    <system:String x:Key="Polis.Ui.DoorTalk">隔着门说话</system:String>
+    <system:String x:Key="Polis.Ui.DoorLeave">算了</system:String>
+    <system:String x:Key="Polis.Ui.DoorAnswerWarm">是你呀！有什么事？|哎，是你，等一下。|你来啦？</system:String>
+    <system:String x:Key="Polis.Ui.DoorAnswerPlain">什么事？|有事吗？|嗯，我在。</system:String>
+    <system:String x:Key="Polis.Ui.DoorAnswerCool">……有事吗？|嗯？什么事。</system:String>
+    <system:String x:Key="Polis.Ui.DoorAnswerHostile">又是你。说吧。|你来干什么？</system:String>
+    <system:String x:Key="Polis.Ui.DoorComing">好，我这就出来。|稍等，马上出来。</system:String>
+    <system:String x:Key="Polis.Ui.DoorRefuseCool">不了，我正忙着。|改天吧。</system:String>
+    <system:String x:Key="Polis.Ui.DoorRefuseHostile">我不出去。你走吧。|不想出去。</system:String>
+    <system:String x:Key="Polis.Ui.DoorChatStatus">隔着门和{name}说话</system:String>
+    <system:String x:Key="Polis.Ui.DoorChatPlaceholder">隔着门对{name}说……</system:String>
+    <system:String x:Key="Polis.Ui.DoorChatWaiting">门里的{name}在想……</system:String>
     <system:String x:Key="Polis.Ui.RelationsWhyTwo">因为：{a}，{b}</system:String>
     <!-- 第三轮（人物关系，2026-10-13）：左上角的「人际」总览 -->
     <system:String x:Key="Polis.Ui.RelationsButton">人际</system:String>

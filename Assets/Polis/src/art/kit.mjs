@@ -31,6 +31,7 @@ export class Kit {
     this.instances = new Map();
     this.objects = [];
     this.lights = [];
+    this.doors = [];
   }
 
   /**
@@ -92,6 +93,7 @@ export class Kit {
     }
     for (const obj of this.objects) group.add(obj);
     if (this.lights.length) group.userData.lights = [...(group.userData.lights ?? []), ...this.lights];
+    if (this.doors.length) group.userData.doors = [...(group.userData.doors ?? []), ...this.doors];
     return group;
   }
 }
@@ -269,6 +271,9 @@ export function podium(kit, mat, w, d, { steps = 3, stepH = 0.25, stepT = 0.3, z
  */
 export function door(kit, M, w, h, x, y, z, { lintel = M.wood, frame = null, lantern = 0 } = {}) {
   litOpening(kit, M, w, h, 0.08, x, y + h / 2, z + 0.02, true);
+  // 第三轮（需求 2）：门登记在套件上——门洞中心、门槛高、宽高，墙面在 z（建筑本地坐标，正面朝 +z）。
+  // 会开的门扇不进合并的几何（它要转），由 world 按这一条另建；地面上的门才有人进出（doors.usableSill）
+  kit.doors?.push({ x, y, z, w, h });
   kit.box(lintel, w + 0.3, 0.14, 0.14, x, y + h + 0.07, z + 0.05);
   if (frame) for (const sx of [-1, 1]) kit.box(frame, 0.12, h, 0.1, x + sx * (w / 2 + 0.06), y + h / 2, z + 0.04);
   // 门边挂壁灯（lantern = -1 左 / 1 右 / 'both' 两边）：夜里门前一片街面靠它亮起来

@@ -221,6 +221,9 @@ function liveHandlers() {
     'ambient-end': whenReady((m) => { liveGame.endAmbient(m); wake(); }),
     // 你自己说话之后附近几个人依次接话，说完了（第三轮需求 6）：{ who, spoke, status }
     'chorus-end': whenReady((m) => { liveGame.endChorus(m); wake(); }),
+    // 敲门（第三轮需求 3）：C# 的回音——谁敲得太勤、谁打发过你不应门；请他出来，他出不出来
+    'knock-reply': whenReady((m) => { liveGame.setKnockReply(m); wake(); }),
+    'call-out-reply': whenReady((m) => { liveGame.setCallOutReply(m); wake(); }),
     'citizen-transcript': whenReady((m) => { liveGame.showCitizenTranscript(m); wake(); }),
     // 讲台前的辩论（M-E）：{ state, id, motion, round, rounds, jury, transcript, verdict, record, notice }
     debate: whenReady((m) => { liveGame.setDebate(m.debate ?? null); wake(); }),
@@ -467,8 +470,14 @@ function motionSelftest(game) {
         const lp = truth.project(camera);
         errors.labels = Math.max(errors.labels, Math.hypot(((lp.x + 1) / 2) * window.innerWidth - l.x, (1 - (lp.y + 1) / 2) * window.innerHeight - l.y) * dpr);
       }
-      // 居民头顶的话（M-B）：按他这一帧的矩阵投影
+      // 居民头顶的话（M-B）：按他这一帧的矩阵投影；挂在门上的话（第三轮需求 3：咚、咚，门里的人应声）按门上那一点
       for (const b of used.citizenBubbles ?? []) {
+        if (b.anchor && b.alpha > 0) {
+          kinds.doorBubble = (kinds.doorBubble ?? 0) + 1;
+          const dp = b.anchor.clone().project(camera);
+          errors.bubble = Math.max(errors.bubble, Math.hypot(((dp.x + 1) / 2) * window.innerWidth - b.x, (1 - (dp.y + 1) / 2) * window.innerHeight - b.y) * dpr);
+          continue;
+        }
         const c = world.citizens.get(b.id);
         if (!c?.figure || !(b.alpha > 0)) continue;
         kinds.citizenBubble = (kinds.citizenBubble ?? 0) + 1;
@@ -507,6 +516,10 @@ function motionSelftest(game) {
     .filter((c) => c.figure?.root.visible)
     .sort((a, b) => Math.hypot(a.figure.root.position.x - start.x, a.figure.root.position.z - start.z) - Math.hypot(b.figure.root.position.x - start.x, b.figure.root.position.z - start.z))[0];
   if (greeter) game.greetCitizen(greeter.id);
+  // 门（第三轮需求 3）：离你最近的那扇门敲一下，门上的"咚、咚"与门里的应声在走路这一段逐帧核对
+  const nearestDoor = [...(game.world?.doors?.values() ?? [])]
+    .sort((a, b) => Math.hypot(a.x - start.x, a.z - start.z) - Math.hypot(b.x - start.x, b.z - start.z))[0];
+  if (nearestDoor) game.knock(nearestDoor.id);
   const key = (type, code) => window.dispatchEvent(new KeyboardEvent(type, { code, key: code.slice(3).toLowerCase() }));
   key('keydown', 'KeyW');
   key('keydown', 'KeyD');

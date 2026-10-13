@@ -244,6 +244,7 @@ var tests = new (string Name, Func<Task> Run)[]
     ("polis households: citizens with no folder gather into households by title or month, at most six to a house and sixteen houses, keyed by the founder and placed in the same ledger as folders, never moved, never counted against the folder cap, and kept across a reconcile", TestPolisHouseholdsAsync),
     ("polis relations: every bond starts from real facts (the conversation's outcome, rounds, temperament, household, building, title, chemistry), only events are kept and fade with a half-life, chats and pestering are capped per hour, patience and coming out follow the band, the ledger is atomic and set aside when unreadable, and no title or message text reaches the page", TestPolisRelationsAsync),
     ("polis chorus: when you speak to nobody in particular up to three nearby people answer in turn, the later ones hearing the earlier and knowing how they stand with them, on a pool of their own; the page names them and C# checks every one", TestPolisChorusAsync),
+    ("polis doors: knocking names who is behind the door, calling someone out and talking through the door are checked like every other intent, and the prompt says the door is shut and how this round ends", TestPolisDoorsAsync),
     ("polis collection: accepted items are placed, moved and taken down in the save only; a lost item keeps its pedestal and only a click removes it; v2 saves migrate", TestPolisCollectionAsync),
     ("polis grove: one olive tree per completed commission, ordered by when it started, aged by its turns, derived from sessions alone", TestPolisGroveDerivationAsync),
     ("polis residents: each capability brings its resident at its first successful use, every registered tool has one, and the town re-derives from the archive", TestPolisResidentDerivationAsync),
@@ -12092,6 +12093,56 @@ static Task TestPolisChorusAsync()
     AssertTrue(english.System.Contains("Chip in", StringComparison.Ordinal) && english.Messages[0].Text.EndsWith("Ariston says: Ships are in.", StringComparison.Ordinal), "英文一份");
     AssertEqual(60, PolisTalkService.MaxCallsPerHour(PolisTalkPurpose.Chorus), "插话单独一个池子，每小时 60 次");
     AssertEqual(3, PolisTalk.MaxChorusSpeakers, "最多三位开口");
+    return Task.CompletedTask;
+}
+
+static Task TestPolisDoorsAsync()
+{
+    // —— 意图：knock { who: [屋里听见的人] }、call-out { who }、chat 的 door ——
+    var context = new PolisIntentContext(null, new HashSet<string> { "c1", "c2", "c3" }, new HashSet<string>())
+    {
+        KnownCitizenIds = new HashSet<string> { "c1", "c2", "c3" },
+        KnownResidentIds = new HashSet<string> { "scribe" },
+    };
+    var knock = PolisIntents.Validate("""{"v":1,"type":"knock","who":["c1","c2"]}""", context);
+    AssertTrue(knock.Accepted && knock.Intent!.Type == PolisIntentType.Knock && knock.Intent.Speakers!.SequenceEqual(new[] { "c1", "c2" }), "敲门：屋里听见的两位");
+    AssertTrue(PolisIntents.Validate("""{"v":1,"type":"knock","who":[]}""", context).Accepted, "屋里没人也可以敲（C# 那边什么也不记）");
+    foreach (var (body, why) in new[]
+    {
+        ("""{"v":1,"type":"knock","who":["c1","c9"]}""", "别的城的人"),
+        ("""{"v":1,"type":"knock","who":["c1","c1"]}""", "同一位两次"),
+        ("""{"v":1,"type":"knock","who":["resident:scribe"]}""", "职业居民不住在门里"),
+        ("""{"v":1,"type":"knock"}""", "没有 who"),
+        ("""{"v":1,"type":"call-out","who":"c9"}""", "请别的城的人出来"),
+        ("""{"v":1,"type":"call-out"}""", "请谁出来"),
+        ("""{"v":1,"type":"chat","who":"resident:scribe","text":"在吗","door":true}""", "隔着门和职业居民说话"),
+        ("""{"v":1,"type":"chat","who":"c1","text":"在吗","door":true,"overheard":true}""", "既隔着门又是听见的"),
+    })
+        AssertFalse(PolisIntents.Validate(body, context).Accepted, $"拒绝：{why}");
+    var many = "[" + string.Join(",", Enumerable.Range(0, PolisIntents.MaxKnockHeard + 1).Select(i => $"\"k{i}\"")) + "]";
+    AssertFalse(PolisIntents.Validate($$"""{"v":1,"type":"knock","who":{{many}}}""", context with { KnownCitizenIds = Enumerable.Range(0, 20).Select(i => $"k{i}").ToHashSet() }).Accepted, "一扇门后面最多 12 位");
+    var call = PolisIntents.Validate("""{"v":1,"type":"call-out","who":"c2"}""", context);
+    AssertTrue(call.Accepted && call.Intent!.Type == PolisIntentType.CallOut && call.Intent.ConversationId == "c2", "请他出来");
+    var door = PolisIntents.Validate("""{"v":1,"type":"chat","who":"c3","text":"在吗","door":true}""", context);
+    AssertTrue(door.Accepted && door.Intent!.ThroughDoor && !door.Intent.Overheard, "隔着门说话");
+    AssertFalse(PolisIntents.Validate("""{"v":1,"type":"chat","who":"c3","text":"在吗"}""", context).Intent!.ThroughDoor, "不带 door 就是当面说");
+    foreach (var name in new[] { "knock", "call-out" }) AssertTrue(PolisIntents.KnownTypeNames.Contains(name), $"{name} 在封闭集合里");
+
+    // —— 隔着门的提示词：门里门外一句、这一轮怎么收（stay / out / away），中英各一份 ——
+    var world = new PolisWorldFacts("我的工作区", false, false, 4, new[] { "合同" });
+    var speaker = new PolisSpeaker("达芙妮", true, PolisCitizenAge.Young, PolisTalk.PersonaFor(42u, "zh-CN"), "（身份）");
+    foreach (var outcome in new[] { "stay", "out", "away" })
+    {
+        var text = PolisTalk.DoorText(outcome, "zh-CN");
+        AssertTrue(text.StartsWith("你正在自己家里，门关着", StringComparison.Ordinal), $"{outcome}：先说门里门外");
+        var prompt = PolisTalk.BuildChat(world, speaker, Array.Empty<PolisCitizenExcerpt>(), Array.Empty<PolisTalkTurn>(), "在吗", "zh-CN", PolisTalk.AttitudeText(PolisRelationBand.Neutral, "zh-CN"), outcome);
+        AssertTrue(prompt.System.Contains(text, StringComparison.Ordinal), $"{outcome}：进了系统提示");
+        AssertTrue(prompt.System.IndexOf(text, StringComparison.Ordinal) < prompt.System.IndexOf("口语交谈", StringComparison.Ordinal), $"{outcome}：在规矩前面");
+        AssertTrue(PolisTalk.DoorText(outcome, "en-US").All(c => c < 128), $"{outcome}：英文一份");
+    }
+    AssertTrue(PolisTalk.DoorText("out", "zh-CN").Contains("这就出来", StringComparison.Ordinal), "最后一句：说出他这就出来");
+    AssertTrue(PolisTalk.DoorText("away", "zh-CN").Contains("请他先走", StringComparison.Ordinal) && PolisTalk.DoorText("away", "zh-CN").Contains("不要答应开门", StringComparison.Ordinal), "说烦了：请他先走，不开门");
+    AssertFalse(PolisTalk.BuildChat(world, speaker, Array.Empty<PolisCitizenExcerpt>(), Array.Empty<PolisTalkTurn>(), "在吗", "zh-CN").System.Contains("门关着", StringComparison.Ordinal), "当面说话没有门里门外那一句");
     return Task.CompletedTask;
 }
 

@@ -5591,6 +5591,60 @@ static void TestGameModeCitizens()
         if (cutShort.GetProperty("status").GetString() != "nomodel" || cutShort.GetProperty("spoke").GetArrayLength() != 1)
             throw new InvalidOperationException($"后面那位没配模型：只有第一位说了，chorus-end nomodel：{cutShort}");
         answers.Reply = _ => new PolisTalkReply(PolisTalkStatus.Ok, "好的。");
+
+        // —— 敲门（第三轮需求 3）：knock 记下来、回 knock-reply（敲门本身不加不减）；两分钟里第三次敲算敲得太勤（−3）；
+        //    隔着门说话按他的耐心数轮，到头了 C# 定出门来谈（out）还是请你走（away，之后三分钟不应门）；请他出来按关系回 call-out-reply ——
+        JsonElement YouOf(string id) => Relations().GetProperty("you").GetProperty(id);
+        int KnockReplies() => Of("knock-reply").Count;
+        var knockee = here[6].ConversationId;
+        var knockScore = YouOf(knockee).GetProperty("score").GetInt32();
+        for (var k = 1; k <= 3; k++)
+        {
+            page.Send($$"""{"v":1,"type":"knock","who":["{{knockee}}"]}""");
+            PumpTimers(() => KnockReplies() == k, 3000, "敲门要回 knock-reply。");
+            var pesteredNow = Of("knock-reply")[^1].GetProperty("pestered").EnumerateArray().Select(x => x.GetString()).ToList();
+            if ((k < 3) != (pesteredNow.Count == 0) || (k == 3 && !pesteredNow.Contains(knockee)))
+                throw new InvalidOperationException($"第 {k} 次敲：{(k < 3 ? "不算太勤" : "两分钟里第三次算敲得太勤")}（{string.Join(",", pesteredNow)}）。");
+        }
+        PumpTimers(() => YouOf(knockee).GetProperty("score").GetInt32() == Math.Max(-100, knockScore - 3), 3000, $"敲得太勤 −3（{knockScore} → {YouOf(knockee)}）。");
+        // 隔着门说话：一轮一轮说，到他的耐心那一轮收（每一轮之前按此刻推给页面的关系算该怎么收）
+        var talker = here[7].ConversationId;
+        answers.Reply = _ => new PolisTalkReply(PolisTalkStatus.Ok, "在呢，你说。");
+        string lastDoor = "stay";
+        for (var round = 1; round <= 5 && lastDoor == "stay"; round++)
+        {
+            var view = YouOf(talker);
+            var expectedDoor = round < view.GetProperty("patience").GetInt32() ? "stay" : view.GetProperty("comesOut").GetBoolean() ? "out" : "away";
+            var callsBeforeDoor = answers.Calls.Count;
+            var finalsBeforeDoor = Talks(true).Count;
+            page.Send($$"""{"v":1,"type":"chat","who":"{{talker}}","text":"你在家吗？","door":true}""");
+            PumpTimers(() => Talks(true).Count > finalsBeforeDoor, 5000, "隔着门说话也要推他的话。");
+            var doorFinal = Talks(true)[^1];
+            lastDoor = doorFinal.TryGetProperty("door", out var d) && d.ValueKind == JsonValueKind.String ? d.GetString()! : "(none)";
+            if (lastDoor != expectedDoor)
+                throw new InvalidOperationException($"隔着门第 {round} 轮：应该是 {expectedDoor}，C# 推的是 {lastDoor}（{view}）。");
+            if (!answers.Calls[^1].Prompt.System.Contains(PolisTalk.DoorText(expectedDoor, "zh-CN"), StringComparison.Ordinal))
+                throw new InvalidOperationException($"隔着门第 {round} 轮的提示词里有门里门外与这一轮怎么收（{expectedDoor}）。");
+            if (answers.Calls.Count != callsBeforeDoor + 1)
+                throw new InvalidOperationException("隔着门一轮一次调用。");
+        }
+        if (lastDoor == "stay") throw new InvalidOperationException("说到第五轮还隔着门：耐心最多五轮。");
+        if (lastDoor == "away")
+        {
+            page.Send($$"""{"v":1,"type":"knock","who":["{{talker}}"]}""");
+            PumpTimers(() => KnockReplies() == 4, 3000, "打发过你之后再敲也要回 knock-reply。");
+            if (!Of("knock-reply")[^1].GetProperty("ignoring").EnumerateArray().Any(x => x.GetString() == talker))
+                throw new InvalidOperationException("打发过你的人三分钟里不应门（ignoring）。");
+        }
+        // 请他出来：按此刻的关系（寻常及以上出来）
+        var callee = here[8].ConversationId;
+        var opens = YouOf(callee).GetProperty("opens").GetBoolean();
+        page.Send($$"""{"v":1,"type":"call-out","who":"{{callee}}"}""");
+        PumpTimers(() => Of("call-out-reply").Count > 0, 3000, "请他出来要回 call-out-reply。");
+        var callReply = Of("call-out-reply")[^1];
+        if (callReply.GetProperty("who").GetString() != callee || callReply.GetProperty("out").GetBoolean() != opens)
+            throw new InvalidOperationException($"请他出来：关系寻常及以上就出来（opens {opens}）：{callReply}");
+        answers.Reply = _ => new PolisTalkReply(PolisTalkStatus.Ok, "好的。");
         // 校验：别的城的会话、不存在的会话、空的一句、超长的一句一律拒绝，一次也不调用
         var rejectedBefore = Rejections();
         var askedBefore = answers.Calls.Count;

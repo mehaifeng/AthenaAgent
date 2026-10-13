@@ -306,12 +306,14 @@ public static class PolisTalk
         IReadOnlyList<PolisTalkTurn> history,
         string line,
         string language,
-        string? attitude = null)
+        string? attitude = null,
+        string? door = null)
     {
         ArgumentNullException.ThrowIfNull(history);
         ArgumentNullException.ThrowIfNull(line);
-        // 他对你的态度（第三轮需求 1）紧跟在"他是谁"后面：先知道自己是谁、怎么看你，再看规矩
+        // 他对你的态度（第三轮需求 1）紧跟在"他是谁"后面：先知道自己是谁、怎么看你，再看规矩；隔着门说话（需求 3）再跟一句门里门外
         var who = string.IsNullOrEmpty(attitude) ? SpeakerText(speaker, language) : SpeakerText(speaker, language) + (IsChinese(language) ? string.Empty : " ") + attitude;
+        if (!string.IsNullOrEmpty(door)) who += (IsChinese(language) ? string.Empty : " ") + DoorText(door, language);
         var system = memory == null
             ? string.Join("\n\n", WorldText(world, language), who, RulesText(language, remembers: false))
             : string.Join("\n\n", WorldText(world, language), who, RulesText(language), MemoryText(memory, language));
@@ -357,6 +359,26 @@ public static class PolisTalk
     public static string Overheard(string line, string language) => IsChinese(language)
         ? $"（你在街上，听见城的主人在你旁边说）{line.Trim()}"
         : $"(In the street, you overhear the city's owner say nearby) {line.Trim()}";
+
+    /// <summary>
+    /// 隔着门说话（第三轮需求 3，2026-10-13，用户：你敲门，可以隔着门说话；说了几轮 NPC 会厌烦让你走，或者直接出门和你谈）：
+    /// 他在自己家里、门没开，城的主人在门外。<paramref name="outcome"/> 是 C# 按关系定好的这一轮怎么收——
+    /// <c>stay</c> 还隔着门聊；<c>out</c> 这是隔着门的最后一句，说完他开门出来当面谈（话里要自然地说出他要出来了）；
+    /// <c>away</c> 他被隔着门缠了好几句、有点烦了，这一句客气但不耐烦地请对方先走、改天再说。
+    /// </summary>
+    public static string DoorText(string outcome, string language) => IsChinese(language)
+        ? "你正在自己家里，门关着；城的主人在门外敲了门，隔着门和你说话。" + outcome switch
+        {
+            "out" => "这是你隔着门说的最后一句：说完你就开门出去当面跟他谈，在这句里自然地说出你这就出来。",
+            "away" => "你已经被他隔着门缠了好几句，有点烦了：这一句客气但不耐烦地请他先走、改天再说，不要答应开门。",
+            _ => "你没开门，隔着门答他的话；声音隔着门板，说得简短些。",
+        }
+        : "You are at home with the door shut; the city's owner has knocked and is talking to you through the door. " + outcome switch
+        {
+            "out" => "This is the last thing you say through the door: after it you open the door and come out to talk face to face, so say naturally that you are coming out.",
+            "away" => "They have kept you talking through the door for a while and you are getting tired of it: politely but impatiently ask them to go and come back another day, and do not open the door.",
+            _ => "You have not opened the door; answer through it, briefly, as one does through a closed door.",
+        };
 
     /// <summary>你自己说话时最多几个人开口（第三轮需求 6；页面挑，C# 再守一道）。</summary>
     public const int MaxChorusSpeakers = 3;

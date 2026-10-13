@@ -1584,6 +1584,28 @@
     <!-- 户与民居（M-D，2026-10-13）：户名与新立一户时雅典娜说的那一句 -->
     <system:String x:Key="Polis.Household.NamePattern">The {0} household</system:String>
     <system:String x:Key="Polis.Ui.HouseholdFounded">{name} has settled in the city.</system:String>
+    <!-- 第三轮（需求 3，敲门）：门里的人怎么应（本地的话，按关系分组）、门板上的面板与对话栏 -->
+    <system:String x:Key="Polis.Ui.InteractKnock">Knock at {name}</system:String>
+    <system:String x:Key="Polis.Ui.KnockSound">Knock, knock</system:String>
+    <system:String x:Key="Polis.Ui.DoorNobody">(Nobody answers.)</system:String>
+    <system:String x:Key="Polis.Ui.DoorWho">Who is it?|Who's knocking?|Coming, coming.</system:String>
+    <system:String x:Key="Polis.Ui.DoorPestered">Stop knocking!|Again? I heard you!</system:String>
+    <system:String x:Key="Polis.Ui.DoorTitle">The door of {name}</system:String>
+    <system:String x:Key="Polis.Ui.DoorPickHint">Someone is in. Who do you want?</system:String>
+    <system:String x:Key="Polis.Ui.DoorPick">Ask for them</system:String>
+    <system:String x:Key="Polis.Ui.DoorCall">Ask them out</system:String>
+    <system:String x:Key="Polis.Ui.DoorTalk">Talk through the door</system:String>
+    <system:String x:Key="Polis.Ui.DoorLeave">Never mind</system:String>
+    <system:String x:Key="Polis.Ui.DoorAnswerWarm">Oh, it's you! What is it?|Ah, it's you - one moment.|You came by?</system:String>
+    <system:String x:Key="Polis.Ui.DoorAnswerPlain">What is it?|Yes?|I'm here.</system:String>
+    <system:String x:Key="Polis.Ui.DoorAnswerCool">...Yes?|Hm? What is it.</system:String>
+    <system:String x:Key="Polis.Ui.DoorAnswerHostile">You again. Well?|What do you want?</system:String>
+    <system:String x:Key="Polis.Ui.DoorComing">All right, I'm coming out.|One moment, coming.</system:String>
+    <system:String x:Key="Polis.Ui.DoorRefuseCool">No, I'm busy.|Another day.</system:String>
+    <system:String x:Key="Polis.Ui.DoorRefuseHostile">I'm not coming out. Go away.|I'd rather not.</system:String>
+    <system:String x:Key="Polis.Ui.DoorChatStatus">Talking with {name} through the door</system:String>
+    <system:String x:Key="Polis.Ui.DoorChatPlaceholder">Say it through the door to {name}...</system:String>
+    <system:String x:Key="Polis.Ui.DoorChatWaiting">{name} is thinking behind the door...</system:String>
     <system:String x:Key="Polis.Ui.RelationsWhyTwo">Because {a}, and {b}</system:String>
     <!-- 第三轮（人物关系，2026-10-13）：左上角的「人际」总览 -->
     <system:String x:Key="Polis.Ui.RelationsButton">People</system:String>

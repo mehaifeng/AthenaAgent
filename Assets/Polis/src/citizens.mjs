@@ -15,6 +15,11 @@
 //      一对最多 chatMaxMs，说完就散。
 //   5. 站定不吃日程（2026-10-13，用户：走着的人被叫住，Esc 之后他会飞快地"滑"到本该走到的地方）：被叫住、当陪审团的那段时间
 //      从他自己的日程钟里扣掉（scheduleClock / holdSchedule / resumeSchedule），松开后从站定的那一刻接着走。
+//   6. 家有门的（第三轮需求 2：民居、作坊、货栈地面上的门，doors.mjs）：一个周期里头尾各 TOWN.insideMs 在屋里（不画、不摆）；
+//      开门出来、在门前待着（门阶旁，不挡进出门的路），走去一处再回来，进门。门前到街上走 doors.planApproach 算好的那条路。
+//      没有门的家照旧：家门口就是街上那一点附近。
+
+import { DOOR, transitAt } from './doors.mjs';
 
 export const TOWN = Object.freeze({
   streetCap: 32,         // 街上同时最多几位（用户定的 32；C# 的 PolisCitizens.StreetCap 先截，页面再守一道——帧率门槛按 32 位量）
@@ -42,6 +47,8 @@ export const TOWN = Object.freeze({
   greetRadius: 2.5,
   greetCooldownMs: 120_000,
   labelRadius: 6,
+  insideMs: 15_000,      // 家有门的：周期开头和末尾各在屋里这么久（第三轮需求 2）
+  doorSpot: [0.9, 1.4],  // 门前站的地方离门阶多远（沿着墙往旁边让开，不挡进出门的路）
 });
 
 /** 去处（站点名，与 layout.sitePoint 一致）。 */
@@ -118,7 +125,9 @@ export function planCitizen(citizen, layout) {
   const has = layout.hasSite ?? (() => true);
   const homeSite = has(citizen.home) ? citizen.home : 'agora:0';
   const homeStand = layout.sitePoint(homeSite);
-  const homePoint = standNear(homeStand, r, TOWN.homeRing, layout.walkable);
+  // 规则 6：家有门的，门前站的地方在门阶旁；没有门的照旧在街上那一点附近
+  const door = layout.doorFor?.(homeSite, citizen.seed) ?? null;
+  const homePoint = door ? doorSpot(door, r, layout.walkable) : standNear(homeStand, r, TOWN.homeRing, layout.walkable);
   const homeYaw = r() * Math.PI * 2;
   const offset = Math.floor(r() * TOWN.periodMs);
   // 去处按种子排个顺序，取第一个走得到（一程不超过 maxWalkMs）的
@@ -131,13 +140,35 @@ export function planCitizen(citizen, layout) {
     try { path = layout.route(homeSite, site); } catch { continue; }
     if (!path || path.length === 0) continue;
     const destPoint = standNear(layout.sitePoint(site), r, TOWN.destRing, layout.walkable);
-    const out = [homePoint, ...path, destPoint];
+    // 有门的家：门前 → 门阶 → 门阶到街上的那条路（最后一点就是街上的站点）→ 去处
+    const out = door ? [homePoint, door.step, ...door.approach.slice(1), ...path.slice(1), destPoint] : [homePoint, ...path, destPoint];
     const walkMs = (polyLength(out) / TOWN.speed) * 1000;
     if (walkMs > TOWN.maxWalkMs) continue;
     if (!routeClear(out, layout.walkable)) continue;
-    return { id: citizen.id, home: { site: homeSite, point: homePoint, yaw: homeYaw }, dest: { site, point: destPoint, yaw: r() * Math.PI * 2 }, out, walkMs, offset };
+    return { id: citizen.id, home: { site: homeSite, point: homePoint, yaw: homeYaw }, dest: { site, point: destPoint, yaw: r() * Math.PI * 2 }, out, walkMs, offset, door: doorOf(door) };
   }
-  return { id: citizen.id, home: { site: homeSite, point: homePoint, yaw: homeYaw }, dest: null, out: null, walkMs: 0, offset };
+  return { id: citizen.id, home: { site: homeSite, point: homePoint, yaw: homeYaw }, dest: null, out: null, walkMs: 0, offset, door: doorOf(door) };
+}
+
+/** 计划里记下的那扇门（只留进出门要的几样）。 */
+const doorOf = (door) => (door ? { id: door.id, step: door.step, inside: door.inside, sill: door.sill ?? 0, x: door.x, z: door.z, nx: door.nx ?? 0, nz: door.nz ?? 1 } : null);
+
+/**
+ * 规则 6：门前站的地方——门阶沿着墙往左或往右让开 TOWN.doorSpot（按种子挑一边，另一边做后备），稍微往外一点；
+ * 门阶到那里一路都能站。都不行就站在门阶上。
+ */
+export function doorSpot(door, r, walkable) {
+  const nx = door.nx ?? 0, nz = door.nz ?? 1;
+  const side = { x: nz, z: -nx };
+  const first = r() < 0.5 ? 1 : -1;
+  const [lo, hi] = TOWN.doorSpot;
+  const d = lo + (hi - lo) * r();
+  const out = 0.1 + 0.3 * r();
+  for (const s of [first, -first]) {
+    const p = { x: door.step.x + side.x * s * d + nx * out, z: door.step.z + side.z * s * d + nz * out };
+    if (walkable(p) && routeClear([door.step, p], walkable, 0.1)) return p;
+  }
+  return { x: door.step.x, z: door.step.z };
 }
 
 const ease = (f) => f * f * (3 - 2 * f);
@@ -163,11 +194,14 @@ export function resumeSchedule(clock, wall) {
 }
 
 /**
- * 他在墙钟 wall 这一刻在哪、干什么。返回 { x, z, yaw, action: 'idle'|'walk', walkT（步子的相位，毫秒）, idleLeft（这段待着还剩多久，走着时为 0）, at: 'home'|'dest'|'road' }。
+ * 他在墙钟 wall 这一刻在哪、干什么。返回 { x, z, yaw, action: 'idle'|'walk', walkT（步子的相位，毫秒）, idleLeft（这段待着还剩多久，走着时为 0）,
+ * at: 'home'|'dest'|'road'|'door'|'inside' }。家有门的（规则 6）：at 'inside' 时 hidden 为真（不画、不摆），at 'door' 时带着
+ * door: { id, open（门开几分）, kind: 'exit'|'enter', phase: 'pass'|'leg' }，进门的最后一下 hidden 也为真。
  */
 export function citizenAt(plan, wall) {
   const p = ((wall + plan.offset) % TOWN.periodMs + TOWN.periodMs) % TOWN.periodMs;
   const atHome = (left) => ({ x: plan.home.point.x, z: plan.home.point.z, yaw: plan.home.yaw, action: 'idle', walkT: 0, idleLeft: left, at: 'home' });
+  if (plan.door) return doorDay(plan, p, atHome);
   if (!plan.dest) return atHome(Number.POSITIVE_INFINITY);
   const t1 = TOWN.homeMs, t2 = t1 + plan.walkMs, t3 = t2 + TOWN.stayMs, t4 = t3 + plan.walkMs;
   const length = polyLength(plan.out);
@@ -184,6 +218,53 @@ export function citizenAt(plan, wall) {
     return { x: q.x, z: q.z, yaw: q.dir + Math.PI, action: 'walk', walkT: ((length * f) / TOWN.speed) * 1000, idleLeft: 0, at: 'road' };
   }
   return atHome(TOWN.periodMs - p + TOWN.homeMs);
+}
+
+/** 规则 6：有门的家的一天（p：周期里的第几毫秒）。 */
+function doorDay(plan, p, atHome) {
+  const IN = TOWN.insideMs, T = DOOR.transitMs, P = TOWN.periodMs;
+  const enterAt = P - IN - T;
+  const inside = (left) => ({ x: plan.door.inside.x, z: plan.door.inside.z, yaw: Math.atan2(plan.door.nx, plan.door.nz), action: 'idle', walkT: 0, idleLeft: left, at: 'inside', hidden: true, door: { id: plan.door.id, open: 0, kind: null, phase: null } });
+  if (p < IN) return inside(IN - p);
+  if (p < IN + T) return doorTransit(plan, 'exit', p - IN);
+  if (p >= enterAt + T) return inside(P - p + IN);
+  if (p >= enterAt) return doorTransit(plan, 'enter', p - enterAt);
+  if (!plan.dest) return atHome(enterAt - p);
+  const t1 = TOWN.homeMs, t2 = t1 + plan.walkMs, t3 = t2 + TOWN.stayMs, t4 = t3 + plan.walkMs;
+  const length = polyLength(plan.out);
+  if (p < t1) return atHome(t1 - p);
+  if (p < t2) {
+    const f = ease((p - t1) / plan.walkMs);
+    const q = pointAlong(plan.out, f);
+    return { x: q.x, z: q.z, yaw: q.dir, action: 'walk', walkT: ((length * f) / TOWN.speed) * 1000, idleLeft: 0, at: 'road' };
+  }
+  if (p < t3) return { x: plan.dest.point.x, z: plan.dest.point.z, yaw: plan.dest.yaw, action: 'idle', walkT: 0, idleLeft: t3 - p, at: 'dest' };
+  if (p < t4) {
+    const f = ease((p - t3) / plan.walkMs);
+    const q = pointAlong(plan.out, 1 - f);
+    return { x: q.x, z: q.z, yaw: q.dir + Math.PI, action: 'walk', walkT: ((length * f) / TOWN.speed) * 1000, idleLeft: 0, at: 'road' };
+  }
+  return atHome(enterAt - p);
+}
+
+/**
+ * 规则 6：一次进出门（doors.transitAt 给每一刻在哪一段、走了几成、门开几分）。出门：门里 → 门阶 → 门前站的地方；进门反过来。
+ * 走着的那几刻 action 是 walk（步子的相位按走过的距离），门开着、人在门里等的那一下是 idle。
+ */
+export function doorTransit(plan, kind, t, spot = plan.home.point) {
+  const tr = transitAt(kind, t);
+  const d = plan.door;
+  const [a, b] = tr.phase === 'pass'
+    ? (kind === 'exit' ? [d.inside, d.step] : [d.step, d.inside])
+    : (kind === 'exit' ? [d.step, spot] : [spot, d.step]);
+  const x = a.x + (b.x - a.x) * tr.f, z = a.z + (b.z - a.z) * tr.f;
+  const len = Math.hypot(b.x - a.x, b.z - a.z);
+  const moving = tr.f > 0 && tr.f < 1 && len > 0.05;
+  const yaw = len > 0.05 ? Math.atan2(b.x - a.x, b.z - a.z) : Math.atan2(d.nx, d.nz);
+  return {
+    x, z, yaw, action: moving ? 'walk' : 'idle', walkT: ((len * tr.f) / TOWN.speed) * 1000, idleLeft: 0, at: 'door',
+    hidden: !!tr.hidden, door: { id: d.id, open: tr.open, kind, phase: tr.phase },
+  };
 }
 
 /**

@@ -108,15 +108,21 @@ export function lentView(mode, lent, text) {
   };
 }
 
-/** 借给一位居民聊天：他的半身像与名字，Enter 发 chat（who 是他的会话 Id）；他答完了栏回到"你在写"（resumeLent）。 */
+/**
+ * 借给一位居民聊天：他的半身像与名字，Enter 发 chat（who 是他的会话 Id）；他答完了栏回到"你在写"（resumeLent）。
+ * 第三轮（需求 3）：target.door 为真是隔着门说话——状态行、占位字说的是"隔着门"，chat 带着 door: true（C# 记轮数、按关系定这一轮怎么收）。
+ * 他出门来谈之后（door 'out'），game 再借一次（door 为假），栏就成了当面聊。
+ */
 export function chatLend(target, ui) {
   const name = String(target?.name ?? '');
   const id = target?.conversationId ? String(target.conversationId) : null;
+  const door = !!target?.door;
   return {
-    kind: 'chat', waitingKind: 'chatting', id, name, bust: target?.bust ?? null,
-    status: fill(ui.chatStatus, { name }), waitingStatus: fill(ui.chatWaiting, { name }), placeholder: fill(ui.chatPlaceholder, { name }),
+    kind: 'chat', waitingKind: 'chatting', id, name, bust: target?.bust ?? null, door,
+    status: fill(door ? ui.doorChatStatus : ui.chatStatus, { name }), waitingStatus: fill(door ? ui.doorChatWaiting : ui.chatWaiting, { name }),
+    placeholder: fill(door ? ui.doorChatPlaceholder : ui.chatPlaceholder, { name }),
     sendLabel: ui.chatSend ?? '', hint: ui.chatHint ?? '', maxChars: MAX_LINE_CHARS,
-    intent: (text) => ['chat', { who: id, text }],
+    intent: (text) => ['chat', door ? { who: id, text, door: true } : { who: id, text }],
   };
 }
 

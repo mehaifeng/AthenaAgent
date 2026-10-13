@@ -612,13 +612,19 @@ public sealed partial class GameModeViewModel : ViewModelBase, IDisposable
                 break;
             }
             case PolisIntentType.Chat:
-                _ = RunIntentAsync(() => ChatAsync(intent.ConversationId!, intent.Overheard ? PolisTalk.Overheard(intent.Text!, _localization.CurrentLanguage) : intent.Text!, intent.Overheard), "chat");
+                _ = RunIntentAsync(() => ChatAsync(intent.ConversationId!, intent.Overheard ? PolisTalk.Overheard(intent.Text!, _localization.CurrentLanguage) : intent.Text!, intent.Overheard, door: intent.ThroughDoor), "chat");
                 break;
             case PolisIntentType.AmbientChat:
                 _ = RunIntentAsync(() => AmbientChatAsync(intent.ConversationId!, intent.OtherId!), "ambient-chat");
                 break;
             case PolisIntentType.Chorus:
                 _ = RunIntentAsync(() => ChorusAsync(intent.Text!, intent.Speakers!), "chorus");
+                break;
+            case PolisIntentType.Knock:
+                Knock(intent.Speakers!);
+                break;
+            case PolisIntentType.CallOut:
+                CallOut(intent.ConversationId!);
                 break;
             case PolisIntentType.CitizenTranscript:
                 PostCitizenTranscript(intent.ConversationId!);
@@ -867,7 +873,7 @@ public sealed partial class GameModeViewModel : ViewModelBase, IDisposable
     /// 任何结局都有一句话给他说——没配模型、正忙、超限、失败都是一句本地化的话，不是错误框（<see cref="PolisTalkService"/> 的纪律 1）。
     /// 他的话只回到页面，不进任何会话。
     /// </summary>
-    private async Task<PolisTalkReply?> ChatAsync(string who, string line, bool overheard = false, CancellationToken token = default)
+    private async Task<PolisTalkReply?> ChatAsync(string who, string line, bool overheard = false, CancellationToken token = default, bool door = false)
     {
         if (who.StartsWith(PolisIntents.ResidentSpeakerPrefix, StringComparison.Ordinal))
             return await ResidentChatAsync(who, line, overheard, token);
@@ -887,18 +893,77 @@ public sealed partial class GameModeViewModel : ViewModelBase, IDisposable
         var page = _page;
         if (token == default) token = _askCancel.Token;
         var attitude = AttitudeText(who, language);
+        // 隔着门（第三轮需求 3）：这是第几轮、到了他的耐心那一轮怎么收（友好及以上出门来谈，其余请你走）——C# 定，写进提示词
+        var outcome = door ? DoorOutcome(who) : null;
         var (reply, n) = await StreamLineAsync(who, PolisTalkPurpose.Player,
-            () => PolisTalk.BuildChat(world, speaker, PolisCitizenAnswers.SelectExcerpts(messages, line), history, line, language, attitude), token);
+            () => PolisTalk.BuildChat(world, speaker, PolisCitizenAnswers.SelectExcerpts(messages, line), history, line, language, attitude, outcome), token);
         if (reply == null || _disposed || page == null || !ReferenceEquals(page, _page)) return null;
-        if (reply.Status == PolisTalkStatus.Ok && !string.IsNullOrWhiteSpace(reply.Text))
+        var ok = reply.Status == PolisTalkStatus.Ok && !string.IsNullOrWhiteSpace(reply.Text);
+        if (ok)
         {
             _talkHistory[who] = PolisTalk.Remember(history, line, reply.Text!);
-            ApplyRelation(who, overheard ? PolisRelationEvent.Overheard : PolisRelationEvent.Chat);
+            if (outcome == "away") ApplyRelation(who, PolisRelationEvent.SentAway);
+            else ApplyRelation(who, overheard ? PolisRelationEvent.Overheard : PolisRelationEvent.Chat);
+            if (outcome == "out") ApplyRelation(who, PolisRelationEvent.CalledOut);
+            if (door) _doorRounds[who] = _doorRounds.GetValueOrDefault(who) + 1;
+            if (outcome is "out" or "away") _doorRounds.Remove(who);
         }
-        var text = reply.Status == PolisTalkStatus.Ok && !string.IsNullOrWhiteSpace(reply.Text) ? reply.Text! : TalkFallback(reply.Status);
-        Post(new { type = "talk", who, n, text, done = true, status = reply.Status.ToString().ToLowerInvariant() });
+        var text = ok ? reply.Text! : TalkFallback(reply.Status);
+        // 没好好说出来（没配模型、正忙……）：门里照旧（这一轮不算），页面不演出门也不赶人
+        var doorEnd = door ? (ok ? outcome : "stay") : null;
+        Post(new { type = "talk", who, n, text, done = true, status = reply.Status.ToString().ToLowerInvariant(), door = doorEnd });
         Flush();
         return reply;
+    }
+
+    /// <summary>隔着门说话已经说了几轮（这一次敲门以来；新的一次敲门重新数）。只在内存里。</summary>
+    private readonly Dictionary<string, int> _doorRounds = new(StringComparer.Ordinal);
+
+    /// <summary>隔着门的这一轮怎么收：还没到他的耐心——stay；到了——友好及以上 out（出门来谈），其余 away（请你走）。</summary>
+    private string DoorOutcome(string who)
+    {
+        var view = RelationOf(who);
+        var round = _doorRounds.GetValueOrDefault(who) + 1;
+        return round < view.Patience ? "stay" : view.ComesOut ? "out" : "away";
+    }
+
+    /// <summary>
+    /// 你敲了一扇门（第三轮需求 3）：屋里听见的人各记一笔（敲门本身不加不减）；敲得太勤（两分钟里第三次、或者被回绝 / 打发之后 30 秒内）扣关系；
+    /// 打发过你的人三分钟里不应门。隔着门说话从这一次敲门重新数轮。回 <c>knock-reply</c>，页面据此决定门里谁应、说不说"别敲了"。
+    /// </summary>
+    private void Knock(IReadOnlyList<string> inside)
+    {
+        if (_disposed) return;
+        var now = DateTimeOffset.UtcNow;
+        var pestered = new List<string>();
+        var ignoring = new List<string>();
+        foreach (var id in inside)
+        {
+            if (PolisRelations.Ignoring(_relations, id, now)) ignoring.Add(id);
+            if (PolisRelations.IsPestering(_relations, id, now))
+            {
+                pestered.Add(id);
+                (_relations, _) = PolisRelations.Apply(_relations, id, PolisRelationEvent.Pestered, now);
+            }
+            (_relations, _) = PolisRelations.Apply(_relations, id, PolisRelationEvent.Knock, now);
+            _doorRounds.Remove(id);
+        }
+        PostRelations();
+        ScheduleRelationSave();
+        Post(new { type = "knock-reply", who = inside, pestered, ignoring });
+        Flush();
+    }
+
+    /// <summary>敲门之后请他出来（第三轮需求 3）：关系寻常及以上、又没在不理你的——出来（+1）；不然回绝（记下来，30 秒内再敲算太勤）。</summary>
+    private void CallOut(string who)
+    {
+        if (_disposed) return;
+        var now = DateTimeOffset.UtcNow;
+        var comes = RelationOf(who).Opens && !PolisRelations.Ignoring(_relations, who, now);
+        ApplyRelation(who, comes ? PolisRelationEvent.CalledOut : PolisRelationEvent.Refused);
+        _doorRounds.Remove(who);
+        Post(new { type = "call-out-reply", who, @out = comes });
+        Flush();
     }
 
     /// <summary>

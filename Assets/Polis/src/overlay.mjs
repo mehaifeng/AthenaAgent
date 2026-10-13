@@ -411,7 +411,10 @@ export function createOverlay(canvas) {
       ? view.suggestions.map((s, i) => ({ lines: wrap(`· ${s.line}`, rowTextW, 2), label: ui.takeSuggestion, id: `suggestion:${i}` }))
       : view.type === 'venue'
         ? view.stored.map((item) => ({ lines: wrap(item.title, rowTextW, 2), label: view.placeHere, id: `venue-place:${item.id}` }))
-        : [];
+        // 敲门之后（第三轮需求 3）：屋里的人一位一行（名字 · 他对你的态度），右边"找这位"
+        : view.type === 'door' && view.people
+          ? view.people.map((p) => ({ lines: wrap(p.line, rowTextW, 2), label: ui.doorPick, id: `door-pick:${p.id}` }))
+          : [];
     const rowH = (r) => Math.max(36, r.lines.length * 18 + 16);
     const rowsH = rows.reduce((sum, r) => sum + rowH(r), 0) + (view.type === 'venue' ? 30 : 0);
     const h = Math.max(bustH + 28, 48 + body.length * 20 + rowsH + 56);
@@ -451,11 +454,16 @@ export function createOverlay(canvas) {
     }
     // 讲台（M-E）：提一个议题（对话栏借给辩论）
     if (view.type === 'bema') bx += button(ui.bemaPropose, bx, by, 'bema-propose', { minWidth: 110 }) + 8;
+    // 门里的那一位应了（第三轮需求 3）：请他出来、隔着门说话；"算了"在右边
+    if (view.type === 'door' && view.picked) {
+      bx += button(ui.doorCall, bx, by, 'door-call', { minWidth: 100 }) + 8;
+      if (view.canTalk) bx += button(ui.doorTalk, bx, by, 'door-talk', { minWidth: 110 }) + 8;
+    }
     if (view.type === 'oracle') {
       if (view.exists && view.latest) bx += button(ui.latestScroll, bx, by, 'oracle-latest') + 8;
       if (!view.exists) bx += button(ui.requestOracle, bx, by, 'oracle-request', { minWidth: 120 }) + 8;
     }
-    button(view.type === 'resident' || view.type === 'citizen' || view.type === 'bema' ? ui.dismiss : ui.close, x + w - 16 - 84, by, 'panel-close');
+    button(view.type === 'door' ? ui.doorLeave : view.type === 'resident' || view.type === 'citizen' || view.type === 'bema' ? ui.dismiss : ui.close, x + w - 16 - 84, by, 'panel-close');
   }
 
   /**

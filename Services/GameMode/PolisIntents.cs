@@ -83,6 +83,13 @@ public enum PolisIntentType
     /// <summary>不辩了 / 辩完离开：这场作废（没判完的不记战绩）。</summary>
     DebateEnd,
     /// <summary>
+    /// 你敲了一扇门（第三轮需求 3）：<c>who</c> 是此刻在屋里、听见了的人（0–12 位，这座城的居民，不重复）。C# 记下来（敲得太勤要扣关系、
+    /// 打发过你的人三分钟里不应门），回 <c>knock-reply</c>；新的一次敲门，隔着门说话重新数轮。
+    /// </summary>
+    Knock,
+    /// <summary>敲门之后请他出来（第三轮需求 3）：<c>who</c> 是这座城的一位居民。C# 按关系定他出不出来，回 <c>call-out-reply</c>。</summary>
+    CallOut,
+    /// <summary>
     /// 你自己说了一句（不点名），附近的几个人依次接话（第三轮需求 6）：<c>text</c> 同 <see cref="Chat"/> 的上限；<c>who</c> 是按顺序开口的人，
     /// 1–<see cref="PolisTalk.MaxChorusSpeakers"/> 位，每一位都得是这座城的居民或职业居民、不重复。他们的话只回到页面，不进任何会话。
     /// </summary>
@@ -111,8 +118,10 @@ public sealed record PolisIntent(PolisIntentType Type)
     public string? OtherId { get; init; }
     /// <summary>chat：你不是在对他说，是你自己说了一句、他在旁边听见了（2026-10-13，平时的对话栏）。</summary>
     public bool Overheard { get; init; }
-    /// <summary>chorus：按顺序开口的人（第三轮需求 6）。</summary>
+    /// <summary>chorus：按顺序开口的人（第三轮需求 6）；knock：屋里听见敲门的人（需求 3）。</summary>
     public IReadOnlyList<string>? Speakers { get; init; }
+    /// <summary>chat：你是隔着门和他说话（第三轮需求 3）。</summary>
+    public bool ThroughDoor { get; init; }
 }
 
 /// <summary>校验时需要知道的现场：当前城邦的根目录（神殿为 null）、有哪些会话、有哪些藏品。</summary>
@@ -155,6 +164,8 @@ public static class PolisIntents
     public const int MaxSayChars = 16000;
     public const int MaxDetailChars = 4000;
     public const int ProtocolVersion = 1;
+    /// <summary>一扇门后面最多几个人（一户最多 6 人，一座楼可以住更多；再多的页面不列）。</summary>
+    public const int MaxKnockHeard = 12;
     /// <summary>和职业居民说话时 <c>who</c> 的前缀（<c>resident:scribe</c>）。</summary>
     public const string ResidentSpeakerPrefix = "resident:";
 
@@ -195,6 +206,8 @@ public static class PolisIntents
         ["debate-say"] = PolisIntentType.DebateSay,
         ["debate-end"] = PolisIntentType.DebateEnd,
         ["chorus"] = PolisIntentType.Chorus,
+        ["knock"] = PolisIntentType.Knock,
+        ["call-out"] = PolisIntentType.CallOut,
     };
 
     /// <summary>页面那一侧用的名字（测试与文档用）。</summary>
@@ -318,7 +331,32 @@ public static class PolisIntents
                     if (line.Length > PolisTalk.MaxLineChars)
                         return PolisIntentResult.Reject($"text longer than {PolisTalk.MaxLineChars} characters");
                     var overheard = root.TryGetProperty("overheard", out var rawOverheard) && rawOverheard.ValueKind == JsonValueKind.True;
-                    return new PolisIntentResult(new PolisIntent(type) { ConversationId = who, Text = line, Overheard = overheard }, null);
+                    var door = root.TryGetProperty("door", out var rawDoor) && rawDoor.ValueKind == JsonValueKind.True;
+                    // 隔着门说话只和居民（职业居民不住在门里）；听见的和隔着门的不能同时是
+                    if (door && (overheard || who!.StartsWith(ResidentSpeakerPrefix, StringComparison.Ordinal))) return PolisIntentResult.Reject("only a citizen talks through a door");
+                    return new PolisIntentResult(new PolisIntent(type) { ConversationId = who, Text = line, Overheard = overheard, ThroughDoor = door }, null);
+                }
+
+                case PolisIntentType.Knock:
+                {
+                    if (!root.TryGetProperty("who", out var heard) || heard.ValueKind != JsonValueKind.Array) return PolisIntentResult.Reject("missing who");
+                    var inside = new List<string>();
+                    foreach (var item in heard.EnumerateArray())
+                    {
+                        var who = item.ValueKind == JsonValueKind.String ? item.GetString() : null;
+                        if (string.IsNullOrEmpty(who) || !context.KnownCitizenIds.Contains(who)) return PolisIntentResult.Reject("unknown citizen");
+                        if (inside.Exists(s => string.Equals(s, who, StringComparison.Ordinal))) return PolisIntentResult.Reject("a citizen appears twice");
+                        inside.Add(who);
+                    }
+                    if (inside.Count > MaxKnockHeard) return PolisIntentResult.Reject($"at most {MaxKnockHeard} people behind one door");
+                    return new PolisIntentResult(new PolisIntent(type) { Speakers = inside }, null);
+                }
+
+                case PolisIntentType.CallOut:
+                {
+                    var who = ReadString(root, "who");
+                    if (string.IsNullOrEmpty(who) || !context.KnownCitizenIds.Contains(who)) return PolisIntentResult.Reject("unknown citizen");
+                    return new PolisIntentResult(new PolisIntent(type) { ConversationId = who }, null);
                 }
 
                 case PolisIntentType.Chorus:

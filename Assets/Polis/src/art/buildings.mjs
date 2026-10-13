@@ -272,7 +272,9 @@ export function buildWorkshop(M, b, r) {
     kit.box(M.reed, shedW, 0.1, shedD + 0.6, shedX, 2.75, D / 2 - 0.8 + shedD / 2 + 0.3, 0, -0.12);
     for (const sx of [-1, 1]) kit.box(M.darkWood, 0.1, 0.12, shedD + 0.7, shedX + sx * (shedW / 2 - 0.05), 2.68, D / 2 - 0.8 + shedD / 2 + 0.3, 0, -0.12);
   }
-  const benchZ = D / 2 + 0.6;
+  // 工作台离门 2 米（第三轮需求 2：门会开、人要进出）——第一版贴在门前 1.4 米，台子和墙之间只剩 0.95 米，
+  // 让出人身的半径之后一点能站的地方都没有，作坊的门永远走不出来
+  const benchZ = D / 2 + 1.25;
   kit.box(M.wood, Math.min(2.2, shedW - 0.6), 0.12, 0.9, shedX, 0.95, benchZ);
   for (const lx of [-0.8, 0.8]) for (const lz of [-0.35, 0.35]) kit.box(M.wood, 0.08, 0.9, 0.08, shedX + lx, 0.45, benchZ + lz);
   const tx = toolSide * (W / 2 + 1.0);

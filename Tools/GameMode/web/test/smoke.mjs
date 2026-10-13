@@ -45,7 +45,7 @@ try {
   for (const name of browsers) {
     const browser = await launch(name);
     try {
-      for (const check of [fixtureCheck, deliveryCheck, accumulationCheck, citizensCheck, relationsCheck, chorusCheck, chatCheck, debateCheck, householdCheck, controlsCheck]) {
+      for (const check of [fixtureCheck, deliveryCheck, accumulationCheck, citizensCheck, relationsCheck, chorusCheck, doorCheck, chatCheck, debateCheck, householdCheck, controlsCheck]) {
         if (wanted(check)) failed = !(await check(name, browser)) || failed;
       }
     } finally {
@@ -611,6 +611,171 @@ async function chorusCheck(name, browser) {
       noProblems: problems.length === 0,
     };
     Object.assign(result, { checks, trio: { fondId, haterId, plainId }, chorus, after, ended, problems, seconds: +((Date.now() - started) / 1000).toFixed(1) });
+    await page.close();
+    console.log(JSON.stringify(result, null, 2));
+    return Object.values(checks).every(Boolean);
+  } catch (e) {
+    result.error = e.message;
+    console.log(JSON.stringify(result, null, 2));
+    return false;
+  }
+}
+
+/**
+ * 门与敲门（第三轮需求 2、3）：民居、作坊的门会开；住在里面的人到了时候在屋里（不画）、开门出来（门开着、人看得见）；你走不进门洞。
+ * 门阶前按 E 敲门：你抬手、门上"咚、咚"、屋里的人发 knock；C# 回音之后门里应声、面板列出屋里的人（街上满了、在屋里的那位也在）；
+ * 挑一位，"隔着门说话"把栏借给他（chat 带 door）、他说到头出门来谈（talk 的 door: out）——屋里那位临时上街、走出来、栏接着借给他；
+ * "请他出来"发 call-out，C# 说出来就出来、卡片打开，说不出来门里回绝一句；敲得太勤门里一句"别敲了"；屋里没人"没有人应门"。
+ */
+async function doorCheck(name, browser) {
+  const started = Date.now();
+  const result = { browser: `${name} ${browser.version()}`, mode: 'live, doors and knocking' };
+  try {
+    const page = await browser.newPage({ viewport: { width: 1600, height: 1000 } });
+    const problems = [];
+    page.on('console', (m) => { if (m.type() === 'error') problems.push(`[console.error] ${m.text()}`); });
+    page.on('pageerror', (e) => problems.push(`[pageerror] ${e.message}`));
+    await page.addInitScript(HOST);
+    await page.goto(`${server.origin}/polis/index.html?mode=live`);
+    await page.waitForFunction(() => (window.__hostInbox ?? []).some((m) => m.type === 'ready') || document.title === 'error', null, { timeout: 90_000 });
+    const send = (message) => page.evaluate((m) => window.polis.receive(JSON.stringify(m)), message);
+    const inbox = () => page.evaluate(() => window.__hostInbox);
+    const sentSince = async (n) => (await inbox()).slice(n);
+    await send({ type: 'init', tables: {} });
+    await send({ type: 'city', key: 'ws-1', city });
+    const street = [
+      { id: 'house-a', home: 'b:杂物' }, { id: 'shop-a', home: 'b:网站' }, { id: 'agora-a', home: 'agora:1' },
+    ].map((c, i) => ({ ...c, seed: (Math.imul(i + 51, 2654435761) >>> 0), female: i % 2 === 0, name: `住户${i}`, title: `委托 ${i}`, age: 'adult', outcome: 'completed', folders: [], turns: 2, trade: 'weaver' }));
+    const indoors = [{ id: 'indoor-a', seed: 4242, female: true, name: '屋里的阿伽忒', home: 'b:杂物', age: 'young', trade: 'baker' }];
+    await send({ type: 'citizens', citizens: { street, indoors, elders: [], census: { total: 4, street: 3, indoors: 1, elders: 0 } } });
+    await page.waitForFunction(() => {
+      const g = window.__polisGame;
+      return g.world.citizens.size === 3 && [...g.world.citizens.values()].every((c) => c.figure && c.plan);
+    }, null, { timeout: 60_000 });
+    // 城里自己的闲聊停掉（夹具里没有 C# 回 ambient-end）
+    await page.evaluate(() => { const g = window.__polisGame; g.ambientNow('house-a', 'agora-a'); g.endAmbient({ a: 'house-a', b: 'agora-a', status: 'nomodel' }); });
+    const doors = await page.evaluate(() => {
+      const g = window.__polisGame;
+      return { ids: [...g.world.doors.keys()], house: g.world.citizens.get('house-a').plan.door?.id ?? null, shop: g.world.citizens.get('shop-a').plan.door?.id ?? null, agora: g.world.citizens.get('agora-a').plan.door ?? null };
+    });
+
+    // —— 门：拨他的日程到"在屋里"、"正在出门"，看人与门 ——
+    const setPhase = (id, phase, hold = false) => page.evaluate(({ cid, ph, hd }) => {
+      const c = window.__polisGame.world.citizens.get(cid);
+      const now = performance.now();
+      c.schedule.holdAt = hd ? now : null;
+      c.schedule.shift = now - (ph - c.plan.offset);
+    }, { cid: id, ph: phase, hd: hold });
+    await setPhase('shop-a', 5000);
+    await page.waitForTimeout(150);
+    const inside = await page.evaluate(() => { const c = window.__polisGame.world.citizens.get('shop-a'); return { at: c.at.at, visible: c.figure.root.visible }; });
+    await setPhase('shop-a', 15000 + 350 + 400);
+    await page.waitForTimeout(100);
+    const exiting = await page.evaluate((door) => { const g = window.__polisGame; const c = g.world.citizens.get('shop-a'); return { at: c.at.at, visible: c.figure.root.visible, open: g.world.doors.get(door).open }; }, doors.shop);
+    // 你走不进门洞：站在门阶上朝门按住 W
+    const blocked = await page.evaluate((door) => {
+      const g = window.__polisGame;
+      const p = g.world.doorPlan(door);
+      g.setFollow('player');
+      g.placePlayer(p.step.x, p.step.z, Math.atan2(p.x - p.step.x, p.z - p.step.z));
+      return { door: { x: p.x, z: p.z } };
+    }, doors.shop);
+    await page.keyboard.down('KeyW');
+    await page.waitForTimeout(700);
+    await page.keyboard.up('KeyW');
+    const afterPush = await page.evaluate(() => window.__polisGame.player);
+
+    // —— 敲门：住户 house-a 此刻在屋里（日程停在屋里），屋里还有街上满了的阿伽忒 ——
+    await setPhase('house-a', 4000, true);
+    await page.waitForTimeout(120);
+    const atDoor = await page.evaluate((door) => {
+      const g = window.__polisGame;
+      const p = g.world.doorPlan(door);
+      g.placePlayer(p.step.x, p.step.z + 0.5, Math.atan2(p.x - p.step.x, p.z - (p.step.z + 0.5)));
+      return g.insideOf(door);
+    }, doors.house);
+    await page.waitForTimeout(250);
+    const focus = await page.evaluate(() => window.__polis.focus);
+    let n = (await inbox()).length;
+    await page.keyboard.press('KeyE');
+    await page.waitForTimeout(120);
+    const knocked = await page.evaluate(() => ({ said: window.__polis.doorSaid?.text ?? null, action: window.__polis.playerAction, knock: window.__polis.knock }));
+    const knockSent = (await sentSince(n)).filter((m) => m.type === 'knock');
+    await send({ type: 'knock-reply', who: knockSent[0]?.who ?? [], pestered: [], ignoring: [] });
+    await page.waitForTimeout(1500);
+    const asked = await page.evaluate(() => ({ panel: window.__polis.panel, view: window.__polisGame.panelView(), regions: (window.__polisGame.regions ?? []).map((r) => r.id), said: window.__polis.doorSaid?.text ?? null }));
+    // 挑屋里的阿伽忒，隔着门说话
+    await page.evaluate(() => window.__polisGame.onButton('door-pick:indoor-a'));
+    await page.waitForTimeout(80);
+    const picked = await page.evaluate(() => ({ view: window.__polisGame.panelView(), regions: (window.__polisGame.regions ?? []).map((r) => r.id) }));
+    await page.evaluate(() => window.__polisGame.onButton('door-talk'));
+    await page.waitForTimeout(150);
+    const lent = await page.evaluate(() => ({ lent: window.__polisTalk.lentTo, status: document.querySelector('#talk .talk-status').textContent }));
+    n = (await inbox()).length;
+    await page.keyboard.type('你在家呀？');
+    await page.keyboard.press('Enter');
+    await page.waitForTimeout(120);
+    const doorChat = (await sentSince(n)).find((m) => m.type === 'chat');
+    await send({ type: 'talk', who: 'indoor-a', n: 1, text: '在呢，你等等，我出来跟你说。', done: true, status: 'ok', door: 'out' });
+    await page.waitForFunction(() => window.__polisGame.world.citizens.get('indoor-a')?.at?.at === 'visit', null, { timeout: 15_000 }).catch(() => {});
+    const cameOut = await page.evaluate(() => {
+      const g = window.__polisGame;
+      const c = g.world.citizens.get('indoor-a');
+      return { guest: !!c, at: c?.at?.at ?? null, visible: c?.figure?.root.visible ?? false, lent: window.__polisTalk.lentTo, mode: window.__polisTalk.mode, visits: [...g.visits.keys()] };
+    });
+    await page.keyboard.press('Escape');
+    await page.waitForTimeout(100);
+
+    // —— 请他出来：住户 house-a；C# 说出来——门开、他走到门阶上，卡片打开 ——
+    await page.evaluate(() => window.__polisGame.knock(window.__polisGame.world.citizens.get('house-a').plan.door.id));
+    await send({ type: 'knock-reply', who: ['house-a'], pestered: [], ignoring: [] });
+    await page.waitForTimeout(1500);
+    await page.evaluate(() => window.__polisGame.onButton('door-pick:house-a'));
+    n = (await inbox()).length;
+    await page.evaluate(() => window.__polisGame.onButton('door-call'));
+    await page.waitForTimeout(80);
+    const callSent = (await sentSince(n)).find((m) => m.type === 'call-out');
+    await send({ type: 'call-out-reply', who: 'house-a', out: true });
+    await page.waitForFunction(() => window.__polisGame.panelView()?.type === 'citizen', null, { timeout: 15_000 }).catch(() => {});
+    const calledOut = await page.evaluate(() => {
+      const g = window.__polisGame;
+      const c = g.world.citizens.get('house-a');
+      return { at: c.at.at, visible: c.figure.root.visible, panel: g.panelView()?.type ?? null, opened: window.__polis.citizenOpened };
+    });
+    await page.evaluate(() => window.__polisGame.onButton('panel-close'));
+
+    // —— 敲得太勤：C# 回音里有他——门里一句"别敲了" ——
+    await setPhase('shop-a', 4000, true);
+    await page.waitForTimeout(100);
+    await page.evaluate(() => window.__polisGame.knock(window.__polisGame.world.citizens.get('shop-a').plan.door.id));
+    await send({ type: 'knock-reply', who: ['shop-a'], pestered: ['shop-a'], ignoring: [] });
+    await page.waitForTimeout(1500);
+    const pestered = await page.evaluate(() => ({ said: window.__polis.doorSaid?.text ?? null, state: window.__polis.knock?.state, panel: window.__polisGame.panelView()?.type ?? null }));
+    // —— 屋里没人：作坊的住户出门了 ——
+    await setPhase('shop-a', 60_000, true);
+    await page.waitForTimeout(100);
+    await page.evaluate(() => window.__polisGame.knock(window.__polisGame.world.citizens.get('shop-a').plan.door.id));
+    await page.waitForTimeout(1500);
+    const nobody = await page.evaluate(() => ({ said: window.__polis.doorSaid?.text ?? null, state: window.__polis.knock?.state }));
+    const checks = {
+      doorsBuilt: doors.ids.length >= 2 && !!doors.house && !!doors.shop && doors.agora == null,
+      insideIsHidden: inside.at === 'inside' && !inside.visible,
+      exitingOpensTheDoor: exiting.at === 'door' && exiting.visible && exiting.open > 0.9,
+      youCannotEnter: Math.hypot(afterPush.x - blocked.door.x, afterPush.z - blocked.door.z) > 0.3 && afterPush.z > blocked.door.z,
+      focusOnDoor: focus?.type === 'door' && focus.id === doors.house,
+      knockAnimatesAndSends: knocked.said === '咚、咚' && knocked.action === 'work' && knockSent.length === 1
+        && knockSent[0].who.includes('house-a') && knockSent[0].who.includes('indoor-a') && atDoor.length === 2,
+      panelListsWhoIsIn: asked.panel === 'door' && asked.regions.includes('door-pick:house-a') && asked.regions.includes('door-pick:indoor-a') && /谁|来了/.test(asked.said ?? ''),
+      pickedOffersChoices: picked.regions.includes('door-call') && picked.regions.includes('door-talk') && picked.view?.title === '屋里的阿伽忒',
+      talkThroughDoor: lent.lent?.kind === 'chat' && lent.lent.id === 'indoor-a' && /隔着门/.test(lent.status) && doorChat?.door === true && doorChat.who === 'indoor-a',
+      comesOutToTalk: cameOut.guest && cameOut.at === 'visit' && cameOut.visible && cameOut.lent?.id === 'indoor-a',
+      callOutSent: callSent?.who === 'house-a',
+      calledOutComes: calledOut.at === 'visit' && calledOut.visible && calledOut.panel === 'citizen' && calledOut.opened === 'house-a',
+      pesteredSaysStop: pestered.state === 'pestered' && /别敲|又敲/.test(pestered.said ?? '') && pestered.panel !== 'door',
+      emptyHouseIsSilent: nobody.state === 'nobody' && nobody.said === '（没有人应门）',
+      noProblems: problems.length === 0,
+    };
+    Object.assign(result, { checks, doors, inside, exiting, afterPush, focus, knocked, knockSent, asked: { panel: asked.panel, said: asked.said }, picked: picked.view?.title, lent, doorChat, cameOut, calledOut, pestered, nobody, problems, seconds: +((Date.now() - started) / 1000).toFixed(1) });
     await page.close();
     console.log(JSON.stringify(result, null, 2));
     return Object.values(checks).every(Boolean);

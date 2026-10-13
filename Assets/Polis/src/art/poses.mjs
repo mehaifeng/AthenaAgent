@@ -18,7 +18,12 @@ export const FIDGET = Object.freeze({ everyMs: 8000, spreadMs: 600, lastsMs: 220
 /** 做事的几种样子：按工具类别（雅典娜）或居民的行当选。 */
 export const WORK_VARIANTS = Object.freeze([
   'read', 'write', 'hammer', 'forge', 'summon', 'haul', 'paint', 'announce', 'shelve', 'count', 'survey', 'carve', 'tend', 'await',
+  // 第三轮：敲门（你，需求 3）
+  'knock',
 ]);
+
+/** 敲门一次多长（第三轮需求 3）：抬手、叩两下、放下。game 按它把"做事 / knock"当一次性的动作放。 */
+export const KNOCK_MS = 1300;
 
 const JOINTS = ['hips', 'spine', 'head', 'shoulderL', 'shoulderR', 'elbowL', 'elbowR', 'handL', 'handR', 'legL', 'legR', 'kneeL', 'kneeR', 'skirt'];
 export const JOINT_NAMES = Object.freeze(JOINTS);
@@ -460,6 +465,17 @@ function work(t, style) {
       setArm(p, 'L', ARMS.tendL); setArm(p, 'R', ARMS.tendR);
       p.shoulderL.rx -= 0.12 * k; p.shoulderR.rx -= 0.12 * k;
       p.propR = 'phiale';
+      break;
+    }
+    case 'knock': {  // 敲门（第三轮需求 3）：右臂抬到身前、前臂竖着，拳头朝门板叩两下（0.39、0.68 秒），再放下；左手垂着
+      const f = (t % KNOCK_MS) / KNOCK_MS;
+      const up = keyed([[0, 0], [0.22, 1], [0.8, 1], [1, 0]], f);
+      const tap = (u) => Math.max(0, Math.sin(Math.PI * clamp01((f - u) / 0.11)));
+      const knock = tap(0.3) + tap(0.52);
+      p.shoulderR.rx = -1.15 * up; p.shoulderR.rz = -0.06 + 0.1 * up;
+      p.elbowR.rx = -0.1 - 1.5 * up + 0.38 * knock * up;
+      p.handR.rx = 0.15 * up; p.handR.rz = -0.1 * up;
+      p.spine.rx = 0.03 * up; p.head.rx = 0.06 * up;
       break;
     }
     case 'await':  // 等审批：停在门槛前，两只掌心把封着红印的石板捧在胸前，静静等（设计稿 6.1）
