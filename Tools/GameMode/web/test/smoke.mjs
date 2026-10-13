@@ -1051,7 +1051,6 @@ async function controlsCheck(name, browser) {
       athenaComesWhenCalledFromAfar: Math.hypot(farAway.athena.x - farAway.player.x, farAway.athena.z - farAway.player.z) > 12 && cameOver
         && summon.summoned === farAway.summoned + 1 && summon.steps.includes('teleport'),
       nightFollowsTheme: nightNow.body && nightNow.k === 1 && nightNow.overlay && !dayAgain.body && dayAgain.k === 0 && nightNow.pixels.mean < dayAgain.pixels.mean - 20,
-      // 夜里的辉光（灯火的散射）只在夜里开；城里有灯
       longScrollReachesTheEnd: readerFit.cardInside && readerFit.scrollable && readerFit.lastVisible && readerFit.table,
       neverApproves: !all.some((m) => /approv|allow|grant/i.test(m.type)),
       noProblems: problems.length === 0,
