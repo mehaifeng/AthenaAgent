@@ -167,7 +167,7 @@ public sealed class PolisTalkService : IPolisTalkService, IDisposable
             var stripped = ConversationTitleGenerator.StripReasoning(raw.ToString());
             var answer = prompt.Raw
                 ? (string.IsNullOrWhiteSpace(stripped) ? null : stripped.Trim() is var t && t.Length > prompt.MaxReplyChars ? t[..prompt.MaxReplyChars] : stripped.Trim())
-                : PolisCitizenAnswers.Sanitize(stripped, prompt.MaxReplyChars);
+                : PolisTalk.Sanitize(stripped, prompt.MaxReplyChars);
             if (answer == null)
             {
                 _logger.Debug("Polis talk model returned nothing usable ({Role}, {Purpose})", role, purpose);

@@ -28,6 +28,12 @@
 //      市集上缝鞋的）——要工位的只在有门的家门前（工位靠着墙；
 //      没有门的家门前那一点在街上，工位摆在街当中，过路的人会从它中间穿过去）。
 //      干活时 action 是 'work'、work 是那门手艺的样子（poses 的 variant）；闲聊、打招呼照样会挑干活的人（他停下手里的活）。
+//   8. 昼夜（第四轮需求 4，2026-10-15，用户：NPC 日出晚归，受应用主题影响，晚上偶有零星数人会出门）：天色就是应用的主题。
+//      入夜（sky.night，从 sky.since 起）：不是夜游的人（sky.owl）把手上这一圈日程走完——下一次进了家门（有门的走完进门那一段；
+//      没门的下一次走回家门前那一点）就留在屋里（indoorsAt：不画、不摆）。入夜那一刻谁也不当场消失；有门的最多一个周期、
+//      没门的最多两个周期，街上就只剩夜游的人。打开页面时就是夜里
+//      （sky.since 为 null）：不是夜游的人一开始就在屋里。天亮（sky.night 为假、sky.after 是入夜的那一刻）：入夜时回了屋的人，
+//      等到自己日程里下一次出门的时刻（retireTime / wakeTime）才出来，不会一齐涌上街。夜游的人照常过日子。
 
 import { DOOR, transitAt } from './doors.mjs';
 import { STATION_GAPS, STATION_EXTENT } from './art/crafts.mjs';
@@ -171,7 +177,7 @@ export function planCitizen(citizen, layout) {
     const out = door ? [homePoint, door.step, ...door.approach.slice(1), ...path.slice(1), ...via, destPoint] : [homePoint, ...path, ...via, destPoint];
     const walkMs = (polyLength(out) / TOWN.speed) * 1000;
     if (walkMs > TOWN.maxWalkMs) continue;
-    if (!routeClear(out, layout.walkable)) continue;
+    if (!routeClear(out, layout.walkable, 0.1)) continue;   // 0.1 米一查（0.25 米会漏过斜着擦过墙角的那一小段）
     const dest = { site, point: destPoint, yaw: r() * Math.PI * 2 };
     return { id: citizen.id, home: { site: homeSite, point: homePoint, yaw: homeYaw }, dest, out, walkMs, offset, door: doorOf(door), craft: craftOf(craft, { ...place, home: fallback(dest), dest, spot }) };
   }
@@ -316,6 +322,55 @@ export function doorSpot(door, r, walkable) {
 
 const ease = (f) => f * f * (3 - 2 * f);
 
+const phaseOf = (plan, wall) => ((wall + plan.offset) % TOWN.periodMs + TOWN.periodMs) % TOWN.periodMs;
+
+/**
+ * 规则 8：从 from 起，他按日程第一次回到屋里的时刻——有门的走完进门那一段（周期里的 P − insideMs；那一刻本来就在屋里的就是 from），
+ * 没门的下一次走回家门前（走回来的那一程走完）。from 为 null（打开页面时就是夜里）是 −∞：一直在屋里。
+ */
+export function retireTime(plan, from) {
+  // 没门的家、又没有一处走得到的去处：他整天站在家门前——夜里也站着（当场不见就是凭空消失），和夜游的人一样
+  if (!plan.door && !plan.dest) return Number.POSITIVE_INFINITY;
+  if (from == null) return Number.NEGATIVE_INFINITY;
+  const P = TOWN.periodMs;
+  const p0 = phaseOf(plan, from);
+  if (plan.door) {
+    const enterDone = P - TOWN.insideMs;
+    if (p0 < TOWN.insideMs || p0 >= enterDone) return from;
+    return from + (enterDone - p0);
+  }
+  // 没门的家：门前那一点在街上，站在那儿的人当场不见就是凭空消失——等他下一次走回家门前（走回来的那一程走完）才回屋，
+  // 看上去是走到楼前进去了。此刻正站在家门前的，要等下一个周期走一圈回来（最多两个周期）
+  const back = TOWN.homeMs + 2 * plan.walkMs + TOWN.stayMs;
+  return from + (p0 < back ? back - p0 : P - p0 + back);
+}
+
+/** 规则 8：天亮之后（from 起）他下一次出门的时刻——有门的是开门出来那一段的开头，没门的是下一个周期的开头。 */
+export function wakeTime(plan, from) {
+  const P = TOWN.periodMs;
+  const p0 = phaseOf(plan, from);
+  return from + (plan.door ? ((TOWN.insideMs - p0) % P + P) % P : (P - p0) % P);
+}
+
+/** 规则 8：在屋里（入夜回了家、天亮还没出门、或者被客人顶回去的）：有门的在门里，没门的在家门前那一点，都不画。 */
+export function indoorsAt(plan) {
+  const d = plan.door;
+  if (d) return { x: d.inside.x, z: d.inside.z, yaw: Math.atan2(d.nx, d.nz), action: 'idle', walkT: 0, idleLeft: Number.POSITIVE_INFINITY, at: 'inside', hidden: true, door: { id: d.id, open: 0, kind: null, phase: null } };
+  return { x: plan.home.point.x, z: plan.home.point.z, yaw: plan.home.yaw, action: 'idle', walkT: 0, idleLeft: Number.POSITIVE_INFINITY, at: 'inside', hidden: true };
+}
+
+/**
+ * 规则 8：此刻他该不该在屋里（入夜、天亮）。sky：{ night, since（这一次天色变的时刻，null 是打开页面时就这样）, after（天亮时：入夜的那一刻；
+ * 没有夜可言为 undefined）, owl（夜游的人）}。
+ */
+export function asleepAt(plan, wall, sky) {
+  if (!sky || sky.owl) return false;
+  if (sky.night) return wall >= retireTime(plan, sky.since);
+  if (sky.since == null || sky.after === undefined) return false;
+  const retired = sky.since >= retireTime(plan, sky.after);
+  return retired && wall < wakeTime(plan, sky.since);
+}
+
 /** 一位居民自己的日程钟：{ shift: 累计站定了多久, holdAt: 这一次从哪一刻站定的（没站定为 null） }。 */
 export const newScheduleClock = () => ({ shift: 0, holdAt: null });
 
@@ -337,12 +392,13 @@ export function resumeSchedule(clock, wall) {
 }
 
 /**
- * 他在墙钟 wall 这一刻在哪、干什么。返回 { x, z, yaw, action: 'idle'|'walk'|'work'（干活时还有 work：那门手艺的样子，规则 7）, walkT（步子的相位，毫秒）, idleLeft（这段待着还剩多久，走着时为 0）,
+ * 他在墙钟 wall 这一刻在哪、干什么（sky：规则 8 的天色；不给就是白天）。返回 { x, z, yaw, action: 'idle'|'walk'|'work'（干活时还有 work：那门手艺的样子，规则 7）, walkT（步子的相位，毫秒）, idleLeft（这段待着还剩多久，走着时为 0）,
  * at: 'home'|'dest'|'road'|'door'|'inside' }。家有门的（规则 6）：at 'inside' 时 hidden 为真（不画、不摆），at 'door' 时带着
  * door: { id, open（门开几分）, kind: 'exit'|'enter', phase: 'pass'|'leg' }，进门的最后一下 hidden 也为真。
  */
-export function citizenAt(plan, wall) {
-  const p = ((wall + plan.offset) % TOWN.periodMs + TOWN.periodMs) % TOWN.periodMs;
+export function citizenAt(plan, wall, sky = null) {
+  if (asleepAt(plan, wall, sky)) return indoorsAt(plan);
+  const p = phaseOf(plan, wall);
   const atHome = (left) => craftState(plan, 'home', { x: plan.home.point.x, z: plan.home.point.z, yaw: plan.home.yaw, action: 'idle', walkT: 0, idleLeft: left, at: 'home' });
   if (plan.door) return doorDay(plan, p, atHome);
   if (!plan.dest) return atHome(Number.POSITIVE_INFINITY);

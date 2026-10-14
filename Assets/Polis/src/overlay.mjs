@@ -450,7 +450,6 @@ export function createOverlay(canvas) {
     // "去看那份委托"拿掉了（2026-10-13 第三轮，用户）：卡片是和这个人打交道的地方，选会话走会话树
     if (view.type === 'citizen') {
       if (view.askable) bx += button(ui.citizenChat, bx, by, 'citizen-chat', { minWidth: 90 }) + 8;
-      bx += button(ui.citizenTranscript, bx, by, 'citizen-transcript', { minWidth: 100 }) + 8;
     }
     // 讲台（M-E）：提一个议题（对话栏借给辩论）
     if (view.type === 'bema') bx += button(ui.bemaPropose, bx, by, 'bema-propose', { minWidth: 110 }) + 8;

@@ -96,62 +96,53 @@ public static class PolisAccumulation
     public static (string Kind, string NameKey, string NameFallback, string GreekKey, string GreekFallback, string IntroKey, string IntroFallback, string PersonaKey, string PersonaFallback) ResidentEntry(PolisResidentKind kind)
         => PolisLocale.Residents.First(r => r.Kind == PolisResidents.Slug(kind));
 
-    /// <summary>老居民的碑最多列这么多名字（再多的只在人口里数得到）。</summary>
-    public const int MaxElderNames = 200;
-
-    /// <summary>街上满了、在屋里的居民最多列这么多位（第三轮：敲门叫得出来的那些；再多的只在人口里数得到）。</summary>
-    public const int MaxIndoors = 300;
+    /// <summary>街上满了、在屋里的居民最多列这么多位（敲门叫得出来的那些；再多的只在人口里数得到）。</summary>
+    public const int MaxIndoors = 400;
 
     /// <summary>
-    /// 居民即会话（M-B）推给页面的那一份：街上的（最多 <see cref="PolisCitizens.StreetCap"/> 位，带名字、家、长相的种子、
-    /// 他那几句话）、老居民（只有名字和家，刻在碑上）、人口。没有任何消息正文——只有标题、文件夹名、数字。
+    /// 城里的人（第四轮，2026-10-15：从建筑来）推给页面的那一份：白天街上的（最多 <see cref="PolisCitizens.StreetCap"/> 位）与屋里的（敲门叫得出来），
+    /// 每人带 Id、长相的种子、男女、名字、家（站点名）、年纪、职业（键与名字）、脾气、住处的名字（文件夹名、"某某一家"、摊位）、夜里出不出门；以及人口。
+    /// 没有任何会话的东西。<paramref name="homeNames"/>：住所的键 → 名牌上的名字（村舍是户名）。
     /// </summary>
-    public static object Citizens(IReadOnlyList<PolisCitizen> citizens, Func<string, string, string> localize)
+    public static object Citizens(IReadOnlyList<PolisCitizen> citizens, Func<string, string, string> localize, IReadOnlyDictionary<string, string> homeNames, string language)
     {
         ArgumentNullException.ThrowIfNull(citizens);
         ArgumentNullException.ThrowIfNull(localize);
+        ArgumentNullException.ThrowIfNull(homeNames);
         var table = PolisLocale.Citizen.ToDictionary(c => c.JsKey, StringComparer.Ordinal);
         string L(string jsKey) => localize(table[jsKey].Key, table[jsKey].Fallback);
         var male = L("namesMale");
         var female = L("namesFemale");
         var nth = L("nameNth");
+        var zh = PolisTalk.IsChinese(language);
         var census = PolisCitizens.Census(citizens);
+        object Entry(PolisCitizen c)
+        {
+            var trade = PolisTrades.ByKey(c.Trade);
+            return new
+            {
+                id = c.Id,
+                seed = c.Seed,
+                female = c.Female,
+                name = PolisCitizens.NameFor(c, male, female, nth),
+                home = c.Home,
+                age = c.Age.ToString().ToLowerInvariant(),
+                // 他的职业（第四轮需求 5）：页面按它挑他干的活、在哪儿干
+                trade = c.Trade,
+                tradeName = zh ? trade.Zh : trade.En,
+                temper = PolisTalk.TemperamentName(c.Seed, language),
+                homeName = homeNames.TryGetValue(c.Dwelling, out var n) ? n : c.Dwelling,
+                stall = c.Home == "market",
+                cottage = c.Cottage,
+                nightOwl = c.NightOwl,
+            };
+        }
         return new
         {
-            street = citizens.Where(c => c.OnStreet).Select(c => new
-            {
-                id = c.ConversationId,
-                seed = c.Seed,
-                female = c.Female,
-                name = PolisCitizens.NameFor(c, male, female, nth),
-                title = c.Title,
-                home = c.Home,
-                age = c.Age.ToString().ToLowerInvariant(),
-                outcome = c.Outcome.ToString().ToLowerInvariant(),
-                folders = c.Folders,
-                turns = c.Turns,
-                days = c.AgeDays,
-                // 他的职业（性子表里的那一列，第三轮需求 4）：页面按它挑他干的活
-                trade = PolisTalk.TradeKeys[PolisTalk.TradeIndex(c.Seed)]
-            }).ToList(),
-            // 街上满了、在屋里的（第三轮需求 3）：敲他家的门叫得出来——只有 Id、名字、家、种子（长相）、男女、年纪、职业
-            indoors = citizens.Where(c => !c.OnStreet && !c.Elder).OrderByDescending(c => c.UpdatedAt).Take(MaxIndoors).Select(c => new
-            {
-                id = c.ConversationId,
-                seed = c.Seed,
-                female = c.Female,
-                name = PolisCitizens.NameFor(c, male, female, nth),
-                home = c.Home,
-                age = c.Age.ToString().ToLowerInvariant(),
-                trade = PolisTalk.TradeKeys[PolisTalk.TradeIndex(c.Seed)]
-            }).ToList(),
-            elders = citizens.Where(c => c.Elder).Take(MaxElderNames).Select(c => new
-            {
-                id = c.ConversationId,
-                name = PolisCitizens.NameFor(c, male, female, nth),
-                home = c.Home
-            }).ToList(),
-            census = new { total = census.Total, street = census.OnStreet, indoors = census.Indoors, elders = census.Elders }
+            street = citizens.Where(c => c.OnStreet).Select(Entry).ToList(),
+            // 街上满了、在屋里的（敲他家的门叫得出来）
+            indoors = citizens.Where(c => !c.OnStreet).Take(MaxIndoors).Select(Entry).ToList(),
+            census = new { total = census.Total, street = census.OnStreet, indoors = census.Indoors }
         };
     }
 

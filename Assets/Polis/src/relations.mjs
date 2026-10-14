@@ -8,6 +8,8 @@
 //   3. 闲聊挑人：两人互相厌恶（两个方向都 ≤ −60）不凑一对；合得来的优先（同样近时，关系好的那一对先）。
 //   4. 你自己说话（第三轮需求 6）：6 米内、画面里的人最多六位都有反应——亲近的转身挥手、友好的点头、寻常的转过来听、冷淡的瞥一眼、
 //      厌恶的背过身去；最多三位依次开口：越近、越喜欢你、越健谈的越先，厌恶你的不开口。
+//   5. 怎么看雅典娜（第四轮需求 8，2026-10-15，用户：不是所有 NPC 对雅典娜都是尊敬的）：C# 推来 athena（id → 分数、档、原因），
+//      总览里每人多一行；闲聊挑雅典娜时谁都可以和她说（不服她的人说话带刺，那是 C# 的提示词管的）。
 
 export const RELATION = Object.freeze({ close: 60, friendly: 25, coolBelow: -25, hostile: -60 });
 export const BANDS = Object.freeze(['hostile', 'cool', 'neutral', 'friendly', 'close']);
@@ -55,10 +57,21 @@ export function readRelations(payload) {
   const ties = new Map();
   const list = (x) => (Array.isArray(x) ? x.filter((t) => Array.isArray(t) && typeof t[0] === 'string').map(([id, s]) => ({ id, score: Number(s) || 0 })) : []);
   for (const [id, t] of Object.entries(payload?.ties ?? {})) ties.set(id, { friends: list(t?.friends), rivals: list(t?.rivals) });
-  return { you, bond, ties };
+  const athena = new Map();
+  for (const [id, v] of Object.entries(payload?.athena ?? {})) {
+    if (!v || typeof v !== 'object') continue;
+    const score = Math.max(-100, Math.min(100, Math.round(Number(v.score) || 0)));
+    athena.set(id, { score, band: BANDS.includes(v.band) ? v.band : bandOf(score), why: Array.isArray(v.why) ? v.why.filter((w) => typeof w === 'string').slice(0, 2) : [] });
+  }
+  return { you, bond, ties, athena };
 }
 
-export const EMPTY_RELATIONS = Object.freeze({ you: new Map(), bond: new Map(), ties: new Map() });
+export const EMPTY_RELATIONS = Object.freeze({ you: new Map(), bond: new Map(), ties: new Map(), athena: new Map() });
+
+/** 规则 5：他怎么看雅典娜（没推来的按寻常）。 */
+export function regardOf(rel, id) {
+  return rel?.athena?.get(id) ?? { score: 0, band: 'neutral', why: [] };
+}
 
 /** 他怎么看你（不认识的按寻常）。 */
 export function attitudeOf(rel, id) {
@@ -138,9 +151,11 @@ export function pickResponders(hearers, rel, { radius = 6, max = CHORUS.speakers
 
 const BAND_LABEL = Object.freeze({ close: 'bandClose', friendly: 'bandFriendly', neutral: 'bandNeutral', cool: 'bandCool', hostile: 'bandHostile' });
 const WHY_LABEL = Object.freeze({
-  done: 'whyDone', working: 'whyWorking', stopped: 'whyStopped', familiar: 'whyFamiliar', recent: 'whyRecent',
   warm: 'whyWarm', prickly: 'whyPrickly', nature: 'whyNature', chats: 'whyChats', annoyed: 'whyAnnoyed',
+  busy: 'whyBusy', neglected: 'whyNeglected', idle: 'whyIdle',
+  pious: 'whyPious', doubting: 'whyDoubting', reverent: 'whyReverent', defiant: 'whyDefiant', trade: 'whyTrade', age: 'whyAge',
 });
+const REGARD_LABEL = Object.freeze({ close: 'regardClose', friendly: 'regardFriendly', neutral: 'regardNeutral', cool: 'regardCool', hostile: 'regardHostile' });
 
 /**
  * 人际总览（第三轮：关系在游戏界面有一个入口，点开预览所有的关系状态）要画的一份：每个人（居民、在屋里的居民、职业居民）
@@ -155,7 +170,11 @@ export function relationsView(rel, people, ui) {
     const tie = rel?.ties?.get(p.id) ?? { friends: [], rivals: [] };
     const names = (list) => list.filter((t) => nameOf.has(t.id)).map((t) => ({ id: t.id, name: nameOf.get(t.id), score: t.score }));
     const why = a.why.map((w) => ui[WHY_LABEL[w]]).filter(Boolean);
+    const g = regardOf(rel, p.id);
+    const gWhy = g.why.map((w) => ui[WHY_LABEL[w]]).filter(Boolean);
     return {
+      athena: { score: g.score, band: g.band, label: fill(ui.relationsAthena, { band: ui[REGARD_LABEL[g.band]] ?? g.band }),
+        why: gWhy.length >= 2 ? fill(ui.relationsWhyTwo, { a: gWhy[0], b: gWhy[1] }) : gWhy.length ? fill(ui.relationsWhy, { why: gWhy[0] }) : '' },
       id: p.id, name: p.name, kind: p.kind, indoors: !!p.indoors, bust: p.bust,
       score: a.score, band: a.band, bandLabel: ui[BAND_LABEL[a.band]] ?? a.band,
       why: why.length >= 2 ? fill(ui.relationsWhyTwo, { a: why[0], b: why[1] }) : why.length ? fill(ui.relationsWhy, { why: why[0] }) : '',

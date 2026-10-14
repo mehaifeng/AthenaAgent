@@ -7,7 +7,7 @@ import {
   Kit, m4, deg, doricColumn, column, triglyphGeometry, palmette, gable, gabledRoof, frontGabledRoof, flatRoof, podium, door,
   window_, colonnade, groundPlane, litOpening,
 } from './kit.mjs';
-import { amphoraBody } from './props.mjs';
+import { amphoraBody, statuePlinth, buildSack, buildNetRack } from './props.mjs';
 import { venueSlotLocal, TERRACE, PLOT_SIZE } from '../civic-layout.mjs';
 
 
@@ -214,8 +214,12 @@ export function buildGate(M) {
 export function buildHarbor(M, quayLocalZ, pierLength, plotCenterZ, statueGeometry) {
   const kit = new Kit();
   kit.add(M.pave, groundPlane(12.4, 12.4, 4), m4(0, 0.016, plotCenterZ));
-  kit.box(M.marble, 1.2, 1.1, 1.2, 0, 0.55, plotCenterZ - 2.5);
+  statuePlinth(kit, M, { z: plotCenterZ - 2.5, width: 1.2, height: 1.1 });   // 第四轮：海神像立在带刻字带的台座上
   kit.add(M.marble, statueGeometry, m4(0, 1.1, plotCenterZ - 2.5, 0, 0, 0, 1.25));
+  // 第四轮（需求 9）：货堆旁几只扎口的麻袋，港前一副晾着渔网的架子
+  const placed = (obj, x, z, ry = 0) => { obj.position.set(x, 0, z); obj.rotation.y = ry; return kit.object(obj); };
+  for (let i = 0; i < 4; i++) placed(buildSack(M), -4.6 + i * 0.5, plotCenterZ + 3.4 + (i % 2) * 0.35, i * 0.7);
+  placed(buildNetRack(M), 4.6, plotCenterZ - 3.6);
   for (let i = 0; i < 6; i++) kit.box(M.wood, 0.75, 0.75, 0.75, -4 + (i % 3) * 0.85, 0.375 + (i >= 3 ? 0.75 : 0), plotCenterZ + 2.5, i * 0.2);
   for (let i = 0; i < 6; i++) kit.add(M.tile, amphoraBody(), m4(3 + (i % 3) * 0.5, 0, plotCenterZ + 2 + Math.floor(i / 3) * 0.55, i, 0, 0, 0.85));
   kit.box(M.stone, 3.2, 0.9, pierLength, 0, -0.35, quayLocalZ + pierLength / 2);
@@ -275,8 +279,71 @@ export function buildBoat(M) {
   kit.cylinder(M.darkWood, 0.09, 0.12, 1.6, 0, 0.9, -4.7, 8, -0.75);   // 船尾翘起的尾饰
   kit.cylinder(M.wood, 0.08, 0.1, 6, 0, 3.1, 0.4, 8);
   kit.cylinder(M.wood, 0.05, 0.05, 3.6, 0, 5.2, 0.4, 6, 0, Math.PI / 2);
-  kit.box(M.awning, 3.2, 0.5, 0.08, 0, 4.9, 0.4);
   kit.add(M.wood, new THREE.CylinderGeometry(0.1, 0.25, 1.2, 8), m4(0, 0.9, -4.6, 0, -0.6));
+  // —— 第四轮（需求 9，2026-10-15，用户：给船只多加一点细节）——
+  // 舷墙：甲板到舷栏之间一圈木板墙，外面两道叠板的缝
+  const side = (sgn, y0, y1, out = 0) => {
+    const pos = [];
+    const idx = [];
+    outline.forEach(([w, z], i) => {
+      pos.push(sgn * (w * 0.97 + out), y0, z * 0.985, sgn * (w * 0.99 + out), y1, z * 0.985);
+      if (i > 0) { const a = (i - 1) * 2; idx.push(a, a + 1, a + 2, a + 1, a + 3, a + 2); }
+    });
+    const g = new THREE.BufferGeometry();
+    g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+    g.setIndex(sgn > 0 ? idx : idx.map((_, k) => idx[k - (k % 3) + (2 - (k % 3))]));
+    g.computeVertexNormals();
+    return g;
+  };
+  for (const sgn of [-1, 1]) {
+    kit.add(M.darkWood, side(sgn, 0.16, 0.42));
+    for (const y of [0.24, 0.33]) kit.add(M.wood, side(sgn, y, y + 0.018, 0.012));   // 叠板的缝
+  }
+  // 船头的眼睛（ophthalmos）：两舷各一只，白的眼白、深色的瞳仁——点缀色不用在船上
+  for (const sgn of [-1, 1]) {
+    const w = halfW(0.86);
+    kit.add(M.papyrus, new THREE.CircleGeometry(0.13, 16), m4(sgn * (w + 0.03), 0.3, 3.15, sgn * Math.PI / 2 + sgn * 0.28));
+    kit.add(M.dark, new THREE.CircleGeometry(0.06, 12), m4(sgn * (w + 0.04), 0.3, 3.15, sgn * Math.PI / 2 + sgn * 0.28));
+  }
+  // 撞角：船头水线上一只铜包的尖角
+  kit.add(M.bronze, new THREE.ConeGeometry(0.13, 0.75, 8), m4(0, 0.16, 4.75, 0, Math.PI / 2));
+  kit.add(M.bronze, new THREE.TorusGeometry(0.13, 0.025, 6, 12), m4(0, 0.16, 4.4));
+  // 收起来的桨：靠着两舷顺着船身搁在横坐板上（泊在栈桥边，伸出去的桨会扫进栈桥），桨叶朝船尾；坐板一道道横在舷墙之间
+  for (let k = 0; k < 5; k++) {
+    const z = -2.6 + k * 1.25;
+    kit.box(M.wood, 2 * halfW(z / 8.8 + 0.5) * 0.92, 0.05, 0.16, 0, 0.3, z);
+  }
+  for (const sgn of [-1, 1]) {
+    for (let k = 0; k < 4; k++) {
+      const x = sgn * (0.42 + k * 0.1);
+      const a = new THREE.Vector3(x, 0.36 + k * 0.012, 2.4 - k * 0.15), b = new THREE.Vector3(x * 0.92, 0.42 + k * 0.012, -2.2 - k * 0.15);
+      const dir = b.clone().sub(a);
+      const oar = new THREE.CylinderGeometry(0.022, 0.022, dir.length(), 6);
+      oar.applyQuaternion(new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 1, 0), dir.clone().normalize()));
+      oar.translate((a.x + b.x) / 2, (a.y + b.y) / 2, (a.z + b.z) / 2);
+      kit.add(M.wood, oar);
+      kit.box(M.wood, 0.13, 0.02, 0.5, b.x, b.y, b.z - 0.2);
+    }
+  }
+  // 桅杆的支索：桅顶拉到船头、船尾与两舷
+  const rope = (from, to) => kit.add(M.hide, new THREE.TubeGeometry(new THREE.LineCurve3(new THREE.Vector3(...from), new THREE.Vector3(...to)), 1, 0.014, 4, false));
+  rope([0, 6.05, 0.4], [0, 0.45, 4.3]);
+  rope([0, 6.05, 0.4], [0, 0.6, -4.1]);
+  for (const sgn of [-1, 1]) rope([0, 5.9, 0.4], [sgn * 0.95, 0.42, 0.4]);
+  for (const sgn of [-1, 1]) rope([sgn * 1.75, 5.2, 0.4], [sgn * 0.9, 0.42, -1.2]);   // 横桁两头的转帆索
+  // 横桁上卷起来的帆，几道系绳
+  kit.add(M.awning, new THREE.CylinderGeometry(0.13, 0.13, 3.3, 10), m4(0, 5.02, 0.4, 0, 0, Math.PI / 2));
+  for (let k = -3; k <= 3; k++) kit.add(M.hide, new THREE.TorusGeometry(0.14, 0.012, 4, 10), m4(k * 0.45, 5.02, 0.4, Math.PI / 2));
+  // 船尾两舷各一支舵桨
+  for (const sgn of [-1, 1]) {
+    const a = new THREE.Vector3(sgn * 0.75, 0.75, -3.6), b = new THREE.Vector3(sgn * 1.05, -0.55, -4.75);
+    const dir = b.clone().sub(a);
+    const helm = new THREE.CylinderGeometry(0.04, 0.04, dir.length(), 6);
+    helm.applyQuaternion(new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 1, 0), dir.clone().normalize()));
+    helm.translate((a.x + b.x) / 2, (a.y + b.y) / 2, (a.z + b.z) / 2);
+    kit.add(M.darkWood, helm);
+    kit.box(M.darkWood, 0.06, 0.55, 0.32, b.x, b.y + 0.15, b.z - 0.1, 0, 0.5);
+  }
   const group = kit.build();
   group.userData.height = 6;
   return group;

@@ -198,7 +198,7 @@ public static class PolisDebate
     }
 
     /// <summary>她这一轮的话压成能放进气泡和面板的样子：去掉推理块之外的首尾空白、Markdown 粗体，换行收成空格，最多 <see cref="MaxAthenaChars"/> 字。</summary>
-    public static string? SanitizeAthena(string? text) => PolisCitizenAnswers.Sanitize(text, MaxAthenaChars);
+    public static string? SanitizeAthena(string? text) => PolisTalk.Sanitize(text, MaxAthenaChars);
 
     public static PolisContestSummary Summarize(IEnumerable<PolisContestRecord> records)
     {

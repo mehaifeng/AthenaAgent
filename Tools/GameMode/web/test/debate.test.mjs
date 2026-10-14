@@ -58,6 +58,12 @@ test('stage: on the real agora you, Athena and the platform\'s step are all stan
     assert.ok(out > -1.5, `不站到讲台那一边：${out.toFixed(2)}`);
     for (const p of [st.you, st.athena]) assert.ok(Math.hypot(a.x - p.x, a.z - p.z) >= 0.7, '不挤在你和她身上');
   }
+  // 第四轮需求 6（2026-10-15，用户：围观的人靠近一些）：两圈收到 2.5 / 3.3 米，挪到能站的地方也不超过外圈半米
+  assert.deepEqual([...DEBATE.rings], [2.5, 3.3]);
+  for (const a of st.audience) {
+    const r = Math.hypot(a.x - st.stage.x, a.z - st.stage.z);
+    assert.ok(r <= DEBATE.rings[1] + 0.5, `观众离舞台不远：${r.toFixed(2)} 米`);
+  }
   for (let i = 0; i < st.audience.length; i++) {
     for (let j = i + 1; j < st.audience.length; j++) {
       assert.ok(Math.hypot(st.audience[i].x - st.audience[j].x, st.audience[i].z - st.audience[j].z) >= 0.7, '站位之间隔开 0.7 米');

@@ -1111,6 +1111,8 @@ export const PROP_CURL = Object.freeze({
   stylus: 0.55, brush: 0.55, tablet: 0.12, abacus: 0.12, palette: 0.25, phiale: 0.2, gift: 0.4, sealed: 0.55,
   // 第三轮（需求 4）：居民的家什
   distaff: 0.85, spindle: 0.55, fishingRod: 0.9, hoe: 0.92, stoneAxe: 0.92, mortar: 0.3, pestle: 0.92, sandal: 0.45, awl: 0.6, saw: 0.92, lyre: 0.5,
+  // 第四轮（需求 5）：牧人的牧杖
+  crook: 0.9,
 });
 
 /** 两手一起拿的东西，每只手拿着它的哪个点。 */
@@ -1192,6 +1194,15 @@ function buildProp(name, M, accentGift, sx = -1) {
       // 姿势里手腕补回前臂的角度（poses.mjs 的 upright），杖才是竖的
       add(new THREE.CylinderGeometry(0.014, 0.016, 1.1, 8), M.wood, [0, 0.22, 0.02]);
       for (const sx of [-1, 1]) add(new THREE.TorusGeometry(0.042, 0.009, 6, 14), M.gold, [sx * 0.032, 0.8, 0.02], [0, 0, 0]);
+      break;
+    }
+    case 'crook': {
+      // 牧人的牧杖（第四轮需求 5）：1.5 米的长杖竖着攥在拳里（姿势里手的 y 轴朝上），杖脚落在地上（拳 1.02 米高），
+      // 杖头一只朝前弯的钩——羊倌拿它勾羊的后腿
+      const F2 = F[2];
+      add(new THREE.CylinderGeometry(0.014, 0.017, 1.52, 8), M.wood, [0, F[1] - 1.02 + 0.76, F2]);
+      const hook = add(new THREE.TorusGeometry(0.06, 0.012, 6, 14, Math.PI * 1.25), M.wood, [0, F[1] + 0.5 + 0.06, F2 + 0.06]);
+      hook.rotation.set(0, Math.PI / 2, Math.PI);
       break;
     }
     case 'rod':

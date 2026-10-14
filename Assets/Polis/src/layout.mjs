@@ -29,6 +29,14 @@ export const SHORE_OFFSET = STREET / 2 + 0.2;
 export const MAP_MARGIN = 8;
 export const SEA_REACH = 50;
 
+/**
+ * 城郊（第四轮需求 5，2026-10-15）：最北一排地块（z = −ring − 1，城外，任何文件夹都不会占：生长次序只给到 ring 圈）是农田与牧场——
+ * 西头一块牧场、往东最多 COUNTRY_FIELDS 块农田（城门两侧的城墙挡着的那两块不用）；能走的范围往北、往东、往西各多 COUNTRY 米，
+ * 把这一排地块（连同两头的那一列）整个圈进来（原来只圈到地块中线）。
+ */
+export const COUNTRY = 7.75;
+export const COUNTRY_FIELDS = 3;
+
 /** 港口的栈桥：码头正南、宽 3.2 米、伸出 14 米（art/civic.mjs 的 buildHarbor）。 */
 export const PIER = Object.freeze({ halfWidth: 1.45, length: 14 });
 
@@ -81,6 +89,21 @@ export function createLayout(fixture) {
     plots.set(`grove:${k}`, site);
   }
 
+  // 城郊：最北一排地块里西头一块牧场、往东几块农田（站点：pasture、fields:k，fields 是第一块）。站点在地块南沿往里 1.2 米的正中
+  const countryZ = -ring - 1;
+  const country = [];
+  // 城门（北街上 x = 0.5 格，两侧各一段 10 米的城墙）挡着的那两块不用：田要从南沿走得进去
+  const gateX = 0.5 * BLOCK;
+  for (let x = -ring - 1; x <= ring + 1 && country.length < 1 + COUNTRY_FIELDS; x++) {
+    if (Math.abs(x * BLOCK - gateX) < 12) continue;
+    const site = place(x, countryZ, [0, 1], null);
+    site.country = country.length === 0 ? 'pasture' : 'field';
+    site.stand = { x: site.cx, z: site.cz + PLOT / 2 - 1.2 };   // 离街口的路灯（地块角上往里 0.45 米）一米远
+    if (site.country === 'pasture') plots.set('pasture', site);
+    else { site.field = country.length - 1; plots.set(`fields:${site.field}`, site); }
+    country.push(site);
+  }
+
   // 街道网格的范围：比最外一圈再多一条街
   const iMin = -ring - 1, iMax = ring;          // 竖街 x = (i + 0.5)·BLOCK
   const jMin = -ring - 1, jMax = seaZ - 1;      // 横街 z = (j + 0.5)·BLOCK；最南一条是码头
@@ -107,6 +130,7 @@ export function createLayout(fixture) {
     if (site === 'harbor') return { ...harborPoint };
     if (site === 'gate') return { ...gate };
     if (site.startsWith('agora:')) return { ...wanderSpots[Number(site.slice(6)) % wanderSpots.length] };
+    if (site === 'fields') return sitePoint('fields:0');
     if (site.startsWith('pt:')) {
       const [x, z] = site.slice(3).split(',').map(Number);
       return { x, z };
@@ -196,6 +220,8 @@ export function createLayout(fixture) {
   }
 
   function route(from, to) {
+    if (from === 'fields') from = 'fields:0';
+    if (to === 'fields') to = 'fields:0';
     const a = sitePoint(from), b = sitePoint(to);
     if (from === to) return [a];
     const nearAgora = (s) => s === 'agora' || s.startsWith('agora:');
@@ -256,9 +282,10 @@ export function createLayout(fixture) {
   // 不能进，四边留一条贴墙的路；海里只有石台（场馆北半边是建筑、台上的底座也挡路，橄榄林的台地都能走）和港口的栈桥 ——
   const shoreZ = quayZ + SHORE_OFFSET;
   const walkBounds = {
-    minX: Math.min(X(iMin) - BLOCK / 2, X(qMin) - BLOCK / 2),
-    maxX: Math.max(X(iMax) + BLOCK / 2, X(qMax) + BLOCK / 2),
-    minZ: Z(jMin) - BLOCK / 2,
+    // 城郊（第四轮）：东西两头的那一列地块也整块圈进来（原来只圈到地块中线）——最北一排两头的牧场、农田才走得进去
+    minX: Math.min(X(iMin) - BLOCK / 2 - COUNTRY, X(qMin) - BLOCK / 2),
+    maxX: Math.max(X(iMax) + BLOCK / 2 + COUNTRY, X(qMax) + BLOCK / 2),
+    minZ: Z(jMin) - BLOCK / 2 - COUNTRY,
   };
   const pedestals = Array.from({ length: SLOTS_PER_VENUE }, (_, i) => venueSlotLocal(i));
   const venueSites = new Set(Object.values(VENUES));
@@ -318,7 +345,7 @@ export function createLayout(fixture) {
   }
 
   return {
-    plots, ring, gate, harborPoint, quayZ, seaZ, shoreZ, wanderSpots, groveOrigin,
+    plots, ring, gate, harborPoint, quayZ, seaZ, shoreZ, wanderSpots, groveOrigin, country,
     quayRange: { minX: X(qMin), maxX: X(qMax) },
     mapRect: {
       minX: walkBounds.minX - MAP_MARGIN, maxX: walkBounds.maxX + MAP_MARGIN,

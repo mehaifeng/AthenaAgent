@@ -1510,10 +1510,7 @@
     <system:String x:Key="Polis.Ui.ChartMissing">Folder missing</system:String>
     <!-- Citizens are conversations (M-B, 2026-10-13): one citizen per conversation. Name lists, the epithet pattern, their own lines, greetings and small talk ("|" separates variants; small talk is an "A says|B answers" pair) -->
     <system:String x:Key="Polis.Ui.InteractCitizen">Talk to {name}</system:String>
-    <system:String x:Key="Polis.Ui.CensusLine">{total} citizens live in this city; {street} are out in the streets</system:String>
-    <system:String x:Key="Polis.Ui.InteractStele">Read the names on the stele</system:String>
-    <system:String x:Key="Polis.Ui.SteleTitle">Old citizens</system:String>
-    <system:String x:Key="Polis.Ui.SteleBody">Citizens who have not been out for over a year are carved here:</system:String>
+    <system:String x:Key="Polis.Ui.CensusLine">{total} people live in this city; {street} are out by day</system:String>
     <!-- 问话（M-C，2026-10-13）：居民卡片上的问话、对话栏借给居民时的字，以及没拿到回答时他说的那一句 -->
     <system:String x:Key="Polis.Ui.InteractTalkWaiting">Talk to Athena (she has words waiting for you)</system:String>
     <system:String x:Key="Polis.Ui.SpeakName">You</system:String>
@@ -1532,23 +1529,15 @@
     <system:String x:Key="Polis.Ui.ChatSend">Say</system:String>
     <system:String x:Key="Polis.Ui.ChatHint">Enter to say · Esc to take leave</system:String>
     <system:String x:Key="Polis.Ui.AskTimeout">They thought about it, but nothing came.</system:String>
-    <system:String x:Key="Polis.Ui.CitizenTranscript">See that conversation</system:String>
-    <system:String x:Key="Polis.Ui.CitizenInfoCommission">Commission: {title}</system:String>
-    <system:String x:Key="Polis.Ui.CitizenInfoUntitled">(no title yet)</system:String>
-    <system:String x:Key="Polis.Ui.CitizenInfoState">{outcome} · {turns} turns done</system:String>
-    <system:String x:Key="Polis.Ui.CitizenInfoDays">Last active {days} days ago</system:String>
-    <system:String x:Key="Polis.Ui.CitizenInfoToday">Active today</system:String>
-    <system:String x:Key="Polis.Ui.CitizenInfoFolders">Often at: {folders}</system:String>
-    <system:String x:Key="Polis.Ui.OutcomeRunning">In progress</system:String>
-    <system:String x:Key="Polis.Ui.OutcomeScheduled">Scheduled</system:String>
-    <system:String x:Key="Polis.Ui.OutcomeInterrupted">Stopped halfway</system:String>
-    <system:String x:Key="Polis.Ui.OutcomeCompleted">Done</system:String>
-    <system:String x:Key="Polis.Ui.OutcomeOpen">Not started</system:String>
-    <system:String x:Key="Polis.Ui.TranscriptTitle">{name}'s conversation: {title}</system:String>
-    <system:String x:Key="Polis.Ui.TranscriptYou">You</system:String>
-    <system:String x:Key="Polis.Ui.TranscriptAthena">Athena</system:String>
-    <system:String x:Key="Polis.Ui.TranscriptOmitted">({count} earlier messages not shown)</system:String>
-    <system:String x:Key="Polis.Ui.TranscriptEmpty">Nothing has been said in this conversation yet.</system:String>
+    <system:String x:Key="Polis.Ui.AthenaName">Athena</system:String>
+    <system:String x:Key="Polis.Ui.CitizenInfoTrade">{trade} · {age} · {temper}</system:String>
+    <system:String x:Key="Polis.Ui.CitizenInfoHome">Lives in "{home}"</system:String>
+    <system:String x:Key="Polis.Ui.CitizenInfoStall">Keeps the "{home}" stall at the market</system:String>
+    <system:String x:Key="Polis.Ui.CitizenInfoCottage">Lives in a cottage on the edge of town ({home})</system:String>
+    <system:String x:Key="Polis.Ui.CitizenInfoNightOwl">Often out at night too</system:String>
+    <system:String x:Key="Polis.Ui.AgeYoung">young</system:String>
+    <system:String x:Key="Polis.Ui.AgeAdult">in their prime</system:String>
+    <system:String x:Key="Polis.Ui.AgeOld">older</system:String>
     <system:String x:Key="Polis.Citizen.Ask.NoModel">To ask me, pick a model for the "Virtual pet and citizens" or "Title generation" role in Settings.</system:String>
     <system:String x:Key="Polis.Citizen.Ask.Busy">I am still thinking about the last question.</system:String>
     <system:String x:Key="Polis.Citizen.Ask.Limited">That is enough questions for this hour. Come back in a while.</system:String>
@@ -1583,7 +1572,7 @@
     <system:String x:Key="Polis.Debate.NoVerdict">The jury could not reach a verdict. A tie.</system:String>
     <!-- 户与民居（M-D，2026-10-13）：户名与新立一户时雅典娜说的那一句 -->
     <system:String x:Key="Polis.Household.NamePattern">The {0} household</system:String>
-    <system:String x:Key="Polis.Ui.HouseholdFounded">{name} has settled in the city.</system:String>
+    <system:String x:Key="Polis.Ui.HouseholdFounded">{name} has moved into a cottage on the edge of town.</system:String>
     <!-- 第三轮（需求 3，敲门）：门里的人怎么应（本地的话，按关系分组）、门板上的面板与对话栏 -->
     <system:String x:Key="Polis.Ui.InteractKnock">Knock at {name}</system:String>
     <system:String x:Key="Polis.Ui.KnockSound">Knock, knock</system:String>
@@ -1625,16 +1614,26 @@
     <system:String x:Key="Polis.Ui.BandNeutral">Neutral</system:String>
     <system:String x:Key="Polis.Ui.BandCool">Cool</system:String>
     <system:String x:Key="Polis.Ui.BandHostile">Hostile</system:String>
-    <system:String x:Key="Polis.Ui.WhyDone">what they entrusted to Athena got done</system:String>
-    <system:String x:Key="Polis.Ui.WhyWorking">Athena is working on it for them</system:String>
-    <system:String x:Key="Polis.Ui.WhyStopped">their errand stopped halfway</system:String>
-    <system:String x:Key="Polis.Ui.WhyFamiliar">you have been back and forth a lot</system:String>
-    <system:String x:Key="Polis.Ui.WhyRecent">you have been in touch lately</system:String>
+    <system:String x:Key="Polis.Ui.RelationsAthena">Thinks of Athena: {band}</system:String>
+    <system:String x:Key="Polis.Ui.RegardClose">reveres her</system:String>
+    <system:String x:Key="Polis.Ui.RegardFriendly">respects her</system:String>
+    <system:String x:Key="Polis.Ui.RegardNeutral">lukewarm</system:String>
+    <system:String x:Key="Polis.Ui.RegardCool">grudging</system:String>
+    <system:String x:Key="Polis.Ui.RegardHostile">resents her</system:String>
     <system:String x:Key="Polis.Ui.WhyWarm">warm by nature</system:String>
     <system:String x:Key="Polis.Ui.WhyPrickly">hard to please by nature</system:String>
     <system:String x:Key="Polis.Ui.WhyNature">that is how they treat people</system:String>
     <system:String x:Key="Polis.Ui.WhyChats">you often stop to talk</system:String>
     <system:String x:Key="Polis.Ui.WhyAnnoyed">you have bothered them</system:String>
+    <system:String x:Key="Polis.Ui.WhyBusy">you keep their street busy</system:String>
+    <system:String x:Key="Polis.Ui.WhyNeglected">you have neglected their street</system:String>
+    <system:String x:Key="Polis.Ui.WhyIdle">out of work and sour about it</system:String>
+    <system:String x:Key="Polis.Ui.WhyPious">pious</system:String>
+    <system:String x:Key="Polis.Ui.WhyDoubting">doubts the gods</system:String>
+    <system:String x:Key="Polis.Ui.WhyReverent">reverent by nature</system:String>
+    <system:String x:Key="Polis.Ui.WhyDefiant">defiant by nature</system:String>
+    <system:String x:Key="Polis.Ui.WhyTrade">what their trade thinks</system:String>
+    <system:String x:Key="Polis.Ui.WhyAge">their age</system:String>
     <system:String x:Key="Polis.Citizen.NamesMale">Demetrios|Ariston|Kriton|Phaidros|Lysis|Charmides|Euthyphron|Menon|Theaitetos|Xenophon|Hermon|Philon|Alkibiades|Agathon|Aischines|Anaxagoras|Antiphon|Apollodoros|Archelaos|Archytas|Aristeides|Aristarchos|Aristippos|Charondas|Chairephon|Damon|Demosthenes|Diodotos|Diogenes|Dion|Empedokles|Epikouros|Eratosthenes|Eukleides|Eudoxos|Euripides|Glaukon|Gorgias|Hekataios|Herakleitos|Hermogenes|Hippias|Hippokrates|Iktinos|Isokrates|Kallias|Kallikles|Kebes|Kimon|Kleisthenes|Kleon|Kritias|Ktesippos|Laches|Leon|Lykourgos|Lysandros|Lysias|Melanthios|Meletos|Menexenos|Miltiades|Myron|Nikias|Nikomachos|Pausanias|Perikles|Phaidon|Pheidias|Philolaos|Phokion|Pindaros|Polemarchos|Polykleitos|Praxiteles|Prodikos|Protagoras|Pyrrhon|Simmias|Simonides|Solon|Sophokles|Speusippos|Stesichoros|Thales|Themistokles|Theodoros|Theophrastos|Thoukydides|Thrasyboulos|Thrasymachos|Timaios|Timon|Xanthippos|Zenon|Zeuxis|Androkles|Kallimachos|Eumenes|Nikandros|Philippos|Stephanos|Theagenes|Hieron|Polykrates|Leonidas|Kleomenes|Brasidas|Phormion|Konon|Iphikrates|Chabrias|Timotheos|Epameinondas|Pelopidas|Archimedes|Aristoxenos|Euphranor|Apelles|Parrhasios</system:String>
     <system:String x:Key="Polis.Citizen.NamesFemale">Phyllis|Daphne|Kleio|Helena|Eirene|Thais|Diotima|Aspasia|Melissa|Charis|Korinna|Myrto|Agariste|Agnodike|Alkestis|Andromache|Antigone|Anyte|Ariadne|Arete|Arsinoe|Axiothea|Berenike|Chloe|Chrysis|Damo|Deianeira|Elektra|Elpinike|Erinna|Euadne|Eudokia|Eunike|Euphrosyne|Eurydike|Glykera|Harmonia|Hermione|Hipparchia|Hypatia|Iokaste|Ismene|Kallisto|Kassandra|Kleoboulina|Kleopatra|Kydippe|Lais|Lampito|Leda|Lysistrata|Megara|Melinna|Merope|Metrodora|Moero|Myrrhine|Nausikaa|Neaira|Nikarete|Nossis|Olympias|Pantheia|Penelope|Periktione|Phaidra|Philinna|Phryne|Praxilla|Rhodope|Sappho|Telesilla|Theano|Theodote|Timarete|Xanthippe|Zoe|Agathe|Alkmene|Amaryllis|Anthousa|Archippe|Atalante|Chariklo|Demo|Dorkas|Euboule|Eukleia|Galene|Gorgo|Hero|Iole|Kallirhoe|Kleito|Kore|Lysandra|Melite|Mnesarete|Nikaia|Niobe|Oinone|Pamphile|Philainis|Phila|Polyxena|Rhode|Stratonike|Thaleia|Theophania|Thessale|Timandra|Xenia|Aglaia|Antiope|Ianthe|Kalliope|Lysippe|Melpomene|Ourania|Philomela</system:String>
     <system:String x:Key="Polis.Citizen.NameNth">{0} ({1})</system:String>

@@ -11,7 +11,7 @@ function clayPot() {
 }
 
 /** 工位的高度（干活的那一面离地多高）：姿势按它摆手。 */
-export const STATION_TOP = Object.freeze({ wheel: 0.79, trough: 0.8, block: 0.6, sawhorse: 0.84 });
+export const STATION_TOP = Object.freeze({ wheel: 0.79, trough: 0.8, block: 0.6, sawhorse: 0.84, loom: 1.92 });
 
 export function buildStation(M, kind) {
   const kit = new Kit();
@@ -45,6 +45,28 @@ export function buildStation(M, kind) {
       for (const sx of [-1, 1]) for (const sz of [-1, 1]) kit.box(M.darkWood, 0.06, 0.8, 0.06, sx * 0.55, 0.38, sz * 0.1, 0, -sz * 0.22, 0);
       for (const sx of [-1, 1]) kit.box(M.darkWood, 0.08, 0.06, 0.3, sx * 0.55, 0.76, 0);
       kit.box(M.wood, 1.5, 0.05, 0.22, 0, 0.815, 0);
+      break;
+    }
+    case 'loom': {
+      // 立式经线垂坠织机（第四轮需求 5，古希腊的织机）：两根立柱、顶上一根卷布梁，经线从梁上垂下来，底下坠着一排陶坠子；
+      // 布从上往下织：梁下 0.55 米已经织成（布面），再往下是一根根经线，中间一根分经棒。经线面在 z = 0（织工站在 −z 那边，
+      // 掌心贴着它，poses.CRAFT_ARMS.weave*）
+      for (const sx of [-1, 1]) {
+        kit.box(M.darkWood, 0.07, 2.0, 0.07, sx * 0.62, 1.0, 0.04);
+        kit.box(M.darkWood, 0.07, 0.07, 0.38, sx * 0.62, 0.035, 0.08);   // 脚
+      }
+      kit.cylinder(M.wood, 0.05, 0.05, 1.32, 0, 1.92, 0.02, 10, 0, Math.PI / 2);
+      // 已经织好的布：一块略带织纹的布面（颜色按工位一律用素麻）
+      kit.box(M.awning, 1.08, 0.56, 0.012, 0, 1.6, 0.01);
+      for (let k = 0; k < 5; k++) kit.box(M.clothShades[k % M.clothShades.length], 1.08, 0.018, 0.016, 0, 1.38 + k * 0.1, 0.012);   // 几道彩纹
+      // 经线：从织口到坠子，一根根细线
+      for (let k = 0; k < 28; k++) {
+        const x = -0.52 + (k / 27) * 1.04;
+        kit.box(M.papyrus, 0.004, 1.02, 0.004, x, 0.81, (k % 2) * 0.012);
+        kit.add(M.terracotta, new THREE.ConeGeometry(0.022, 0.07, 4), m4(x, 0.27, (k % 2) * 0.012));   // 陶坠子
+      }
+      kit.cylinder(M.wood, 0.018, 0.018, 1.2, 0, 0.98, 0.0, 8, 0, Math.PI / 2);   // 分经棒
+      kit.cylinder(M.wood, 0.02, 0.02, 1.2, 0, 1.3, -0.01, 8, 0, Math.PI / 2);    // 织口的纬棒
       break;
     }
     default:
