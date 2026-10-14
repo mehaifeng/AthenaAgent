@@ -80,6 +80,12 @@ AppBuilder.Configure<App>()
     })
     .SetupWithoutStarting();
 
+// 敲门的端到端走查（不在正式运行里）：真的 ViewModel 接真的页面（Playwright WebKit），ATHENA_POLIS_E2E=1
+if (Environment.GetEnvironmentVariable("ATHENA_POLIS_E2E") == "1")
+{
+    ProbePolisKnockEndToEnd();
+}
+
 // 只跑游戏模式这一组（迭代用，不在正式运行里）：ATHENA_HEADLESS_ONLY=game-mode
 if (Environment.GetEnvironmentVariable("ATHENA_HEADLESS_ONLY") == "game-mode")
 {
@@ -5350,6 +5356,260 @@ static void TestGameModeAccumulation()
 
     static string? OfTypeCity(FakePolisPage page)
         => page.Messages.LastOrDefault(m => m.GetProperty("type").GetString() == "city") is { ValueKind: JsonValueKind.Object } c ? c.GetProperty("key").GetString() : null;
+}
+
+// 敲门的端到端走查（ATHENA_POLIS_E2E=1 才跑，不参与常规断言）：真的 GameModeViewModel（真的关系、敲门、请出来、隔着门的轮数与结局）
+// 接真的页面（OfficePreviewHost 供的同一份内嵌页面，Playwright 的 WebKit——macOS 应用里的同一个引擎）。只有模型的句子是替身。
+// 敲门用真按键 E，挑人、选项用真鼠标点面板，隔着门说话用真键盘打字回车；每一步截图到 ATHENA_POLIS_E2E_OUT（缺省临时目录）。
+// 第三轮需求 3 的验收：选谁、请出来（按关系出来或回绝）、隔着门说几轮（按耐心与关系：请你走，或者出门来谈）。
+// 新城里谁对你都寻常，走不到回绝与出门来谈：先开一次城认人，再像一份老存档那样写下"以前把谁惹烦了、和谁处得好"，重开这座城走查。
+static void ProbePolisKnockEndToEnd()
+{
+    var outDir = Environment.GetEnvironmentVariable("ATHENA_POLIS_E2E_OUT") ?? Path.Combine(Path.GetTempPath(), "athena-polis-e2e");
+    Directory.CreateDirectory(outDir);
+    var root = Path.Combine(Path.GetTempPath(), "athena-polis-e2e-" + Guid.NewGuid().ToString("N"));
+    var rootA = Path.Combine(root, "我的工作区");
+    // 二十个文件夹：门只在民居、作坊、货栈上——认不出类型的文件是民居，三座里一座是代码（作坊）
+    var folderNames = Enumerable.Range(1, 20).Select(i => $"文件夹{i:D2}").ToList();
+    for (var f = 0; f < folderNames.Count; f++)
+    {
+        var dir = Path.Combine(rootA, folderNames[f]);
+        Directory.CreateDirectory(dir);
+        for (var k = 0; k < 15; k++) File.WriteAllText(Path.Combine(dir, $"f{k:D2}{(f % 3 == 2 ? ".cs" : ".dat")}"), "x");
+    }
+    var previousFactory = PolisPageFactory.Create;
+    BridgedPolisPage? page = null;
+    PolisPageFactory.Create = uri => page = new BridgedPolisPage(uri);
+    var configService = new HeadlessConfigService(new AppConfig());
+    var session = new AppConfigurationSession(configService);
+    session.Current.MainLayout.GameMode = true;
+    var paths = new TemporaryPathService(Path.Combine(root, "AthenaData"));
+    var localization = new LocalizationService();
+    var wsA = new WorkspaceProfile { Name = "我的工作区", DirectoryPath = rootA, CreatedAt = DateTime.Now.AddDays(-60) };
+    var answers = new HeadlessPolisTalkService { Reply = _ => new PolisTalkReply(PolisTalkStatus.Ok, "嗯，我在屋里忙着呢。") };
+    var log = new List<string>();
+    var failures = new List<string>();
+    var jsonOut = new JsonSerializerOptions { Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping };
+    void Step(string what, object? value = null)
+    {
+        var line = value == null ? what : $"{what} {JsonSerializer.Serialize(value, jsonOut)}";
+        log.Add(line);
+        Console.WriteLine("[E2E] " + line);
+    }
+    void Expect(bool ok, string what) { if (!ok) failures.Add(what); Step((ok ? "✓ " : "✗ ") + what); }
+    T Wait<T>(Task<T> task, string what, int ms = 30000) { PumpTimers(() => task.IsCompleted, ms, what); return task.GetAwaiter().GetResult(); }
+    void WaitDone(Task task, string what, int ms = 30000) { PumpTimers(() => task.IsCompleted, ms, what); task.GetAwaiter().GetResult(); }
+
+    GameModeViewModel? gameMode = null;
+    Window? window = null;
+    void Open()
+    {
+        page = null;
+        gameMode = new GameModeViewModel(session, new OfficePreviewHost(), new PolisSaveStore(paths, Log.Logger), new WorkspaceWatcherService(), localization,
+            new HeadlessCronTaskReader(), new PolisAssetStore(Path.Combine(root, "assets"), Log.Logger), answers, new HeadlessPolisDebateService(), HeadlessRelations(root));
+        var shell = new MainWindowViewModel(
+            chatService: null, configService: null, promptService: null, logService: null, knowledgeBaseService: null,
+            localizationService: localization, fileSystemService: null, platformPathService: null, functionRegistry: null,
+            tokenService: null, attachmentStoreService: null, systemAudioService: null, archiveService: null,
+            imageGenerationSessionService: null, workspaceService: new HeadlessWorkspaceService(new List<WorkspaceProfile> { wsA }), configurationSession: session, gameMode: gameMode);
+        PumpTimers(() => !shell.IsConversationTreeLoading, 5000, "测试外壳的会话树没有加载完。");
+        var groupA = shell.ConversationGroups.First(g => g.Workspace?.Id == wsA.Id);
+        groupA.Conversations.Clear();
+        var conversation = new ConversationSessionItemViewModel(new MainConversationViewModel(), wsA, null) { Title = "走查", UpdatedAt = DateTime.Now };
+        groupA.Conversations.Add(conversation);
+        window = new Window { Width = 900, Height = 700, Content = new Athena.UI.Views.GameMode.PolisView { DataContext = gameMode } };
+        window.Show();
+        shell.SelectedConversation = conversation;
+        PumpTimers(() => page != null, 5000, "游戏模式没有创建页面。");
+        WaitDone(page!.StartAsync(), "Playwright WebKit 没有打开页面。", 120000);
+        PumpTimers(() => page.Received.Any(m => m.Contains("\"ready\"", StringComparison.Ordinal)), 90000, "页面没有发 ready。");
+        PumpTimers(() => Wait(page.EvalAsync("String((window.__polisGame?.world?.citizens?.size ?? 0) === 32 && [...window.__polisGame.world.citizens.values()].every(c => c.figure && c.plan))"), "页面脚本没有返回") == "true",
+            120000, "城里的 32 位没有在页面上站好。");
+        PumpTimers(() => page.Posted.Any(m => m.GetProperty("type").GetString() == "relations"), 20000, "C# 没有推关系。");
+        // 天色由 ViewModel 推（地址里的 theme 只管第一帧）：定成夜里，门后的人就是"在家的人"，不会走着走着出门
+        gameMode.SetNight(true);
+        PumpTimersFor(1500);
+    }
+    void Close()
+    {
+        page?.Dispose();
+        window?.Close();
+        gameMode?.Dispose();
+        PumpTimersFor(500);
+    }
+    try
+    {
+        // —— 第一次开城：认人（谁住在哪扇门后） ——
+        Open();
+        var p = page!;
+        Step("页面地址（OfficePreviewHost 供的内嵌页面）", p.Uri.ToString());
+        string Js(string expr) => Wait(page!.EvalAsync(expr), "页面脚本没有返回：" + expr);
+        string DoorOf(string id) => Js($"[...window.__polisGame.world.doors.keys()].find(d => window.__polisGame.insideOf(d).includes({JsonSerializer.Serialize(id)})) ?? ''");
+        JsonElement Citizens() => page!.Posted.Last(m => m.GetProperty("type").GetString() == "citizens").GetProperty("citizens");
+        List<string> Everyone() => Citizens().GetProperty("street").EnumerateArray().Concat(Citizens().GetProperty("indoors").EnumerateArray()).Select(c => c.GetProperty("id").GetString()!).ToList();
+        string NameOf(string id) => Citizens().GetProperty("street").EnumerateArray().Concat(Citizens().GetProperty("indoors").EnumerateArray())
+            .First(c => c.GetProperty("id").GetString() == id).GetProperty("name").GetString()!;
+        // 每扇门后挑一位（夜里——地址带 theme=dark——街上的人也都回了屋）
+        // 夜游的人夜里会出门，不挑他们
+        var owls = Citizens().GetProperty("street").EnumerateArray().Where(c => c.TryGetProperty("nightOwl", out var o) && o.GetBoolean()).Select(c => c.GetProperty("id").GetString()!).ToHashSet();
+        var byDoor = Everyone().Where(id => !owls.Contains(id)).Select(id => (id, door: DoorOf(id))).Where(x => x.door.Length > 0).GroupBy(x => x.door).Select(g => g.First().id).ToList();
+        Step("门后有人的门", byDoor.Count);
+        if (byDoor.Count < 4) throw new InvalidOperationException("门后有人的门不到 4 扇，走查走不全。");
+        var colds = byDoor.Where((_, i) => i % 3 == 1).ToList();
+        var warms = byDoor.Where((_, i) => i % 3 == 2).ToList();
+        var plains = byDoor.Where((_, i) => i % 3 == 0).ToList();
+        Close();
+        // 一份老存档里的事：以前把几位惹烦了（−45），和几位处得好（+40）
+        var seeded = new PolisRelationLedger(
+            colds.Select(id => new PolisPlayerTie(id, -45, DateTimeOffset.Now, Array.Empty<PolisRelationMark>()))
+                .Concat(warms.Select(id => new PolisPlayerTie(id, 40, DateTimeOffset.Now, Array.Empty<PolisRelationMark>()))).ToList(),
+            Array.Empty<PolisPairTie>());
+        WaitDone(Task.Run(() => HeadlessRelations(root).SaveAsync(seeded)), "写关系账本失败");
+
+        // —— 第二次开城：走查 ——
+        Open();
+        p = page!;
+        JsonElement You(string id) => page!.Posted.Last(m => m.GetProperty("type").GetString() == "relations").GetProperty("relations").GetProperty("you").GetProperty(id);
+        object Who(string id) => new { name = NameOf(id), band = You(id).GetProperty("band").GetString(), opens = You(id).GetProperty("opens").GetBoolean(), comesOut = You(id).GetProperty("comesOut").GetBoolean(), patience = You(id).GetProperty("patience").GetInt32() };
+        string Behind(List<string> ids, string what) => ids.FirstOrDefault(id => DoorOf(id).Length > 0) ?? throw new InvalidOperationException("此刻门后没有" + what + "。");
+        var callee = Behind(plains, "寻常的人");
+        var plain = Behind(plains.Where(id => id != callee && DoorOf(id) != DoorOf(callee)).ToList(), "第二位寻常的人");
+        var cold = Behind(colds, "冷淡的人");
+        var warm = Behind(warms, "处得好的人");
+        Step("四位", new[] { callee, cold, warm, plain }.Select(Who));
+        var shotN = 0;
+        void Shot(string name) => WaitDone(page!.ShotAsync(Path.Combine(outDir, $"{++shotN:D2}-{name}.png")), "截图失败");
+        string Status(string path) => Js($"JSON.stringify(window.__polis.{path} ?? null)");
+        bool HasRegion(string regionId) => Js($"String((window.__polisGame.regions ?? []).some(r => r.id === {JsonSerializer.Serialize(regionId)}))") == "true";
+        void ClickRegion(string regionId)
+        {
+            var rect = Js($"JSON.stringify((window.__polisGame.regions ?? []).find(r => r.id === {JsonSerializer.Serialize(regionId)}) ?? null)");
+            if (rect == "null") { Expect(false, "面板上有 " + regionId); return; }
+            using var doc = JsonDocument.Parse(rect);
+            var r = doc.RootElement;
+            WaitDone(page!.ClickAsync(r.GetProperty("x").GetDouble() + r.GetProperty("w").GetDouble() / 2, r.GetProperty("y").GetDouble() + r.GetProperty("h").GetDouble() / 2), "点击失败");
+            PumpTimersFor(300);
+        }
+        // 走到他的门前按 E；门后不止一位就点他的名字（只有他一位时页面直接是他）
+        void KnockFor(string id)
+        {
+            var door = DoorOf(id);
+            if (door.Length == 0) throw new InvalidOperationException(NameOf(id) + " 此刻不在门后。");
+            Js($"(() => {{ const g = window.__polisGame; const p = g.world.doorPlan({JsonSerializer.Serialize(door)}); g.placePlayer(p.step.x, p.step.z + 0.5, Math.atan2(p.x - p.step.x, p.z - (p.step.z + 0.5))); return 'ok'; }})()");
+            PumpTimersFor(500);
+            Expect(Status("focus?.type") == "\"door\"", "站到门前，按 E 的提示是敲门");
+            var before = page!.Received.Count;
+            WaitDone(page.PressAsync("KeyE"), "按键失败");
+            PumpTimers(() => page.Received.Skip(before).Any(m => m.Contains("\"knock\"", StringComparison.Ordinal)), 5000, "按 E 之后页面没有发 knock。");
+            PumpTimersFor(300);
+            Shot("knock");
+            // 等 C# 的回音落到面板上：门后几位时是人名，只有他一位时页面直接是他的选项（status.panel 是上一次的，不能等它）
+            PumpTimers(() => HasRegion("door-pick:" + id) || HasRegion("door-talk"), 8000, "C# 回音之后门的面板没有打开。");
+            PumpTimersFor(400);
+            var inside = Js($"JSON.stringify(window.__polisGame.insideOf({JsonSerializer.Serialize(door)}))");
+            Step("门上的话、屋里有谁", new { said = Status("doorSaid?.text"), inside });
+            Shot("who");
+            if (HasRegion("door-pick:" + id)) ClickRegion("door-pick:" + id);
+            Expect(HasRegion("door-talk"), $"挑中了 {NameOf(id)}：有「隔着门说话」");
+            Step("门里应的一句", Status("doorSaid?.text"));
+            Shot("picked");
+        }
+        JsonElement? CallOut(string id)
+        {
+            ClickRegion("door-call");
+            PumpTimers(() => page!.Posted.Any(m => m.GetProperty("type").GetString() == "call-out-reply" && m.GetProperty("who").GetString() == id), 8000, "C# 没有回 call-out-reply。");
+            PumpTimersFor(2500);
+            return page!.Posted.Last(m => m.GetProperty("type").GetString() == "call-out-reply" && m.GetProperty("who").GetString() == id);
+        }
+        string TalkThroughDoor(string id)
+        {
+            ClickRegion("door-talk");
+            Expect(Js("JSON.stringify(window.__polisTalk.lentTo?.id ?? null)") == JsonSerializer.Serialize(id), "对话栏借给了门后的他");
+            var rounds = 0;
+            var outcome = "stay";
+            var patienceAtEnd = 0;
+            while (rounds < 8 && outcome == "stay")
+            {
+                rounds++;
+                // 他的耐心按此刻的关系算：好好说一句 +2，耐心可能多出一轮（C# 每一轮都按刚推过的关系定）
+                var patienceNow = You(id).GetProperty("patience").GetInt32();
+                patienceAtEnd = patienceNow;
+                var callsBefore = answers.Calls.Count;
+                var talksBefore = page!.Posted.Count(m => m.GetProperty("type").GetString() == "talk");
+                WaitDone(page.TypeAsync($"第{rounds}句：你在忙什么？"), "打字失败");
+                WaitDone(page.PressAsync("Enter"), "回车失败");
+                PumpTimers(() => answers.Calls.Count > callsBefore && page.Posted.Where(m => m.GetProperty("type").GetString() == "talk").Skip(talksBefore)
+                    .Any(m => m.GetProperty("who").GetString() == id && m.TryGetProperty("done", out var d) && d.GetBoolean()), 10000, "C# 没有替他回话。");
+                var last = page.Posted.Last(m => m.GetProperty("type").GetString() == "talk" && m.GetProperty("who").GetString() == id);
+                outcome = last.TryGetProperty("door", out var dd) && dd.ValueKind == JsonValueKind.String ? dd.GetString()! : "stay";
+                Step($"第 {rounds} 轮（此刻耐心 {patienceNow}）：C# 定的结局 {outcome}", new { doorInPrompt = answers.Calls[^1].Prompt.System.Contains("门", StringComparison.Ordinal), onDoor = Js("JSON.stringify([...window.__polisGame.doorSayings.values()])") });
+                PumpTimersFor(1200);
+                Shot($"round{rounds}");
+            }
+            Expect(rounds == patienceAtEnd, $"说到他此刻的耐心那一轮（{patienceAtEnd}）才有结局：实际第 {rounds} 轮");
+            return outcome;
+        }
+
+        // —— 一、请他出来：没有旧账的人（寻常或更好，opens）开门出来，卡片打开 ——
+        Step("一、请没有旧账的人出来", Who(callee));
+        KnockFor(callee);
+        var r1 = CallOut(callee);
+        Expect(r1?.GetProperty("out").GetBoolean() == true && You(callee).GetProperty("opens").GetBoolean(), "C# 按关系让他出来");
+        Expect(Js($"window.__polisGame.world.citizens.get({JsonSerializer.Serialize(callee)})?.at?.at ?? ''") == "visit", "他开门出来了，站在门外");
+        Expect(Status("panel") == "\"citizen\"", "他的卡片打开了");
+        Shot("came-out");
+        Js("(window.__polisGame.onButton('panel-close'), 'ok')");
+        PumpTimersFor(500);
+
+        // —— 二、请冷淡的人出来：他回绝；面板留着「隔着门说话」；说到他的耐心，他请你走 ——
+        Step("二、请冷淡的人出来，再隔着门说", Who(cold));
+        KnockFor(cold);
+        var r2 = CallOut(cold);
+        Expect(r2?.GetProperty("out").GetBoolean() == false && !You(cold).GetProperty("opens").GetBoolean(), "C# 按关系让他回绝");
+        Expect(Status("panel") == "\"door\"" && HasRegion("door-talk") && !HasRegion("door-call"), "回绝之后面板留在他身上，只剩「隔着门说话」");
+        Shot("refused");
+        var o2 = TalkThroughDoor(cold);
+        Expect(o2 == "away", $"冷淡的他说到头请你走：实际 {o2}");
+        PumpTimersFor(1500);
+        Expect(Js("JSON.stringify(window.__polisTalk.lentTo ?? null)") == "null", "对话栏收回去了");
+        Shot("sent-away");
+
+        // —— 三、隔着门和处得好的人说：说到头他出门来谈，栏接着借给他 ——
+        Step("三、隔着门和处得好的人说", Who(warm));
+        KnockFor(warm);
+        var o3 = TalkThroughDoor(warm);
+        Expect(o3 == "out" && You(warm).GetProperty("comesOut").GetBoolean(), $"处得好的他说到头出门来谈：实际 {o3}");
+        PumpTimersFor(2500);
+        Expect(Js($"window.__polisGame.world.citizens.get({JsonSerializer.Serialize(warm)})?.at?.at ?? ''") == "visit", "他开门出来，站在门外");
+        Expect(Js("JSON.stringify(window.__polisTalk.lentTo?.id ?? null)") == JsonSerializer.Serialize(warm), "对话栏还借给他，当面接着聊");
+        Shot("face-to-face");
+        WaitDone(page!.PressAsync("Escape"), "Esc 失败");
+        PumpTimersFor(500);
+
+        // —— 四、隔着门和寻常的人说：说到头他请你走 ——
+        Step("四、隔着门和寻常的人说", Who(plain));
+        KnockFor(plain);
+        var o4 = TalkThroughDoor(plain);
+        Expect(o4 == "away" && !You(plain).GetProperty("comesOut").GetBoolean(), $"寻常的他说到头请你走：实际 {o4}");
+        PumpTimersFor(1500);
+
+        // —— 五、「人际」总览：真鼠标点工具栏的按钮 ——
+        WaitDone(page!.ClickSelectorAsync("#btn-relations"), "点「人际」失败");
+        PumpTimersFor(800);
+        Shot("relations");
+        Step("「人际」总览", Js("(document.querySelector('#relations, .relations-view, [class*=rel]')?.innerText ?? '').slice(0, 300)"));
+        Step("页面报错", page.Problems);
+        Expect(page.Problems.Count == 0, "页面没有报错");
+    }
+    finally
+    {
+        try { Close(); } catch (Exception e) { Console.WriteLine("[E2E] 收尾：" + e.Message); }
+        PolisPageFactory.Create = previousFactory;
+        try { Directory.Delete(root, recursive: true); } catch (IOException) { /* 临时目录清理失败不影响走查 */ }
+    }
+    File.WriteAllLines(Path.Combine(outDir, "log.txt"), log);
+    Console.WriteLine(failures.Count == 0 ? "[E2E] PASSED" : "[E2E] FAILED: " + string.Join("；", failures));
+    Environment.Exit(failures.Count == 0 ? 0 : 1);
 }
 
 static void TestGameModeCitizens()
@@ -13951,6 +14211,86 @@ sealed class HeadlessCronTaskReader : ICronTaskReader
         _tasks.Clear();
         _tasks.AddRange(tasks);
         TasksChanged?.Invoke(this, new CronTaskListChangedEventArgs { Tasks = _tasks.ToList() });
+    }
+}
+
+/// <summary>
+/// 端到端走查用的页面（<c>ATHENA_POLIS_E2E=1</c>）：C# 推的脚本原样交给 Playwright 打开的 WebKit 页面执行，页面经
+/// <c>window.invokeCSharpAction</c> 发的消息原样回到 ViewModel（在 UI 线程上）——中间没有任何替身。
+/// </summary>
+sealed class BridgedPolisPage(Uri uri) : IPolisPage
+{
+    private Microsoft.Playwright.IPlaywright? _playwright;
+    private Microsoft.Playwright.IBrowser? _browser;
+    private Microsoft.Playwright.IPage? _page;
+    public Uri Uri { get; } = uri;
+    public Control Control { get; } = new Border { Name = "BridgedPolisPageSurface" };
+    public List<string> Scripts { get; } = new();
+    public List<string> Received { get; } = new();
+    public List<string> Problems { get; } = new();
+    public event EventHandler<bool>? NavigationCompleted;
+    public event EventHandler<string?>? MessageReceived;
+#pragma warning disable CS0067 // 走查里浏览器进程不会中途退出；接口要求有这个事件
+    public event EventHandler<string>? ProcessTerminated;
+#pragma warning restore CS0067
+
+    public async Task StartAsync()
+    {
+        _playwright = await Microsoft.Playwright.Playwright.CreateAsync();
+        _browser = await _playwright.Webkit.LaunchAsync(new() { Headless = true });
+        _page = await _browser.NewPageAsync(new() { ViewportSize = new() { Width = 1400, Height = 900 } });
+        _page.PageError += (_, e) => { lock (Problems) Problems.Add(e); };
+        _page.Console += (_, m) => { if (m.Type == "error") lock (Problems) Problems.Add(m.Text); };
+        await _page.ExposeFunctionAsync("__athenaToHost", (string message) =>
+        {
+            Dispatcher.UIThread.Post(() => { Received.Add(message); MessageReceived?.Invoke(this, message); });
+        });
+        await _page.AddInitScriptAsync("window.invokeCSharpAction = (m) => window.__athenaToHost(m);");
+        await _page.GotoAsync(Uri.ToString());
+        Dispatcher.UIThread.Post(() => NavigationCompleted?.Invoke(this, true));
+    }
+
+    public async Task InvokeScriptAsync(string script)
+    {
+        Scripts.Add(script);
+        if (_page != null) await _page.EvaluateAsync(script);
+    }
+
+    public Task<string> EvalAsync(string expression) => Task.Run(async () => (await _page!.EvaluateAsync<string>(expression)) ?? "");
+    public Task PressAsync(string key) => Task.Run(() => _page!.Keyboard.PressAsync(key));
+    public Task TypeAsync(string text) => Task.Run(() => _page!.Keyboard.TypeAsync(text));
+    public Task ClickAsync(double x, double y) => Task.Run(() => _page!.Mouse.ClickAsync((float)x, (float)y));
+    public Task ClickSelectorAsync(string selector) => Task.Run(() => _page!.ClickAsync(selector));
+    public Task ShotAsync(string path) => Task.Run(() => _page!.ScreenshotAsync(new() { Path = path }));
+
+    /// <summary>推来的全部消息（与 <see cref="FakePolisPage.Messages"/> 同一个解法）。</summary>
+    public IReadOnlyList<JsonElement> Posted
+    {
+        get
+        {
+            var list = new List<JsonElement>();
+            foreach (var script in Scripts.ToList())
+            {
+                var start = script.IndexOf("receive(", StringComparison.Ordinal) + "receive(".Length;
+                var literal = script[start..script.LastIndexOf(')')];
+                var payload = JsonSerializer.Deserialize<string>(literal)!;
+                using var doc = JsonDocument.Parse(payload);
+                list.AddRange(doc.RootElement.EnumerateArray().Select(e => e.Clone()));
+            }
+            return list;
+        }
+    }
+
+    private bool _disposed;
+
+    public void Dispose()
+    {
+        if (_disposed) return;
+        _disposed = true;
+        // 不在 UI 线程上等 Playwright 的续延（规则 3）：关浏览器放到线程池，最多等 10 秒
+        var browser = _browser;
+        var playwright = _playwright;
+        Task.Run(async () => { if (browser != null) await browser.CloseAsync(); playwright?.Dispose(); }).Wait(TimeSpan.FromSeconds(10));
     }
 }
 
