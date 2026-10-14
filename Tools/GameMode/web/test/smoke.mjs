@@ -716,7 +716,9 @@ async function doorCheck(name, browser) {
     await page.keyboard.press('Enter');
     await page.waitForTimeout(120);
     const doorChat = (await sentSince(n)).find((m) => m.type === 'chat');
+    const doorLineBefore = await page.evaluate(() => [...window.__polisGame.doorSayings.keys()]);
     await send({ type: 'talk', who: 'indoor-a', n: 1, text: '在呢，你等等，我出来跟你说。', done: true, status: 'ok', door: 'out' });
+    const doorLineAfter = await page.evaluate(() => [...window.__polisGame.doorSayings.keys()]);
     await page.waitForFunction(() => window.__polisGame.world.citizens.get('indoor-a')?.at?.at === 'visit', null, { timeout: 15_000 }).catch(() => {});
     const cameOut = await page.evaluate(() => {
       const g = window.__polisGame;
@@ -724,6 +726,18 @@ async function doorCheck(name, browser) {
       return { guest: !!c, at: c?.at?.at ?? null, visible: c?.figure?.root.visible ?? false, lent: window.__polisTalk.lentTo, mode: window.__polisTalk.mode, visits: [...g.visits.keys()] };
     });
     await page.keyboard.press('Escape');
+    await page.waitForTimeout(100);
+
+    // —— 他不肯出来（2026-10-15 走查）：门里回绝一句，面板留在他身上，只剩"隔着门说话"——再敲一次会算敲得太勤 ——
+    await page.evaluate(() => window.__polisGame.knock(window.__polisGame.world.citizens.get('house-a').plan.door.id));
+    await send({ type: 'knock-reply', who: ['house-a'], pestered: [], ignoring: [] });
+    await page.waitForTimeout(1500);
+    await page.evaluate(() => window.__polisGame.onButton('door-pick:house-a'));
+    await page.evaluate(() => window.__polisGame.onButton('door-call'));
+    await send({ type: 'call-out-reply', who: 'house-a', out: false });
+    await page.waitForTimeout(150);
+    const refused = await page.evaluate(() => ({ panel: window.__polisGame.panelView(), regions: (window.__polisGame.regions ?? []).map((r) => r.id), said: window.__polis.doorSaid?.text ?? null, state: window.__polis.knock?.state }));
+    await page.evaluate(() => window.__polisGame.onButton('panel-close'));
     await page.waitForTimeout(100);
 
     // —— 请他出来：住户 house-a；C# 说出来——门开、他走到门阶上，卡片打开 ——
@@ -768,14 +782,18 @@ async function doorCheck(name, browser) {
       panelListsWhoIsIn: asked.panel === 'door' && asked.regions.includes('door-pick:house-a') && asked.regions.includes('door-pick:indoor-a') && /谁|来了/.test(asked.said ?? ''),
       pickedOffersChoices: picked.regions.includes('door-call') && picked.regions.includes('door-talk') && picked.view?.title === '屋里的阿伽忒',
       talkThroughDoor: lent.lent?.kind === 'chat' && lent.lent.id === 'indoor-a' && /隔着门/.test(lent.status) && doorChat?.door === true && doorChat.who === 'indoor-a',
+      // 门里那位的话挂在门上时，门自己的那句（"谁呀？"）让位，不叠在一起
+      doorLineGivesWay: doorLineBefore.includes(doors.house) && !doorLineAfter.includes(doors.house),
       comesOutToTalk: cameOut.guest && cameOut.at === 'visit' && cameOut.visible && cameOut.lent?.id === 'indoor-a',
       callOutSent: callSent?.who === 'house-a',
+      refusedKeepsTheDoorTalk: refused.state === 'refused' && refused.panel?.type === 'door' && refused.panel.title === '住户0'
+        && refused.regions.includes('door-talk') && !refused.regions.includes('door-call') && !!refused.said,
       calledOutComes: calledOut.at === 'visit' && calledOut.visible && calledOut.panel === 'citizen' && calledOut.opened === 'house-a',
       pesteredSaysStop: pestered.state === 'pestered' && /别敲|又敲/.test(pestered.said ?? '') && pestered.panel !== 'door',
       emptyHouseIsSilent: nobody.state === 'nobody' && nobody.said === '（没有人应门）',
       noProblems: problems.length === 0,
     };
-    Object.assign(result, { checks, doors, inside, exiting, afterPush, focus, knocked, knockSent, asked: { panel: asked.panel, said: asked.said }, picked: picked.view?.title, lent, doorChat, cameOut, calledOut, pestered, nobody, problems, seconds: +((Date.now() - started) / 1000).toFixed(1) });
+    Object.assign(result, { checks, doors, inside, exiting, afterPush, focus, knocked, knockSent, asked: { panel: asked.panel, said: asked.said }, picked: picked.view?.title, lent, doorChat, cameOut, refused: { state: refused.state, regions: refused.regions, said: refused.said }, calledOut, pestered, nobody, problems, seconds: +((Date.now() - started) / 1000).toFixed(1) });
     await page.close();
     console.log(JSON.stringify(result, null, 2));
     return Object.values(checks).every(Boolean);

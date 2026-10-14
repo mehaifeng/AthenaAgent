@@ -455,7 +455,7 @@ export function createOverlay(canvas) {
     if (view.type === 'bema') bx += button(ui.bemaPropose, bx, by, 'bema-propose', { minWidth: 110 }) + 8;
     // 门里的那一位应了（第三轮需求 3）：请他出来、隔着门说话；"算了"在右边
     if (view.type === 'door' && view.picked) {
-      bx += button(ui.doorCall, bx, by, 'door-call', { minWidth: 100 }) + 8;
+      if (view.canCall !== false) bx += button(ui.doorCall, bx, by, 'door-call', { minWidth: 100 }) + 8;
       if (view.canTalk) bx += button(ui.doorTalk, bx, by, 'door-talk', { minWidth: 110 }) + 8;
     }
     if (view.type === 'oracle') {

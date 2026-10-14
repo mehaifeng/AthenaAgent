@@ -1290,7 +1290,7 @@ export function createGame({ params, status, send, onTalk = null, onUiBlocked = 
   /** C# 说他出不出来（call-out-reply：{ who, out }）。出来：门开、走到门阶上面朝你，卡片打开；不出来：门里回绝一句。 */
   function callOutAnswer(m) {
     if (!calling || calling.who !== m?.who) return;
-    const { who, doorId } = calling;
+    const { who, doorId, inside } = calling;
     calling = null;
     if (m.out) {
       doorSay(doorId, variantOf(ui.doorComing, seedOf(who)));
@@ -1298,8 +1298,13 @@ export function createGame({ params, status, send, onTalk = null, onUiBlocked = 
       status.knock = { ...status.knock, state: 'coming', who };
     } else {
       const band = attitudeOf(relations, who).band;
-      doorSay(doorId, variantOf(band === 'hostile' ? ui.doorRefuseHostile : ui.doorRefuseCool, seedOf(who)));
+      const refusal = variantOf(band === 'hostile' ? ui.doorRefuseHostile : ui.doorRefuseCool, seedOf(who));
+      doorSay(doorId, refusal);
       status.knock = { ...status.knock, state: 'refused', who };
+      // 他不出来，门还没关上话头：面板回到他身上，只剩"隔着门说话"和"算了"（2026-10-15 走查：回绝之后要说话只能再敲，
+      // 而回绝后 30 秒内再敲算敲得太勤，你会挨一句"别敲了"、关系 −3）。你已经走开或开了别的面板就不打扰
+      const step = world.doorPlan(doorId)?.step;
+      if (!panel && inside?.length && step && Math.hypot(player.pos.x - step.x, player.pos.z - step.z) < 4) openPanel({ type: 'door', id: doorId, inside, who, answer: refusal, refused: true });
     }
   }
 
@@ -2328,7 +2333,7 @@ export function createGame({ params, status, send, onTalk = null, onUiBlocked = 
         }
         const who = personOf(panel.who);
         return { type: 'door', bust: who.bust, expression: 'speak', title: who.name, lines: [panel.answer, `${ui.relationsIndoors} · ${bandLabel(panel.who)}`],
-          people: null, picked: true, canTalk: !!onChat };
+          people: null, picked: true, canTalk: !!onChat, canCall: !panel.refused };
       }
       case 'board':
         return { type: 'board', bust: 'athena', expression: 'smile', title: ui.boardTitle, hint: ui.boardHint, suggestions };
@@ -2719,6 +2724,8 @@ export function createGame({ params, status, send, onTalk = null, onUiBlocked = 
     const athenaTalking = id === 'athena' && athenaChatting();
     if (!world?.citizens.has(id) && !behindDoor && !athenaTalking && !(typeof id === 'string' && id.startsWith('resident:') && world?.residents.has(id.slice(9)))) return;
     const now = performance.now();
+    // 隔着门说话：他的话挂在门上，门自己的那句（"谁呀？""改天吧。"）让位——两句挂在同一点上会叠在一起（2026-10-15 走查的截图）
+    if (convo?.id === id && convo.door) doorSayings.delete(convo.door);
     const text = String(m.text ?? '');
     const prev = sayings.get(id);
     const n = Number(m.n ?? 0);
@@ -2869,7 +2876,7 @@ export function createGame({ params, status, send, onTalk = null, onUiBlocked = 
       case 'door-call':
         // 请他出来（第三轮需求 3）：C# 按关系定出不出来（call-out-reply）
         if (panel?.type !== 'door' || !panel.who) break;
-        calling = { who: panel.who, doorId: panel.id, at: performance.now() };
+        calling = { who: panel.who, doorId: panel.id, at: performance.now(), inside: panel.inside };
         send('call-out', { who: panel.who });
         panel = null;
         status.knock = { ...status.knock, state: 'calling', who: calling.who };
