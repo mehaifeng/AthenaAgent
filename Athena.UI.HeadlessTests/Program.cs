@@ -5863,8 +5863,13 @@ static void TestGameModeCitizens()
         if (answers.Calls.Count != askedBefore) throw new InvalidOperationException("被拒的话一次也不调用模型。");
 
         // —— 两个人街头闲聊：一人一句，两次都走 Ambient；不带任何文件内容；彼此 +1 ——
-        var a = expected[6].Id;
-        var b = expected[7].Id;
+        // 两人之间的关系只推街上的人（pairs），所以这一对要从街上挑——谁上街按住所最近动过的先后轮，测试里二十个文件夹几乎同一秒写出，
+        // 本机和 CI 的文件时间不一样，按下标取的 expected[6] / [7] 在 CI 上进了屋（PR #37 的 CI 就挂在这里）
+        var used = new HashSet<string> { contractPerson.Id, someone, chorusWho[0], knockee, talker, callee };
+        var pair = expected.Where(c => c.OnStreet && !used.Contains(c.Id)).Take(2).ToList();
+        if (pair.Count < 2) throw new InvalidOperationException("街上要有两位还没用过的人来闲聊。");
+        var a = pair[0].Id;
+        var b = pair[1].Id;
         var callsBefore = answers.Calls.Count;
         var endsBefore = Of("ambient-end").Count;
         var talksBefore = Of("talk").Count;
