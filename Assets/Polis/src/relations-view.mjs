@@ -74,6 +74,8 @@ export function createRelationsView(root, { onClose = null } = {}) {
     const who = el('div', 'rel-who');
     who.append(el('h2', null, r.name), el('div', `rel-band ${BAND_CLASS[r.band] ?? ''}`, `${r.bandLabel} · ${r.score > 0 ? '+' : ''}${r.score}`));
     if (r.why) who.append(el('p', 'rel-why', r.why));
+    // 第四轮需求 8：他怎么看雅典娜（不是人人都敬重她）
+    if (r.athena?.label) who.append(el('p', `rel-athena ${BAND_CLASS[r.athena.band] ?? ''}`, r.athena.why ? `${r.athena.label}（${r.athena.why}）` : r.athena.label));
     head.append(who);
     box.append(head);
     const list = (title, items) => {

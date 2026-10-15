@@ -17,6 +17,7 @@ import { citizenLook } from './art/citizens.mjs';
 import { BOAT_MOORING, BOAT_CLEAT } from './art/civic.mjs';
 import { BLOCK, STREET, PLOT } from './layout.mjs';
 import { venueSlotLocal, groveSpot, VENUES, SLOTS_PER_VENUE } from './civic-layout.mjs';
+import { buildSheep, sheepAt, FIELD_CROPS } from './art/countryside.mjs';
 import { createOccupancy, footprintOf, footprintOfGeometry, BLOCKING_HEIGHT } from './footprint.mjs';
 import { lampField, setLampField } from './art/lamps.mjs';
 import { DOOR, usableSill, findDoorstep, planApproach, insidePoint } from './doors.mjs';
@@ -499,6 +500,40 @@ export function buildWorld(scene, city, layout, M, options) {
       }
     }
   }
+  // —— 城郊（第四轮需求 5）：最北一排地块西头的牧场与往东的农田（layout.country）；圈里几只羊，game 每帧按墙钟摆（stepSheep） ——
+  world.sheep = [];
+  world.fields = [];
+  for (const site of layout.country ?? []) {
+    if (site.country === 'pasture') {
+      const pen = assets.object('civic.pasture');
+      pen.position.set(site.cx, 0, site.cz);
+      add(pen);
+      world.pasture = { x: site.cx, z: site.cz, object: pen };
+      const n = 5 + (hashSeed(`sheep:${city.workspaceName ?? ''}`) % 3);
+      for (let k = 0; k < n; k++) {
+        const sheep = buildSheep(M, 101 + k);
+        sheep.root.name = `sheep:${k}`;
+        add(sheep.root);
+        world.sheep.push({ ...sheep, seed: 101 + k, cx: site.cx, cz: site.cz });
+      }
+    } else {
+      const crop = FIELD_CROPS[site.field % FIELD_CROPS.length];
+      const field = assets.object(`civic.field-${crop}`, { seed: 11 + site.field, scarecrow: site.field === 0 });
+      field.position.set(site.cx, 0, site.cz);
+      add(field);
+      world.fields.push({ x: site.cx, z: site.cz, crop, index: site.field, object: field });
+    }
+  }
+  /** 羊此刻在哪（countryside.sheepAt：同一刻永远同一个样子）。 */
+  world.stepSheep = (wall) => {
+    for (const s of world.sheep) {
+      const a = sheepAt(s.seed, wall);
+      s.root.position.set(s.cx + a.x, 0.03, s.cz + a.z);
+      s.root.rotation.y = a.yaw;
+      s.pose(a.phase, a.walking, a.graze);
+    }
+  };
+
   const tp = pub('temple');
   for (const sx of [-1, 1]) {
     const c = assets.object('plant.cypress', { height: 8, seed: 5 + sx });
@@ -720,42 +755,6 @@ export function buildWorld(scene, city, layout, M, options) {
       return true;
     }
     return false;
-  };
-
-  /**
-   * 老居民（一年多没动过的会话）：不上街，名字刻在他家门口的一块小碑上（一家一块）。碑不挡路——它立在门前的街沿上，
-   * 挡了会把雅典娜和你够得着的那一点堵死。groups：[{ home, names: [] }]。
-   */
-  world.steles = new Map();   // home → { home, names, object, x, z }
-  world.setElders = (groups) => {
-    const want = new Map((groups ?? []).filter((g) => g.names?.length).map((g) => [g.home, g]));
-    for (const [home, s] of world.steles) {
-      if (want.has(home)) continue;
-      root.remove(s.object);
-      world.steles.delete(home);
-    }
-    for (const [home, g] of want) {
-      const existing = world.steles.get(home);
-      if (existing) { existing.names = g.names; continue; }
-      let stand;
-      try { stand = layout.sitePoint(home); } catch { continue; }
-      const r = rng(hashSeed(`stele:${home}`));
-      // 门前那一点旁边 1.6–2.4 米、能站的地方（碑本身不挡路，但不要立在墙里、水里）
-      let spot = null;
-      for (let k = 0; k < 12 && !spot; k++) {
-        const a = r() * Math.PI * 2, d = 1.6 + r() * 0.8;
-        const p = { x: stand.x + Math.sin(a) * d, z: stand.z + Math.cos(a) * d };
-        if (layout.walkable(p)) spot = p;
-      }
-      if (!spot) continue;
-      const object = assets.object('prop.stele');
-      object.scale.setScalar(0.5);
-      object.position.set(spot.x, world.groundAt(spot.x, spot.z), spot.z);
-      object.rotation.y = Math.atan2(stand.x - spot.x, stand.z - spot.z);
-      object.userData.footprint = null;   // 不挡路（见上）
-      add(object);
-      world.steles.set(home, { home, names: g.names, object, x: spot.x, z: spot.z });
-    }
   };
 
   /**

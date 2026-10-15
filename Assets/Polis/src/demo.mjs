@@ -62,35 +62,31 @@ export function demoAccumulation(fixture) {
 }
 
 /**
- * 编出来的居民（M-B，夹具模式的 &demo=1 / &citizens=N）：形状和 C# 的 PolisAccumulation.Citizens 推来的一样——
- * 街上的最多 32 位（种子、名字、家、年纪、他那几句），两位老居民刻在碑上，人口。不来自任何人的会话。
+ * 编出来的居民（夹具模式的 &demo=1 / &citizens=N）：形状和 C# 的 PolisAccumulation.Citizens 推来的一样（第四轮起从建筑来）——
+ * 街上的最多 32 位（种子、名字、家、年纪、职业、住处），屋里的几位，人口。不来自任何人的会话。
  */
 export function demoCitizens(fixture, n = 24) {
   const keys = (fixture.buildings ?? []).map((b) => b.key);
-  const publicHomes = ['agora:0', 'agora:1', 'agora:2', 'agora:3', 'agora:4', 'agora:5', 'market', 'library', 'temple', 'harbor'];
-  const titles = ['整理合同', '写周报', '汇总预算', '照片目录', '回信', '网站文案', '会议纪要', '读书笔记', '报销单', '合同比对', '翻译', '日程', '旅行计划', '读论文', '修脚本'];
   const male = ['狄米特里', '阿里斯通', '克里同', '斐德若', '吕西斯', '卡尔米德', '美诺', '色诺芬'];
   const female = ['菲莉丝', '达芙妮', '克莱奥', '海伦娜', '伊瑞涅', '狄俄提玛', '墨利萨', '卡丽丝'];
   const ages = ['young', 'adult', 'adult', 'old'];
-  const street = [];
-  const count = Math.max(0, Math.min(32, Math.floor(n)));
-  for (let i = 0; i < count; i++) {
+  const trades = ['farmer', 'herder', 'fisher', 'weaver', 'spinner', 'potter', 'baker', 'miller', 'cobbler', 'mason', 'carpenter', 'musician', 'merchant', 'idle'];
+  const tradeNames = { farmer: '农夫', herder: '牧人', fisher: '渔夫', weaver: '织工', spinner: '纺纱工', potter: '陶工', baker: '面包师', miller: '磨坊工', cobbler: '鞋匠', mason: '石匠', carpenter: '木匠', musician: '乐师', merchant: '商贩', idle: '无业的人' };
+  const tempers = ['爽朗', '腼腆', '较真', '爱打趣', '慢性子', '热心肠'];
+  const make = (i) => {
     // 一个确定的种子：同一个 i 永远同一个人（截图可复现）；最低位交替男女
     const seed = ((Math.imul(i + 1, 2654435761) & ~1) | (i & 1)) >>> 0;
-    const title = titles[i % titles.length];
-    const folder = keys.length && i % 3 !== 2 ? keys[i % keys.length] : null;
     const isFemale = (seed & 1) === 1;
-    const name = (isFemale ? female : male)[(seed >>> 8) % 8];
-    street.push({
-      id: `demo-citizen-${i}`, seed, female: isFemale, name, title,
-      home: folder ? `b:${folder}` : publicHomes[(seed >>> 4) % publicHomes.length],
-      age: ages[i % ages.length], outcome: i % 5 === 3 ? 'interrupted' : 'completed',
-      folders: folder ? [folder] : [], turns: 1 + (i % 6),
-    });
-  }
-  const elders = [
-    { id: 'demo-elder-0', name: '赫蒙', home: keys[0] ? `b:${keys[0]}` : 'agora:0' },
-    { id: 'demo-elder-1', name: '米尔托', home: keys[0] ? `b:${keys[0]}` : 'agora:0' },
-  ];
-  return { street, elders, census: { total: count + 9, street: count, indoors: 7, elders: elders.length } };
+    const folder = keys.length ? keys[Math.floor(i / 3) % keys.length] : null;
+    const trade = trades[i % trades.length];
+    return {
+      id: `demo-citizen-${i}`, seed, female: isFemale, name: (isFemale ? female : male)[(seed >>> 8) % 8] + (i >= 8 ? `${i}` : ''),
+      home: folder ? `b:${folder}` : 'market', age: ages[i % ages.length], trade, tradeName: tradeNames[trade], temper: tempers[i % tempers.length],
+      homeName: folder ?? '市集', stall: !folder, cottage: false, nightOwl: i % 8 === 0,
+    };
+  };
+  const count = Math.max(0, Math.min(32, Math.floor(n)));
+  const street = Array.from({ length: count }, (_, i) => make(i));
+  const indoors = Array.from({ length: 7 }, (_, k) => make(count + k));
+  return { street, indoors, census: { total: count + indoors.length, street: count, indoors: indoors.length } };
 }

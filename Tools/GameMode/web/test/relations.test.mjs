@@ -3,7 +3,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   bandOf, readRelations, attitudeOf, bondOf, greetingStyle, canChat, chatPreference, relationsView, NEUTRAL, RELATION, BANDS,
-  reactionOf, pickResponders, CHORUS, FACING_REACTIONS,
+  reactionOf, pickResponders, CHORUS, FACING_REACTIONS, regardOf,
 } from '../../../../Assets/Polis/src/relations.mjs';
 import { pickChat, TOWN } from '../../../../Assets/Polis/src/citizens.mjs';
 import { UI_ZH, CITIZEN_ZH } from '../../../../Assets/Polis/src/game.mjs';
@@ -73,8 +73,10 @@ test('small talk: a mutually hostile pair never meets, and a friendlier pair bea
 
 test('the people overview: citizens by score, residents apart, reasons in words, ties only to people the city knows', () => {
   const rel = readRelations({
-    you: { a: { score: 70, why: ['done', 'chats'] }, b: { score: -30, why: ['annoyed'] }, c: { score: 5 }, 'resident:smith': { score: 12, why: ['nature'] } },
+    you: { a: { score: 70, why: ['busy', 'chats'] }, b: { score: -30, why: ['annoyed'] }, c: { score: 5 }, 'resident:smith': { score: 12, why: ['nature'] } },
     ties: { a: { friends: [['c', 50], ['ghost', 90]], rivals: [['b', -40]] } },
+    // 第四轮需求 8：每人怎么看雅典娜
+    athena: { a: { score: 72, band: 'close', why: ['pious', 'age'] }, b: { score: -70, band: 'hostile', why: ['defiant'] } },
   });
   const people = [
     { id: 'a', name: '阿里斯通', kind: 'citizen', bust: null }, { id: 'b', name: '达芙妮', kind: 'citizen', indoors: true, bust: null },
@@ -84,7 +86,12 @@ test('the people overview: citizens by score, residents apart, reasons in words,
   assert.deepEqual(view.citizens.map((r) => r.id), ['a', 'c', 'b'], '按分数从高到低');
   assert.deepEqual(view.residents.map((r) => r.id), ['resident:smith'], '职业居民另成一组');
   assert.equal(view.citizens[0].bandLabel, UI_ZH.bandClose);
-  assert.equal(view.citizens[0].why, `因为：${UI_ZH.whyDone}，${UI_ZH.whyChats}`);
+  assert.equal(view.citizens[0].why, `因为：${UI_ZH.whyBusy}，${UI_ZH.whyChats}`);
+  assert.equal(view.citizens[0].athena.label, `怎么看雅典娜：${UI_ZH.regardClose}`);
+  assert.equal(view.citizens[0].athena.why, `因为：${UI_ZH.whyPious}，${UI_ZH.whyAge}`);
+  assert.equal(view.citizens[2].athena.band, 'hostile', '不是人人都敬重她');
+  assert.equal(view.citizens[1].athena.band, 'neutral', '没推来的按寻常');
+  assert.equal(regardOf(rel, 'b').score, -70);
   assert.equal(view.citizens[2].why, `因为：${UI_ZH.whyAnnoyed}`);
   assert.equal(view.citizens[1].why, '', '没有原因就不写');
   assert.equal(view.citizens[2].indoors, true);
@@ -92,7 +99,8 @@ test('the people overview: citizens by score, residents apart, reasons in words,
   assert.deepEqual(view.citizens[0].rivals.map((f) => f.name), ['达芙妮']);
   for (const key of ['relationsButton', 'relationsTitle', 'relationsToYou', 'relationsPick', 'relationsEmpty', 'relationsFriends', 'relationsRivals',
     'relationsNone', 'relationsWhy', 'relationsWhyTwo', 'relationsResidents', 'relationsIndoors', 'bandClose', 'bandFriendly', 'bandNeutral', 'bandCool', 'bandHostile',
-    'whyDone', 'whyWorking', 'whyStopped', 'whyFamiliar', 'whyRecent', 'whyWarm', 'whyPrickly', 'whyNature', 'whyChats', 'whyAnnoyed']) {
+    'whyWarm', 'whyPrickly', 'whyNature', 'whyChats', 'whyAnnoyed', 'whyBusy', 'whyNeglected', 'whyIdle', 'whyPious', 'whyDoubting', 'whyReverent', 'whyDefiant',
+    'whyTrade', 'whyAge', 'relationsAthena', 'regardClose', 'regardFriendly', 'regardNeutral', 'regardCool', 'regardHostile']) {
     assert.ok(typeof UI_ZH[key] === 'string' && UI_ZH[key].length > 0, `UI_ZH.${key}`);
   }
 });

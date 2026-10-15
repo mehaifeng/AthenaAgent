@@ -11,12 +11,13 @@ import { HAIR_STYLES } from '../../../../Assets/Polis/src/art/rig.mjs';
 import { bust, CHARACTERS } from '../../../../Assets/Polis/src/art/busts.mjs';
 import {
   TOWN, DESTINATIONS, planCitizen, routeClear, citizenAt, newScheduleClock, scheduleClock, holdSchedule, resumeSchedule, separate, assignTiers, pickChat, nextChatAfter, greetLine,
+  retireTime, wakeTime, asleepAt, indoorsAt,
 } from '../../../../Assets/Polis/src/citizens.mjs';
 import { createLayout } from '../../../../Assets/Polis/src/layout.mjs';
 import { createAssetLibrary } from '../../../../Assets/Polis/src/art/assets.mjs';
 import { buildWorld } from '../../../../Assets/Polis/src/world.mjs';
 import { demoAccumulation, demoCitizens } from '../../../../Assets/Polis/src/demo.mjs';
-import { CITIZEN_ZH, UI_ZH, citizenInfoLines, transcriptMarkdown, speechAlpha, thinkingDots, SPEECH } from '../../../../Assets/Polis/src/game.mjs';
+import { CITIZEN_ZH, UI_ZH, citizenInfoLines, speechAlpha, thinkingDots, SPEECH } from '../../../../Assets/Polis/src/game.mjs';
 import { parseMarkdown } from '../../../../Assets/Polis/src/reader.mjs';
 
 const fixture = JSON.parse(readFileSync(new URL('../fixtures/synthetic.json', import.meta.url), 'utf8'));
@@ -120,6 +121,12 @@ test('look: a citizen first posed far from where it was built wears its skirt on
   assert.ok(worst < 0.5, `裙摆离身体最远 ${worst.toFixed(2)} 米（甩出去的裙摆到一米开外）`);
 });
 
+function buildWorldFor(layout) {
+  const M = stubMaterials();
+  const world = buildWorld(new THREE.Scene(), fixture, layout, M, { assets: createAssetLibrary(M) });
+  return { world };
+}
+
 function buildCity() {
   const M = stubMaterials();
   const assets = createAssetLibrary(M);
@@ -193,7 +200,7 @@ test('held (2026-10-13): a walker stopped for a talk resumes from where he stopp
   assert.equal(clock.shift, heldFor);
 });
 
-test('households (M-D): a household\'s house carries the household\'s name, not its key, and a citizen whose home is that house is planned from it', () => {
+test('cottages (fourth round; M-D\'s houses): a cottage carries its family\'s name, not its key, and a citizen whose home is that cottage is planned from it', () => {
   // 一块没人用的地：在合成城邦的第一、二圈里找（不是文件夹的、不是公共建筑的、不是空地、不在海里）
   const used = new Set([...fixture.buildings.map((b) => `${b.plot.x},${b.plot.z}`), ...Object.values(fixture.publicSites).map((p) => `${p.x},${p.z}`), ...(fixture.vacant ?? []).map((v) => `${v.plot.x},${v.plot.z}`)]);
   let plot = null;
@@ -206,7 +213,7 @@ test('households (M-D): a household\'s house carries the household\'s name, not 
     }
   }
   assert.ok(plot, '找得到一块空地');
-  const house = { key: 'household:abcd1234', label: '整理合同一家', kind: 'house', files: 3, bytes: 0, kinds: {}, lastModified: '2026-10-13T00:00:00Z', state: 'lived', sizeClass: 2, incomplete: false, plot, order: 999 };
+  const house = { key: 'household:abcd1234', label: '菲莉丝一家', kind: 'house', files: 3, bytes: 0, kinds: {}, lastModified: '2026-10-13T00:00:00Z', state: 'lived', sizeClass: 2, incomplete: false, plot, order: 999 };
   const city = { ...fixture, buildings: [...fixture.buildings, house] };
   const M = stubMaterials();
   const assets = createAssetLibrary(M);
@@ -215,7 +222,7 @@ test('households (M-D): a household\'s house carries the household\'s name, not 
   const world = buildWorld(new THREE.Scene(), city, layout, M, { assets });
   const label = world.labels.find((l) => l.key === 'b:household:abcd1234');
   assert.ok(label, '民居有名牌');
-  assert.equal(label.text, '整理合同一家', '名牌写户名，不写钥匙');
+  assert.equal(label.text, '菲莉丝一家', '名牌写户名，不写钥匙');
   assert.ok(world.labels.filter((l) => l.kind === 'building').every((l) => !l.text.startsWith('household:')), '没有一块名牌露出钥匙');
   assert.ok(layout.plots.has('b:household:abcd1234'), '民居是一块地，站点 b:household:…');
   const hasSite = (site) => site === 'agora' || site.startsWith('agora:') || site === 'harbor' || site === 'gate' || layout.plots.has(site);
@@ -306,16 +313,68 @@ test('small talk (2026-10-13: model only, no preset lines): one pair at a time, 
   assert.deepEqual(Object.keys(CITIZEN_ZH).sort(), ['greet', 'greetWarm'], '没有闲聊的本地台词了');
 });
 
-test('card (2026-10-13): the citizen\'s card shows that conversation\'s facts, and the preview is a reader document of only your and Athena\'s words', () => {
-  const lines = citizenInfoLines({ title: '整理合同', outcome: 'completed', turns: 3, days: 5, folders: ['合同', '账本'] }, UI_ZH);
-  assert.deepEqual(lines, ['委托：整理合同', '办完了 · 完成了 3 回合', '5 天前动过', '常去：合同、账本']);
-  assert.deepEqual(citizenInfoLines({ title: '', outcome: 'running', turns: 0, days: 0, folders: [] }, UI_ZH), ['委托：（还没有标题）', '正在办 · 完成了 0 回合', '今天动过']);
-  const md = transcriptMarkdown({ entries: [{ role: 'user', text: '第一问' }, { role: 'assistant', text: '**答**了' }], omitted: 4 }, UI_ZH);
-  const blocks = parseMarkdown(md);
-  assert.deepEqual(blocks.filter((b) => b.type === 'heading').map((b) => b.inline.map((c) => c.text).join('')), ['你', '雅典娜']);
-  assert.ok(md.startsWith('*（更早的 4 条没有列出）*'), '告诉你前面还有几条');
-  assert.ok(md.includes('第一问') && md.includes('**答**了'), '正文原样交给阅读器（Markdown 由阅读器解析、只经 textContent 进 DOM）');
-  assert.equal(transcriptMarkdown({ entries: [] }, UI_ZH), UI_ZH.transcriptEmpty);
+test('card (fourth round, 2026-10-15): the citizen\'s card says who he is — trade, age, temper, where he lives and whether he goes out at night; nothing of any conversation', () => {
+  const lines = citizenInfoLines({ tradeName: '陶工', age: 'old', temper: '爽朗', homeName: 'src', stall: false, cottage: false, nightOwl: true }, UI_ZH);
+  assert.deepEqual(lines, ['陶工 · 年长 · 性子爽朗', '住在「src」', UI_ZH.citizenInfoNightOwl]);
+  assert.deepEqual(citizenInfoLines({ tradeName: '商贩', age: 'young', temper: '腼腆', homeName: 'notes', stall: true }, UI_ZH), ['商贩 · 年轻 · 性子腼腆', '在市集守着「notes」的摊位']);
+  assert.deepEqual(citizenInfoLines({ tradeName: '牧人', age: 'adult', temper: '', homeName: '菲莉丝一家', cottage: true }, UI_ZH), ['牧人 · 壮年', '住在城郊的村舍（菲莉丝一家）']);
+  assert.deepEqual(citizenInfoLines({}, UI_ZH), [], '没带的就不写');
+  for (const key of ['outcome', 'turns', 'folders']) assert.ok(!Object.values(UI_ZH).some((v) => v.includes(`{${key}}`)), `卡片上再没有会话的 ${key}`);
+});
+
+test('night (fourth round, need 4): after dusk everyone but the night owls goes indoors at his next homecoming — within one period the street is the owls\' — and at dawn each comes out at his own next exit', () => {
+  const { layout, hasSite } = buildCity();
+  const { world } = buildWorldFor(layout);
+  const { street } = demoCitizens(fixture, 32);
+  const neighbours = [...layout.plots.keys()].filter((k) => k.startsWith('b:'));
+  const plans = street.map((c) => ({ c, plan: planCitizen(c, { sitePoint: layout.sitePoint, route: layout.route, walkable: layout.walkable, hasSite, neighbours, doorFor: (s, sd) => world.doorFor(s, sd) }) }));
+  assert.ok(plans.some(({ plan }) => plan.door) && plans.some(({ plan }) => !plan.door), '有门的、没门的家都有');
+  const dusk = 1_000_000;
+  const night = (owl) => ({ night: true, since: dusk, owl });
+  let goingHome = 0;
+  for (const { c, plan } of plans) {
+    const retire = retireTime(plan, dusk);
+    if (!plan.door && !plan.dest) { assert.equal(retire, Number.POSITIVE_INFINITY, `${c.id}：没门、又哪儿都去不了的人整夜站在家门前（不当场消失）`); continue; }
+    assert.ok(retire >= dusk && retire <= dusk + (plan.door ? 1 : 2) * TOWN.periodMs, `${c.id}：有门的最多一个周期、没门的最多两个周期就回了家（${retire - dusk} 毫秒）`);
+    if (!plan.door && plan.dest) assert.ok(retire > dusk, `${c.id}：没门的人入夜那一刻不当场消失，走回家门前才回屋`);
+    if (retire > dusk) {
+      goingHome++;
+      // 回家之前照着日程走，和白天一模一样（不瞬移）
+      assert.deepEqual(citizenAt(plan, dusk + 1, night(false)), citizenAt(plan, dusk + 1));
+    }
+    const s = citizenAt(plan, retire + 1, night(false));
+    assert.equal(s.hidden, true, `${c.id}：回家之后在屋里，不画`);
+    assert.equal(s.at, 'inside');
+    assert.equal(citizenAt(plan, dusk + 5 * TOWN.periodMs, night(false)).hidden, true, '整夜都在屋里');
+    if (!plan.door && plan.dest) assert.deepEqual(citizenAt(plan, retire - 1, night(false)).at, 'road', `${c.id}：回屋前的那一刻正走在回家的路上`);
+    // 夜游的人照常
+    assert.deepEqual(citizenAt(plan, dusk + 77_777, night(true)), citizenAt(plan, dusk + 77_777));
+    // 回家的那一刻和白天的日程接得上：有门的走完进门那一段就是门里那一点
+    const before = citizenAt(plan, retire - 1);
+    if (plan.door && retire > dusk) assert.ok(before.hidden || before.at === 'door', `${c.id}：进门那一段之后才不见`);
+  }
+  assert.ok(goingHome >= 10, `入夜时多数人还在外面、走回家（${goingHome}）`);
+  // 打开页面时就是夜里：不是夜游的人一开始就在屋里
+  for (const { plan } of plans) if (plan.door || plan.dest) assert.equal(citizenAt(plan, 123, { night: true, since: null, owl: false }).hidden, true);
+  // 天亮：入夜时回了屋的人，等到自己下一次出门的时刻
+  const dawn = dusk + 3 * TOWN.periodMs;
+  const sky = (owl) => ({ night: false, since: dawn, after: dusk, owl });
+  const wakes = [];
+  for (const { c, plan } of plans) {
+    const wake = wakeTime(plan, dawn);
+    wakes.push(wake - dawn);
+    assert.ok(wake >= dawn && wake < dawn + TOWN.periodMs, `${c.id}：一个周期内出门`);
+    const retired = dawn >= retireTime(plan, dusk);
+    if (retired && wake > dawn) assert.equal(citizenAt(plan, wake - 1, sky(false)).hidden, true, `${c.id}：没到出门的时候还在屋里`);
+    if (!retired) assert.equal(asleepAt(plan, dawn + 1, sky(false)), false, `${c.id}：入夜后没回屋的人，天亮照常`);
+    assert.deepEqual(citizenAt(plan, wake + 1, sky(false)), citizenAt(plan, wake + 1), `${c.id}：出门之后就是白天的日程`);
+    assert.equal(asleepAt(plan, dawn + 1, sky(true)), false, '夜游的人天亮时本来就在外面');
+  }
+  assert.ok(new Set(wakes.map((w) => Math.round(w / 1000))).size > 10, '各自出门的时刻错开，不一齐涌上街');
+  // 天亮时打开页面（没有夜可言）：照常
+  for (const { plan } of plans) assert.equal(asleepAt(plan, dawn, { night: false, since: null, owl: false }), false);
+  // 被客人顶回去的人：在门里、或者家门前那一点，不画
+  for (const { plan } of plans.slice(0, 6)) assert.equal(indoorsAt(plan).hidden, true);
 });
 
 test('speech over a head (2026-10-13): thinking is a looping row of dots, a streaming or kept line stays, a finished one holds by its length then fades', () => {

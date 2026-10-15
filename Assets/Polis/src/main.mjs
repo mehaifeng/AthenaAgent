@@ -75,7 +75,8 @@ async function main() {
   if (live) {
     // 问话（M-C）：对话栏借给一位居民时，问出去 / 不问了告诉城里（他站定、镜头留在你们两个身上、等太久了替他说"没想起来"）
     talk = createTalk(document.getElementById('talk'), {
-      send,
+      // 和城里的一个人说一句（chat）：带上他此刻在哪儿、在干什么（第四轮需求 4、5，进他的提示词）
+      send: (type, fields = {}) => send(type, type === 'chat' && fields.who ? { ...fields, ...(liveGame?.stateOf(fields.who) ?? {}) } : fields),
       onOpen: () => liveGame?.releaseKeys(),
       onLent: (event, info) => liveGame?.lentEvent(event, info),
       // 你自己说了一句（2026-10-13：对话栏平时是你自己说话，附近的人会接）；有一段写好的话在雅典娜那里等你
@@ -94,7 +95,7 @@ async function main() {
     onViewChange: () => syncView(game),
     modalOpen: () => readerOpen() || relationsOpen(),
     topInset: live ? 52 : 0,
-    defaultView: 'free',
+    defaultView: 'player',   // 第四轮需求 7（2026-10-15）：缺省跟着你
     talkOpen: () => !!talk?.isOpen,
     talkMode: () => talk?.mode ?? 'speak',
     onChat: talk ? (target) => { talk.openChat(target); } : null,
@@ -147,7 +148,7 @@ function closeReader() {
   reader.replaceChildren();
 }
 
-// —— 视角：左上角（夹具模式在右下）一组三选一的按钮，缺省"自由"；拖动平移会把镜头交还给你，按钮跟着变 ——
+// —— 视角：左上角（夹具模式在右下）一组三选一的按钮，缺省"跟着你"（第四轮需求 7）；拖动平移会把镜头交还给你（自由），按钮跟着变 ——
 function wireView(game) {
   for (const button of document.querySelectorAll('#view button[data-view]')) {
     button.addEventListener('click', () => { game.setFollow(button.dataset.view); syncView(game); wake(); });
@@ -211,7 +212,7 @@ function liveHandlers() {
     items: whenReady((m) => { liveGame.setItems(m.items); wake(); }),
     grove: whenReady((m) => { liveGame.setGrove(m.trees); wake(); }),
     residents: whenReady((m) => { liveGame.setResidents(m.residents); wake(); }),
-    // 居民即会话（M-B）：{ street（≤ 32 位）, elders, census }
+    // 城里的人（第四轮起从建筑来）：{ street（≤ 32 位）, indoors, census }
     citizens: whenReady((m) => { liveGame.setCitizens(m.citizens ?? null); refreshRelations(liveGame); wake(); }),
     // 人物关系（第三轮需求 1）：{ you, pairs, ties }——谁怎么看你、两人之间、朋友与不和的人
     relations: whenReady((m) => { liveGame.setRelations(m.relations ?? null); refreshRelations(liveGame); wake(); }),
@@ -224,7 +225,6 @@ function liveHandlers() {
     // 敲门（第三轮需求 3）：C# 的回音——谁敲得太勤、谁打发过你不应门；请他出来，他出不出来
     'knock-reply': whenReady((m) => { liveGame.setKnockReply(m); wake(); }),
     'call-out-reply': whenReady((m) => { liveGame.setCallOutReply(m); wake(); }),
-    'citizen-transcript': whenReady((m) => { liveGame.showCitizenTranscript(m); wake(); }),
     // 讲台前的辩论（M-E）：{ state, id, motion, round, rounds, jury, transcript, verdict, record, notice }
     debate: whenReady((m) => { liveGame.setDebate(m.debate ?? null); wake(); }),
     // 围观的人起哄（2026-10-13）：{ id, round, reactions: [{ kind, text }] }——放到围观者的头顶

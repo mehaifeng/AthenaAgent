@@ -159,6 +159,13 @@ public sealed partial class GameModeViewModel : ViewModelBase, IDisposable
     private IReadOnlyDictionary<string, PolisCitizen> _citizensById = new Dictionary<string, PolisCitizen>(StringComparer.Ordinal);
     /// <summary>这座城此刻的户（M-D）：推给页面的城里合进它们的民居；换城清空。</summary>
     private IReadOnlyList<PolisHousehold> _households = Array.Empty<PolisHousehold>();
+    /// <summary>城里的住所（第四轮：键 → 住所），给关系的地块、提示词的楼。</summary>
+    private IReadOnlyDictionary<string, PolisDwelling> _dwellings = new Dictionary<string, PolisDwelling>(StringComparer.Ordinal);
+    /// <summary>住所的键 → 名牌上的名字（文件夹名、村舍的户名、摊位的文件夹名）。</summary>
+    private IReadOnlyDictionary<string, string> _homeNames = new Dictionary<string, string>(StringComparer.Ordinal);
+    /// <summary>楼的详情与项目的大概（提示词用，线程池上读，缓存 60 秒）：键是 "b:&lt;楼&gt;" 或 "project"，带语言。</summary>
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<string, (DateTimeOffset At, string Text)> _briefs = new(StringComparer.Ordinal);
+    private static readonly TimeSpan BriefLifetime = TimeSpan.FromSeconds(60);
     /// <summary>这座城的第一遍聚户已经做过：之后新立的户才在页面上闪一下、让雅典娜说一句（第一遍是"本来就住在这儿的"）。</summary>
     private bool _householdsBaselined;
     private readonly IPolisTalkService _talk;
@@ -612,22 +619,20 @@ public sealed partial class GameModeViewModel : ViewModelBase, IDisposable
                 break;
             }
             case PolisIntentType.Chat:
-                _ = RunIntentAsync(() => ChatAsync(intent.ConversationId!, intent.Overheard ? PolisTalk.Overheard(intent.Text!, _localization.CurrentLanguage) : intent.Text!, intent.Overheard, door: intent.ThroughDoor), "chat");
+                _ = RunIntentAsync(() => ChatAsync(intent.ConversationId!, intent.Overheard ? PolisTalk.Overheard(intent.Text!, _localization.CurrentLanguage) : intent.Text!, intent.Overheard,
+                    door: intent.ThroughDoor, states: intent.States), "chat");
                 break;
             case PolisIntentType.AmbientChat:
-                _ = RunIntentAsync(() => AmbientChatAsync(intent.ConversationId!, intent.OtherId!), "ambient-chat");
+                _ = RunIntentAsync(() => AmbientChatAsync(intent.ConversationId!, intent.OtherId!, intent.States), "ambient-chat");
                 break;
             case PolisIntentType.Chorus:
-                _ = RunIntentAsync(() => ChorusAsync(intent.Text!, intent.Speakers!), "chorus");
+                _ = RunIntentAsync(() => ChorusAsync(intent.Text!, intent.Speakers!, intent.States), "chorus");
                 break;
             case PolisIntentType.Knock:
                 Knock(intent.Speakers!);
                 break;
             case PolisIntentType.CallOut:
                 CallOut(intent.ConversationId!);
-                break;
-            case PolisIntentType.CitizenTranscript:
-                PostCitizenTranscript(intent.ConversationId!);
                 break;
             case PolisIntentType.DebateStart:
                 _ = RunIntentAsync(() => StartDebateAsync(intent.Text!), "debate-start");
@@ -831,72 +836,110 @@ public sealed partial class GameModeViewModel : ViewModelBase, IDisposable
         return L(entry.Key, entry.Fallback);
     }
 
-    /// <summary>户名（M-D）：立户那一位的名字加"一家"（2026-10-13 起名字是完整的希腊名，不再拿会话标题当称号）。</summary>
-    private string HouseholdLabel(PolisCitizen founder)
+    /// <summary>村舍的名牌（第四轮）：住在里面第一位的名字加"一家"。</summary>
+    private string CottageLabel(PolisCitizen founder)
+        => string.Format(CultureInfo.CurrentCulture, CitizenText("householdName"), CitizenName(founder));
+
+    /// <summary>村舍的"样子"（钥匙、户名、人数）：变了才重推城。</summary>
+    private static string HouseholdShape(IReadOnlyList<PolisHousehold> households)
+        => string.Join(";", households.Select(h => $"{h.Key}|{h.Label}|{h.Members}"));
+
+    private string CitizenText(string jsKey)
     {
-        var table = PolisLocale.Citizen.ToDictionary(c => c.JsKey, StringComparer.Ordinal);
-        string Text(string jsKey) => L(table[jsKey].Key, table[jsKey].Fallback);
-        var who = PolisCitizens.NameFor(founder, Text("namesMale"), Text("namesFemale"), Text("nameNth"));
-        return string.Format(CultureInfo.CurrentCulture, Text("householdName"), who);
+        var entry = PolisLocale.Citizen.First(c => c.JsKey == jsKey);
+        return L(entry.Key, entry.Fallback);
     }
 
-    /// <summary>户的"样子"（钥匙、户名、人数、新旧）：变了才重推城。</summary>
-    private static string HouseholdShape(IReadOnlyList<PolisHousehold> households, DateTimeOffset now)
-        => string.Join(";", households.Select(h => $"{h.Key}|{h.Label}|{h.Members.Count}|{PolisBuildings.StateFor(h.LastActive, now)}"));
+    /// <summary>城里一个人的名字（希腊名表，同城不重）。</summary>
+    private string CitizenName(PolisCitizen citizen)
+        => PolisCitizens.NameFor(citizen, CitizenText("namesMale"), CitizenText("namesFemale"), CitizenText("nameNth"));
+
+    /// <summary>城里一个人在提示词里是谁：名字、男女、年纪、性子与职业、住哪儿和几个人同住（<see cref="PolisTalk.HomeText"/>）。</summary>
+    private PolisSpeaker SpeakerFor(PolisCitizen c, string language)
+    {
+        var homeName = _homeNames.TryGetValue(c.Dwelling, out var n) ? n : c.Dwelling;
+        var housemates = c.Home == "market" ? 0 : _citizensById.Values.Count(o => o.Dwelling == c.Dwelling && o.Id != c.Id);
+        return new PolisSpeaker(CitizenName(c), c.Female, c.Age, PolisTalk.PersonaFor(c.Seed, c.Trade, language), PolisTalk.HomeText(c, homeName, housemates, language));
+    }
+
+    /// <summary>此刻（第四轮需求 4、5）：本地时刻、昼夜、他在哪儿干什么（页面送来的，没送就是 null）。</summary>
+    private string MomentFor(string who, IReadOnlyDictionary<string, (string? Where, string? Doing)>? states, string language)
+    {
+        var state = states != null && states.TryGetValue(who, out var st) ? st : (null, null);
+        var trade = _citizensById.TryGetValue(who, out var c) ? c.Trade : null;
+        return PolisTalk.MomentText(new PolisMoment(DateTimeOffset.Now, _night, state.Where, state.Doing), trade, language);
+    }
+
+    /// <summary>他对雅典娜的态度，一句（第四轮需求 8）。不在这座城的关系里就是 null。</summary>
+    private string? AthenaRegardFor(string who, string language)
+        => _relationById.TryGetValue(who, out var person)
+            ? PolisTalk.AthenaRegardText(PolisRelations.ToAthena(person, _relations, DateTimeOffset.UtcNow).Band, language)
+            : null;
 
     /// <summary>
-    /// 一位居民那场会话的预览（2026-10-13）：你和雅典娜看得见的那些话（<see cref="PolisCitizens.Transcript"/>），只推给页面的卷轴阅读器。
-    /// 会话的消息在内存里（会话树启动时全部恢复），在 UI 线程上取。
+    /// 他住的那座楼（详）与整个项目（略）的提示词文字（第四轮需求 3）。在线程池上调用（读文件夹、读 README），每份缓存 60 秒；
+    /// 村舍、摊位、神殿岛、文件夹不见了时楼那一段只有夹具里的数或者没有。返回 (楼, 项目)。
     /// </summary>
-    private void PostCitizenTranscript(string conversationId)
+    private (string? Building, string? Project) BriefsFor(PolisCitizen citizen, string? root, PolisFixtureDocument? city, string cityName, string language)
     {
-        if (_disposed || !_citizensById.TryGetValue(conversationId, out var citizen)) return;
-        var session = _shell?.AllSessions.FirstOrDefault(s => s.ConversationId == conversationId);
-        if (session == null) return;
-        var (entries, omitted) = PolisCitizens.Transcript(session.Chat.Messages.ToList());
-        Post(new
+        if (city == null) return (null, null);
+        var now = DateTimeOffset.UtcNow;
+        var enumerate = root == null ? null : PolisFileSystem.Enumerator(root);
+        var read = root == null ? null : PolisBriefs.TextReader(root);
+        string? Cached(string key, Func<string?> make)
         {
-            type = "citizen-transcript",
-            conversationId,
-            title = citizen.Title,
-            entries = entries.Select(e => new { role = e.Role, text = e.Text }).ToList(),
-            omitted
-        });
-        Flush();
+            var cacheKey = language + "|" + (root ?? "sanctuary") + "|" + key;
+            if (_briefs.TryGetValue(cacheKey, out var hit) && now - hit.At < BriefLifetime) return hit.Text;
+            var text = make();
+            if (text != null) _briefs[cacheKey] = (now, text);
+            return text;
+        }
+        string? building = null;
+        var folder = city.Buildings.FirstOrDefault(b => b.Key == citizen.Dwelling && !PolisHouseholds.IsHouseholdKey(b.Key));
+        if (folder != null) building = Cached("b:" + folder.Key, () => PolisTalk.BuildingText(PolisBriefs.Building(folder, enumerate, read), language));
+        var project = root == null ? null : Cached("project", () => PolisTalk.ProjectText(PolisBriefs.Project(cityName, city.Buildings, city.Market, enumerate, read), language));
+        return (building, project);
     }
 
     /// <summary>
-    /// 和城里的一个人说一句话（2026-10-13，原来 M-C 的问话）。他的提示词有这座城（<see cref="WorldFacts"/>）、他自己（名字、性子、托付过的那件事）、
-    /// 和你说过的几轮，以及按你这一句从他那场会话里挑的几段（<see cref="PolisCitizenAnswers.SelectExcerpts"/>）——所以能闲聊，说到那件事只凭记得的。
-    /// 那场会话的消息在内存里（会话树启动时全部恢复，不读库）：在 UI 线程上取一份快照，提示词与调用都在线程池上；
+    /// 和城里的一个人说一句话（2026-10-13，原来 M-C 的问话；第四轮起他不再是一场会话）。他的提示词有这座城（<see cref="WorldFacts"/>）、
+    /// 他自己（名字、职业、性子、住处与同住的人）、此刻（时间、昼夜、在哪、在干什么）、他怎么看你和雅典娜、和你说过的几轮，
+    /// 以及他住的那座楼的详情和整个项目的概况（<see cref="PolisBriefs"/>，只在你开口时才带）——所以能闲聊，也能聊项目。
+    /// 概况在线程池上读（有界、只读工作区里的文件、按城缓存 60 秒），提示词与调用也在线程池上；
     /// 看得见的字边收边推（<c>talk</c>，<c>done: false</c>，攒批时每人只带最新一版），说完推最后一版（<c>done: true</c>）。
     /// 任何结局都有一句话给他说——没配模型、正忙、超限、失败都是一句本地化的话，不是错误框（<see cref="PolisTalkService"/> 的纪律 1）。
     /// 他的话只回到页面，不进任何会话。
     /// </summary>
-    private async Task<PolisTalkReply?> ChatAsync(string who, string line, bool overheard = false, CancellationToken token = default, bool door = false)
+    private async Task<PolisTalkReply?> ChatAsync(string who, string line, bool overheard = false, CancellationToken token = default, bool door = false,
+        IReadOnlyDictionary<string, (string? Where, string? Doing)>? states = null)
     {
         if (who.StartsWith(PolisIntents.ResidentSpeakerPrefix, StringComparison.Ordinal))
-            return await ResidentChatAsync(who, line, overheard, token);
+            return await ResidentChatAsync(who, line, overheard, token, states);
         if (_disposed || !_citizensById.TryGetValue(who, out var citizen)) return null;
-        var session = _shell?.AllSessions.FirstOrDefault(s => s.ConversationId == who);
-        if (session == null) return null;
-        var messages = session.Chat.Messages.ToList();
-        var table = PolisLocale.Citizen.ToDictionary(c => c.JsKey, StringComparer.Ordinal);
-        string Name(string jsKey) => L(table[jsKey].Key, table[jsKey].Fallback);
         var language = _localization.CurrentLanguage;
-        var speaker = new PolisSpeaker(
-            PolisCitizens.NameFor(citizen, Name("namesMale"), Name("namesFemale"), Name("nameNth")),
-            citizen.Female, citizen.Age, PolisTalk.PersonaFor(citizen.Seed, language), PolisTalk.CitizenCalling(citizen, language));
+        var speaker = SpeakerFor(citizen, language);
         var world = WorldFacts();
         _talkHistory.TryGetValue(who, out var history);
         history ??= Array.Empty<PolisTalkTurn>();
         var page = _page;
         if (token == default) token = _askCancel.Token;
-        var attitude = AttitudeText(who, language);
         // 隔着门（第三轮需求 3）：这是第几轮、到了他的耐心那一轮怎么收（友好及以上出门来谈，其余请你走）——C# 定，写进提示词
         var outcome = door ? DoorOutcome(who) : null;
-        var (reply, n) = await StreamLineAsync(who, PolisTalkPurpose.Player,
-            () => PolisTalk.BuildChat(world, speaker, PolisCitizenAnswers.SelectExcerpts(messages, line), history, line, language, attitude, outcome), token);
+        var baseContext = new PolisTalkContext(
+            Attitude: AttitudeText(who, language),
+            AthenaRegard: AthenaRegardFor(who, language),
+            Door: outcome,
+            Moment: MomentFor(who, states, language),
+            Night: _night);
+        // 他住的楼（详）与整个项目（略）：在线程池上读（StreamLineAsync 在线程池上拼提示词）
+        var root = _fogged ? null : _cityWorkspace?.DirectoryPath;
+        var city = _city;
+        var cityName = _cityWorkspace?.Name ?? L("Polis.Public.Sanctuary", "Athena's sanctuary");
+        var (reply, n) = await StreamLineAsync(who, PolisTalkPurpose.Player, () =>
+        {
+            var (building, project) = BriefsFor(citizen, root, city, cityName, language);
+            return PolisTalk.BuildChat(world, speaker, baseContext with { Building = building, Project = project }, history, line, language);
+        }, token);
         if (reply == null || _disposed || page == null || !ReferenceEquals(page, _page)) return null;
         var ok = reply.Status == PolisTalkStatus.Ok && !string.IsNullOrWhiteSpace(reply.Text);
         if (ok)
@@ -971,7 +1014,8 @@ public sealed partial class GameModeViewModel : ViewModelBase, IDisposable
     /// 提示词 = 这座城 + 他（职业、希腊名、他管的那摊事与性子，<c>Polis.Resident.*.Persona</c>）+ 规矩（没有"你记得的"——他没托付过事）
     /// + 和你说过的几轮。他只是聊天：城里没有一个人能动工具，规矩里写着不答应替谁办事。
     /// </summary>
-    private async Task<PolisTalkReply?> ResidentChatAsync(string who, string line, bool overheard = false, CancellationToken token = default)
+    private async Task<PolisTalkReply?> ResidentChatAsync(string who, string line, bool overheard = false, CancellationToken token = default,
+        IReadOnlyDictionary<string, (string? Where, string? Doing)>? states = null)
     {
         var language = _localization.CurrentLanguage;
         if (_disposed || SpeakerOf(who, language) is not { } speaker) return null;
@@ -979,8 +1023,8 @@ public sealed partial class GameModeViewModel : ViewModelBase, IDisposable
         _talkHistory.TryGetValue(who, out var history);
         history ??= Array.Empty<PolisTalkTurn>();
         var page = _page;
-        var attitude = AttitudeText(who, language);
-        var (reply, n) = await StreamLineAsync(who, PolisTalkPurpose.Player, () => PolisTalk.BuildChat(world, speaker, null, history, line, language, attitude),
+        var context = new PolisTalkContext(Attitude: AttitudeText(who, language), AthenaRegard: AthenaRegardFor(who, language), Moment: MomentFor(who, states, language), Night: _night);
+        var (reply, n) = await StreamLineAsync(who, PolisTalkPurpose.Player, () => PolisTalk.BuildChat(world, speaker, context, history, line, language),
             token == default ? _askCancel.Token : token);
         if (reply == null || _disposed || page == null || !ReferenceEquals(page, _page)) return null;
         if (reply.Status == PolisTalkStatus.Ok && !string.IsNullOrWhiteSpace(reply.Text))
@@ -995,8 +1039,8 @@ public sealed partial class GameModeViewModel : ViewModelBase, IDisposable
     }
 
     /// <summary>
-    /// 城里一个能开口的人是谁（提示词里的"他是谁"）：职业居民用他的人设；居民用名字、性子，身份只说那件事办到哪一步（<see cref="PolisTalk.AmbientCalling"/>——
-    /// 插话、闲聊不是在回你关于那件事的问题，不带标题）。不认识的返回 null。
+    /// 城里一个能开口的人是谁（提示词里的"他是谁"）：职业居民用他的人设；城里的人用名字、性子、职业、住哪儿（<see cref="SpeakerFor"/>）；
+    /// 雅典娜用她自己（<see cref="PolisTalk.AthenaSpeaker"/>）。不认识的返回 null。
     /// </summary>
     private PolisSpeaker? SpeakerOf(string who, string language)
     {
@@ -1009,12 +1053,8 @@ public sealed partial class GameModeViewModel : ViewModelBase, IDisposable
                 new PolisPersona(L(entry.NameKey, entry.NameFallback), string.Empty, string.Empty, string.Empty), string.Empty,
                 Portrait: L(entry.PersonaKey, entry.PersonaFallback));
         }
-        if (!_citizensById.TryGetValue(who, out var citizen)) return null;
-        var table = PolisLocale.Citizen.ToDictionary(c => c.JsKey, StringComparer.Ordinal);
-        string Name(string jsKey) => L(table[jsKey].Key, table[jsKey].Fallback);
-        return new PolisSpeaker(
-            PolisCitizens.NameFor(citizen, Name("namesMale"), Name("namesFemale"), Name("nameNth")),
-            citizen.Female, citizen.Age, PolisTalk.PersonaFor(citizen.Seed, language), PolisTalk.AmbientCalling(citizen, language));
+        if (who == PolisRelations.AthenaId) return PolisTalk.AthenaSpeaker(L("Polis.Ui.AthenaName", "雅典娜"), language);
+        return _citizensById.TryGetValue(who, out var citizen) ? SpeakerFor(citizen, language) : null;
     }
 
     /// <summary>
@@ -1025,7 +1065,7 @@ public sealed partial class GameModeViewModel : ViewModelBase, IDisposable
     /// 下一位开口之前先推一句空的半句话（他头顶出现一串点）。有人没能开口（没配模型、正忙、超限、失败），这一轮就到此为止——插话没有本地台词。
     /// 你又开口了，上一轮没轮到的人不再说（取消）。最后推 <c>chorus-end</c>。
     /// </summary>
-    private async Task ChorusAsync(string line, IReadOnlyList<string> speakers)
+    private async Task ChorusAsync(string line, IReadOnlyList<string> speakers, IReadOnlyDictionary<string, (string? Where, string? Doing)>? states = null)
     {
         if (_disposed || speakers.Count == 0) return;
         _chorusCancel?.Cancel();
@@ -1044,17 +1084,17 @@ public sealed partial class GameModeViewModel : ViewModelBase, IDisposable
             PolisTalkReply? reply;
             if (i == 0)
             {
-                reply = await ChatAsync(who, PolisTalk.Overheard(line, language), overheard: true, cancel.Token);
+                reply = await ChatAsync(who, PolisTalk.Overheard(line, language), overheard: true, cancel.Token, states: states);
             }
             else
             {
                 // 他还在想：头顶先出现一串点（空的半句话 = 一句新的话开头了）
                 Post(new { type = "talk", who, n = 0, text = string.Empty, done = false });
                 Flush();
-                var attitude = AttitudeText(who, language);
+                var context = new PolisTalkContext(Attitude: AttitudeText(who, language), AthenaRegard: AthenaRegardFor(who, language), Moment: MomentFor(who, states, language), Night: _night);
                 var ties = earlier.Select(e => (e.Name, e.Text, TiesFrom(who, e.Id, e.Name, language))).ToList();
                 var world = WorldFacts();
-                var (said, n) = await StreamLineAsync(who, PolisTalkPurpose.Chorus, () => PolisTalk.BuildChorusLine(world, speaker, attitude, line, ties, language), cancel.Token);
+                var (said, n) = await StreamLineAsync(who, PolisTalkPurpose.Chorus, () => PolisTalk.BuildChorusLine(world, speaker, context, line, ties, language), cancel.Token);
                 reply = said;
                 if (reply != null && reply.Status == PolisTalkStatus.Ok && !string.IsNullOrWhiteSpace(reply.Text) && !_disposed && page != null && ReferenceEquals(page, _page))
                 {
@@ -1082,6 +1122,22 @@ public sealed partial class GameModeViewModel : ViewModelBase, IDisposable
         if (_disposed || page == null || !ReferenceEquals(page, _page)) return;
         Post(new { type = "chorus-end", who = speakers, spoke = earlier.Select(e => e.Id).ToList(), status });
         Flush();
+    }
+
+    /// <summary>雅典娜和一个人说话时，她知道的那一句：这个人怎么看她（第四轮需求 8：不是人人都敬重她）。</summary>
+    private string? AthenaSees(string who, string name, string language)
+    {
+        if (!_relationById.TryGetValue(who, out var person)) return null;
+        var band = PolisRelations.ToAthena(person, _relations, DateTimeOffset.UtcNow).Band;
+        var zh = PolisTalk.IsChinese(language);
+        return band switch
+        {
+            PolisRelationBand.Close => zh ? $"「{name}」非常敬重你。" : $"{name} reveres you.",
+            PolisRelationBand.Friendly => zh ? $"「{name}」敬重你。" : $"{name} respects you.",
+            PolisRelationBand.Neutral => zh ? $"「{name}」对你不冷不热。" : $"{name} is lukewarm towards you.",
+            PolisRelationBand.Cool => zh ? $"「{name}」不太服你，觉得你有点高高在上。" : $"{name} does not quite accept you and finds you a little high-handed.",
+            _ => zh ? $"「{name}」看不惯你，说话可能带刺——你不恼，不卑不亢。" : $"{name} cannot stand you and may be prickly - you are not offended and keep your dignity.",
+        };
     }
 
     /// <summary>a 对 b 的交情，一句（插话的提示词用）。</summary>
@@ -1122,12 +1178,16 @@ public sealed partial class GameModeViewModel : ViewModelBase, IDisposable
     /// <summary>
     /// 两位居民在街上碰上了（2026-10-13，用户：NPC 之间的对话只用模型，不预置台词，响应时气泡里是循环的点，回复流式出现）。
     /// 先开口的那位说一句（流式进他头顶），说完立刻让另一位头顶出现点，再带着刚才那句让他接一句；两句都走 <see cref="PolisTalkPurpose.Ambient"/> 池。
-    /// 提示词只有世界观、两人的名字与性子、那件事办到哪一步——<b>不带会话标题、不带任何原话</b>（<see cref="PolisTalk.AmbientCalling"/>）。
+    /// 提示词只有世界观、两人的名字、职业与性子、此刻和两人的交情——<b>不带楼的详情、不带任何文件内容</b>（没人按回车，这一次不该读你的文件）。
+    /// 一方可以是雅典娜（第四轮需求 8：<see cref="PolisTalk.AthenaSpeaker"/>，另一方的提示词里有他怎么看她）。
     /// 没配模型、正忙、超限、失败都不说话（没有本地台词可退），只推 <c>ambient-end</c> 让页面放开这两人、按结局决定多久之后再挑。
     /// </summary>
-    private async Task AmbientChatAsync(string a, string b)
+    private async Task AmbientChatAsync(string a, string b, IReadOnlyDictionary<string, (string? Where, string? Doing)>? states = null)
     {
-        if (_disposed || !_citizensById.TryGetValue(a, out var first) || !_citizensById.TryGetValue(b, out var second)) return;
+        var language = _localization.CurrentLanguage;
+        if (_disposed || SpeakerOf(a, language) is not { } sa || SpeakerOf(b, language) is not { } sb) return;
+        // 两位都得是城里的人，或者其中一位是雅典娜（第四轮需求 8）
+        if (!(_citizensById.ContainsKey(a) || a == PolisRelations.AthenaId) || !(_citizensById.ContainsKey(b) || b == PolisRelations.AthenaId)) return;
         var page = _page;
         if (_ambientRunning)
         {
@@ -1138,17 +1198,20 @@ public sealed partial class GameModeViewModel : ViewModelBase, IDisposable
         _ambientRunning = true;
         try
         {
-            var table = PolisLocale.Citizen.ToDictionary(c => c.JsKey, StringComparer.Ordinal);
-            string Name(string jsKey) => L(table[jsKey].Key, table[jsKey].Fallback);
-            var language = _localization.CurrentLanguage;
-            PolisSpeaker Speaker(PolisCitizen c) => new(
-                PolisCitizens.NameFor(c, Name("namesMale"), Name("namesFemale"), Name("nameNth")),
-                c.Female, c.Age, PolisTalk.PersonaFor(c.Seed, language), PolisTalk.AmbientCalling(c, language));
-            var (sa, sb) = (Speaker(first), Speaker(second));
             var world = WorldFacts();
             var token = _askCancel.Token;
-            var (tiesA, tiesB) = TiesText(a, b, sb.Name, sa.Name, language);
-            var (opening, na) = await StreamLineAsync(a, PolisTalkPurpose.Ambient, () => PolisTalk.BuildAmbientLine(world, sa, sb, null, language, tiesA), token);
+            // 交情：两个城里的人之间按关系；一方是雅典娜时，写的是对方怎么看她（雅典娜那一句里）、他自己怎么看她（他那一句里）
+            string? TiesFor(string who, string other, string otherName)
+            {
+                if (who == PolisRelations.AthenaId) return AthenaSees(other, otherName, language);
+                if (other == PolisRelations.AthenaId) return AthenaRegardFor(who, language);
+                return TiesFrom(who, other, otherName, language);
+            }
+            PolisTalkContext ContextFor(string who) => new(
+                AthenaRegard: who == PolisRelations.AthenaId || a == PolisRelations.AthenaId || b == PolisRelations.AthenaId ? null : AthenaRegardFor(who, language),
+                Moment: MomentFor(who, states, language),
+                Night: _night);
+            var (opening, na) = await StreamLineAsync(a, PolisTalkPurpose.Ambient, () => PolisTalk.BuildAmbientLine(world, sa, sb, null, language, TiesFor(a, b, sb.Name), ContextFor(a)), token);
             if (opening == null || _disposed || page == null || !ReferenceEquals(page, _page)) return;
             if (opening.Status != PolisTalkStatus.Ok || string.IsNullOrWhiteSpace(opening.Text))
             {
@@ -1161,7 +1224,7 @@ public sealed partial class GameModeViewModel : ViewModelBase, IDisposable
             // 他还在想：头顶先出现一串点（空的半句话 = 一句新的话开头了）
             Post(new { type = "talk", who = b, n = 0, text = string.Empty, done = false });
             Flush();
-            var (answer, nb) = await StreamLineAsync(b, PolisTalkPurpose.Ambient, () => PolisTalk.BuildAmbientLine(world, sb, sa, said, language, tiesB), token);
+            var (answer, nb) = await StreamLineAsync(b, PolisTalkPurpose.Ambient, () => PolisTalk.BuildAmbientLine(world, sb, sa, said, language, TiesFor(b, a, sa.Name), ContextFor(b)), token);
             if (answer == null || _disposed || page == null || !ReferenceEquals(page, _page)) return;
             if (answer.Status == PolisTalkStatus.Ok && !string.IsNullOrWhiteSpace(answer.Text))
             {
@@ -1200,15 +1263,16 @@ public sealed partial class GameModeViewModel : ViewModelBase, IDisposable
         Flush();
     }
 
-    /// <summary>这座城关系里的人：居民（老居民除外——他们刻在碑上）与十位职业居民。</summary>
+    /// <summary>这座城关系里的人：城里的人（第四轮起从建筑来）与十位职业居民；街上的是白天街上的人与职业居民。</summary>
     private void UpdateRelationPeople(IReadOnlyList<PolisCitizen> citizens)
     {
-        var people = citizens.Where(c => !c.Elder).Select(PolisRelations.CitizenPerson)
+        var now = DateTimeOffset.UtcNow;
+        var people = citizens.Select(c => PolisRelations.CitizenPerson(c, _dwellings.GetValueOrDefault(c.Dwelling), now))
             .Concat(PolisResidents.All.Select(PolisRelations.ResidentPerson))
             .ToList();
         _relationPeople = people;
         _relationById = people.ToDictionary(p => p.Id, StringComparer.Ordinal);
-        _relationStreet = citizens.Where(c => c.OnStreet).Select(c => c.ConversationId)
+        _relationStreet = citizens.Where(c => c.OnStreet).Select(c => c.Id)
             .Concat(PolisResidents.All.Select(k => PolisIntents.ResidentSpeakerPrefix + PolisResidents.Slug(k)))
             .ToHashSet(StringComparer.Ordinal);
     }
@@ -1232,14 +1296,6 @@ public sealed partial class GameModeViewModel : ViewModelBase, IDisposable
 
     /// <summary>他对你的态度，一句话（进和他说话的提示词）。</summary>
     private string AttitudeText(string id, string language) => PolisTalk.AttitudeText(RelationOf(id).Band, language);
-
-    /// <summary>两人之间的交情：a 怎么看 b、b 怎么看 a，各一句（进闲聊的提示词）。</summary>
-    private (string? AToB, string? BToA) TiesText(string a, string b, string nameOfB, string nameOfA, string language)
-    {
-        if (!_relationById.TryGetValue(a, out var pa) || !_relationById.TryGetValue(b, out var pb)) return (null, null);
-        var (ab, ba) = PolisRelations.Between(pa, pb, _relations, DateTimeOffset.UtcNow);
-        return (PolisTalk.TiesText(PolisRelations.BandOf(ab), nameOfB, language), PolisTalk.TiesText(PolisRelations.BandOf(ba), nameOfA, language));
-    }
 
     /// <summary>记一笔（他对你）：推给页面，两秒后落盘。返回实际改了多少。</summary>
     private double ApplyRelation(string id, PolisRelationEvent e)
@@ -1272,17 +1328,19 @@ public sealed partial class GameModeViewModel : ViewModelBase, IDisposable
         _relationsSaveTimer.Start();
     }
 
-    /// <summary>落盘：删掉的会话、淡没了的账先清掉（认识的人是所有会话与十位职业居民——账本是全局的，不只这座城）。</summary>
+    /// <summary>落盘：搬走的人、删掉的城、淡没了的账先清掉（<see cref="PolisRelations.KeepRule"/>——账本是全局的，不只这座城）。</summary>
     private async Task SaveRelationsAsync()
     {
         if (_disposed) return;
         // 还没读到旧账就先读：只拿这一会儿记的几笔整份写下去，等于把旧账抹了
         if (!_relationsLoaded) await LoadRelationsAsync();
         if (_disposed || _shell == null) return;
-        var known = _shell.AllSessions.Select(s => s.ConversationId)
-            .Concat(PolisResidents.All.Select(k => PolisIntents.ResidentSpeakerPrefix + PolisResidents.Slug(k)))
-            .ToHashSet(StringComparer.Ordinal);
-        _relations = PolisRelations.Prune(_relations, known, DateTimeOffset.UtcNow);
+        // 第四轮：账本是全局的，这座城只替自己的人判断谁搬走了；别的城还在就原样留着；第四轮之前按会话 Id 记的旧账清掉
+        var tags = _shell.Workspaces.Select(w => PolisCitizens.CityTag(w.Id)).Append(PolisCitizens.CityTag("sanctuary")).ToHashSet(StringComparer.Ordinal);
+        var keep = _cityKey == null
+            ? PolisRelations.KeepRule(string.Empty, new HashSet<string>(StringComparer.Ordinal), tags)
+            : PolisRelations.KeepRule(PolisCitizens.CityTag(_cityKey), _citizensById.Keys.ToHashSet(StringComparer.Ordinal), tags);
+        _relations = PolisRelations.Prune(_relations, keep, DateTimeOffset.UtcNow);
         await _relationStore.SaveAsync(_relations, _askCancel.Token);
     }
 
@@ -1639,6 +1697,7 @@ public sealed partial class GameModeViewModel : ViewModelBase, IDisposable
         _cityKey = workspace?.Id ?? "sanctuary";
         _households = Array.Empty<PolisHousehold>();
         _householdsBaselined = false;
+        _briefs.Clear();
         _lastScan = null;
         _notices.Clear();
         var slot = _slot;
@@ -1777,7 +1836,7 @@ public sealed partial class GameModeViewModel : ViewModelBase, IDisposable
             string.Join(",", workspaces.Select(w => w.Id + w.DirectoryPath)),
             string.Join(",", tasks.Select(t => t.Id + t.UpdatedAt.UtcTicks + t.RecentRuns.Count + t.IsEnabled)),
             string.Join(",", _save.Items.Select(i => i.Id + (i.Lost ? "L" : "") + i.State)),
-            string.Join(",", _save.MetResidents), _city?.Buildings.Count ?? 0);
+            string.Join(",", _save.MetResidents), CityShape(_city));
         if (!force && key == _accumulationKey) return;
         _accumulationKey = key;
         _commissions = commissions;
@@ -1797,43 +1856,42 @@ public sealed partial class GameModeViewModel : ViewModelBase, IDisposable
         _knownResidents = PolisResidents.All.Select(PolisResidents.Slug).ToHashSet(StringComparer.Ordinal);
         Post(new { type = "residents", residents = PolisAccumulation.Residents(_save.MetResidents.ToList(), L, now) });
 
-        // 居民即会话（M-B）：这座城的每场会话一位居民，街上最多 32 位，按最近动过的先上街
-        var byId = commissions.ToDictionary(c => c.ConversationId, StringComparer.Ordinal);
-        var citizens = PolisCitizens.Derive(
-            sessionsHere.Where(s => byId.ContainsKey(s.Session.ConversationId)).Select(s => new PolisCitizenSource(byId[s.Session.ConversationId], s.Messages)),
-            _fogged ? null : _cityWorkspace?.DirectoryPath,
-            _home,
-            (_city?.Buildings.Select(b => b.Key) ?? Enumerable.Empty<string>()).ToHashSet(StringComparer.Ordinal),
-            (_city?.Market ?? Enumerable.Empty<string>()).ToHashSet(StringComparer.Ordinal),
-            now,
-            ignoreCase: !OperatingSystem.IsLinux());
-        // 户与民居（M-D）：没有文件夹可归的居民聚成户、住进民居。户的地写进账本（永不挪位），城（合进民居）先推、居民后推——
-        // 居民的家是 b:household:…，页面得先有那座民居才排得出他的日程
-        var households = PolisHouseholds.Derive(citizens, HouseholdLabel);
-        var ledger = PolisHouseholds.Place(_save.Ledger, households);
-        var standingBefore = _save.Ledger.Entries.Where(e => PolisHouseholds.IsHouseholdKey(e.Key) && !e.Vacated).Select(e => e.Key).ToHashSet(StringComparer.Ordinal);
-        var householdsChanged = !PolisHouseholds.SameLedger(ledger, _save.Ledger) || HouseholdShape(households, now) != HouseholdShape(_households, now);
-        _households = households;
-        citizens = PolisHouseholds.Rehome(citizens, households);
-        if (householdsChanged && _city != null)
+        // 城里的人（第四轮，2026-10-15：NPC 不再和会话绑定）：从建筑来——每座楼 1–4 人，市集的摊位各 1 人；神殿岛和住所不足 4 处的城补村舍。
+        // 村舍的地写进账本（永不挪位），城（合进村舍）先推、居民后推——居民的家是 b:household:…，页面得先有那座村舍才排得出他的日程
+        if (_city != null)
         {
-            var founded = households.Where(h => !standingBefore.Contains(h.Key)).Select(h => h.Key).ToList();
-            if (!PolisHouseholds.SameLedger(ledger, _save.Ledger))
+            var folderDwellings = _city.Buildings.Count(b => !PolisHouseholds.IsHouseholdKey(b.Key)) + (_city.Market?.Count ?? 0);
+            var cottages = PolisHouseholds.Cottages(PolisHouseholds.CottageCount(_cityWorkspace == null, folderDwellings), now);
+            var ledger = PolisHouseholds.Place(_save.Ledger, cottages);
+            var standingBefore = _save.Ledger.Entries.Where(e => PolisHouseholds.IsHouseholdKey(e.Key) && !e.Vacated).Select(e => e.Key).ToHashSet(StringComparer.Ordinal);
+            var shown = PolisHouseholds.WithHouseholds(_city, cottages, ledger, now);
+            var dwellings = PolisCitizens.Dwellings(shown);
+            var citizens = PolisCitizens.Derive(_cityKey!, dwellings);
+            cottages = PolisHouseholds.Labeled(cottages, citizens, CottageLabel);
+            var householdsChanged = !PolisHouseholds.SameLedger(ledger, _save.Ledger) || HouseholdShape(cottages) != HouseholdShape(_households);
+            _households = cottages;
+            _dwellings = dwellings.ToDictionary(d => d.Key, StringComparer.Ordinal);
+            _homeNames = dwellings.ToDictionary(d => d.Key, d => d.Cottage ? cottages.FirstOrDefault(h => h.Key == d.Key)?.Label is { Length: > 0 } label ? label : d.Key : d.Key, StringComparer.Ordinal);
+            if (householdsChanged)
             {
-                _save = _save with { Ledger = ledger };
-                _ = PersistSaveAsync();
+                var founded = cottages.Where(h => !standingBefore.Contains(h.Key)).Select(h => h.Key).ToList();
+                if (!PolisHouseholds.SameLedger(ledger, _save.Ledger))
+                {
+                    _save = _save with { Ledger = ledger };
+                    _ = PersistSaveAsync();
+                }
+                // 第一遍（刚到这座城）是本来就住在这儿的人家，不闪、不说；之后新盖的村舍闪一下、雅典娜说一句
+                var origins = _householdsBaselined && founded.Count > 0 ? founded.ToDictionary(k => k, _ => "household", StringComparer.Ordinal) : null;
+                PostCity(_city, sanctuary: _cityWorkspace == null, founding: false, partial: false, origins: origins);
+                if (founded.Count > 0) _logger.Information("Polis cottages: {Count} new in {City} ({Total} in all)", founded.Count, _cityKey, cottages.Count);
             }
-            // 第一遍（刚到这座城）是本来就住在这儿的人家，不闪、不说；之后新立的户闪一下、雅典娜说一句
-            var origins = _householdsBaselined && founded.Count > 0 ? founded.ToDictionary(k => k, _ => "household", StringComparer.Ordinal) : null;
-            PostCity(_city, sanctuary: _cityWorkspace == null, founding: false, partial: false, origins: origins);
-            if (founded.Count > 0) _logger.Information("Polis households: {Count} new in {City} ({Total} in all)", founded.Count, _cityKey, households.Count);
+            _householdsBaselined = true;
+            _knownCitizens = citizens.Select(c => c.Id).ToHashSet(StringComparer.Ordinal);
+            _citizensById = citizens.ToDictionary(c => c.Id, StringComparer.Ordinal);
+            Post(new { type = "citizens", citizens = PolisAccumulation.Citizens(citizens, L, _homeNames, _localization.CurrentLanguage) });
+            UpdateRelationPeople(citizens);
+            PostRelations();
         }
-        _householdsBaselined = true;
-        _knownCitizens = citizens.Select(c => c.ConversationId).ToHashSet(StringComparer.Ordinal);
-        _citizensById = citizens.ToDictionary(c => c.ConversationId, StringComparer.Ordinal);
-        Post(new { type = "citizens", citizens = PolisAccumulation.Citizens(citizens, L) });
-        UpdateRelationPeople(citizens);
-        PostRelations();
 
         var suggestions = PolisSuggestions.Generate(new PolisSuggestionInput(
             workspaceId,
@@ -1858,6 +1916,11 @@ public sealed partial class GameModeViewModel : ViewModelBase, IDisposable
         Post(new { type = "islands", islands = PolisAccumulation.Islands(islands) });
         Flush();
     }
+
+    /// <summary>城的样子（楼的键、地块、体量、新旧，市集的摊位）：变了才重新推导城里的人。</summary>
+    private static string CityShape(PolisFixtureDocument? city)
+        => city == null ? string.Empty : string.Join(";", city.Buildings.Select(b => $"{b.Key}@{b.Plot.X},{b.Plot.Z}#{b.SizeClass}{b.State}{b.LastModified.UtcTicks}"))
+            + "|" + string.Join(",", city.Market ?? Array.Empty<string>());
 
     /// <summary>
     /// 定时任务有变化（在别的线程上）：在城里的时候，跑完的一次记到公告板上（神谕送来的那一卷当场放下）；神庙的状态跟着换。

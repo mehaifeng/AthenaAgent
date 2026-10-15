@@ -80,6 +80,12 @@ AppBuilder.Configure<App>()
     })
     .SetupWithoutStarting();
 
+// 敲门的端到端走查（不在正式运行里）：真的 ViewModel 接真的页面（Playwright WebKit），ATHENA_POLIS_E2E=1
+if (Environment.GetEnvironmentVariable("ATHENA_POLIS_E2E") == "1")
+{
+    ProbePolisKnockEndToEnd();
+}
+
 // 只跑游戏模式这一组（迭代用，不在正式运行里）：ATHENA_HEADLESS_ONLY=game-mode
 if (Environment.GetEnvironmentVariable("ATHENA_HEADLESS_ONLY") == "game-mode")
 {
@@ -5352,16 +5358,275 @@ static void TestGameModeAccumulation()
         => page.Messages.LastOrDefault(m => m.GetProperty("type").GetString() == "city") is { ValueKind: JsonValueKind.Object } c ? c.GetProperty("key").GetString() : null;
 }
 
+// 敲门的端到端走查（ATHENA_POLIS_E2E=1 才跑，不参与常规断言）：真的 GameModeViewModel（真的关系、敲门、请出来、隔着门的轮数与结局）
+// 接真的页面（OfficePreviewHost 供的同一份内嵌页面，Playwright 的 WebKit——macOS 应用里的同一个引擎）。只有模型的句子是替身。
+// 敲门用真按键 E，挑人、选项用真鼠标点面板，隔着门说话用真键盘打字回车；每一步截图到 ATHENA_POLIS_E2E_OUT（缺省临时目录）。
+// 第三轮需求 3 的验收：选谁、请出来（按关系出来或回绝）、隔着门说几轮（按耐心与关系：请你走，或者出门来谈）。
+// 新城里谁对你都寻常，走不到回绝与出门来谈：先开一次城认人，再像一份老存档那样写下"以前把谁惹烦了、和谁处得好"，重开这座城走查。
+static void ProbePolisKnockEndToEnd()
+{
+    var outDir = Environment.GetEnvironmentVariable("ATHENA_POLIS_E2E_OUT") ?? Path.Combine(Path.GetTempPath(), "athena-polis-e2e");
+    Directory.CreateDirectory(outDir);
+    var root = Path.Combine(Path.GetTempPath(), "athena-polis-e2e-" + Guid.NewGuid().ToString("N"));
+    var rootA = Path.Combine(root, "我的工作区");
+    // 二十个文件夹：门只在民居、作坊、货栈上——认不出类型的文件是民居，三座里一座是代码（作坊）
+    var folderNames = Enumerable.Range(1, 20).Select(i => $"文件夹{i:D2}").ToList();
+    for (var f = 0; f < folderNames.Count; f++)
+    {
+        var dir = Path.Combine(rootA, folderNames[f]);
+        Directory.CreateDirectory(dir);
+        for (var k = 0; k < 15; k++) File.WriteAllText(Path.Combine(dir, $"f{k:D2}{(f % 3 == 2 ? ".cs" : ".dat")}"), "x");
+    }
+    var previousFactory = PolisPageFactory.Create;
+    BridgedPolisPage? page = null;
+    PolisPageFactory.Create = uri => page = new BridgedPolisPage(uri);
+    var configService = new HeadlessConfigService(new AppConfig());
+    var session = new AppConfigurationSession(configService);
+    session.Current.MainLayout.GameMode = true;
+    var paths = new TemporaryPathService(Path.Combine(root, "AthenaData"));
+    var localization = new LocalizationService();
+    var wsA = new WorkspaceProfile { Name = "我的工作区", DirectoryPath = rootA, CreatedAt = DateTime.Now.AddDays(-60) };
+    var answers = new HeadlessPolisTalkService { Reply = _ => new PolisTalkReply(PolisTalkStatus.Ok, "嗯，我在屋里忙着呢。") };
+    var log = new List<string>();
+    var failures = new List<string>();
+    var jsonOut = new JsonSerializerOptions { Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping };
+    void Step(string what, object? value = null)
+    {
+        var line = value == null ? what : $"{what} {JsonSerializer.Serialize(value, jsonOut)}";
+        log.Add(line);
+        Console.WriteLine("[E2E] " + line);
+    }
+    void Expect(bool ok, string what) { if (!ok) failures.Add(what); Step((ok ? "✓ " : "✗ ") + what); }
+    T Wait<T>(Task<T> task, string what, int ms = 30000) { PumpTimers(() => task.IsCompleted, ms, what); return task.GetAwaiter().GetResult(); }
+    void WaitDone(Task task, string what, int ms = 30000) { PumpTimers(() => task.IsCompleted, ms, what); task.GetAwaiter().GetResult(); }
+
+    GameModeViewModel? gameMode = null;
+    Window? window = null;
+    void Open()
+    {
+        page = null;
+        gameMode = new GameModeViewModel(session, new OfficePreviewHost(), new PolisSaveStore(paths, Log.Logger), new WorkspaceWatcherService(), localization,
+            new HeadlessCronTaskReader(), new PolisAssetStore(Path.Combine(root, "assets"), Log.Logger), answers, new HeadlessPolisDebateService(), HeadlessRelations(root));
+        var shell = new MainWindowViewModel(
+            chatService: null, configService: null, promptService: null, logService: null, knowledgeBaseService: null,
+            localizationService: localization, fileSystemService: null, platformPathService: null, functionRegistry: null,
+            tokenService: null, attachmentStoreService: null, systemAudioService: null, archiveService: null,
+            imageGenerationSessionService: null, workspaceService: new HeadlessWorkspaceService(new List<WorkspaceProfile> { wsA }), configurationSession: session, gameMode: gameMode);
+        PumpTimers(() => !shell.IsConversationTreeLoading, 5000, "测试外壳的会话树没有加载完。");
+        var groupA = shell.ConversationGroups.First(g => g.Workspace?.Id == wsA.Id);
+        groupA.Conversations.Clear();
+        var conversation = new ConversationSessionItemViewModel(new MainConversationViewModel(), wsA, null) { Title = "走查", UpdatedAt = DateTime.Now };
+        groupA.Conversations.Add(conversation);
+        window = new Window { Width = 900, Height = 700, Content = new Athena.UI.Views.GameMode.PolisView { DataContext = gameMode } };
+        window.Show();
+        shell.SelectedConversation = conversation;
+        PumpTimers(() => page != null, 5000, "游戏模式没有创建页面。");
+        WaitDone(page!.StartAsync(), "Playwright WebKit 没有打开页面。", 120000);
+        PumpTimers(() => page.Received.Any(m => m.Contains("\"ready\"", StringComparison.Ordinal)), 90000, "页面没有发 ready。");
+        PumpTimers(() => Wait(page.EvalAsync("String((window.__polisGame?.world?.citizens?.size ?? 0) === 32 && [...window.__polisGame.world.citizens.values()].every(c => c.figure && c.plan))"), "页面脚本没有返回") == "true",
+            120000, "城里的 32 位没有在页面上站好。");
+        PumpTimers(() => page.Posted.Any(m => m.GetProperty("type").GetString() == "relations"), 20000, "C# 没有推关系。");
+        // 天色由 ViewModel 推（地址里的 theme 只管第一帧）：定成夜里，门后的人就是"在家的人"，不会走着走着出门
+        gameMode.SetNight(true);
+        PumpTimersFor(1500);
+    }
+    void Close()
+    {
+        page?.Dispose();
+        window?.Close();
+        gameMode?.Dispose();
+        PumpTimersFor(500);
+    }
+    try
+    {
+        // —— 第一次开城：认人（谁住在哪扇门后） ——
+        Open();
+        var p = page!;
+        Step("页面地址（OfficePreviewHost 供的内嵌页面）", p.Uri.ToString());
+        string Js(string expr) => Wait(page!.EvalAsync(expr), "页面脚本没有返回：" + expr);
+        string DoorOf(string id) => Js($"[...window.__polisGame.world.doors.keys()].find(d => window.__polisGame.insideOf(d).includes({JsonSerializer.Serialize(id)})) ?? ''");
+        JsonElement Citizens() => page!.Posted.Last(m => m.GetProperty("type").GetString() == "citizens").GetProperty("citizens");
+        List<string> Everyone() => Citizens().GetProperty("street").EnumerateArray().Concat(Citizens().GetProperty("indoors").EnumerateArray()).Select(c => c.GetProperty("id").GetString()!).ToList();
+        string NameOf(string id) => Citizens().GetProperty("street").EnumerateArray().Concat(Citizens().GetProperty("indoors").EnumerateArray())
+            .First(c => c.GetProperty("id").GetString() == id).GetProperty("name").GetString()!;
+        // 每扇门后挑一位（夜里——地址带 theme=dark——街上的人也都回了屋）
+        // 夜游的人夜里会出门，不挑他们
+        var owls = Citizens().GetProperty("street").EnumerateArray().Where(c => c.TryGetProperty("nightOwl", out var o) && o.GetBoolean()).Select(c => c.GetProperty("id").GetString()!).ToHashSet();
+        var byDoor = Everyone().Where(id => !owls.Contains(id)).Select(id => (id, door: DoorOf(id))).Where(x => x.door.Length > 0).GroupBy(x => x.door).Select(g => g.First().id).ToList();
+        Step("门后有人的门", byDoor.Count);
+        if (byDoor.Count < 4) throw new InvalidOperationException("门后有人的门不到 4 扇，走查走不全。");
+        var colds = byDoor.Where((_, i) => i % 3 == 1).ToList();
+        var warms = byDoor.Where((_, i) => i % 3 == 2).ToList();
+        var plains = byDoor.Where((_, i) => i % 3 == 0).ToList();
+        Close();
+        // 一份老存档里的事：以前把几位惹烦了（−45），和几位处得好（+40）
+        var seeded = new PolisRelationLedger(
+            colds.Select(id => new PolisPlayerTie(id, -45, DateTimeOffset.Now, Array.Empty<PolisRelationMark>()))
+                .Concat(warms.Select(id => new PolisPlayerTie(id, 40, DateTimeOffset.Now, Array.Empty<PolisRelationMark>()))).ToList(),
+            Array.Empty<PolisPairTie>());
+        WaitDone(Task.Run(() => HeadlessRelations(root).SaveAsync(seeded)), "写关系账本失败");
+
+        // —— 第二次开城：走查 ——
+        Open();
+        p = page!;
+        JsonElement You(string id) => page!.Posted.Last(m => m.GetProperty("type").GetString() == "relations").GetProperty("relations").GetProperty("you").GetProperty(id);
+        object Who(string id) => new { name = NameOf(id), band = You(id).GetProperty("band").GetString(), opens = You(id).GetProperty("opens").GetBoolean(), comesOut = You(id).GetProperty("comesOut").GetBoolean(), patience = You(id).GetProperty("patience").GetInt32() };
+        string Behind(List<string> ids, string what) => ids.FirstOrDefault(id => DoorOf(id).Length > 0) ?? throw new InvalidOperationException("此刻门后没有" + what + "。");
+        var callee = Behind(plains, "寻常的人");
+        var plain = Behind(plains.Where(id => id != callee && DoorOf(id) != DoorOf(callee)).ToList(), "第二位寻常的人");
+        var cold = Behind(colds, "冷淡的人");
+        var warm = Behind(warms, "处得好的人");
+        Step("四位", new[] { callee, cold, warm, plain }.Select(Who));
+        var shotN = 0;
+        void Shot(string name) => WaitDone(page!.ShotAsync(Path.Combine(outDir, $"{++shotN:D2}-{name}.png")), "截图失败");
+        string Status(string path) => Js($"JSON.stringify(window.__polis.{path} ?? null)");
+        bool HasRegion(string regionId) => Js($"String((window.__polisGame.regions ?? []).some(r => r.id === {JsonSerializer.Serialize(regionId)}))") == "true";
+        void ClickRegion(string regionId)
+        {
+            var rect = Js($"JSON.stringify((window.__polisGame.regions ?? []).find(r => r.id === {JsonSerializer.Serialize(regionId)}) ?? null)");
+            if (rect == "null") { Expect(false, "面板上有 " + regionId); return; }
+            using var doc = JsonDocument.Parse(rect);
+            var r = doc.RootElement;
+            WaitDone(page!.ClickAsync(r.GetProperty("x").GetDouble() + r.GetProperty("w").GetDouble() / 2, r.GetProperty("y").GetDouble() + r.GetProperty("h").GetDouble() / 2), "点击失败");
+            PumpTimersFor(300);
+        }
+        // 走到他的门前按 E；门后不止一位就点他的名字（只有他一位时页面直接是他）
+        void KnockFor(string id)
+        {
+            var door = DoorOf(id);
+            if (door.Length == 0) throw new InvalidOperationException(NameOf(id) + " 此刻不在门后。");
+            Js($"(() => {{ const g = window.__polisGame; const p = g.world.doorPlan({JsonSerializer.Serialize(door)}); g.placePlayer(p.step.x, p.step.z + 0.5, Math.atan2(p.x - p.step.x, p.z - (p.step.z + 0.5))); return 'ok'; }})()");
+            PumpTimersFor(500);
+            Expect(Status("focus?.type") == "\"door\"", "站到门前，按 E 的提示是敲门");
+            var before = page!.Received.Count;
+            WaitDone(page.PressAsync("KeyE"), "按键失败");
+            PumpTimers(() => page.Received.Skip(before).Any(m => m.Contains("\"knock\"", StringComparison.Ordinal)), 5000, "按 E 之后页面没有发 knock。");
+            PumpTimersFor(300);
+            Shot("knock");
+            // 等 C# 的回音落到面板上：门后几位时是人名，只有他一位时页面直接是他的选项（status.panel 是上一次的，不能等它）
+            PumpTimers(() => HasRegion("door-pick:" + id) || HasRegion("door-talk"), 8000, "C# 回音之后门的面板没有打开。");
+            PumpTimersFor(400);
+            var inside = Js($"JSON.stringify(window.__polisGame.insideOf({JsonSerializer.Serialize(door)}))");
+            Step("门上的话、屋里有谁", new { said = Status("doorSaid?.text"), inside });
+            Shot("who");
+            if (HasRegion("door-pick:" + id)) ClickRegion("door-pick:" + id);
+            Expect(HasRegion("door-talk"), $"挑中了 {NameOf(id)}：有「隔着门说话」");
+            Step("门里应的一句", Status("doorSaid?.text"));
+            Shot("picked");
+        }
+        JsonElement? CallOut(string id)
+        {
+            ClickRegion("door-call");
+            PumpTimers(() => page!.Posted.Any(m => m.GetProperty("type").GetString() == "call-out-reply" && m.GetProperty("who").GetString() == id), 8000, "C# 没有回 call-out-reply。");
+            PumpTimersFor(2500);
+            return page!.Posted.Last(m => m.GetProperty("type").GetString() == "call-out-reply" && m.GetProperty("who").GetString() == id);
+        }
+        string TalkThroughDoor(string id)
+        {
+            ClickRegion("door-talk");
+            Expect(Js("JSON.stringify(window.__polisTalk.lentTo?.id ?? null)") == JsonSerializer.Serialize(id), "对话栏借给了门后的他");
+            var rounds = 0;
+            var outcome = "stay";
+            var patienceAtEnd = 0;
+            while (rounds < 8 && outcome == "stay")
+            {
+                rounds++;
+                // 他的耐心按此刻的关系算：好好说一句 +2，耐心可能多出一轮（C# 每一轮都按刚推过的关系定）
+                var patienceNow = You(id).GetProperty("patience").GetInt32();
+                patienceAtEnd = patienceNow;
+                var callsBefore = answers.Calls.Count;
+                var talksBefore = page!.Posted.Count(m => m.GetProperty("type").GetString() == "talk");
+                WaitDone(page.TypeAsync($"第{rounds}句：你在忙什么？"), "打字失败");
+                WaitDone(page.PressAsync("Enter"), "回车失败");
+                PumpTimers(() => answers.Calls.Count > callsBefore && page.Posted.Where(m => m.GetProperty("type").GetString() == "talk").Skip(talksBefore)
+                    .Any(m => m.GetProperty("who").GetString() == id && m.TryGetProperty("done", out var d) && d.GetBoolean()), 10000, "C# 没有替他回话。");
+                var last = page.Posted.Last(m => m.GetProperty("type").GetString() == "talk" && m.GetProperty("who").GetString() == id);
+                outcome = last.TryGetProperty("door", out var dd) && dd.ValueKind == JsonValueKind.String ? dd.GetString()! : "stay";
+                Step($"第 {rounds} 轮（此刻耐心 {patienceNow}）：C# 定的结局 {outcome}", new { doorInPrompt = answers.Calls[^1].Prompt.System.Contains("门", StringComparison.Ordinal), onDoor = Js("JSON.stringify([...window.__polisGame.doorSayings.values()])") });
+                PumpTimersFor(1200);
+                Shot($"round{rounds}");
+            }
+            Expect(rounds == patienceAtEnd, $"说到他此刻的耐心那一轮（{patienceAtEnd}）才有结局：实际第 {rounds} 轮");
+            return outcome;
+        }
+
+        // —— 一、请他出来：没有旧账的人（寻常或更好，opens）开门出来，卡片打开 ——
+        Step("一、请没有旧账的人出来", Who(callee));
+        KnockFor(callee);
+        var r1 = CallOut(callee);
+        Expect(r1?.GetProperty("out").GetBoolean() == true && You(callee).GetProperty("opens").GetBoolean(), "C# 按关系让他出来");
+        Expect(Js($"window.__polisGame.world.citizens.get({JsonSerializer.Serialize(callee)})?.at?.at ?? ''") == "visit", "他开门出来了，站在门外");
+        Expect(Status("panel") == "\"citizen\"", "他的卡片打开了");
+        Shot("came-out");
+        Js("(window.__polisGame.onButton('panel-close'), 'ok')");
+        PumpTimersFor(500);
+
+        // —— 二、请冷淡的人出来：他回绝；面板留着「隔着门说话」；说到他的耐心，他请你走 ——
+        Step("二、请冷淡的人出来，再隔着门说", Who(cold));
+        KnockFor(cold);
+        var r2 = CallOut(cold);
+        Expect(r2?.GetProperty("out").GetBoolean() == false && !You(cold).GetProperty("opens").GetBoolean(), "C# 按关系让他回绝");
+        Expect(Status("panel") == "\"door\"" && HasRegion("door-talk") && !HasRegion("door-call"), "回绝之后面板留在他身上，只剩「隔着门说话」");
+        Shot("refused");
+        var o2 = TalkThroughDoor(cold);
+        Expect(o2 == "away", $"冷淡的他说到头请你走：实际 {o2}");
+        PumpTimersFor(1500);
+        Expect(Js("JSON.stringify(window.__polisTalk.lentTo ?? null)") == "null", "对话栏收回去了");
+        Shot("sent-away");
+
+        // —— 三、隔着门和处得好的人说：说到头他出门来谈，栏接着借给他 ——
+        Step("三、隔着门和处得好的人说", Who(warm));
+        KnockFor(warm);
+        var o3 = TalkThroughDoor(warm);
+        Expect(o3 == "out" && You(warm).GetProperty("comesOut").GetBoolean(), $"处得好的他说到头出门来谈：实际 {o3}");
+        PumpTimersFor(2500);
+        Expect(Js($"window.__polisGame.world.citizens.get({JsonSerializer.Serialize(warm)})?.at?.at ?? ''") == "visit", "他开门出来，站在门外");
+        Expect(Js("JSON.stringify(window.__polisTalk.lentTo?.id ?? null)") == JsonSerializer.Serialize(warm), "对话栏还借给他，当面接着聊");
+        Shot("face-to-face");
+        WaitDone(page!.PressAsync("Escape"), "Esc 失败");
+        PumpTimersFor(500);
+
+        // —— 四、隔着门和寻常的人说：说到头他请你走 ——
+        Step("四、隔着门和寻常的人说", Who(plain));
+        KnockFor(plain);
+        var o4 = TalkThroughDoor(plain);
+        Expect(o4 == "away" && !You(plain).GetProperty("comesOut").GetBoolean(), $"寻常的他说到头请你走：实际 {o4}");
+        PumpTimersFor(1500);
+
+        // —— 五、「人际」总览：真鼠标点工具栏的按钮 ——
+        WaitDone(page!.ClickSelectorAsync("#btn-relations"), "点「人际」失败");
+        PumpTimersFor(800);
+        Shot("relations");
+        Step("「人际」总览", Js("(document.querySelector('#relations, .relations-view, [class*=rel]')?.innerText ?? '').slice(0, 300)"));
+        Step("页面报错", page.Problems);
+        Expect(page.Problems.Count == 0, "页面没有报错");
+    }
+    finally
+    {
+        try { Close(); } catch (Exception e) { Console.WriteLine("[E2E] 收尾：" + e.Message); }
+        PolisPageFactory.Create = previousFactory;
+        try { Directory.Delete(root, recursive: true); } catch (IOException) { /* 临时目录清理失败不影响走查 */ }
+    }
+    File.WriteAllLines(Path.Combine(outDir, "log.txt"), log);
+    Console.WriteLine(failures.Count == 0 ? "[E2E] PASSED" : "[E2E] FAILED: " + string.Join("；", failures));
+    Environment.Exit(failures.Count == 0 ? 0 : 1);
+}
+
 static void TestGameModeCitizens()
 {
     var root = Path.Combine(Path.GetTempPath(), "athena-polis-citizens-" + Guid.NewGuid().ToString("N"));
     var rootA = Path.Combine(root, "我的工作区");
-    foreach (var (path, content) in new[] { ("合同/租赁合同.docx", "lease"), ("账本/流水.csv", "flow") })
-    {
-        var full = Path.Combine(rootA, path);
-        Directory.CreateDirectory(Path.GetDirectoryName(full)!);
-        File.WriteAllText(full, content);
-    }
+    // 第四轮：城里的人从建筑来——二十个文件夹（各 15 个文件，体量 2：每座住 2–3 人），「合同」里有一份说明，根目录也有一份
+    var folderNames = new[] { "合同" }.Concat(Enumerable.Range(1, 19).Select(i => $"文件夹{i:D2}")).ToList();
+    foreach (var folder in folderNames)
+        for (var k = 0; k < 15; k++)
+        {
+            var full = Path.Combine(rootA, folder, $"f{k:D2}.txt");
+            Directory.CreateDirectory(Path.GetDirectoryName(full)!);
+            File.WriteAllText(full, "x");
+        }
+    File.WriteAllText(Path.Combine(rootA, "合同", "README.md"), "合同库：租期一律三年，押金两个月");
+    File.WriteAllText(Path.Combine(rootA, "README.md"), "这是一个演示工作区");
     var previousFactory = PolisPageFactory.Create;
     var pages = new List<FakePolisPage>();
     PolisPageFactory.Create = uri => { var p = new FakePolisPage(uri); pages.Add(p); return p; };
@@ -5382,20 +5647,11 @@ static void TestGameModeCitizens()
     var capturingLogger = new LoggerConfiguration().MinimumLevel.Verbose().WriteTo.Sink(sink).CreateLogger();
     Log.Logger = capturingLogger;
 
-    ConversationSessionItemViewModel Session(WorkspaceProfile? workspace, string title, DateTime updated, string? folder)
+    ConversationSessionItemViewModel Session(WorkspaceProfile? workspace, string title, DateTime updated)
     {
         var chat = new MainConversationViewModel();
         chat.Messages.Add(new ChatMessage { Role = "user", Content = "请看看 " + secret, Timestamp = updated.AddMinutes(-2) });
-        var bubble = new ChatMessage { Role = "assistant", Timestamp = updated, Content = "看完了 " + secret };
-        if (folder != null)
-        {
-            var group = new ChatMessageSegment { Kind = ChatMessageSegmentKind.ToolCallGroup };
-            group.ToolCalls.Add(new ToolCallEntry { ToolCallId = Guid.NewGuid().ToString("N"), Name = "read_system_file", Status = ToolCallStatus.Success,
-                Arguments = $"{{\"path\": \"{Path.Combine(rootA, folder, "租赁合同.docx").Replace("\\", "\\\\")}\"}}" });
-            bubble.Segments.Add(group);
-        }
-        bubble.Segments.Add(new ChatMessageSegment { Kind = ChatMessageSegmentKind.Markdown, Text = "看完了 " + secret });
-        chat.Messages.Add(bubble);
+        chat.Messages.Add(new ChatMessage { Role = "assistant", Timestamp = updated, Content = "看完了 " + secret });
         return new ConversationSessionItemViewModel(chat, workspace, null) { Title = title, UpdatedAt = updated };
     }
 
@@ -5415,13 +5671,11 @@ static void TestGameModeCitizens()
         var global = shell.GlobalConversationGroup ?? throw new InvalidOperationException("会话树没有全局对话那一组。");
         groupA.Conversations.Clear();
         global.Conversations.Clear();
-        // 40 场会话：最新的一场碰过「合同」；第 40 场（最旧）一年多没动过
+        // 只有两场会话：会话多少不再决定城里有多少人（第四轮需求 1：会话少的时候城太空，像鬼城）
         var now = DateTime.Now;
-        var here = Enumerable.Range(0, 40)
-            .Select(i => Session(wsA, i == 0 ? "请帮我整理合同" : "第" + i + "件事", i == 39 ? now.AddDays(-400) : now.AddHours(-i), i == 0 ? "合同" : null))
-            .ToList();
+        var here = Enumerable.Range(0, 2).Select(i => Session(wsA, "第" + i + "件事", now.AddHours(-i))).ToList();
         foreach (var s in here) groupA.Conversations.Add(s);
-        var globals = Enumerable.Range(0, 3).Select(i => Session(null, "闲谈" + i, now.AddMinutes(-i), null)).ToList();
+        var globals = Enumerable.Range(0, 3).Select(i => Session(null, "闲谈" + i, now.AddMinutes(-i))).ToList();
         foreach (var s in globals) global.Conversations.Add(s);
 
         window = new Window { Width = 900, Height = 700, Content = new Athena.UI.Views.GameMode.PolisView { DataContext = gameMode } };
@@ -5433,170 +5687,140 @@ static void TestGameModeCitizens()
         page.Send("""{"v":1,"type":"ready"}""");
         List<JsonElement> Of(string type) => page.Messages.Where(m => m.GetProperty("type").GetString() == type).ToList();
         string? City() => Of("city").LastOrDefault() is { ValueKind: JsonValueKind.Object } c ? c.GetProperty("key").GetString() : null;
-        PumpTimers(() => City() == wsA.Id && Of("citizens").Count > 0, 15000, "到了城里要推居民（citizens）。");
+        PolisFixtureDocument CityDoc() => Of("city")[^1].GetProperty("city").Deserialize<PolisFixtureDocument>(PolisFixture.JsonOptions)!;
+        // 城核对完（完整测绘的那一份），居民按它推导：每座楼 2–3 人
+        PumpTimers(() => City() == wsA.Id && Of("citizens").Count > 0 && CityDoc().Buildings.Count == folderNames.Count && CityDoc().Buildings.All(b => b.SizeClass == 2)
+            && Of("citizens")[^1].GetProperty("citizens").GetProperty("census").GetProperty("total").GetInt32() >= 40, 20000, "到了城里要按建筑推居民（citizens）。");
+        PumpTimersFor(2500);
 
-        // —— 街上 32 位，按最近动过的；人口数得到全部 40 位，一年多没动的那位刻在碑上 ——
+        // —— 城里的人从建筑来：人数与推导一致；街上 32 位，其余在屋里；名字不重；家在文件夹门前；没有任何会话的东西 ——
         var payload = Of("citizens")[^1].GetProperty("citizens");
+        var expected = PolisCitizens.Derive(wsA.Id, PolisCitizens.Dwellings(CityDoc()));
         var street = payload.GetProperty("street").EnumerateArray().ToList();
-        if (street.Count != 32)
-            throw new InvalidOperationException($"街上同时最多 32 位居民，实际 {street.Count}。");
-        var expected = here.Take(32).Select(s => s.ConversationId).ToList();
-        if (!street.Select(c => c.GetProperty("id").GetString()).SequenceEqual(expected))
-            throw new InvalidOperationException("上街的是最近动过的 32 位，按最近排。");
+        var indoors = payload.GetProperty("indoors").EnumerateArray().ToList();
         var census = payload.GetProperty("census");
-        if (census.GetProperty("total").GetInt32() != 40 || census.GetProperty("street").GetInt32() != 32 || census.GetProperty("elders").GetInt32() != 1 || census.GetProperty("indoors").GetInt32() != 7)
-            throw new InvalidOperationException($"人口：40 位，街上 32，屋里 7，老居民 1；实际 {census}。");
-        var elders = payload.GetProperty("elders").EnumerateArray().Select(e => e.GetProperty("id").GetString()).ToList();
-        if (!elders.SequenceEqual(new[] { here[39].ConversationId }))
-            throw new InvalidOperationException("一年多没动过的会话是老居民，名字刻在碑上，不上街。");
-        var first = street[0];
-        if (first.GetProperty("home").GetString() != "b:合同" || !first.GetProperty("folders").EnumerateArray().Any(f => f.GetString() == "合同"))
-            throw new InvalidOperationException($"碰过「合同」的那位住在合同那座楼前，实际 {first.GetProperty("home").GetString()}。");
-        // 名字（2026-10-13，用户）：完整的希腊名，不拿会话标题拼，同一座城里不重名
-        if (first.GetProperty("name").GetString()!.Contains("整理合同", StringComparison.Ordinal))
-            throw new InvalidOperationException($"名字不再带会话标题，实际 {first.GetProperty("name").GetString()}。");
-        var everyName = street.Select(c => c.GetProperty("name").GetString()).Concat(payload.GetProperty("elders").EnumerateArray().Select(e => e.GetProperty("name").GetString())).ToList();
-        if (everyName.Distinct(StringComparer.Ordinal).Count() != everyName.Count || everyName.Any(string.IsNullOrEmpty))
-            throw new InvalidOperationException($"同一座城里不重名：{string.Join("、", everyName)}");
-        if (payload.GetRawText().Contains(secret, StringComparison.Ordinal))
-            throw new InvalidOperationException("推给页面的居民里不能有任何消息正文。");
+        if (census.GetProperty("total").GetInt32() != expected.Count || street.Count != 32 || indoors.Count != expected.Count - 32 || census.GetProperty("street").GetInt32() != 32)
+            throw new InvalidOperationException($"人口按建筑推导（{expected.Count} 位），街上 32，其余在屋里：{census}");
+        if (payload.TryGetProperty("elders", out _)) throw new InvalidOperationException("老居民与碑随会话一起拿掉了。");
+        if (!street.Select(c => c.GetProperty("id").GetString()).SequenceEqual(expected.Where(c => c.OnStreet).Select(c => c.Id)))
+            throw new InvalidOperationException("上街的人与推导一致（按住所最近动过的先后轮流取）。");
+        var everyone = street.Concat(indoors).ToList();
+        var names = everyone.Select(c => c.GetProperty("name").GetString()).ToList();
+        if (names.Distinct(StringComparer.Ordinal).Count() != names.Count || names.Any(string.IsNullOrEmpty))
+            throw new InvalidOperationException($"同一座城里不重名：{string.Join("、", names)}");
+        if (everyone.Any(c => !c.GetProperty("home").GetString()!.StartsWith("b:", StringComparison.Ordinal) || !folderNames.Contains(c.GetProperty("homeName").GetString()!)))
+            throw new InvalidOperationException("每个人都住在一座文件夹的楼里（住处的名字是文件夹名）。");
+        foreach (var c in everyone)
+        {
+            var trade = c.GetProperty("trade").GetString()!;
+            if (!PolisTrades.IsKnown(trade) || string.IsNullOrEmpty(c.GetProperty("tradeName").GetString()) || string.IsNullOrEmpty(c.GetProperty("temper").GetString()))
+                throw new InvalidOperationException($"每个人有职业（键与名字）和脾气：{c}");
+            var seed = c.GetProperty("seed").GetUInt32();
+            if (c.GetProperty("female").GetBoolean() != PolisCitizens.IsFemale(seed)) throw new InvalidOperationException("男女看种子的最低位。");
+        }
+        if (payload.GetRawText().Contains(secret, StringComparison.Ordinal) || payload.GetRawText().Contains("第0件事", StringComparison.Ordinal))
+            throw new InvalidOperationException("推给页面的居民里没有任何会话的东西。");
+        var contractPerson = expected.First(c => c.Dwelling == "合同");
+        var contractName = everyone.Single(c => c.GetProperty("id").GetString() == contractPerson.Id).GetProperty("name").GetString()!;
 
-        // —— 看看那场会话（2026-10-13）：只有你和雅典娜看得见的话，工具调用不带；只认这座城的居民 ——
-        page.Send($$"""{"v":1,"type":"citizen-transcript","conversationId":"{{here[0].ConversationId}}"}""");
-        PumpTimers(() => Of("citizen-transcript").Count > 0, 5000, "预览要把那场会话推回页面（citizen-transcript）。");
-        var transcript = Of("citizen-transcript")[^1];
-        var transcriptEntries = transcript.GetProperty("entries").EnumerateArray().Select(e => e.GetProperty("role").GetString() + ":" + e.GetProperty("text").GetString()).ToList();
-        if (!transcriptEntries.SequenceEqual(new[] { "user:请看看 " + secret, "assistant:看完了 " + secret })
-            || transcript.GetProperty("conversationId").GetString() != here[0].ConversationId
-            || transcript.GetRawText().Contains("租赁合同.docx", StringComparison.Ordinal))
-            throw new InvalidOperationException($"预览只有你和雅典娜说的两句，工具参数不带：{transcript}");
-        var transcriptsBefore = Of("citizen-transcript").Count;
-        page.Send("""{"v":1,"type":"citizen-transcript","conversationId":"made-up"}""");
-        Dispatcher.UIThread.RunJobs();
-        if (Of("citizen-transcript").Count != transcriptsBefore)
-            throw new InvalidOperationException("编造的会话不给预览。");
-        var seed = first.GetProperty("seed").GetUInt32();
-        if (seed != PolisCitizens.SeedOf(here[0].ConversationId) || first.GetProperty("female").GetBoolean() != PolisCitizens.IsFemale(seed))
-            throw new InvalidOperationException("居民的种子与男女由会话 Id 定（页面按它生成长相）。");
+        // —— 删掉一场会话：城里的人一个不少（会话不再是居民） ——
+        groupA.Conversations.Remove(here[1]);
+        PumpTimersFor(2500);
+        if (Of("citizens")[^1].GetProperty("citizens").GetProperty("census").GetProperty("total").GetInt32() != expected.Count)
+            throw new InvalidOperationException("删掉一场会话，城里的人数不变。");
 
-        // —— 和一位居民聊天（2026-10-13，原来 M-C 的问话）：他的提示词是这座城、他自己和他那一场会话里挑的几段；
-        //    看得见的字边收边推（talk / done: false），说完推最后一版；只推回页面，不进任何会话 ——
-        int Rejections() => sink.Events.Count(e => e.Level == Serilog.Events.LogEventLevel.Warning && e.RenderMessage().StartsWith("Rejected a polis page intent", StringComparison.Ordinal));
-        var messagesBefore = here.Sum(h => h.Chat.Messages.Count);
-        List<JsonElement> Talks(bool done) => Of("talk").Where(t => t.GetProperty("done").GetBoolean() == done).ToList();
-        // —— 人物关系（第三轮需求 1）：居民一推，关系跟着推——这座城的每位居民（老居民除外）与十位职业居民各一条，没有任何正文 ——
+        // —— 人物关系：城里的每一位与十位职业居民各一条；每人怎么看雅典娜（第四轮需求 8）；没有任何正文 ——
         PumpTimers(() => Of("relations").Count > 0, 5000, "居民推完要推关系（relations）。");
         JsonElement Relations() => Of("relations")[^1].GetProperty("relations");
         int ScoreOf(JsonElement rel, string id) => rel.GetProperty("you").GetProperty(id).GetProperty("score").GetInt32();
         var relBefore = Relations();
         var relPeople = relBefore.GetProperty("you").EnumerateObject().Select(p => p.Name).ToList();
-        if (relPeople.Count != 39 + 10 || !relPeople.Contains("resident:smith") || !relPeople.Contains(here[0].ConversationId) || relPeople.Contains(here[^1].ConversationId))
-            throw new InvalidOperationException($"关系里是这座城的 39 位居民（老居民不在）与十位职业居民：{relPeople.Count}");
-        if (Of("relations").Any(r => r.GetRawText().Contains(secret, StringComparison.Ordinal) || r.GetRawText().Contains("请帮我整理合同", StringComparison.Ordinal)))
-            throw new InvalidOperationException("关系里没有标题、没有任何正文，只有 Id、数与原因的键。");
-        var scoreBefore = ScoreOf(relBefore, here[0].ConversationId);
-        answers.Partials = new[] { "我记得，", "我记得，那份合同" };
+        if (relPeople.Count != expected.Count + 10 || !relPeople.Contains("resident:smith") || !relPeople.Contains(contractPerson.Id))
+            throw new InvalidOperationException($"关系里是城里的 {expected.Count} 位与十位职业居民：{relPeople.Count}");
+        var regard = relBefore.GetProperty("athena");
+        if (regard.EnumerateObject().Count() != expected.Count + 10)
+            throw new InvalidOperationException("每个人怎么看雅典娜都在（athena）。");
+        var regardBands = regard.EnumerateObject().Select(p => p.Value.GetProperty("band").GetString()).ToHashSet();
+        if (regardBands.Count < 3) throw new InvalidOperationException($"不是人人都一样敬重雅典娜：{string.Join(",", regardBands)}");
+        if (Of("relations").Any(r => r.GetRawText().Contains(secret, StringComparison.Ordinal) || r.GetRawText().Contains("合同", StringComparison.Ordinal)))
+            throw new InvalidOperationException("关系里没有文件夹名、没有任何正文，只有 Id、数与原因的键。");
+
+        // —— 和他说话：提示词有这座城、他是谁（名字、职业、住哪儿）、此刻（时刻、他在哪儿干什么）、他住的楼（详，含说明）、整个项目（略）——
+        int Rejections() => sink.Events.Count(e => e.Level == Serilog.Events.LogEventLevel.Warning && e.RenderMessage().StartsWith("Rejected a polis page intent", StringComparison.Ordinal));
+        var messagesBefore = here[0].Chat.Messages.Count;
+        List<JsonElement> Talks(bool done) => Of("talk").Where(t => t.GetProperty("done").GetBoolean() == done).ToList();
+        var scoreBefore = ScoreOf(relBefore, contractPerson.Id);
+        answers.Partials = new[] { "这楼里，", "这楼里，合同" };
         answers.HoldFinal = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        page.Send($$"""{"v":1,"type":"chat","who":"{{here[0].ConversationId}}","text":"  那份合同最后定了几年？  "}""");
-        PumpTimers(() => Talks(false).Any(t => t.GetProperty("text").GetString() == "我记得，那份合同"), 5000, "流式的半句话要推给页面（talk，done: false）。");
+        page.Send($$"""{"v":1,"type":"chat","who":"{{contractPerson.Id}}","text":"  这楼里放着什么？  ","where":"agora","doing":"work"}""");
+        PumpTimers(() => Talks(false).Any(t => t.GetProperty("text").GetString() == "这楼里，合同"), 5000, "流式的半句话要推给页面（talk，done: false）。");
         answers.HoldFinal.SetResult();
         answers.HoldFinal = null;
         PumpTimers(() => Talks(true).Count > 0, 5000, "聊天要把他的话推回页面（talk）。");
         var asked = answers.Calls.Single();
         var system = asked.Prompt.System;
-        if (asked.Purpose != PolisTalkPurpose.Player || asked.Prompt.Messages[^1].Text != "那份合同最后定了几年？" || asked.Prompt.Messages.Count != 1)
+        if (asked.Purpose != PolisTalkPurpose.Player || asked.Prompt.Messages[^1].Text != "这楼里放着什么？" || asked.Prompt.Messages.Count != 1)
             throw new InvalidOperationException($"你开的口走 Player 池，你这一句去掉首尾空白放在最后：{string.Join(" / ", asked.Prompt.Messages)}");
-        if (!system.Contains(first.GetProperty("name").GetString()!, StringComparison.Ordinal) || !system.Contains("「我的工作区」", StringComparison.Ordinal)
-            || !system.Contains("请帮我整理合同", StringComparison.Ordinal) || !system.Contains("看完了 " + secret, StringComparison.Ordinal))
-            throw new InvalidOperationException($"提示词里有他的名字、这座城、他托付过的那件事和他那场会话里的话：{system}");
-        if (here.Skip(1).Any(h => system.Contains("「" + h.Title + "」", StringComparison.Ordinal)))
-            throw new InvalidOperationException("提示词只带他那一场会话，不读别的会话。");
-        var partials = Talks(false).Where(t => t.GetProperty("who").GetString() == here[0].ConversationId).Select(t => t.GetProperty("text").GetString()).ToList();
-        if (partials.Count == 0 || partials[^1] != "我记得，那份合同")
-            throw new InvalidOperationException($"流式的半句话推给页面（每次攒批只带最新的一版）：{string.Join(" / ", partials)}");
+        // 工作区的 Id 每次运行都是新的，城里每个人的种子（也就是职业）跟着变：无业的人在提示词里是「没有正经营生」，不是职业名；
+        // 乐师的营生里本来就有「在广场上」——所以「此刻」只认那一整句「你此刻在广场上」（CI 上碰到过这两种人，push 那一次就挂了）
+        var tradePart = contractPerson.Trade == PolisTrades.Idle ? "没有正经营生" : PolisTrades.ByKey(contractPerson.Trade).Zh;
+        foreach (var part in new[] { contractName, "「我的工作区」", "住在「合同」", tradePart, "你此刻在广场上", "现在是", "租期一律三年", "f00.txt", "这是一个演示工作区", "文件夹01" })
+            if (!system.Contains(part, StringComparison.Ordinal)) throw new InvalidOperationException($"提示词里要有「{part}」：{system}");
+        foreach (var gone in new[] { secret, "第0件事", "托付过的那件事" })
+            if (system.Contains(gone, StringComparison.Ordinal)) throw new InvalidOperationException($"提示词里没有任何会话的东西：{gone}");
         var reply = Talks(true)[^1];
-        if (reply.GetProperty("who").GetString() != here[0].ConversationId || reply.GetProperty("status").GetString() != "ok"
-            || reply.GetProperty("text").GetString() != "我记得，那份合同最后定在三年。")
-            throw new InvalidOperationException($"说完的那一版原样推给页面：{reply}");
-        if (here.Sum(h => h.Chat.Messages.Count) != messagesBefore || here.Any(h => h.Chat.InputText.Contains("合同最后", StringComparison.Ordinal)))
+        if (reply.GetProperty("who").GetString() != contractPerson.Id || reply.GetProperty("status").GetString() != "ok")
+            throw new InvalidOperationException($"说完的那一版推给页面：{reply}");
+        if (here[0].Chat.Messages.Count != messagesBefore || here[0].Chat.InputText.Contains("楼里", StringComparison.Ordinal))
             throw new InvalidOperationException("聊天不进任何会话：没有新消息，也不写进输入框。");
-        // 接着说：上一轮的来回进了提示词
+        // 接着说：上一轮的来回进了提示词；对你的态度、对雅典娜的态度都在提示词里
         answers.Partials = Array.Empty<string>();
         answers.Reply = _ => new PolisTalkReply(PolisTalkStatus.Ok, "押金两个月。");
-        page.Send($$"""{"v":1,"type":"chat","who":"{{here[0].ConversationId}}","text":"押金呢？"}""");
+        page.Send($$"""{"v":1,"type":"chat","who":"{{contractPerson.Id}}","text":"押金呢？"}""");
         PumpTimers(() => Talks(true).Count > 1, 5000, "第二句也要推回去。");
-        var again = answers.Calls[^1].Prompt.Messages.Select(m => $"{m.Role}:{m.Text}").ToList();
-        if (!again.SequenceEqual(new[] { "user:那份合同最后定了几年？", "assistant:我记得，那份合同最后定在三年。", "user:押金呢？" }))
-            throw new InvalidOperationException($"他记得刚才聊过什么：{string.Join(" / ", again)}");
-        // 关系：他对你的态度进了提示词（紧跟在"他是谁"后面）；好好聊了两句，他对你 +4，原因里有"聊过"，账本两秒后落盘
-        var attitudes = Enum.GetValues<PolisRelationBand>().Select(b => PolisTalk.AttitudeText(b, "zh-CN")).ToList();
-        if (!attitudes.Any(a => answers.Calls[^1].Prompt.System.Contains(a, StringComparison.Ordinal)))
-            throw new InvalidOperationException($"和他说话的提示词里有他对你的态度：{answers.Calls[^1].Prompt.System}");
-        PumpTimers(() => ScoreOf(Relations(), here[0].ConversationId) != scoreBefore, 5000, "聊过之后关系要重推。");
-        var chatted = Relations().GetProperty("you").GetProperty(here[0].ConversationId);
-        // （原因只列分量最大的两条：聊过两句的 +4 比"办成了"的 +15 小，这里不在里面——Archive 的 polis relations 核对聊得多了它会排进来）
-        if (Math.Min(100, scoreBefore + 4) != chatted.GetProperty("score").GetInt32() || chatted.GetProperty("why").GetArrayLength() > 2)
-            throw new InvalidOperationException($"好好聊了两句：他对你 +4（{scoreBefore} → {chatted}），原因最多两条。");
+        if (answers.Calls[^1].Prompt.Messages.Count != 3) throw new InvalidOperationException("他记得刚才聊过什么。");
+        var secondSystem = answers.Calls[^1].Prompt.System;
+        if (!Enum.GetValues<PolisRelationBand>().Any(b => secondSystem.Contains(PolisTalk.AttitudeText(b, "zh-CN"), StringComparison.Ordinal))
+            || !Enum.GetValues<PolisRelationBand>().Any(b => secondSystem.Contains(PolisTalk.AthenaRegardText(b, "zh-CN"), StringComparison.Ordinal)))
+            throw new InvalidOperationException("提示词里有他对你的态度、对雅典娜的态度。");
+        if (secondSystem.Contains("你此刻在广场上", StringComparison.Ordinal) || !secondSystem.Contains("你此刻在城里", StringComparison.Ordinal))
+            throw new InvalidOperationException("这一句没说他在哪儿：不编，只说在城里。");
+        PumpTimers(() => ScoreOf(Relations(), contractPerson.Id) != scoreBefore, 5000, "聊过之后关系要重推。");
+        if (Math.Min(100, scoreBefore + 4) != ScoreOf(Relations(), contractPerson.Id))
+            throw new InvalidOperationException($"好好聊了两句：他对你 +4（{scoreBefore} → {ScoreOf(Relations(), contractPerson.Id)}）。");
         var relationsFile = Path.Combine(root, "AthenaData", "Game", "relations.json");
         PumpTimers(() => File.Exists(relationsFile), 8000, "关系的账本两秒后落盘（全局的 Game/relations.json）。");
         var relationsText = File.ReadAllText(relationsFile);
-        if (!relationsText.Contains(here[0].ConversationId, StringComparison.Ordinal) || relationsText.Contains(secret, StringComparison.Ordinal) || relationsText.Contains("合同", StringComparison.Ordinal))
-            throw new InvalidOperationException("账本里有这位居民的 Id 与变化，没有任何正文或标题。");
-        // 你自己说了一句、他在旁边听见（2026-10-13，平时的对话栏）：给模型的那一句前面说明是听见的
-        page.Send($$"""{"v":1,"type":"chat","who":"{{here[3].ConversationId}}","text":"今天风真大","overheard":true}""");
-        PumpTimers(() => answers.Calls.Count > 2, 5000, "听见的那一句也要问模型。");
-        if (answers.Calls[^1].Prompt.Messages[^1].Text != "（你在街上，听见城的主人在你旁边说）今天风真大")
-            throw new InvalidOperationException($"听见的那一句前面说明是听见的：{answers.Calls[^1].Prompt.Messages[^1].Text}");
-        PumpTimers(() => Talks(true).Count > 2, 5000, "听见之后他的话也推回页面。");
+        if (!relationsText.Contains(contractPerson.Id, StringComparison.Ordinal) || relationsText.Contains(secret, StringComparison.Ordinal) || relationsText.Contains("合同", StringComparison.Ordinal))
+            throw new InvalidOperationException("账本里有这位的 Id 与变化，没有任何正文或文件夹名。");
         // 没配模型：他说一句本地化的话，不是错误框
         answers.Reply = _ => new PolisTalkReply(PolisTalkStatus.NoModel);
-        page.Send($$"""{"v":1,"type":"chat","who":"{{here[1].ConversationId}}","text":"你还记得什么？"}""");
-        PumpTimers(() => Talks(true).Count > 3, 5000, "没配模型也要推一句话回去。");
-        var noModel = Talks(true)[^1];
-        if (noModel.GetProperty("status").GetString() != "nomodel" || !noModel.GetProperty("text").GetString()!.Contains("城里的居民", StringComparison.Ordinal))
-            throw new InvalidOperationException($"没配模型时他说「先在设置的模型角色里给『虚拟宠物与城里的居民』……选一个模型」：{noModel}");
-        answers.Reply = _ => new PolisTalkReply(PolisTalkStatus.Ok, "好的。");
+        var someone = expected[1].Id;
+        page.Send($$"""{"v":1,"type":"chat","who":"{{someone}}","text":"你好"}""");
+        PumpTimers(() => Talks(true).Count > 2, 5000, "没配模型也要推一句话回去。");
+        if (Talks(true)[^1].GetProperty("status").GetString() != "nomodel" || !Talks(true)[^1].GetProperty("text").GetString()!.Contains("城里的居民", StringComparison.Ordinal))
+            throw new InvalidOperationException("没配模型时他说一句本地化的话。");
 
-        // —— 你自己说了一句，附近几个人依次接话（第三轮需求 6）：第一位走 Player 池、和以前听见你说话的那一位一样；
-        //    后面的走 Chorus 池，听得到前面几位说了什么、知道自己和他们的交情；下一位开口前头顶先一串点；说完推 chorus-end ——
+        // —— 你自己说了一句，附近几个人依次接话：第一位走 Player（带着楼与项目）；后面的走 Chorus，听得到前面几位、不带任何文件内容 ——
         var chorusCallsBefore = answers.Calls.Count;
-        var chorusTalksBefore = Of("talk").Count;
         answers.Reply = p => new PolisTalkReply(PolisTalkStatus.Ok, p.Messages[^1].Text.Contains("说：", StringComparison.Ordinal) ? "我也这么觉得。" : "是啊，港口的旗子都飘直了。");
-        var chorusWho = new[] { here[4].ConversationId, here[5].ConversationId, "resident:scribe" };
-        page.Send($$"""{"v":1,"type":"chorus","text":"今天风真大","who":["{{chorusWho[0]}}","{{chorusWho[1]}}","{{chorusWho[2]}}"]}""");
+        var chorusWho = new[] { expected[2].Id, contractPerson.Id, "resident:scribe" };
+        page.Send("{\"v\":1,\"type\":\"chorus\",\"text\":\"今天风真大\",\"who\":[\"" + string.Join("\",\"", chorusWho) + "\"],\"states\":{\"" + chorusWho[1] + "\":{\"where\":\"market\",\"doing\":\"idle\"}}}");
         PumpTimers(() => Of("chorus-end").Count > 0, 5000, "一轮接话说完要推 chorus-end。");
         var chorusCalls = answers.Calls.Skip(chorusCallsBefore).ToList();
         if (chorusCalls.Count != 3 || chorusCalls[0].Purpose != PolisTalkPurpose.Player || chorusCalls.Skip(1).Any(c => c.Purpose != PolisTalkPurpose.Chorus))
             throw new InvalidOperationException($"三位依次接话：第一位走 Player，后面的走 Chorus（{string.Join(",", chorusCalls.Select(c => c.Purpose))}）。");
-        if (chorusCalls[0].Prompt.Messages[^1].Text != "（你在街上，听见城的主人在你旁边说）今天风真大" || !chorusCalls[0].Prompt.System.Contains("你记得的", StringComparison.Ordinal))
-            throw new InvalidOperationException("第一位像以前听见你说话那样接：前面说明是听见的，带着他那场会话里的话。");
-        if (!chorusCalls[1].Prompt.Messages[0].Text.EndsWith("说：是啊，港口的旗子都飘直了。", StringComparison.Ordinal) || !chorusCalls[1].Prompt.System.Contains("你和「", StringComparison.Ordinal))
-            throw new InvalidOperationException($"第二位听得到第一位说了什么、知道和他的交情：{chorusCalls[1].Prompt.Messages[0].Text}");
-        if (!chorusCalls[2].Prompt.Messages[0].Text.EndsWith("说：我也这么觉得。", StringComparison.Ordinal) || chorusCalls[2].Prompt.Messages[0].Text.Split('\n').Length != 3)
-            throw new InvalidOperationException($"第三位听得到前面两位：{chorusCalls[2].Prompt.Messages[0].Text}");
-        if (chorusCalls.Skip(1).Any(c => c.Prompt.System.Contains(secret, StringComparison.Ordinal) || c.Prompt.System.Contains("你记得的", StringComparison.Ordinal)))
-            throw new InvalidOperationException("插话的人不带他那场会话里的话。");
-        var chorusTalks = Of("talk").Skip(chorusTalksBefore)
-            .Select(t => $"{Array.IndexOf(chorusWho, t.GetProperty("who").GetString())}:{t.GetProperty("done").GetBoolean()}:{t.GetProperty("text").GetString()}").ToList();
-        if (!chorusTalks.SequenceEqual(new[] { "0:True:是啊，港口的旗子都飘直了。", "1:False:", "1:True:我也这么觉得。", "2:False:", "2:True:我也这么觉得。" }))
-            throw new InvalidOperationException($"一位说完下一位头顶一串点、再说：{string.Join(" / ", chorusTalks)}");
-        var chorusEnd = Of("chorus-end")[^1];
-        if (chorusEnd.GetProperty("status").GetString() != "ok" || chorusEnd.GetProperty("spoke").GetArrayLength() != 3)
-            throw new InvalidOperationException($"三位都说了：chorus-end ok：{chorusEnd}");
-        // 后面那位没配模型：这一轮到此为止，只有第一位说了（插话没有本地台词），chorus-end 带着结局
-        answers.Reply = p => p.Messages[^1].Text.Contains("说：", StringComparison.Ordinal) ? new PolisTalkReply(PolisTalkStatus.NoModel) : new PolisTalkReply(PolisTalkStatus.Ok, "风大好晒衣服。");
-        page.Send($$"""{"v":1,"type":"chorus","text":"今天风真大","who":["{{chorusWho[1]}}","{{chorusWho[0]}}"]}""");
-        PumpTimers(() => Of("chorus-end").Count > 1, 5000, "没配模型也要推 chorus-end。");
-        var cutShort = Of("chorus-end")[^1];
-        if (cutShort.GetProperty("status").GetString() != "nomodel" || cutShort.GetProperty("spoke").GetArrayLength() != 1)
-            throw new InvalidOperationException($"后面那位没配模型：只有第一位说了，chorus-end nomodel：{cutShort}");
-        answers.Reply = _ => new PolisTalkReply(PolisTalkStatus.Ok, "好的。");
+        if (chorusCalls.Skip(1).Any(c => c.Prompt.System.Contains("租期一律三年", StringComparison.Ordinal) || c.Prompt.System.Contains("演示工作区", StringComparison.Ordinal)))
+            throw new InvalidOperationException("插话的人不带楼的详情与项目的说明。");
+        if (!chorusCalls[1].Prompt.System.Contains("在市集上", StringComparison.Ordinal) || !chorusCalls[1].Prompt.Messages[0].Text.EndsWith("说：是啊，港口的旗子都飘直了。", StringComparison.Ordinal))
+            throw new InvalidOperationException("第二位：此刻在市集上，听得到第一位说了什么。");
+        if (Of("chorus-end")[^1].GetProperty("status").GetString() != "ok" || Of("chorus-end")[^1].GetProperty("spoke").GetArrayLength() != 3)
+            throw new InvalidOperationException("三位都说了：chorus-end ok。");
 
-        // —— 敲门（第三轮需求 3）：knock 记下来、回 knock-reply（敲门本身不加不减）；两分钟里第三次敲算敲得太勤（−3）；
-        //    隔着门说话按他的耐心数轮，到头了 C# 定出门来谈（out）还是请你走（away，之后三分钟不应门）；请他出来按关系回 call-out-reply ——
+        // —— 敲门：两分钟里第三次敲算敲得太勤（−3）；隔着门说话按耐心数轮；请他出来按关系 ——
         JsonElement YouOf(string id) => Relations().GetProperty("you").GetProperty(id);
         int KnockReplies() => Of("knock-reply").Count;
-        var knockee = here[6].ConversationId;
+        var knockee = expected[3].Id;
         var knockScore = YouOf(knockee).GetProperty("score").GetInt32();
         for (var k = 1; k <= 3; k++)
         {
@@ -5607,155 +5831,124 @@ static void TestGameModeCitizens()
                 throw new InvalidOperationException($"第 {k} 次敲：{(k < 3 ? "不算太勤" : "两分钟里第三次算敲得太勤")}（{string.Join(",", pesteredNow)}）。");
         }
         PumpTimers(() => YouOf(knockee).GetProperty("score").GetInt32() == Math.Max(-100, knockScore - 3), 3000, $"敲得太勤 −3（{knockScore} → {YouOf(knockee)}）。");
-        // 隔着门说话：一轮一轮说，到他的耐心那一轮收（每一轮之前按此刻推给页面的关系算该怎么收）
-        var talker = here[7].ConversationId;
+        var talker = expected[4].Id;
         answers.Reply = _ => new PolisTalkReply(PolisTalkStatus.Ok, "在呢，你说。");
         string lastDoor = "stay";
         for (var round = 1; round <= 5 && lastDoor == "stay"; round++)
         {
             var view = YouOf(talker);
             var expectedDoor = round < view.GetProperty("patience").GetInt32() ? "stay" : view.GetProperty("comesOut").GetBoolean() ? "out" : "away";
-            var callsBeforeDoor = answers.Calls.Count;
             var finalsBeforeDoor = Talks(true).Count;
-            page.Send($$"""{"v":1,"type":"chat","who":"{{talker}}","text":"你在家吗？","door":true}""");
+            page.Send($$"""{"v":1,"type":"chat","who":"{{talker}}","text":"你在家吗？","door":true,"where":"inside","doing":"idle"}""");
             PumpTimers(() => Talks(true).Count > finalsBeforeDoor, 5000, "隔着门说话也要推他的话。");
             var doorFinal = Talks(true)[^1];
             lastDoor = doorFinal.TryGetProperty("door", out var d) && d.ValueKind == JsonValueKind.String ? d.GetString()! : "(none)";
             if (lastDoor != expectedDoor)
                 throw new InvalidOperationException($"隔着门第 {round} 轮：应该是 {expectedDoor}，C# 推的是 {lastDoor}（{view}）。");
-            if (!answers.Calls[^1].Prompt.System.Contains(PolisTalk.DoorText(expectedDoor, "zh-CN"), StringComparison.Ordinal))
-                throw new InvalidOperationException($"隔着门第 {round} 轮的提示词里有门里门外与这一轮怎么收（{expectedDoor}）。");
-            if (answers.Calls.Count != callsBeforeDoor + 1)
-                throw new InvalidOperationException("隔着门一轮一次调用。");
+            if (!answers.Calls[^1].Prompt.System.Contains(PolisTalk.DoorText(expectedDoor, "zh-CN"), StringComparison.Ordinal) || !answers.Calls[^1].Prompt.System.Contains("在自己家里", StringComparison.Ordinal))
+                throw new InvalidOperationException($"隔着门第 {round} 轮的提示词里有门里门外、这一轮怎么收、他在家里（{expectedDoor}）。");
         }
         if (lastDoor == "stay") throw new InvalidOperationException("说到第五轮还隔着门：耐心最多五轮。");
-        if (lastDoor == "away")
-        {
-            page.Send($$"""{"v":1,"type":"knock","who":["{{talker}}"]}""");
-            PumpTimers(() => KnockReplies() == 4, 3000, "打发过你之后再敲也要回 knock-reply。");
-            if (!Of("knock-reply")[^1].GetProperty("ignoring").EnumerateArray().Any(x => x.GetString() == talker))
-                throw new InvalidOperationException("打发过你的人三分钟里不应门（ignoring）。");
-        }
-        // 请他出来：按此刻的关系（寻常及以上出来）
-        var callee = here[8].ConversationId;
+        var callee = expected[5].Id;
         var opens = YouOf(callee).GetProperty("opens").GetBoolean();
         page.Send($$"""{"v":1,"type":"call-out","who":"{{callee}}"}""");
         PumpTimers(() => Of("call-out-reply").Count > 0, 3000, "请他出来要回 call-out-reply。");
-        var callReply = Of("call-out-reply")[^1];
-        if (callReply.GetProperty("who").GetString() != callee || callReply.GetProperty("out").GetBoolean() != opens)
-            throw new InvalidOperationException($"请他出来：关系寻常及以上就出来（opens {opens}）：{callReply}");
-        answers.Reply = _ => new PolisTalkReply(PolisTalkStatus.Ok, "好的。");
-        // 校验：别的城的会话、不存在的会话、空的一句、超长的一句一律拒绝，一次也不调用
+        if (Of("call-out-reply")[^1].GetProperty("out").GetBoolean() != opens)
+            throw new InvalidOperationException("请他出来：关系寻常及以上就出来。");
+        // 校验：会话 Id、编造的人、空的一句、超长的一句一律拒绝，一次也不调用
         var rejectedBefore = Rejections();
         var askedBefore = answers.Calls.Count;
-        page.Send($$"""{"v":1,"type":"chat","who":"{{globals[0].ConversationId}}","text":"别的城的人"}""");
-        page.Send("""{"v":1,"type":"chat","who":"made-up","text":"谁"}""");
-        page.Send($$"""{"v":1,"type":"chat","who":"{{here[0].ConversationId}}","text":"   "}""");
-        page.Send($$"""{"v":1,"type":"chat","who":"{{here[0].ConversationId}}","text":"{{new string('问', 301)}}"}""");
+        page.Send($$"""{"v":1,"type":"chat","who":"{{here[0].ConversationId}}","text":"会话不再是人"}""");
+        page.Send("""{"v":1,"type":"chat","who":"n:00000000:000000000000","text":"谁"}""");
+        page.Send($$"""{"v":1,"type":"chat","who":"{{contractPerson.Id}}","text":"   "}""");
+        page.Send($$"""{"v":1,"type":"chat","who":"{{contractPerson.Id}}","text":"{{new string('问', 301)}}"}""");
         PumpTimers(() => Rejections() >= rejectedBefore + 4, 3000, "四条越界的话都要被拒并记 Warning。");
         PumpTimersFor(150);
-        if (answers.Calls.Count != askedBefore)
-            throw new InvalidOperationException("被拒的话一次也不调用模型。");
+        if (answers.Calls.Count != askedBefore) throw new InvalidOperationException("被拒的话一次也不调用模型。");
 
-        // —— 两位居民街头闲聊（2026-10-13：只用模型，不预置台词）：一人一句，两次调用都走 Ambient 池；
-        //    提示词只有世界观、两人的名字与性子、那件事办到哪一步——不带标题、不带任何原话 ——
+        // —— 两个人街头闲聊：一人一句，两次都走 Ambient；不带任何文件内容；彼此 +1 ——
+        // 两人之间的关系只推街上的人（pairs），所以这一对要从街上挑——谁上街按住所最近动过的先后轮，测试里二十个文件夹几乎同一秒写出，
+        // 本机和 CI 的文件时间不一样，按下标取的 expected[6] / [7] 在 CI 上进了屋（PR #37 的 CI 就挂在这里）
+        var used = new HashSet<string> { contractPerson.Id, someone, chorusWho[0], knockee, talker, callee };
+        var pair = expected.Where(c => c.OnStreet && !used.Contains(c.Id)).Take(2).ToList();
+        if (pair.Count < 2) throw new InvalidOperationException("街上要有两位还没用过的人来闲聊。");
+        var a = pair[0].Id;
+        var b = pair[1].Id;
         var callsBefore = answers.Calls.Count;
         var endsBefore = Of("ambient-end").Count;
         var talksBefore = Of("talk").Count;
         answers.Reply = p => new PolisTalkReply(PolisTalkStatus.Ok, p.Messages[^1].Text.Contains("先开口", StringComparison.Ordinal) ? "今天港口的风真大。" : "船都早早靠岸了。");
-        page.Send($$"""{"v":1,"type":"ambient-chat","a":"{{here[0].ConversationId}}","b":"{{here[2].ConversationId}}"}""");
+        page.Send($$"""{"v":1,"type":"ambient-chat","a":"{{a}}","b":"{{b}}"}""");
         PumpTimers(() => Of("ambient-end").Count > endsBefore, 5000, "闲聊说完要推 ambient-end。");
         var ambientCalls = answers.Calls.Skip(callsBefore).ToList();
         if (ambientCalls.Count != 2 || ambientCalls.Any(c => c.Purpose != PolisTalkPurpose.Ambient))
             throw new InvalidOperationException($"闲聊一人一句，两次调用都走 Ambient 池：{ambientCalls.Count}");
-        foreach (var (_, prompt) in ambientCalls)
-        {
-            var all = prompt.System + string.Join("\n", prompt.Messages.Select(m => m.Text));
-            if (all.Contains(secret, StringComparison.Ordinal) || all.Contains("请帮我整理合同", StringComparison.Ordinal) || all.Contains("第2件事", StringComparison.Ordinal) || all.Contains("「合同」", StringComparison.Ordinal))
-                throw new InvalidOperationException($"闲聊的提示词不带标题、文件夹、原话：{all}");
-        }
-        if (!ambientCalls[1].Prompt.Messages[^1].Text.EndsWith("今天港口的风真大。", StringComparison.Ordinal))
-            throw new InvalidOperationException($"接话的那位带着对方刚说的：{ambientCalls[1].Prompt.Messages[^1].Text}");
-        var ambientTalks = Of("talk").Skip(talksBefore).Select(t => $"{(t.GetProperty("who").GetString() == here[0].ConversationId ? "a" : "b")}:{t.GetProperty("done").GetBoolean()}:{t.GetProperty("text").GetString()}").ToList();
-        if (!ambientTalks.SequenceEqual(new[] { "a:True:今天港口的风真大。", "b:False:", "b:True:船都早早靠岸了。" }))
-            throw new InvalidOperationException($"先开口的说完，另一位头顶一串点，再接一句：{string.Join(" / ", ambientTalks)}");
-        if (Of("ambient-end")[^1].GetProperty("status").GetString() != "ok")
-            throw new InvalidOperationException("说完了：ambient-end ok。");
-        // 关系：两人的交情进了闲聊的提示词；闲聊了一次，两人彼此 +1（街上的两两之间推给页面）
+        if (ambientCalls.Any(c => c.Prompt.System.Contains("租期一律三年", StringComparison.Ordinal) || c.Prompt.System.Contains("演示工作区", StringComparison.Ordinal) || c.Prompt.System.Contains(secret, StringComparison.Ordinal)))
+            throw new InvalidOperationException("闲聊的提示词不带任何文件内容或会话的话。");
         if (!ambientCalls.All(c => c.Prompt.System.Contains("你和「", StringComparison.Ordinal)))
             throw new InvalidOperationException("闲聊的提示词里有两人的交情。");
-        int Bond(JsonElement rel, string a, string b)
+        var ambientTalks = Of("talk").Skip(talksBefore).Select(t => $"{(t.GetProperty("who").GetString() == a ? "a" : "b")}:{t.GetProperty("done").GetBoolean()}:{t.GetProperty("text").GetString()}").ToList();
+        if (!ambientTalks.SequenceEqual(new[] { "a:True:今天港口的风真大。", "b:False:", "b:True:船都早早靠岸了。" }))
+            throw new InvalidOperationException($"先开口的说完，另一位头顶一串点，再接一句：{string.Join(" / ", ambientTalks)}");
+        int Bond(JsonElement rel, string x, string y)
         {
             foreach (var p in rel.GetProperty("pairs").EnumerateArray())
             {
-                var (pa, pb) = (p[0].GetString(), p[1].GetString());
-                if (pa == a && pb == b) return p[2].GetInt32();
-                if (pa == b && pb == a) return p[3].GetInt32();
+                var (px, py) = (p[0].GetString(), p[1].GetString());
+                if (px == x && py == y) return p[2].GetInt32();
+                if (px == y && py == x) return p[3].GetInt32();
             }
-            throw new InvalidOperationException($"街上的两人之间要有关系：{a} / {b}");
+            throw new InvalidOperationException($"街上的两人之间要有关系：{x} / {y}");
         }
-        PumpTimers(() => Bond(Relations(), here[0].ConversationId, here[2].ConversationId) != Bond(relBefore, here[0].ConversationId, here[2].ConversationId), 5000, "闲聊之后两人的关系要重推。");
-        if (Bond(Relations(), here[0].ConversationId, here[2].ConversationId) - Bond(relBefore, here[0].ConversationId, here[2].ConversationId) != 1
-            || Bond(Relations(), here[2].ConversationId, here[0].ConversationId) - Bond(relBefore, here[2].ConversationId, here[0].ConversationId) != 1)
+        PumpTimers(() => Bond(Relations(), a, b) != Bond(relBefore, a, b), 5000, "闲聊之后两人的关系要重推。");
+        if (Bond(Relations(), a, b) - Bond(relBefore, a, b) != 1 || Bond(Relations(), b, a) - Bond(relBefore, b, a) != 1)
             throw new InvalidOperationException("闲聊了一次：两人彼此 +1。");
-        // 没配模型：一句也不说（没有本地台词可退），只推 ambient-end nomodel
-        answers.Reply = _ => new PolisTalkReply(PolisTalkStatus.NoModel);
-        var talksBeforeNoModel = Of("talk").Count;
-        page.Send($$"""{"v":1,"type":"ambient-chat","a":"{{here[0].ConversationId}}","b":"{{here[2].ConversationId}}"}""");
-        PumpTimers(() => Of("ambient-end").Count > endsBefore + 1, 5000, "没配模型也要推 ambient-end。");
-        if (Of("ambient-end")[^1].GetProperty("status").GetString() != "nomodel" || Of("talk").Count != talksBeforeNoModel)
-            throw new InvalidOperationException("没配模型：不说任何话，ambient-end nomodel。");
+
+        // —— 雅典娜和城里的人说话（第四轮需求 8）：她那一句是她自己、知道他怎么看她；他那一句里有他对她的态度；之后他对她 +1 ——
+        var regardBefore = Relations().GetProperty("athena").GetProperty(a).GetProperty("score").GetInt32();
+        callsBefore = answers.Calls.Count;
+        endsBefore = Of("ambient-end").Count;
+        talksBefore = Of("talk").Count;
+        answers.Reply = p => new PolisTalkReply(PolisTalkStatus.Ok, p.Messages[^1].Text.Contains("先开口", StringComparison.Ordinal) ? "今天市集上热闹吗？" : "还行吧。");
+        page.Send($$"""{"v":1,"type":"ambient-chat","a":"athena","b":"{{a}}"}""");
+        PumpTimers(() => Of("ambient-end").Count > endsBefore, 5000, "和雅典娜的闲聊说完也要推 ambient-end。");
+        var athenaCalls = answers.Calls.Skip(callsBefore).ToList();
+        if (athenaCalls.Count != 2 || !athenaCalls[0].Prompt.System.Contains("你是雅典娜本人", StringComparison.Ordinal)
+            || !athenaCalls[1].Prompt.System.Contains("雅典娜（这座城的守护女神）在街上走到你跟前", StringComparison.Ordinal)
+            || !Enum.GetValues<PolisRelationBand>().Any(band => athenaCalls[1].Prompt.System.Contains(PolisTalk.AthenaRegardText(band, "zh-CN"), StringComparison.Ordinal)))
+            throw new InvalidOperationException("她那一句是她自己；他那一句里有她走到他跟前、他怎么看她。");
+        var athenaTalks = Of("talk").Skip(talksBefore).Select(t => t.GetProperty("who").GetString()).ToList();
+        if (athenaTalks.FirstOrDefault() != "athena") throw new InvalidOperationException("雅典娜先开口，她的话推给页面（who: athena）。");
+        PumpTimers(() => Relations().GetProperty("athena").GetProperty(a).GetProperty("score").GetInt32() == Math.Min(100, regardBefore + 1), 5000, "和她聊过之后，他对她 +1。");
+        var athenaPairs = page.Messages.Count;
+        page.Send("""{"v":1,"type":"ambient-chat","a":"athena","b":"athena"}""");
+        PumpTimersFor(200);
+        if (Of("ambient-end").Count != endsBefore + 1) throw new InvalidOperationException("雅典娜不和自己聊。");
         answers.Reply = _ => new PolisTalkReply(PolisTalkStatus.Ok, "好的。");
 
-        // —— 选中一场会话（橄榄树、神谕、传令官的那几行；居民卡片上的那个按钮 2026-10-13 第三轮拿掉了）= 会话树的同一条路径 ——
-        page.Send($$"""{"v":1,"type":"select-conversation","conversationId":"{{here[5].ConversationId}}"}""");
-        PumpTimers(() => ReferenceEquals(shell.SelectedConversation, here[5]), 5000, "select-conversation 要选中那场会话。");
-
-        // —— 删掉一场会话，他就不在了（居民从会话树推导，从不另存） ——
-        PumpTimers(() => City() == wsA.Id, 10000, "同一座城：不重新装城。");
-        var gone = here[3];
-        groupA.Conversations.Remove(gone);
-        PumpTimers(() => Of("citizens")[^1].GetProperty("citizens").GetProperty("census").GetProperty("total").GetInt32() == 39, 6000, "删掉一场会话，人口少一位（积累每两秒看一眼）。");
-        var after = Of("citizens")[^1].GetProperty("citizens");
-        if (after.GetProperty("street").EnumerateArray().Any(c => c.GetProperty("id").GetString() == gone.ConversationId))
-            throw new InvalidOperationException("删掉的会话不能还有居民在街上。");
-        if (after.GetProperty("street").GetArrayLength() != 32)
-            throw new InvalidOperationException("街上空出来的位置由屋里最近动过的那位补上。");
+        // —— 选中一场会话 = 会话树的同一条路径；城里的人不进存档 ——
+        page.Send($$"""{"v":1,"type":"select-conversation","conversationId":"{{here[0].ConversationId}}"}""");
+        PumpTimers(() => ReferenceEquals(shell.SelectedConversation, here[0]), 5000, "select-conversation 要选中那场会话。");
         var savePath = Path.Combine(paths.GetWorkspacesDirectory(), wsA.Id, "game", "polis.json");
         PumpTimers(() => File.Exists(savePath), 5000, "装城之后存档要在（账本）。");
-        if (File.ReadAllText(savePath).Contains("citizen", StringComparison.OrdinalIgnoreCase))
-            throw new InvalidOperationException("居民不进存档（从会话树推导，删掉会话他就不在了）。");
+        if (File.ReadAllText(savePath).Contains("citizen", StringComparison.OrdinalIgnoreCase) || File.ReadAllText(savePath).Contains("household:", StringComparison.Ordinal))
+            throw new InvalidOperationException("城里的人不进存档；住所够四处的城没有村舍。");
 
-        // —— 户与民居（M-D）：没碰过文件夹的居民聚成户、住进民居；民居合进推给页面的城（户名作名牌），地写进存档的账本 ——
-        List<JsonElement> Houses() => Of("city")[^1].GetProperty("city").GetProperty("buildings").EnumerateArray()
-            .Where(b => b.GetProperty("key").GetString()!.StartsWith("household:", StringComparison.Ordinal)).ToList();
-        PumpTimers(() => City() == wsA.Id && Houses().Count > 0, 6000, "这座城里没碰过文件夹的居民要聚成户、盖起民居。");
-        var houses = Houses();
-        if (houses.Any(h => h.GetProperty("kind").GetString() != "house" || !h.GetProperty("label").GetString()!.EndsWith("一家", StringComparison.Ordinal)))
-            throw new InvalidOperationException($"民居是 house，名牌是户名：{string.Join(" / ", houses.Select(h => h.GetRawText()))}");
-        var streetNow = Of("citizens")[^1].GetProperty("citizens").GetProperty("street").EnumerateArray().ToList();
-        if (streetNow.Single(c => c.GetProperty("id").GetString() == here[0].ConversationId).GetProperty("home").GetString() != "b:合同")
-            throw new InvalidOperationException("碰过文件夹的那位照旧住在文件夹门前。");
-        var houseKeys = houses.Select(h => "b:" + h.GetProperty("key").GetString()).ToHashSet(StringComparer.Ordinal);
-        if (streetNow.Where(c => c.GetProperty("id").GetString() != here[0].ConversationId).Any(c => !houseKeys.Contains(c.GetProperty("home").GetString()!)))
-            throw new InvalidOperationException("没碰过文件夹的居民都住进了推给页面的那几座民居。");
-        if (houses.Any(h => h.GetProperty("files").GetInt32() > PolisHouseholds.MaxMembers))
-            throw new InvalidOperationException("每户最多 6 人。");
-        PumpTimers(() => File.ReadAllText(savePath).Contains("household:", StringComparison.Ordinal), 5000, "民居的地写进存档的账本（永不挪位）。");
-
-        // —— 神殿：没有工作区的会话都是神殿的居民；神殿没有文件夹，他们聚成户、住进民居（神殿自此有了房子） ——
+        // —— 神殿：没有文件夹，固定六座村舍、村舍里住着人——与全局对话有几场无关 ——
         shell.SelectedConversation = globals[0];
         PumpTimers(() => City() == "sanctuary", 10000, "全局对话要航向神殿。");
-        PumpTimers(() => Of("citizens")[^1].GetProperty("citizens").GetProperty("census").GetProperty("total").GetInt32() == 3, 6000, "神殿的居民是那 3 场全局对话。");
-        var sanctuaryStreet = Of("citizens")[^1].GetProperty("citizens").GetProperty("street").EnumerateArray().ToList();
-        if (!sanctuaryStreet.Select(c => c.GetProperty("id").GetString()).OrderBy(x => x).SequenceEqual(globals.Select(g => g.ConversationId).OrderBy(x => x)))
-            throw new InvalidOperationException("神殿的街上是那 3 场全局对话的居民。");
-        PumpTimers(() => City() == "sanctuary" && Houses().Count == 1, 6000, "神殿里三场标题相像的全局对话聚成一户、盖一座民居。");
-        var sanctuaryHouse = Houses().Single();
-        // 户名是立户那一位的希腊名加「一家」（2026-10-13 起不再拿会话标题当称号）
-        var sanctuaryNames = sanctuaryStreet.Select(c => c.GetProperty("name").GetString() + "一家").ToHashSet(StringComparer.Ordinal);
-        if (!sanctuaryNames.Contains(sanctuaryHouse.GetProperty("label").GetString()!) || sanctuaryStreet.Any(c => c.GetProperty("home").GetString() != "b:" + sanctuaryHouse.GetProperty("key").GetString()))
-            throw new InvalidOperationException($"神殿的三位住进以立户那位命名的一户：{sanctuaryHouse}");
+        List<JsonElement> Houses() => Of("city")[^1].GetProperty("city").GetProperty("buildings").EnumerateArray()
+            .Where(h => h.GetProperty("key").GetString()!.StartsWith("household:", StringComparison.Ordinal)).ToList();
+        PumpTimers(() => City() == "sanctuary" && Houses().Count == PolisHouseholds.SanctuaryCottages && Houses().All(h => h.TryGetProperty("label", out _)), 8000, "神殿岛有六座村舍，名牌是「某某一家」。");
+        PumpTimers(() => Of("citizens")[^1].GetProperty("citizens").GetProperty("street").EnumerateArray().Any(c => c.GetProperty("cottage").GetBoolean()), 6000, "神殿的人住在村舍里。");
+        var sanctuaryCitizens = Of("citizens")[^1].GetProperty("citizens");
+        var sanctuaryStreet = sanctuaryCitizens.GetProperty("street").EnumerateArray().ToList();
+        var houseKeys = Houses().Select(h => "b:" + h.GetProperty("key").GetString()).ToHashSet(StringComparer.Ordinal);
+        if (sanctuaryStreet.Count < 12 || sanctuaryStreet.Any(c => !houseKeys.Contains(c.GetProperty("home").GetString()!) || !c.GetProperty("cottage").GetBoolean()))
+            throw new InvalidOperationException($"神殿的人都住在村舍里（{sanctuaryStreet.Count} 位）。");
+        var labels = Houses().Select(h => h.GetProperty("label").GetString()!).ToList();
+        if (!labels.All(l => l.EndsWith("一家", StringComparison.Ordinal)) || !labels.Any(l => sanctuaryStreet.Any(c => c.GetProperty("name").GetString() + "一家" == l)))
+            throw new InvalidOperationException($"村舍的名牌是住在里面第一位的名字加「一家」：{string.Join("、", labels)}");
         page.Send($$"""{"v":1,"type":"select-conversation","conversationId":"{{here[0].ConversationId}}"}""");
         PumpTimers(() => ReferenceEquals(shell.SelectedConversation, here[0]), 5000, "别的城的会话也能选（与点橄榄树一样走会话树）。");
     }
@@ -5773,7 +5966,7 @@ static void TestGameModeCitizens()
         capturingLogger.Dispose();
         if (Directory.Exists(root)) Directory.Delete(root, recursive: true);
     }
-    Console.WriteLine("[PASS] game mode citizens: one citizen per conversation, the 32 most recent on the street and the rest counted, elders on steles, the one who worked in a folder lives there, no message text reaches the page, a deleted conversation's citizen is gone, the sanctuary's citizens are its global chats, select-conversation selects through the session tree, citizens with no folder gather into households whose houses (named for the household) join the city posted to the page and whose plots are saved, and asking a citizen sends only that conversation's messages, answers only to the page (a missing model is a sentence, not an error) and refuses other cities' citizens, made-up ids, empty and overlong questions");
+    Console.WriteLine("[PASS] game mode citizens: the townsfolk come from the buildings (2–3 to a 15-file folder), 32 on the street and the rest indoors, unique names and trades, nothing of any conversation reaches the page and deleting a conversation changes nobody; a chat's prompt carries his building in detail, the project in brief and the moment, a chorus's chime-ins and ambient chats carry no file content, knocking and talking through the door follow the relationship, Athena chats with townsfolk who each regard her in their own way, the sanctuary has six cottages with people in them, and nothing citizen-shaped is saved");
 }
 
 static void TestGameModeDebate()
@@ -14027,6 +14220,86 @@ sealed class HeadlessCronTaskReader : ICronTaskReader
         _tasks.Clear();
         _tasks.AddRange(tasks);
         TasksChanged?.Invoke(this, new CronTaskListChangedEventArgs { Tasks = _tasks.ToList() });
+    }
+}
+
+/// <summary>
+/// 端到端走查用的页面（<c>ATHENA_POLIS_E2E=1</c>）：C# 推的脚本原样交给 Playwright 打开的 WebKit 页面执行，页面经
+/// <c>window.invokeCSharpAction</c> 发的消息原样回到 ViewModel（在 UI 线程上）——中间没有任何替身。
+/// </summary>
+sealed class BridgedPolisPage(Uri uri) : IPolisPage
+{
+    private Microsoft.Playwright.IPlaywright? _playwright;
+    private Microsoft.Playwright.IBrowser? _browser;
+    private Microsoft.Playwright.IPage? _page;
+    public Uri Uri { get; } = uri;
+    public Control Control { get; } = new Border { Name = "BridgedPolisPageSurface" };
+    public List<string> Scripts { get; } = new();
+    public List<string> Received { get; } = new();
+    public List<string> Problems { get; } = new();
+    public event EventHandler<bool>? NavigationCompleted;
+    public event EventHandler<string?>? MessageReceived;
+#pragma warning disable CS0067 // 走查里浏览器进程不会中途退出；接口要求有这个事件
+    public event EventHandler<string>? ProcessTerminated;
+#pragma warning restore CS0067
+
+    public async Task StartAsync()
+    {
+        _playwright = await Microsoft.Playwright.Playwright.CreateAsync();
+        _browser = await _playwright.Webkit.LaunchAsync(new() { Headless = true });
+        _page = await _browser.NewPageAsync(new() { ViewportSize = new() { Width = 1400, Height = 900 } });
+        _page.PageError += (_, e) => { lock (Problems) Problems.Add(e); };
+        _page.Console += (_, m) => { if (m.Type == "error") lock (Problems) Problems.Add(m.Text); };
+        await _page.ExposeFunctionAsync("__athenaToHost", (string message) =>
+        {
+            Dispatcher.UIThread.Post(() => { Received.Add(message); MessageReceived?.Invoke(this, message); });
+        });
+        await _page.AddInitScriptAsync("window.invokeCSharpAction = (m) => window.__athenaToHost(m);");
+        await _page.GotoAsync(Uri.ToString());
+        Dispatcher.UIThread.Post(() => NavigationCompleted?.Invoke(this, true));
+    }
+
+    public async Task InvokeScriptAsync(string script)
+    {
+        Scripts.Add(script);
+        if (_page != null) await _page.EvaluateAsync(script);
+    }
+
+    public Task<string> EvalAsync(string expression) => Task.Run(async () => (await _page!.EvaluateAsync<string>(expression)) ?? "");
+    public Task PressAsync(string key) => Task.Run(() => _page!.Keyboard.PressAsync(key));
+    public Task TypeAsync(string text) => Task.Run(() => _page!.Keyboard.TypeAsync(text));
+    public Task ClickAsync(double x, double y) => Task.Run(() => _page!.Mouse.ClickAsync((float)x, (float)y));
+    public Task ClickSelectorAsync(string selector) => Task.Run(() => _page!.ClickAsync(selector));
+    public Task ShotAsync(string path) => Task.Run(() => _page!.ScreenshotAsync(new() { Path = path }));
+
+    /// <summary>推来的全部消息（与 <see cref="FakePolisPage.Messages"/> 同一个解法）。</summary>
+    public IReadOnlyList<JsonElement> Posted
+    {
+        get
+        {
+            var list = new List<JsonElement>();
+            foreach (var script in Scripts.ToList())
+            {
+                var start = script.IndexOf("receive(", StringComparison.Ordinal) + "receive(".Length;
+                var literal = script[start..script.LastIndexOf(')')];
+                var payload = JsonSerializer.Deserialize<string>(literal)!;
+                using var doc = JsonDocument.Parse(payload);
+                list.AddRange(doc.RootElement.EnumerateArray().Select(e => e.Clone()));
+            }
+            return list;
+        }
+    }
+
+    private bool _disposed;
+
+    public void Dispose()
+    {
+        if (_disposed) return;
+        _disposed = true;
+        // 不在 UI 线程上等 Playwright 的续延（规则 3）：关浏览器放到线程池，最多等 10 秒
+        var browser = _browser;
+        var playwright = _playwright;
+        Task.Run(async () => { if (browser != null) await browser.CloseAsync(); playwright?.Dispose(); }).Wait(TimeSpan.FromSeconds(10));
     }
 }
 

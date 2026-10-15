@@ -10,7 +10,7 @@ import {
   Kit, m4, podium, door, window_, gabledRoof, frontGabledRoof, shedRoof, flatRoof, colonnade, entablature, enclosure,
   chimney, rubble, ivy, groundPlane, gable, palmette, triglyphGeometry, column, sideGable, ruinShell, lantern,
 } from './kit.mjs';
-import { amphoraBody } from './props.mjs';
+import { amphoraBody, statuePlinth, woodpileInto } from './props.mjs';
 import { leafClump } from './plants.mjs';
 
 /** 大陶瓮（pithos）：比双耳瓶胖一圈、没有耳、口沿厚，半埋在地里（罐棚前成排地摆）。 */
@@ -286,6 +286,7 @@ export function buildWorkshop(M, b, r) {
     const jars = 2 + Math.floor(r() * 4);
     for (let i = 0; i < jars; i++) kit.add(M.terracotta, amphoraBody(), m4(-toolSide * (W / 2 - 0.6 - i * 0.45), 0, D / 2 + shedD - 0.2, r() * 6, 0, 0, 0.8));
     kit.cylinder(M.stone, 0.32, 0.36, 0.5, shedX + 0.5, 1.26, benchZ, 14);   // 陶轮
+    if (!ruin) woodpileInto(kit, M, { x: tx, z: -2.55, ry: Math.PI / 2 });   // 窑后一垛柴（第四轮需求 9：杂物多一点细节）
   } else if (craft === 'weaver') {
     // 竖式织机，立在屋侧的空地上、正面朝街：两根立柱、上下横梁、一幅织到一半的布、一排经线坠子
     const lx = tx, lz = 0.9;
@@ -345,7 +346,7 @@ export function buildSculptureGarden(M, b, r, ctx) {
   const n = 2 + b.sizeClass;
   const statue = ctx.statue;
   const place = (x, z, face, i) => {
-    kit.box(M.marble, 0.9, 0.9, 0.9, x, 0.45, z);
+    statuePlinth(kit, M, { x, z, width: 0.9, height: 0.9, ry: face });   // 第四轮：带线脚与刻字带的台座
     if (ruin && i % 2 === 0) kit.add(M.marble, statue, m4(x + 0.6, 0.3, z + 1.1, r() * 6, Math.PI / 2, 0, 0.9));
     else kit.add(M.marble, statue, m4(x, 0.9, z, face + (r() - 0.5) * 0.4, 0, 0, 1.05));
   };

@@ -20,7 +20,7 @@ import {
   VIEW, VIEW_MODES, RUN_FACTOR, MOVE_KEYS, nextView, moveDirection, slide, orbitAngles, deadZoneShift, turnToward, isTypingTarget,
 } from './controls.mjs';
 import { createAthena, stepProgress, ATHENA } from './athena.mjs';
-import { planCitizen, citizenAt, doorTransit, newScheduleClock, scheduleClock, holdSchedule, resumeSchedule, separate, assignTiers, pickChat, nextChatAfter, greetLine, settleStations, TOWN } from './citizens.mjs';
+import { planCitizen, citizenAt, indoorsAt, doorTransit, newScheduleClock, scheduleClock, holdSchedule, resumeSchedule, separate, assignTiers, pickChat, nextChatAfter, greetLine, settleStations, TOWN } from './citizens.mjs';
 import { debateStage, assignAudience, supportersCount, DEBATE } from './debate.mjs';
 import { sillHeight, DOOR } from './doors.mjs';
 import {
@@ -36,6 +36,7 @@ import { setClothWind } from './art/rig.mjs';
 import { citizenLook } from './art/citizens.mjs';
 import { craftFor, craftSite, CRAFT_REFERENCE_HEIGHT } from './art/crafts.mjs';
 import { windAt } from './art/springs.mjs';
+import { countrySpot } from './art/countryside.mjs';
 import { ONE_SHOT_MS, oneShotDone, KNOCK_MS } from './art/poses.mjs';
 import { buildWorld, PUBLIC_NAMES } from './world.mjs';
 import { framePolicy, transitionArrival } from './frame-policy.mjs';
@@ -52,6 +53,8 @@ const VOYAGE_FADE_MS = 400;
 const REVEAL_MS = 3200;
 /** 你自己说话时，这么近以内（而且在画面里）的人会有反应、几位会接话（2026-10-13；第三轮需求 6 起不止一位，见 relations.CHORUS）。 */
 export const SPEAK_RADIUS = 6;
+/** 雅典娜和城里的人闲聊（第四轮需求 8）：全城最多这么久一次；她闲着、你不在她身边、她不在递卷轴或辩论时才挑她。 */
+export const ATHENA_CHAT_EVERY_MS = 90_000;
 /**
  * 敲门（第三轮需求 3）：敲两下之后 answerMs 门里应声（C# 的 knock-reply 先到——谁敲得太勤、谁打发过你不应门）；等不到回音最多等 replyWaitMs；
  * 请他出来等 C# 回音最多 callWaitMs（夹具里没有 C#，按页面手里的关系定）。出来见你的人（visit）你走开了或聊完了，再站 lingerMs 就回屋；
@@ -162,10 +165,7 @@ export const UI_ZH = Object.freeze({
   chartMissing: '找不到文件夹',
   // 居民即会话（M-B）
   interactCitizen: '和{name}说话',
-  censusLine: '这座城里住着 {total} 位居民，街上有 {street} 位',
-  interactStele: '读碑上的名字',
-  steleTitle: '老居民',
-  steleBody: '一年多没出门的居民，名字刻在这里：',
+  censusLine: '这座城里住着 {total} 位居民，白天街上有 {street} 位',
   // 你自己说话（2026-10-13：对话栏平时是你自己说话，附近的人会接；和雅典娜说话要走到她身边按 E）
   speakName: '你',
   speakIdle: '说点什么，附近的人会听见',
@@ -184,24 +184,16 @@ export const UI_ZH = Object.freeze({
   chatSend: '说',
   chatHint: 'Enter 说 · Esc 告辞',
   askTimeout: '他想了想，没说出来。',
+  athenaName: '雅典娜',
+  citizenInfoTrade: '{trade} · {age} · 性子{temper}',
+  citizenInfoHome: '住在「{home}」',
+  citizenInfoStall: '在市集守着「{home}」的摊位',
+  citizenInfoCottage: '住在城郊的村舍（{home}）',
+  citizenInfoNightOwl: '夜里也常出门',
+  ageYoung: '年轻',
+  ageAdult: '壮年',
+  ageOld: '年长',
   // 居民卡片上那场会话的信息与预览（2026-10-13）
-  citizenTranscript: '看看那场会话',
-  citizenInfoCommission: '委托：{title}',
-  citizenInfoUntitled: '（还没有标题）',
-  citizenInfoState: '{outcome} · 完成了 {turns} 回合',
-  citizenInfoDays: '{days} 天前动过',
-  citizenInfoToday: '今天动过',
-  citizenInfoFolders: '常去：{folders}',
-  outcomeRunning: '正在办',
-  outcomeScheduled: '定时任务',
-  outcomeInterrupted: '做到一半停下了',
-  outcomeCompleted: '办完了',
-  outcomeOpen: '还没开头',
-  transcriptTitle: '{name}的那场会话：{title}',
-  transcriptYou: '你',
-  transcriptAthena: '雅典娜',
-  transcriptOmitted: '（更早的 {count} 条没有列出）',
-  transcriptEmpty: '这场会话里还没有说过话。',
   // 讲台前的辩论（M-E）
   interactBema: '上讲台辩论',
   bemaTitle: '讲台',
@@ -226,7 +218,7 @@ export const UI_ZH = Object.freeze({
   debateTie: '平局',
   debateClose: '结束',
   // 户与民居（M-D）
-  householdFounded: '「{name}」在城里安了家。',
+  householdFounded: '「{name}」搬进了城郊的村舍。',
   // 第三轮（需求 3，敲门）：门里的人怎么应（本地的话，按关系分组）、门板上的面板与对话栏
   interactKnock: '敲「{name}」的门',
   knockSound: '咚、咚',
@@ -268,16 +260,26 @@ export const UI_ZH = Object.freeze({
   bandNeutral: '寻常',
   bandCool: '冷淡',
   bandHostile: '厌恶',
-  whyDone: '托给雅典娜的事办成了',
-  whyWorking: '雅典娜正替他办着事',
-  whyStopped: '托的事半途停下了',
-  whyFamiliar: '和你来往得多',
-  whyRecent: '最近常打交道',
+  relationsAthena: '怎么看雅典娜：{band}',
+  regardClose: '非常敬重',
+  regardFriendly: '敬重',
+  regardNeutral: '不冷不热',
+  regardCool: '不太服气',
+  regardHostile: '看不惯',
   whyWarm: '生性热络',
   whyPrickly: '脾气不太好相处',
   whyNature: '他待人就是这样',
   whyChats: '你常找他说话',
   whyAnnoyed: '被你搅扰过',
+  whyBusy: '你常照看他那条街',
+  whyNeglected: '他那条街你很久没照看了',
+  whyIdle: '没有营生，心里不痛快',
+  whyPious: '敬神',
+  whyDoubting: '不太信神',
+  whyReverent: '性子里敬重神明',
+  whyDefiant: '性子里不服管',
+  whyTrade: '他那一行的看法',
+  whyAge: '年纪使然',
 });
 
 /** 说出去之后最多等多久（C# 那边一次调用 25 秒就放弃；多留 5 秒给排队和回传）。 */
@@ -306,29 +308,18 @@ export function thinkingDots(now) {
 /** 居民打招呼与闲聊的话（"|" 分隔；闲聊是"甲说|乙答"一对）。实时模式下由 C# 按界面语言覆盖（Polis.Citizen.*）。 */
 const fillText = (template, vars) => String(template ?? '').replace(/\{(\w+)\}/g, (_, k) => vars[k] ?? '');
 
-/** 居民卡片上那场会话的信息（2026-10-13）：委托的标题、办到哪一步与完成了几回合、多久前动过、常去的文件夹。只有标题、数字和文件夹名。 */
-export function citizenInfoLines(data, ui) {
-  const outcome = ui[`outcome${String(data.outcome ?? 'open').replace(/^./, (c) => c.toUpperCase())}`] ?? ui.outcomeOpen;
-  const lines = [
-    fillText(ui.citizenInfoCommission, { title: data.title || ui.citizenInfoUntitled }),
-    fillText(ui.citizenInfoState, { outcome, turns: data.turns ?? 0 }),
-    data.days > 0 ? fillText(ui.citizenInfoDays, { days: data.days }) : ui.citizenInfoToday,
-  ];
-  if (data.folders?.length) lines.push(fillText(ui.citizenInfoFolders, { folders: data.folders.join('、') }));
-  return lines;
-}
-
 /**
- * 那场会话的预览（C# 的 citizen-transcript）拼成给卷轴阅读器的 Markdown：每条一个小标题（你 / 雅典娜）加正文。
- * 只有你和雅典娜看得见的话——C# 那边已经把工具、推理拿掉了；字只经阅读器的 textContent 进 DOM。
+ * 居民卡片上他是谁（第四轮，2026-10-15：居民从建筑来）：职业 · 年纪 · 性子，住在哪儿（楼、村舍或市集的摊位），夜里出不出门。
+ * 字段都是 C# 推来的（tradeName、temper、homeName）；没带的（夹具、演示）就少写一样。
  */
-export function transcriptMarkdown(m, ui) {
-  const entries = Array.isArray(m?.entries) ? m.entries : [];
-  if (entries.length === 0) return ui.transcriptEmpty;
-  const parts = [];
-  if (m.omitted > 0) parts.push(`*${fillText(ui.transcriptOmitted, { count: m.omitted })}*`);
-  for (const e of entries) parts.push(`#### ${e.role === 'user' ? ui.transcriptYou : ui.transcriptAthena}`, String(e.text ?? ''));
-  return parts.join('\n\n');
+export function citizenInfoLines(data, ui) {
+  const age = ui[`age${String(data.age ?? 'adult').replace(/^./, (c) => c.toUpperCase())}`] ?? ui.ageAdult;
+  const lines = [];
+  if (data.tradeName) lines.push(fillText(ui.citizenInfoTrade, { trade: data.tradeName, age, temper: data.temper ?? '' }).replace(/ · (性子)?$/, ''));
+  const home = data.homeName ?? '';
+  if (home) lines.push(fillText(data.stall ? ui.citizenInfoStall : data.cottage ? ui.citizenInfoCottage : ui.citizenInfoHome, { home }));
+  if (data.nightOwl) lines.push(ui.citizenInfoNightOwl);
+  return lines;
 }
 
 /** 居民对你打招呼的话（本地的；两位居民之间的闲聊 2026-10-13 起只用模型，没有本地台词）。 */
@@ -348,10 +339,10 @@ export const CITIZEN_ZH = Object.freeze({
  * @param {(mode: string) => void} [options.onViewChange] 视角变了（按钮、V 键，或者拖动平移把镜头交还给你）
  * @param {() => boolean} [options.modalOpen] 页面上有别的东西挡着（卷轴阅读器）：这时方向键不走路
  * @param {number} [options.topInset] 顶上被 DOM 工具条占着的高度（实时模式左上角的视角与海图）：顶上的面板往下让
- * @param {string} [options.defaultView] 缺省视角：自由（你是主角）
+ * @param {string} [options.defaultView] 缺省视角：跟着你（第四轮需求 7，2026-10-15；之前是自由视角）
  * @param {() => boolean} [options.talkOpen] 对话栏此刻是不是展开着（M3：你站着和她说话、她听着；托付之后你比划两秒）
  */
-export function createGame({ params, status, send, onTalk = null, onUiBlocked = null, onViewChange = null, modalOpen = () => false, topInset = 0, defaultView = 'free', talkOpen = () => false, talkMode = () => 'talk', onChat = null, onChatReplied = null, onLendEnd = null, onDebate = null, onRead = null }) {
+export function createGame({ params, status, send, onTalk = null, onUiBlocked = null, onViewChange = null, modalOpen = () => false, topInset = 0, defaultView = 'player', talkOpen = () => false, talkMode = () => 'talk', onChat = null, onChatReplied = null, onLendEnd = null, onDebate = null, onRead = null }) {
   const R = createRenderer({
     canvas: document.getElementById('scene'),
     ao: params.get('ao') !== '0', shadows: params.get('shadows') !== '0',
@@ -378,10 +369,11 @@ export function createGame({ params, status, send, onTalk = null, onUiBlocked = 
   // —— 积累（C# 推来的，全部可以从存档与会话重新推导） ——
   let groveTrees = [];         // [{ conversationId, title, index, stage, turns, interrupted, scheduled }]
   let residents = [];          // [{ kind, met, name（职业加希腊名）, trade, greekName, intro }]：十位职业居民每座城都在（2026-10-13）
-  // 居民即会话（M-B）：C# 推来街上的（≤ 32 位）、老居民（名字刻在碑上）与人口
-  let citizens = { street: [], elders: [], indoors: [], census: null };
+  // 城里的人（第四轮起从建筑来）：C# 推来白天街上的（≤ 32 位）、屋里的（敲门叫得出来）与人口
+  let citizens = { street: [], indoors: [], census: null };
   let citizenTiers = new Map();      // id → 'A' | 'B' | 'C'（citizens.assignTiers）
-  let chatTalk = null;               // 此刻在聊天的那一对（citizens.pickChat；说什么由 C# 的模型定，ambient-chat → talk → ambient-end）
+  let chatTalk = null;               // 此刻在聊天的那一对（citizens.pickChat；说什么由 C# 的模型定，ambient-chat → talk → ambient-end；一方可以是雅典娜）
+  let athenaChatAt = -Infinity;      // 雅典娜上一次和城里的人闲聊的时刻（第四轮需求 8：全城每 ATHENA_CHAT_EVERY_MS 最多一次）
   const chatCooldown = new Map();    // 一对人上次聊天的时刻
   let nextChatPickAt = 0;
   let greeting = null;               // { id, start, line, style }：此刻跟你打招呼的那一位（style：relations.greetingStyle，按他怎么看你）
@@ -396,6 +388,9 @@ export function createGame({ params, status, send, onTalk = null, onUiBlocked = 
   let calling = null;
   const visits = new Map();
   const guests = new Map();
+  // 客人顶一位（第四轮需求 2，2026-10-15，用户：被敲门叫出来的 NPC 上街时，视线外的 NPC 就要回房一个，保证街上不超限）：
+  // 客人 Id → 被送回屋的那一位（他在屋里待到客人回去）
+  const benched = new Map();
   // 和一位居民聊天（2026-10-13，原来 M-C 的问话）：对话栏借给了他（'typing' 你在写、'waiting' 说出去了等他答）；
   // 他的话在他头顶（sayings：id → { text, typing, at, doneAt }，流式的半句话边到边换），你的话在你头顶（mine）
   let convo = null;                  // { id, status, sentAt }
@@ -493,7 +488,7 @@ export function createGame({ params, status, send, onTalk = null, onUiBlocked = 
   controls.minPolarAngle = THREE.MathUtils.degToRad(90 - VIEW.maxElevation);
   controls.maxPolarAngle = THREE.MathUtils.degToRad(90 - VIEW.minElevation);
   controls.update();
-  let follow = VIEW_MODES.includes(params.get('follow')) ? params.get('follow') : VIEW_MODES.includes(defaultView) ? defaultView : 'free';
+  let follow = VIEW_MODES.includes(params.get('follow')) ? params.get('follow') : VIEW_MODES.includes(defaultView) ? defaultView : 'player';
   let dragButton = -1;
   let dragModified = false;   // 按下时按着 Shift / Ctrl / ⌘：左键拖动是平移
   let glide = null;   // 镜头被"请"去某处（摆放时看场馆）：{ to, until }
@@ -572,7 +567,7 @@ export function createGame({ params, status, send, onTalk = null, onUiBlocked = 
       pressed.clear();
       itemsPrimed = false;   // 新的一座城：它的第一份成果清单是"一直在那儿的"，不是刚交到你手上的
       if (switchingCity) {
-        citizens = { street: [], elders: [], indoors: [], census: null };
+        citizens = { street: [], indoors: [], census: null };
         chatTalk = null;
         nextChatPickAt = 0;   // 换了城：上一座城"没配模型、不再挑"的结论不带过来（设置可能改过了）
         greeting = null;
@@ -617,8 +612,7 @@ export function createGame({ params, status, send, onTalk = null, onUiBlocked = 
     world.setResidents(residents, (kind) => residents.find((r) => r.kind === kind)?.name ?? kind);
     world.setCitizens([...citizens.street, ...guests.values()]);
     stationsDirty = true;
-    world.setElders(elderGroups(citizens.elders));
-    status.citizens = { street: world.citizens.size, census: citizens.census, steles: world.steles.size };
+    status.citizens = { street: world.citizens.size, census: citizens.census };
     world.setBoard(suggestions.length);
     world.setOracle(!!oracle?.exists);
     status.grove = { trees: world.groveTrees.length, terraces: world.groveTerraces.length };
@@ -747,9 +741,12 @@ export function createGame({ params, status, send, onTalk = null, onUiBlocked = 
     return pose;
   }
 
-  /** 留住她：你离她 2.5 米以内、或者对话栏开着——她不再走开（athena.mjs 的 hold）。 */
+  /** 她此刻在和城里的一个人闲聊（第四轮需求 8）。 */
+  const athenaChatting = () => !!chatTalk && (chatTalk.a === 'athena' || chatTalk.b === 'athena');
+
+  /** 留住她：你离她 2.5 米以内、或者对话栏开着、或者她在和人闲聊——她不再走开（athena.mjs 的 hold）。 */
   function athenaHeld() {
-    if (talkingToAthena() || debateActive() || handover) return true;
+    if (talkingToAthena() || debateActive() || handover || athenaChatting()) return true;
     const a = world?.athena;
     return !!a && a.visible && Math.hypot(a.position.x - player.pos.x, a.position.z - player.pos.z) < NEAR_ATHENA;
   }
@@ -841,6 +838,20 @@ export function createGame({ params, status, send, onTalk = null, onUiBlocked = 
       }
     }
     const dp = Math.hypot(pose.x - player.pos.x, pose.z - player.pos.z);
+    // 和城里的一个人闲聊（第四轮需求 8）：转向他；她这一句在流式出字、或刚说完两秒半内打手势，其余时候听着
+    const partner = athenaChatting() ? world.citizens.get(chatTalk.a === 'athena' ? chatTalk.b : chatTalk.a)?.figure?.root : null;
+    if (partner && action === 'idle' && !handover) {
+      const want = Math.atan2(partner.position.x - pose.x, partner.position.z - pose.z);
+      athenaYaw = turnToward(athenaYaw, want, 1 - Math.exp(-dt / 120));
+      a.rotation.y = athenaYaw;
+      const mineNow = sayings.get('athena');
+      action = 'talk';
+      style.speaker = !!mineNow && !mineNow.typing && (mineNow.doneAt == null || performance.now() - mineNow.doneAt < 2500);
+      style.lookAt = playerHead.set(partner.position.x, 1.5, partner.position.z);
+      world.athenaFigure.pose(action, pose.t, style);
+      status.athenaPose = action;
+      return;
+    }
     if (action === 'idle' && !pose.teleport && !handover) {
       if (line && line.alpha > 0.3) { action = 'talk'; style.speaker = true; }
       else if (talkingToAthena() && dp < 7) { action = 'talk'; style.speaker = false; }
@@ -866,6 +877,7 @@ export function createGame({ params, status, send, onTalk = null, onUiBlocked = 
 
   // —— 场景里随时间变化的东西：船、居民、成果 ——
   function applyEffects(wall, dt) {
+    world.stepSheep?.(wall);   // 城北牧场的羊（第四轮需求 5）
     const boat = world.boat;
     const prevBoatZ = boat.position.z;
     boat.position.copy(world.boatHome);
@@ -972,17 +984,7 @@ export function createGame({ params, status, send, onTalk = null, onUiBlocked = 
   }
 
   /** 老居民按家分组（一家一块碑）。 */
-  function elderGroups(list) {
-    const byHome = new Map();
-    for (const e of list ?? []) {
-      if (!e?.home || !e.name) continue;
-      if (!byHome.has(e.home)) byHome.set(e.home, []);
-      byHome.get(e.home).push(e.name);
-    }
-    return [...byHome].map(([home, names]) => ({ home, names }));
-  }
-
-  const hasSite = (s) => s === 'agora' || s.startsWith('agora:') || s === 'harbor' || s === 'gate' || !!layout?.plots.has(s);
+  const hasSite = (s) => s === 'agora' || s.startsWith('agora:') || s === 'harbor' || s === 'gate' || (s === 'fields' && !!layout?.plots.has('fields:0')) || !!layout?.plots.has(s);
   let neighbourSites = null;   // 城里各座建筑的站点（居民也去邻居家门口坐坐）；换城、城变了时清掉
   const viewTmp = new THREE.Vector3();
   /** 这一点在不在画面里（用上一帧的镜头——差一帧没关系，画面外的人本来就不摆不画）。 */
@@ -1288,7 +1290,7 @@ export function createGame({ params, status, send, onTalk = null, onUiBlocked = 
   /** C# 说他出不出来（call-out-reply：{ who, out }）。出来：门开、走到门阶上面朝你，卡片打开；不出来：门里回绝一句。 */
   function callOutAnswer(m) {
     if (!calling || calling.who !== m?.who) return;
-    const { who, doorId } = calling;
+    const { who, doorId, inside } = calling;
     calling = null;
     if (m.out) {
       doorSay(doorId, variantOf(ui.doorComing, seedOf(who)));
@@ -1296,8 +1298,13 @@ export function createGame({ params, status, send, onTalk = null, onUiBlocked = 
       status.knock = { ...status.knock, state: 'coming', who };
     } else {
       const band = attitudeOf(relations, who).band;
-      doorSay(doorId, variantOf(band === 'hostile' ? ui.doorRefuseHostile : ui.doorRefuseCool, seedOf(who)));
+      const refusal = variantOf(band === 'hostile' ? ui.doorRefuseHostile : ui.doorRefuseCool, seedOf(who));
+      doorSay(doorId, refusal);
       status.knock = { ...status.knock, state: 'refused', who };
+      // 他不出来，门还没关上话头：面板回到他身上，只剩"隔着门说话"和"算了"（2026-10-15 走查：回绝之后要说话只能再敲，
+      // 而回绝后 30 秒内再敲算敲得太勤，你会挨一句"别敲了"、关系 −3）。你已经走开或开了别的面板就不打扰
+      const step = world.doorPlan(doorId)?.step;
+      if (!panel && inside?.length && step && Math.hypot(player.pos.x - step.x, player.pos.z - step.z) < 4) openPanel({ type: 'door', id: doorId, inside, who, answer: refusal, refused: true });
     }
   }
 
@@ -1312,11 +1319,17 @@ export function createGame({ params, status, send, onTalk = null, onUiBlocked = 
       if (!indoor) return false;
       if (guests.size >= KNOCK.maxGuests) {
         const oldest = [...guests.keys()].find((g) => g !== id);
-        if (oldest) { guests.delete(oldest); visits.delete(oldest); }
+        if (oldest) { guests.delete(oldest); visits.delete(oldest); benched.delete(oldest); }
       }
       guests.set(id, { ...indoor, guest: true });
       world.setCitizens([...citizens.street, ...guests.values()]);
       stationsDirty = true;
+      // 街上满了：画面外的一位回屋（没有画面外的，就是离你最远的那位），客人回去之后他再出来
+      if (citizens.street.length + guests.size > TOWN.streetCap) {
+        const sent = benchCandidate(id);
+        if (sent) benched.set(id, sent);
+      }
+      status.benched = Object.fromEntries(benched);
     }
     visits.set(id, { phase: 'pending', start: wall, doorId, card, lastEngaged: wall });
     status.visits = [...visits.keys()];
@@ -1348,10 +1361,30 @@ export function createGame({ params, status, send, onTalk = null, onUiBlocked = 
       if (t < DOOR.transitMs) return doorTransit(plan, 'enter', t, spot);
       visits.delete(c.id);
       status.visits = [...visits.keys()];
-      if (guests.delete(c.id)) { world.setCitizens([...citizens.street, ...guests.values()]); stationsDirty = true; }
+      if (guests.delete(c.id)) { world.setCitizens([...citizens.street, ...guests.values()]); stationsDirty = true; benched.delete(c.id); status.benched = Object.fromEntries(benched); }
       return { ...doorTransit(plan, 'enter', DOOR.transitMs, spot), at: 'inside', hidden: true };
     }
     return null;
+  }
+
+  /**
+   * 客人上街时送谁回屋：街上的人里（客人、出来见你的、正和你说话的、在闲聊的、围观辩论的、已经被送回去的都不算）
+   * 此刻在画面外的、离你最远的那位；画面外一个都没有，就是离你最远的那位。
+   */
+  function benchCandidate(guestId) {
+    const taken = new Set(benched.values());
+    let best = null;
+    for (const c of world.citizens.values()) {
+      if (c.id === guestId || guests.has(c.id) || visits.has(c.id) || taken.has(c.id) || convo?.id === c.id || audienceOf.has(c.id)) continue;
+      if (chatTalk && (chatTalk.a === c.id || chatTalk.b === c.id)) continue;
+      if (panel?.type === 'citizen' && panel.id === c.id) continue;
+      if (c.at?.hidden) continue;
+      const p = c.figure?.root.position ?? c.at ?? { x: 0, z: 0 };
+      const out = (citizenTiers.get(c.id) ?? 'C') === 'C' ? 1 : 0;
+      const d = Math.hypot(p.x - player.pos.x, p.z - player.pos.z);
+      if (!best || out > best.out || (out === best.out && d > best.d)) best = { id: c.id, out, d };
+    }
+    return best?.id ?? null;
   }
 
   /** 跟你打招呼：按他怎么看你挑样子（relations.greetingStyle）和那一组话（热络的、平常的；冷淡、厌恶的不说话）。 */
@@ -1390,6 +1423,7 @@ export function createGame({ params, status, send, onTalk = null, onUiBlocked = 
   function craftPlanOf(c) {
     const seed = Number(c.data.seed) >>> 0;
     const k = craftFor(c.data.trade, seed);
+    if (!k.craft) return null;   // 无业的人没有活
     const scale = (c.look?.spec?.height ?? CRAFT_REFERENCE_HEIGHT) / CRAFT_REFERENCE_HEIGHT;
     return { variant: k.variant, station: k.station, site: craftSite(k, seed), needsSpot: k.needsSpot, portable: k.portable, scale };
   }
@@ -1400,6 +1434,8 @@ export function createGame({ params, status, send, onTalk = null, onUiBlocked = 
    * （斜着走会擦过系船柱）。那一点站不了就没有站位，他不钓。
    */
   function workSpot(site, seed) {
+    // 农夫在城北的农田里、牧人在羊圈里（第四轮需求 5，countryside.countrySpot）
+    if (site === 'fields' || site === 'pasture') return countrySpot(layout, site, seed);
     if (site !== 'harbor' || !layout.harborPoint) return null;
     const z = layout.quayZ + 3.6 + 3.2 * ((seed >>> 4) % 4);
     const p = { x: layout.harborPoint.x - PIER.halfWidth + 0.4, z };
@@ -1435,7 +1471,8 @@ export function createGame({ params, status, send, onTalk = null, onUiBlocked = 
       if ((panel?.type === 'citizen' && panel.id === c.id) || convo?.id === c.id || facesYou(c.id, wall) || audienceOf.has(c.id) || visits.has(c.id)
         || (chatTalk && (chatTalk.a === c.id || chatTalk.b === c.id))) holdSchedule(c.schedule, wall);
       else resumeSchedule(c.schedule, wall);
-      c.at = citizenAt(c.plan, scheduleClock(c.schedule, wall));
+      // 第四轮需求 4：入夜回家、天亮出门（夜游的人照常）；被客人顶回屋的在屋里
+      c.at = [...benched.values()].includes(c.id) ? indoorsAt(c.plan) : citizenAt(c.plan, scheduleClock(c.schedule, wall), { ...sky, owl: !!c.data.nightOwl });
       // 敲门请出来的（第三轮需求 3）：他的日程停着，这一会儿由"出来见你"摆
       const visit = visits.get(c.id);
       if (visit) {
@@ -1488,11 +1525,19 @@ export function createGame({ params, status, send, onTalk = null, onUiBlocked = 
       const candidates = live
         .filter((c) => standing(c) && !inDoor(c) && !c.hold && convo?.id !== c.id && !listening(c.id, wall) && citizenTiers.get(c.id) !== 'C' && greeting?.id !== c.id && !audienceOf.has(c.id))
         .map((c) => { const p = posOf(c); return { id: c.id, x: p.x, z: p.z, idleLeft: c.at.idleLeft, inView: true }; });
+      // 雅典娜（第四轮需求 8）：她闲着（不在走、不在递卷轴、不在辩论、你不在她身边）、上一次和人闲聊已经过了 ATHENA_CHAT_EVERY_MS
+      const a = world.athena;
+      if (athenaSim && a.visible && athenaSim.state().step?.kind === 'idle' && !athenaHeld() && wall - athenaChatAt >= ATHENA_CHAT_EVERY_MS && inView(a.position.x, a.position.z)) {
+        candidates.push({ id: 'athena', x: a.position.x, z: a.position.z, idleLeft: Number.POSITIVE_INFINITY, inView: true });
+      }
       const pick = pickChat(candidates, player.pos, chatCooldown, wall, {
         allowed: (a, b) => canChat(relations, a, b),
         score: (a, b, d) => chatPreference(relations, a, b, d),
       });
-      if (pick) startAmbient(pick, wall);
+      if (pick) {
+        if (pick.a === 'athena' || pick.b === 'athena') athenaChatAt = wall;
+        startAmbient(pick, wall);
+      }
     }
     // 打招呼：你走到一位闲着的居民跟前（2.5 米内），两分钟里没跟你打过招呼——他转身、挥手、说一句
     if (greeting && wall - greeting.start > TOWN.chatLineMs) greeting = null;
@@ -1602,9 +1647,10 @@ export function createGame({ params, status, send, onTalk = null, onUiBlocked = 
         if (greetingNow && !saying && greeting.line) bubbles.push({ id: c.id, text: greeting.line, alpha: Math.max(0, Math.min(1, since / 150, (TOWN.chatLineMs - since) / 300)) });
       } else if (inChat) {
         // 面对面站着；正在说（流式出字、或刚说完两秒半内）的那位打手势，另一位听着
-        const other = world.citizens.get(chatTalk.a === c.id ? chatTalk.b : chatTalk.a);
-        if (other?.at) {
-          const o = posOf(other);
+        const otherId = chatTalk.a === c.id ? chatTalk.b : chatTalk.a;
+        const other = world.citizens.get(otherId);
+        const o = otherId === 'athena' ? world.athena.position : other?.at ? posOf(other) : null;
+        if (o) {
           yaw = Math.atan2(o.x - x, o.z - z);
           style.lookAt = playerHead.set(o.x, 1.5, o.z);
         }
@@ -1895,7 +1941,7 @@ export function createGame({ params, status, send, onTalk = null, onUiBlocked = 
       // 记下半路的镜头，收起时就退到半路、停在那儿回不去了（冒烟 zoomRestoredAfterClose 时好时坏就是它，2026-10-12）
       // 退回途中被你接手的那一项，记下的是此刻的值（你滚到 / 转到的地方）
       if (!closeUp) closeUp = { ...wanted, saved: { zoom: restoring?.zoom ?? camera.zoom, elevation: restoring?.elevation ?? cameraElevation() } };
-      else closeUp = { ...wanted, saved: closeUp.saved };
+      else closeUp = { ...wanted, saved: closeUp.saved, userZoom: closeUp.userZoom };
       restoring = null;
       status.closeUp = wanted.kind;
     } else if (!wanted && closeUp) {
@@ -1918,7 +1964,8 @@ export function createGame({ params, status, send, onTalk = null, onUiBlocked = 
       const delta = closeUpFocus.sub(controls.target).multiplyScalar(k);
       controls.target.add(delta);
       camera.position.add(delta);
-      approachView(closeUp.kind === 'jury' ? JURY_VIEW : CLOSE_UP, k);
+      const view = closeUp.kind === 'jury' ? JURY_VIEW : CLOSE_UP;
+      approachView(closeUp.userZoom ? { zoom: null, elevation: view.elevation } : view, k);
       return true;
     }
     if (restoring) {
@@ -2039,6 +2086,13 @@ export function createGame({ params, status, send, onTalk = null, onUiBlocked = 
     const mineAlpha = mine ? speechAlpha({ text: mine.text, doneAt: convo?.status === 'waiting' && !heStarted ? null : mine.at }, wall) : 0;
     if (mine && mineAlpha <= 0) mine = null;
     const sayingNow = [...citizenSaying, ...residentSaying, ...(mine ? [{ id: 'player', text: mine.text, alpha: mineAlpha }] : [])];
+    // 雅典娜和城里的人闲聊时她说的那一句（第四轮需求 8）：在想时是一串点，流式出字，说完留一阵
+    const athenaSaying = sayings.get('athena');
+    if (athenaSaying) {
+      const alpha = speechAlpha(athenaSaying, wall);
+      if (alpha <= 0) sayings.delete('athena');
+      else sayingNow.push({ id: 'athena', text: athenaSaying.typing ? thinkingDots(wall) : athenaSaying.text, alpha, typing: !!athenaSaying.typing });
+    }
     // 门上的话（第三轮需求 3：咚、咚，谁呀，门里的人隔着门说的）：挂在门洞上方，和头顶的话一样按这一帧的矩阵投影
     for (const [doorId, s] of doorSayings) {
       const door = world.doors.get(doorId);
@@ -2049,6 +2103,7 @@ export function createGame({ params, status, send, onTalk = null, onUiBlocked = 
     const citizenBubbles = sayingNow.map((b) => {
       if (b.anchor) return { ...b, world: b.anchor, ...R.projectCss(b.anchor) };
       const root = b.id === 'player' ? world.player
+        : b.id === 'athena' ? world.athena
         : b.id.startsWith('resident:') ? world.residents.get(b.id.slice(9)).figure.root
           : world.citizens.get(b.id).figure.root;
       const head = (root.userData.headTop?.clone() ?? new THREE.Vector3(0, 1.75, 0)).applyMatrix4(root.matrixWorld);
@@ -2184,6 +2239,8 @@ export function createGame({ params, status, send, onTalk = null, onUiBlocked = 
   // 灯光、天色、调色、叠加层一起换；第一次（打开页面时就是深色）直接到位，不从白天过渡 ——
   const NIGHT_TAU_MS = 380;
   let nightK = 0, nightTarget = 0;
+  // 天色（第四轮需求 4，citizens 规则 8）：此刻是不是夜里、从哪一刻起（null：打开页面时就这样）、天亮时入夜的那一刻
+  let sky = { night: false, since: null, after: undefined };
   function stepNight(dt) {
     if (nightK === nightTarget) return;
     const k = 1 - Math.exp(-Math.max(0, dt) / NIGHT_TAU_MS);
@@ -2255,7 +2312,7 @@ export function createGame({ params, status, send, onTalk = null, onUiBlocked = 
         const c = world?.citizens.get(panel.id);
         if (!c) return null;
         const askable = !!onChat;
-        // 那场会话的信息（标题、办到哪一步、多久前动过、常去哪儿）和人口；"看看那场会话"打开预览
+        // 他是谁（职业、年纪、性子、住哪儿、夜里出不出门，第四轮）和人口
         const lines = citizenInfoLines(c.data, ui);
         if (citizens.census) lines.push(fill(ui.censusLine, { total: citizens.census.total, street: citizens.census.street }));
         return { type: 'citizen', bust: c.look.bust, expression: 'speak', title: c.data.name ?? '', lines, askable };
@@ -2276,12 +2333,7 @@ export function createGame({ params, status, send, onTalk = null, onUiBlocked = 
         }
         const who = personOf(panel.who);
         return { type: 'door', bust: who.bust, expression: 'speak', title: who.name, lines: [panel.answer, `${ui.relationsIndoors} · ${bandLabel(panel.who)}`],
-          people: null, picked: true, canTalk: !!onChat };
-      }
-      case 'stele': {
-        const s = world?.steles.get(panel.id);
-        if (!s) return null;
-        return { type: 'stele', bust: 'librarian', expression: 'neutral', title: ui.steleTitle, lines: [ui.steleBody, s.names.slice(0, 40).join('、')] };
+          people: null, picked: true, canTalk: !!onChat, canCall: !panel.refused };
       }
       case 'board':
         return { type: 'board', bust: 'athena', expression: 'smile', title: ui.boardTitle, hint: ui.boardHint, suggestions };
@@ -2354,9 +2406,11 @@ export function createGame({ params, status, send, onTalk = null, onUiBlocked = 
   canvas.addEventListener('pointercancel', () => { downAt = null; dragButton = -1; dragModified = false; updateCursor(); });
   canvas.addEventListener('pointerleave', () => { if (!downAt) updateCursor(); });
   canvas.addEventListener('contextmenu', (e) => e.preventDefault());
-  // 滚轮、中键拖动是 OrbitControls 在改远近：退出近景的退回就不再管远近（见 restoring）
-  canvas.addEventListener('wheel', () => { if (restoring) restoring.zoom = null; }, { passive: true });
-  canvas.addEventListener('pointerdown', (e) => { if (e.button === 1 && restoring) restoring.zoom = null; });
+  // 滚轮、中键拖动是 OrbitControls 在改远近：退出近景的退回就不再管远近（见 restoring）；近景里（辩论、聊天）远近也归你
+  // （第四轮需求 6，2026-10-15，用户：辩论时游戏视角允许缩放）——近景只再管镜头看着谁、俯角多少，收起时照样退回原来的远近
+  const zoomHandedOver = () => { if (restoring) restoring.zoom = null; if (closeUp) { closeUp.userZoom = true; status.closeUpZoom = 'yours'; } };
+  canvas.addEventListener('wheel', zoomHandedOver, { passive: true });
+  canvas.addEventListener('pointerdown', (e) => { if (e.button === 1) zoomHandedOver(); });
 
   function updateCursor() {
     const cursor = downAt?.rotating ? 'grabbing' : '';
@@ -2367,10 +2421,10 @@ export function createGame({ params, status, send, onTalk = null, onUiBlocked = 
    * 城里能互动的东西，各自的位置和够得着的距离（米）：雅典娜、居民、地上待收的成果与底座上的藏品（遗失的只剩底座）、
    * 摆放时的空底座、橄榄树、委托板、神庙（神谕）、三处场馆。priority 小的先挑（摆放时空底座最先）。
    */
-  const REACH = Object.freeze({ slot: 1.5, item: 1.7, athena: 2.2, resident: 2.0, citizen: 2.0, door: 1.5, board: 2.6, bema: 2.4, tree: 2.2, stele: 1.8, oracle: 3.2, venue: 3.2 });
+  const REACH = Object.freeze({ slot: 1.5, item: 1.7, athena: 2.2, resident: 2.0, citizen: 2.0, door: 1.5, board: 2.6, bema: 2.4, tree: 2.2, oracle: 3.2, venue: 3.2 });
   // 讲台排在成果之后、雅典娜之前：广场上总有居民在讲台边转悠，排在他们后面，走到台阶前按 E 常常打开的是哪位居民的卡片（冒烟踩过）
   // 门（第三轮需求 3）排在居民之后：门阶旁常站着他家的人，你要的多半是他
-  const PRIORITY = Object.freeze({ slot: 0, item: 1, bema: 1.5, athena: 2, resident: 3, citizen: 3.5, door: 3.7, board: 4, tree: 5, stele: 5.5, oracle: 6, venue: 7 });
+  const PRIORITY = Object.freeze({ slot: 0, item: 1, bema: 1.5, athena: 2, resident: 3, citizen: 3.5, door: 3.7, board: 4, tree: 5, oracle: 6, venue: 7 });
   function interactables(pose) {
     const list = [];
     if (!world) return list;
@@ -2390,7 +2444,6 @@ export function createGame({ params, status, send, onTalk = null, onUiBlocked = 
     if (onTalk && pose?.visible && !pose.teleport) add('athena', world.athena.position.x, world.athena.position.z);
     for (const r of world.residents.values()) add('resident', r.figure.root.position.x, r.figure.root.position.z, { id: r.kind });
     for (const c of world.citizens.values()) if (c.figure?.root.visible) add('citizen', c.figure.root.position.x, c.figure.root.position.z, { id: c.id });
-    for (const s of world.steles.values()) add('stele', s.x, s.z, { id: s.home });
     // 有人住的门（第三轮需求 3）：门阶前按 E 敲门。正在敲的那一扇不再给提示
     const lived = new Set([...world.citizens.values()].map((c) => c.plan?.door?.id).filter(Boolean));
     for (const door of indoorDoorMap().values()) if (door) lived.add(door);
@@ -2437,7 +2490,6 @@ export function createGame({ params, status, send, onTalk = null, onUiBlocked = 
       case 'athena': return athenaHasWords ? ui.interactTalkWaiting : ui.interactTalk;
       case 'resident': return fill(ui.interactResident, { name: residents.find((r) => r.kind === target.id)?.name ?? target.id });
       case 'citizen': return fill(ui.interactCitizen, { name: clip(world?.citizens.get(target.id)?.data.name ?? '', 16) });
-      case 'stele': return ui.interactStele;
       case 'door': {
         const b = world?.buildings.get(world.doors.get(target.id)?.building ?? '');
         return fill(ui.interactKnock, { name: clip(b?.building?.label ?? b?.building?.key ?? '', 12) });
@@ -2462,7 +2514,6 @@ export function createGame({ params, status, send, onTalk = null, onUiBlocked = 
       case 'athena': openTalk(); break;
       case 'resident': openResident(target.id); break;
       case 'citizen': openCitizen(target.id); break;
-      case 'stele': openPanel({ type: 'stele', id: target.id }); break;
       case 'door': knock(target.id); break;
       case 'bema':
         // 正在等你说：直接把栏借过来；没有在辩：讲台的卡片（战绩、提一个议题）
@@ -2552,7 +2603,7 @@ export function createGame({ params, status, send, onTalk = null, onUiBlocked = 
     status.spoke = { kind: 'say', responder: speakers[0] ?? null, responders: speakers, reactions: Object.fromEntries([...listeners].map(([id, l]) => [id, l.kind])) };
     if (speakers.length === 0) return null;
     sayings.set(speakers[0], { text: '', typing: true, at: wall, doneAt: null });
-    send('chorus', { text: parsed.text, who: speakers });
+    send('chorus', { text: parsed.text, who: speakers, states: statesOf(speakers) });
     return speakers[0];
   }
 
@@ -2565,6 +2616,30 @@ export function createGame({ params, status, send, onTalk = null, onUiBlocked = 
     for (const l of listeners.values()) l.until = Math.min(l.until, now + CHORUS.afterMs);
     status.chorus = { status: String(m?.status ?? 'ok'), spoke: Array.isArray(m?.spoke) ? m.spoke : [] };
   }
+
+  /**
+   * 一个人此刻在哪儿、在干什么（第四轮需求 4、5：提示词里有他当前的状态）：{ where, doing }，键与 C# 的 PolisTalk.WhereKeys / DoingKeys 一致。
+   * 屋里的（隔着门、街上满了的、夜里回了家的）在 inside；职业居民与雅典娜没有（null）。
+   */
+  function stateOf(id) {
+    const c = world?.citizens.get(id);
+    if (!c?.at) return citizens.indoors.some((x) => x.id === id) ? { where: 'inside', doing: 'idle' } : null;
+    const at = c.at;
+    let where = 'road';
+    if (at.hidden || at.at === 'inside') where = 'inside';
+    else if (at.at === 'home' || at.at === 'door' || at.at === 'visit') where = 'home';
+    else if (at.at === 'dest') {
+      const site = c.plan?.dest?.site ?? '';
+      where = site.startsWith('agora') ? 'agora' : site.startsWith('grove') ? 'grove' : site.startsWith('b:') ? 'neighbour'
+        : ['market', 'harbor', 'temple', 'library', 'fields', 'pasture'].includes(site) ? site : 'road';
+    }
+    let doing = at.action === 'work' ? 'work' : at.action === 'walk' ? 'walk' : 'idle';
+    if (audienceOf.has(id)) { where = 'bema'; doing = 'audience'; }
+    else if (chatTalk && (chatTalk.a === id || chatTalk.b === id)) doing = 'chat';
+    else if (sky.night && where !== 'inside' && doing !== 'work') doing = 'stroll';
+    return { where, doing };
+  }
+  const statesOf = (ids) => Object.fromEntries(ids.map((id) => [id, stateOf(id)]).filter(([, st]) => st));
 
   /** 一位说话的人此刻站在哪儿（居民或职业居民）：[x, z]。 */
   function posOfSpeaker(id) {
@@ -2623,7 +2698,7 @@ export function createGame({ params, status, send, onTalk = null, onUiBlocked = 
     chatTalk = pick;
     chatCooldown.set(pick.key, wall);
     sayings.set(pick.a, { text: '', typing: true, at: wall, doneAt: null });
-    send('ambient-chat', { a: pick.a, b: pick.b });
+    send('ambient-chat', { a: pick.a, b: pick.b, states: statesOf([pick.a, pick.b]) });
   }
 
   /**
@@ -2646,8 +2721,11 @@ export function createGame({ params, status, send, onTalk = null, onUiBlocked = 
     const id = m?.who;
     // 街上的居民、职业居民；以及隔着门和你说话的、街上满了一直在屋里的那位（第三轮需求 3）
     const behindDoor = convo?.id === id && !!convo?.door && citizens.indoors.some((c) => c.id === id);
-    if (!world?.citizens.has(id) && !behindDoor && !(typeof id === 'string' && id.startsWith('resident:') && world?.residents.has(id.slice(9)))) return;
+    const athenaTalking = id === 'athena' && athenaChatting();
+    if (!world?.citizens.has(id) && !behindDoor && !athenaTalking && !(typeof id === 'string' && id.startsWith('resident:') && world?.residents.has(id.slice(9)))) return;
     const now = performance.now();
+    // 隔着门说话：他的话挂在门上，门自己的那句（"谁呀？""改天吧。"）让位——两句挂在同一点上会叠在一起（2026-10-15 走查的截图）
+    if (convo?.id === id && convo.door) doorSayings.delete(convo.door);
     const text = String(m.text ?? '');
     const prev = sayings.get(id);
     const n = Number(m.n ?? 0);
@@ -2680,15 +2758,6 @@ export function createGame({ params, status, send, onTalk = null, onUiBlocked = 
     // 接你话的人说完了：等这一轮都说完（chorus-end）再留一会儿；别的人的话不延长
   }
 
-  /** C# 推来的那场会话预览（citizen-transcript）：进卷轴阅读器。只认这座城里此刻有的居民。 */
-  function showCitizenTranscript(m) {
-    const c = world?.citizens.get(m?.conversationId);
-    if (!c) return;
-    status.transcript = { id: c.id, entries: Array.isArray(m.entries) ? m.entries.length : 0, omitted: m.omitted ?? 0 };
-    onRead?.({ title: fill(ui.transcriptTitle, { name: c.data.name ?? '', title: m.title || c.data.title || ui.citizenInfoUntitled }), markdown: transcriptMarkdown(m, ui) });
-  }
-
-  /** 一位居民的卡片（M-B）：那场会话的信息、这座城的人口，"聊几句""看看那场会话"。他站定、转身、挥手（animateCitizens）。 */
   function openCitizen(id) {
     if (!world?.citizens.has(id)) return;
     openPanel({ type: 'citizen', id });
@@ -2803,14 +2872,11 @@ export function createGame({ params, status, send, onTalk = null, onUiBlocked = 
         onChat({ conversationId: convo.id, name: r.name ?? r.kind, bust: r.kind });
         break;
       }
-      case 'citizen-transcript':
-        // 看看那场会话：C# 回 citizen-transcript，进卷轴阅读器（卡片留着）
-        if (panel?.type === 'citizen') send('citizen-transcript', { conversationId: panel.id });
         break;
       case 'door-call':
         // 请他出来（第三轮需求 3）：C# 按关系定出不出来（call-out-reply）
         if (panel?.type !== 'door' || !panel.who) break;
-        calling = { who: panel.who, doorId: panel.id, at: performance.now() };
+        calling = { who: panel.who, doorId: panel.id, at: performance.now(), inside: panel.inside };
         send('call-out', { who: panel.who });
         panel = null;
         status.knock = { ...status.knock, state: 'calling', who: calling.who };
@@ -2938,13 +3004,12 @@ export function createGame({ params, status, send, onTalk = null, onUiBlocked = 
       if (tables.citizen) citizenWords = { ...CITIZEN_ZH, ...tables.citizen };
     },
     /**
-     * 居民即会话（M-B）：C# 推来的 { street: [...最多 32 位], elders: [...], census }。人物一帧建两位（不卡），
+     * 城里的人（第四轮起从建筑来）：C# 推来的 { street: [...最多 32 位], indoors: [...], census }。人物一帧建两位（不卡），
      * 搬了家（家换了）的重新排日程；不在名单里的拆掉。
      */
     setCitizens(payload) {
       citizens = {
         street: Array.isArray(payload?.street) ? payload.street.filter((c) => c && c.id != null).slice(0, TOWN.streetCap) : [],
-        elders: Array.isArray(payload?.elders) ? payload.elders : [],
         // 街上满了、在屋里的（第三轮：敲门叫得出来、人际总览里有）：只有 Id、名字、家、种子、职业
         indoors: Array.isArray(payload?.indoors) ? payload.indoors.filter((c) => c && typeof c.id === 'string') : [],
         census: payload?.census ?? null,
@@ -2964,6 +3029,8 @@ export function createGame({ params, status, send, onTalk = null, onUiBlocked = 
     get relations() { return relations; },
     /** 敲门（第三轮需求 3；测试也直接调它）。 */
     knock,
+    /** 一个人此刻在哪儿、在干什么（第四轮：随 chat 意图送给 C#，进提示词）。 */
+    stateOf,
     /** C# 对一次敲门的回音（knock-reply：{ who, pestered, ignoring }）。 */
     setKnockReply(m) {
       if (!knocking) return;
@@ -3041,7 +3108,8 @@ export function createGame({ params, status, send, onTalk = null, onUiBlocked = 
     endChorus,
     /** 让两位居民马上聊（冒烟测试用：走和挑人时一样的那条路——发 ambient-chat、先开口的那位头顶一串点）。 */
     ambientNow(a, b) {
-      if (!world?.citizens.has(a) || !world?.citizens.has(b) || a === b) return false;
+      const known = (id) => id === 'athena' || !!world?.citizens.has(id);
+      if (!known(a) || !known(b) || a === b) return false;
       if (chatTalk) endAmbient({ a: chatTalk.a, b: chatTalk.b, status: 'ok' });   // 城里自己挑的那一对先散
       const wall = performance.now();
       startAmbient({ a, b, key: a < b ? `${a}|${b}` : `${b}|${a}`, start: wall }, wall);
@@ -3049,7 +3117,6 @@ export function createGame({ params, status, send, onTalk = null, onUiBlocked = 
     },
     /** 下一次挑一对的时刻（测试用：没配模型之后是 Infinity）。 */
     get nextChatPickAt() { return nextChatPickAt; },
-    showCitizenTranscript,
     /** 此刻在和谁聊（测试用）。 */
     get chatting() { return convo ? { ...convo } : null; },
     /** 头顶此刻的话（测试用）：id → { text, typing, doneAt }。 */
@@ -3130,8 +3197,13 @@ export function createGame({ params, status, send, onTalk = null, onUiBlocked = 
     setFog(info) { fogInfo = info; status.fog = !!info; if (R.scene) R.scene.fog = info ? new THREE.Fog(nightK > 0.5 ? 0x1b1e23 : 0xd8d4cd, 220, 360) : null; },
     /** 夜里 / 白天（应用的深 / 浅色主题）。instant：直接到位（打开页面时）；否则一秒多过渡过去。 */
     setNight(on, { instant = false } = {}) {
+      const was = nightTarget === 1;
       nightTarget = on ? 1 : 0;
       if (instant) nightK = nightTarget;
+      // 城里的人跟着天色作息（citizens 规则 8）：打开页面时直接是那样；之后变了天，从这一刻起各自回家、各自出门
+      if (instant && sky.since == null) sky = { night: !!on, since: null, after: on ? undefined : sky.after };
+      else if (was !== !!on) sky = on ? { night: true, since: performance.now(), after: undefined } : { night: false, since: performance.now(), after: sky.since };
+      status.sky = { night: sky.night };
       applyNight();
     },
     get night() { return nightK; },

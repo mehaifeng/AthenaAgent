@@ -1,4 +1,3 @@
-using Athena.UI.Models;
 using System;
 using System.Buffers.Binary;
 using System.Collections.Generic;
@@ -9,7 +8,7 @@ using System.Text;
 
 namespace Athena.UI.Services.GameMode;
 
-/// <summary>一位居民多大：按那场会话开始了多久（30 天内年轻，半年内壮年，再久年长）。</summary>
+/// <summary>一位居民多大：年轻、壮年、年长（按种子：三成年轻、五成壮年、两成年长）。</summary>
 public enum PolisCitizenAge
 {
     Young,
@@ -17,226 +16,257 @@ public enum PolisCitizenAge
     Old
 }
 
-/// <summary>那场会话走到了哪一步（居民自己说的那一句按它挑）。</summary>
-public enum PolisCitizenOutcome
+/// <summary>
+/// 一处住所（第四轮，2026-10-15）：一座文件夹的建筑、市集上合并成摊位的一个文件夹（<see cref="Stall"/>，家在市集），
+/// 或者一座村舍（<see cref="Cottage"/>，<c>household:</c> 开头的键——神殿岛和住所太少的城补上的）。
+/// <see cref="PlotX"/> / <see cref="PlotZ"/> 是账本里的地块（永不挪位）：人的身份按它算，所以文件夹改名人不变。
+/// </summary>
+public sealed record PolisDwelling(
+    string Key,
+    PolisBuildingKind Kind,
+    int SizeClass,
+    PolisBuildingState State,
+    int PlotX,
+    int PlotZ,
+    int Order,
+    DateTimeOffset LastModified,
+    bool Stall = false,
+    bool Cottage = false)
 {
-    /// <summary>还在办（会话正在跑或排着队）。</summary>
-    Running,
-    /// <summary>定时任务开的会话。</summary>
-    Scheduled,
-    /// <summary>做到一半停下了（被打断）。</summary>
-    Interrupted,
-    /// <summary>至少完成了一回合。</summary>
-    Completed,
-    /// <summary>还没有完成的回合。</summary>
-    Open
+    /// <summary>页面的站点名：摊位在市集，其余是 <c>b:&lt;键&gt;</c>。</summary>
+    public string Home => Stall ? "market" : "b:" + Key;
 }
 
-/// <summary>推导一位居民要的东西：会话的快照，和它的消息（只读工具调用的路径，正文一概不读）。</summary>
-public sealed record PolisCitizenSource(PolisCommission Commission, IReadOnlyList<ChatMessage> Messages);
-
 /// <summary>
-/// 一位居民（M-B，2026-10-13）：一场会话就是城里的一个人。<see cref="Seed"/> 决定他的长相（页面的 art/citizens.mjs）、
-/// 名字与说话的口吻；<see cref="Home"/> 是他住的地方——那场会话碰过最多的顶层文件夹（<c>b:&lt;文件夹&gt;</c>），
-/// 没碰过文件夹的住在公共地方（广场一圈、市集、图书馆、神庙、港口）；<see cref="Folders"/> 是他常去的文件夹（最多三处）。
-/// 只有名字、文件夹名、数字和日期，没有任何消息正文。<see cref="NameIndex"/> / <see cref="NameRound"/> 是他在希腊名表里的位置
-/// （<see cref="PolisCitizens.AssignNames"/>：同一座城里不重名）。
+/// 城里的一个人（第四轮，2026-10-15，用户：NPC 不再和会话绑定——会话少的时候城太空，像鬼城）。他住在一处住所里
+/// （<see cref="Dwelling"/>，<see cref="Home"/> 是页面的站点名），是那里的第 <see cref="Index"/> 位；长相、男女、年纪、职业、脾气都从
+/// <see cref="Seed"/> 来，名字在同一座城里不重（<see cref="NameIndex"/> / <see cref="NameRound"/>，<see cref="PolisCitizens.AssignNames"/>）。
+/// <see cref="OnStreet"/>：白天在街上（最多 <see cref="PolisCitizens.StreetCap"/> 位），其余的在屋里、敲门叫得出来；
+/// <see cref="NightOwl"/>：夜里还出门的少数几位。没有任何会话的东西。
 /// </summary>
 public sealed record PolisCitizen(
-    string ConversationId,
+    string Id,
     uint Seed,
     bool Female,
-    string Title,
-    string Epithet,
-    string Home,
-    IReadOnlyList<string> Folders,
     PolisCitizenAge Age,
-    bool Elder,
+    string Trade,
+    string Home,
+    string Dwelling,
+    int Index,
+    int DwellingOrder,
+    bool Cottage,
     bool OnStreet,
-    int Turns,
-    PolisCitizenOutcome Outcome,
-    int AgeDays,
-    DateTimeOffset UpdatedAt,
-    DateTimeOffset StartedAt,
+    bool NightOwl,
     int NameIndex = 0,
     int NameRound = 0);
 
-/// <summary>这座城的人口：一共几位，街上几位，屋里几位（街上满了），几位老居民（一年多没出门，名字刻在家门口的碑上）。</summary>
-public sealed record PolisCensus(int Total, int OnStreet, int Indoors, int Elders);
+/// <summary>这座城的人口：一共几位，白天街上几位，屋里几位（街上满了）。</summary>
+public sealed record PolisCensus(int Total, int OnStreet, int Indoors);
 
 /// <summary>
-/// 居民即会话（M-B，用户 2026-10-12 定的方向 ①）：每场会话一位居民，从会话树推导、从不另存——删掉一场会话，他就不在了。
-/// 街上同时最多 <see cref="StreetCap"/> 位（用户定的 32），按最近动过的先上街；其余的在屋里，人口里数得到；
-/// 一年多没动过的是老居民，不上街，名字刻在他家门口的碑上。纯函数，<c>Athena.Archive.Tests</c> 的 <c>polis citizens</c> 覆盖。
+/// 城里的人从建筑来（第四轮，2026-10-15，用户：城仍和工作区绑定；第一次进城加载的那一刻 NPC 就定下来，每座建筑分配 1–4 人，
+/// 人数不设上限，街上的人数仍按 32 的上限）。纯函数，<c>Athena.Archive.Tests</c> 的 <c>polis citizens</c> 覆盖。
+///
+/// 规则（每一条都有断言）：
+/// 1. <b>每处住所 1–4 人</b>（<see cref="HeadCount"/>）：按住所的种子与体量——体量 1 住 1–2 人、2 住 2–3 人、3 与 4 住 3–4 人；
+///    市集的摊位与废墟各 1 人。
+/// 2. <b>身份稳定</b>：Id 是 <c>n:&lt;城的 8 位哈希&gt;:&lt;人的 12 位哈希&gt;</c>，按城的键（工作区 Id 或 sanctuary）、地块坐标
+///    （摊位按"市集 + 文件夹名"）和序号算——地块永不挪位，文件夹改名人还是那个人；种子是同一份哈希的头四个字节（小端），最低位是男女
+///    （页面的 art/citizens.mjs 用同一条）。算不存：同一座城、同样的建筑，永远是同一群人——"第一次进城就定下来"靠的是确定性，不是存档。
+/// 3. <b>名字</b>：完整的希腊名，同城不重（<see cref="AssignNames"/>，先来后到按住所的生长次序与序号）。
+/// 4. <b>上街</b>：最多 <see cref="StreetCap"/> 位，按住所最近动过的先后轮流取——每处先出一位，再轮第二位，免得一座楼的人占满一条街。
+/// 5. <b>夜游</b>：街上的人里按种子约八分之一，按上街的次序最多 <see cref="MaxNightOwls"/> 位；夜里只有他们在外面（页面）。
+/// 6. <b>田和牧场有人</b>（2026-10-15，用户：保底规则）：城北的田与牧场每座城都有，职业却是按种子抽的——神殿岛十来个人，约五分之一的城
+///    一个牧人都没有。所以街上没有农夫（或牧人）时，从街上挑一位改行（<see cref="GuaranteedTrades"/>，<see cref="GuaranteeTrades"/>）：
+///    先挑无业的，没有就挑街上人数最多的那一行；同一行里按 Id 的序数取第一位，同一座城每次进来都是同一个人。市集的摊主不动（摊主一律是商贩），
+///    已经是农夫或牧人的不动。城变了（多盖一座楼、上街的人换了），改行的那位可能跟着换。
 /// </summary>
 public static class PolisCitizens
 {
-    /// <summary>街上同时露面的居民上限（用户 2026-10-12 定：32）。人口不设上限，上限只在街上。</summary>
+    /// <summary>规则 6：街上至少各有一位的职业（城北的田与牧场每座城都有）。</summary>
+    public static IReadOnlyList<string> GuaranteedTrades { get; } = new[] { "farmer", "herder" };
+
+    /// <summary>街上同时露面的居民上限（用户定的 32）。人口不设上限，上限只在街上。</summary>
     public const int StreetCap = 32;
-    public static readonly TimeSpan YoungFor = TimeSpan.FromDays(30);
-    public static readonly TimeSpan AdultFor = TimeSpan.FromDays(180);
-    /// <summary>这么久没动过的会话是老居民：不上街，名字刻在碑上。</summary>
-    public static readonly TimeSpan ElderAfter = TimeSpan.FromDays(365);
-    /// <summary>称号最长几个字：汉字 6 个，拉丁字母 12 个（名牌上放得下）。</summary>
-    public const int MaxEpithetCjk = 6;
-    public const int MaxEpithetLatin = 12;
-    /// <summary>"常去的文件夹"最多列几处。</summary>
-    public const int MaxFolders = 3;
-    /// <summary>
-    /// 希腊名表男女各多少个（<c>Polis.Citizen.NamesMale</c> / <c>NamesFemale</c>，中英两份一一对应——换界面语言，同一个人还是同一个名字）。
-    /// <c>Athena.Archive.Tests</c> 核对两份 locale 的名表都正好这么长、没有重名。
-    /// </summary>
+    public const int MaxPerDwelling = 4;
+    /// <summary>夜里还出门的人：约八分之一，每座城最多四位。</summary>
+    public const int NightOwlOneIn = 8;
+    public const int MaxNightOwls = 4;
+    /// <summary>希腊名表男女各多少个（<c>Polis.Citizen.NamesMale</c> / <c>NamesFemale</c>，中英两份一一对应）。</summary>
     public const int NamesPerSex = 120;
+    /// <summary>城里一个人的 Id 的开头（职业居民是 <c>resident:</c>，雅典娜是 <c>athena</c>）。</summary>
+    public const string IdPrefix = "n:";
 
-    /// <summary>没有文件夹可归的居民住的公共地方（站点名与页面的 layout.sitePoint 一致），按种子分摊。</summary>
-    public static IReadOnlyList<string> PublicHomes { get; } = new[]
+    /// <summary>一段文字的 SHA-256 前四个字节（小端）。</summary>
+    public static uint SeedOf(string text)
     {
-        "agora:0", "agora:1", "agora:2", "agora:3", "agora:4", "agora:5", "market", "library", "temple", "harbor"
-    };
-
-    /// <summary>默认的会话标题：没有称号可取，只用名字。</summary>
-    private static readonly string[] UntitledTitles = { "新会话", "新对话", "新委托", "New conversation", "New chat", "Untitled" };
-
-    /// <summary>标题开头的这些字不是"那件事"本身（"帮我整理合同" 的称号是 "整理合同"）。长的在前，免得 "请" 先吃掉 "请帮我" 的一半。</summary>
-    private static readonly string[] LeadingFillers =
-    {
-        "请帮我", "帮我把", "麻烦你", "能不能", "我想要", "帮忙", "帮我", "麻烦", "如何", "怎么", "怎样", "为什么", "我想", "我要", "可以", "关于", "请你", "请", "把",
-    };
-
-    /// <summary>会话 Id 的 SHA-256 前四个字节（小端）：同一场会话永远是同一个人。</summary>
-    public static uint SeedOf(string conversationId)
-    {
-        ArgumentNullException.ThrowIfNull(conversationId);
+        ArgumentNullException.ThrowIfNull(text);
         Span<byte> hash = stackalloc byte[32];
-        SHA256.HashData(Encoding.UTF8.GetBytes(conversationId), hash);
+        SHA256.HashData(Encoding.UTF8.GetBytes(text), hash);
         return BinaryPrimitives.ReadUInt32LittleEndian(hash);
     }
 
     /// <summary>男女由种子的最低位定（页面的 citizens.mjs 用同一条规则，名字和长相对得上）。</summary>
     public static bool IsFemale(uint seed) => (seed & 1) == 1;
 
-    /// <summary>
-    /// 称号：标题里"那件事"的头一个词——去掉开头的标点和"帮我""请"这一类客套，取第一段连续的汉字（最多 6 个）或第一个拉丁词（最多 12 个字母）。
-    /// 默认标题（新会话……）没有称号。
-    /// </summary>
-    public static string Epithet(string? title)
+    public static bool IsCitizenId(string? id) => id != null && id.StartsWith(IdPrefix, StringComparison.Ordinal) && id.Length > IdPrefix.Length;
+
+    /// <summary>城的 8 位哈希（Id 的第二段）：城的键是工作区 Id，神殿岛是 sanctuary。</summary>
+    public static string CityTag(string cityKey)
     {
-        if (string.IsNullOrWhiteSpace(title)) return string.Empty;
-        var t = title.Trim();
-        if (UntitledTitles.Any(u => string.Equals(u, t, StringComparison.OrdinalIgnoreCase))) return string.Empty;
-        var i = 0;
-        for (var guard = 0; guard < 8; guard++)
-        {
-            while (i < t.Length && !IsCjk(t[i]) && !char.IsLetterOrDigit(t[i])) i++;
-            var rest = t[i..];
-            var filler = LeadingFillers.FirstOrDefault(f => rest.StartsWith(f, StringComparison.Ordinal) && rest.Length > f.Length);
-            if (filler == null) break;
-            i += filler.Length;
-        }
-        if (i >= t.Length) return string.Empty;
-        var sb = new StringBuilder();
-        if (IsCjk(t[i]))
-        {
-            while (i < t.Length && IsCjk(t[i]) && sb.Length < MaxEpithetCjk) sb.Append(t[i++]);
-        }
-        else
-        {
-            while (i < t.Length && char.IsLetterOrDigit(t[i]) && sb.Length < MaxEpithetLatin) sb.Append(t[i++]);
-        }
-        return sb.ToString();
+        ArgumentNullException.ThrowIfNull(cityKey);
+        return SeedOf("polis-city\n" + cityKey).ToString("x8", CultureInfo.InvariantCulture);
     }
 
-    private static bool IsCjk(char c) => c is >= '一' and <= '鿿' or >= '㐀' and <= '䶿';
+    /// <summary>一个人的 Id 属于哪座城（城的 8 位哈希）；不是城里的人返回 null。</summary>
+    public static string? CityTagOf(string? id)
+    {
+        if (!IsCitizenId(id)) return null;
+        var rest = id![IdPrefix.Length..];
+        var colon = rest.IndexOf(':');
+        return colon == 8 ? rest[..8] : null;
+    }
+
+    /// <summary>住所在城里的位置（人的身份按它算）：摊位按"市集 + 文件夹名"，其余按地块坐标。</summary>
+    public static string PlaceKey(PolisDwelling dwelling)
+    {
+        ArgumentNullException.ThrowIfNull(dwelling);
+        return dwelling.Stall
+            ? "market/" + dwelling.Key
+            : string.Create(CultureInfo.InvariantCulture, $"plot/{dwelling.PlotX},{dwelling.PlotZ}");
+    }
+
+    /// <summary>规则 1：这处住所住几个人。</summary>
+    public static int HeadCount(string cityKey, PolisDwelling dwelling)
+    {
+        ArgumentNullException.ThrowIfNull(dwelling);
+        if (dwelling.Stall || dwelling.State == PolisBuildingState.Ruin) return 1;
+        var seed = SeedOf("polis-dwelling\n" + cityKey + "\n" + PlaceKey(dwelling));
+        var (lo, hi) = Math.Clamp(dwelling.SizeClass, 1, 4) switch
+        {
+            1 => (1, 2),
+            2 => (2, 3),
+            _ => (3, 4),
+        };
+        return lo + (int)((seed >> 5) % (uint)(hi - lo + 1));
+    }
+
+    private static (string Id, uint Seed) Identity(string cityKey, string tag, PolisDwelling dwelling, int index)
+    {
+        Span<byte> hash = stackalloc byte[32];
+        SHA256.HashData(Encoding.UTF8.GetBytes(string.Create(CultureInfo.InvariantCulture, $"polis-person\n{cityKey}\n{PlaceKey(dwelling)}\n{index}")), hash);
+        var seed = BinaryPrimitives.ReadUInt32LittleEndian(hash);
+        return (IdPrefix + tag + ":" + Convert.ToHexString(hash[..6]).ToLowerInvariant(), seed);
+    }
+
+    public static PolisCitizenAge AgeOf(uint seed) => ((seed >> 12) % 10) switch
+    {
+        < 3 => PolisCitizenAge.Young,
+        < 8 => PolisCitizenAge.Adult,
+        _ => PolisCitizenAge.Old,
+    };
 
     /// <summary>
-    /// 这座城的居民。<paramref name="workspaceRoot"/> 为 null 是神殿（全局对话）：没有文件夹，人人住公共地方。
-    /// <paramref name="buildingKeys"/> 是城里独立建筑的顶层文件夹，<paramref name="marketKeys"/> 是并进市集成排摊位的那些——住在摊位的人家在市集。
-    /// 结果按会话最后一次动过的时刻排（新的在前）。
+    /// 这座城的人（规则 1–5）。<paramref name="cityKey"/> 是工作区 Id（神殿岛是 sanctuary）；<paramref name="dwellings"/> 是城里的住所
+    /// （<see cref="Dwellings"/>）。结果按住所的生长次序与序号排。
     /// </summary>
-    public static IReadOnlyList<PolisCitizen> Derive(
-        IEnumerable<PolisCitizenSource> sources,
-        string? workspaceRoot,
-        string? homeDirectory,
-        IReadOnlySet<string> buildingKeys,
-        IReadOnlySet<string> marketKeys,
-        DateTimeOffset now,
-        bool ignoreCase = true)
+    public static IReadOnlyList<PolisCitizen> Derive(string cityKey, IReadOnlyList<PolisDwelling> dwellings)
     {
-        ArgumentNullException.ThrowIfNull(sources);
-        ArgumentNullException.ThrowIfNull(buildingKeys);
-        ArgumentNullException.ThrowIfNull(marketKeys);
+        ArgumentNullException.ThrowIfNull(cityKey);
+        ArgumentNullException.ThrowIfNull(dwellings);
+        var tag = CityTag(cityKey);
         var all = new List<PolisCitizen>();
-        foreach (var source in sources)
+        var ordered = dwellings.OrderBy(d => d.Order).ThenBy(d => d.Key, StringComparer.Ordinal).ToList();
+        foreach (var d in ordered)
         {
-            var c = source.Commission;
-            var seed = SeedOf(c.ConversationId);
-            var folders = workspaceRoot == null
-                ? Array.Empty<string>()
-                : TouchedFolders(source.Messages, workspaceRoot, homeDirectory, buildingKeys, marketKeys, ignoreCase);
-            var home = folders.Count == 0
-                ? PublicHomes[(int)((seed >> 4) % (uint)PublicHomes.Count)]
-                : marketKeys.Contains(folders[0]) && !buildingKeys.Contains(folders[0]) ? "market" : "b:" + folders[0];
-            var started = now - c.StartedAt;
-            var age = started < YoungFor ? PolisCitizenAge.Young : started < AdultFor ? PolisCitizenAge.Adult : PolisCitizenAge.Old;
-            var outcome = c.Running ? PolisCitizenOutcome.Running
-                : c.Scheduled ? PolisCitizenOutcome.Scheduled
-                : c.Interrupted ? PolisCitizenOutcome.Interrupted
-                : c.CompletedTurns > 0 ? PolisCitizenOutcome.Completed
-                : PolisCitizenOutcome.Open;
-            var elder = now - c.UpdatedAt > ElderAfter && !c.Running;
-            all.Add(new PolisCitizen(
-                c.ConversationId, seed, IsFemale(seed), c.Title, Epithet(c.Title), home,
-                folders.Take(MaxFolders).ToList(), age, elder, OnStreet: false, c.CompletedTurns, outcome,
-                Math.Max(0, (int)Math.Floor((now - c.UpdatedAt).TotalDays)), c.UpdatedAt, c.StartedAt));
+            var count = HeadCount(cityKey, d);
+            for (var i = 0; i < count; i++)
+            {
+                var (id, seed) = Identity(cityKey, tag, d, i);
+                all.Add(new PolisCitizen(id, seed, IsFemale(seed), AgeOf(seed), PolisTrades.Pick(seed, d), d.Home, d.Key, i, d.Order, d.Cottage,
+                    OnStreet: false, NightOwl: false));
+            }
         }
+        all = AssignNames(all).ToList();
 
-        var ordered = AssignNames(all)
-            .OrderByDescending(c => c.UpdatedAt)
-            .ThenBy(c => c.ConversationId, StringComparer.Ordinal)
+        // 规则 4：按住所最近动过的先后轮流上街
+        var byDwelling = all.GroupBy(c => c.Dwelling, StringComparer.Ordinal).ToDictionary(g => g.Key, g => g.OrderBy(c => c.Index).ToList(), StringComparer.Ordinal);
+        var rotation = ordered
+            .OrderByDescending(d => d.LastModified)
+            .ThenBy(d => d.Order)
+            .ThenBy(d => d.Key, StringComparer.Ordinal)
+            .Where(d => byDwelling.ContainsKey(d.Key))
+            .Select(d => byDwelling[d.Key])
             .ToList();
-        var street = ordered.Where(c => !c.Elder).Take(StreetCap).Select(c => c.ConversationId).ToHashSet(StringComparer.Ordinal);
-        return ordered.Select(c => street.Contains(c.ConversationId) ? c with { OnStreet = true } : c).ToList();
+        var street = new List<string>();
+        for (var round = 0; round < MaxPerDwelling && street.Count < StreetCap; round++)
+        {
+            foreach (var people in rotation)
+            {
+                if (street.Count >= StreetCap) break;
+                if (round < people.Count) street.Add(people[round].Id);
+            }
+        }
+        // 规则 6：街上没有农夫或牧人，就从街上挑一位改行
+        var stallDwellings = ordered.Where(d => d.Stall).Select(d => d.Key).ToHashSet(StringComparer.Ordinal);
+        all = GuaranteeTrades(all, street, stallDwellings).ToList();
+        // 规则 5：夜游的人（街上的里按种子挑、按上街的次序取最多四位）
+        var byId = all.ToDictionary(c => c.Id, StringComparer.Ordinal);
+        var owls = street.Where(id => (byId[id].Seed >> 17) % NightOwlOneIn == 0).Take(MaxNightOwls).ToHashSet(StringComparer.Ordinal);
+        var onStreet = street.ToHashSet(StringComparer.Ordinal);
+        return all.Select(c => c with { OnStreet = onStreet.Contains(c.Id), NightOwl = owls.Contains(c.Id) }).ToList();
+    }
+
+    /// <summary>
+    /// 规则 6：街上（<paramref name="street"/>）没有 <see cref="GuaranteedTrades"/> 里的哪一行，就从街上挑一位改成那一行。
+    /// 先挑无业的，没有就挑街上人数最多的那一行（同样多按职业表的次序）；同一行里按 Id 的序数取第一位。摊主与已经是保底职业的人不动。
+    /// </summary>
+    public static IReadOnlyList<PolisCitizen> GuaranteeTrades(IReadOnlyList<PolisCitizen> citizens, IReadOnlyList<string> street, IReadOnlySet<string> stallDwellings)
+    {
+        ArgumentNullException.ThrowIfNull(citizens);
+        ArgumentNullException.ThrowIfNull(street);
+        ArgumentNullException.ThrowIfNull(stallDwellings);
+        var byId = citizens.ToDictionary(c => c.Id, StringComparer.Ordinal);
+        var changed = new Dictionary<string, string>(StringComparer.Ordinal);
+        string TradeOf(string id) => changed.TryGetValue(id, out var t) ? t : byId[id].Trade;
+        int Rank(string trade) { for (var i = 0; i < PolisTrades.Keys.Count; i++) if (PolisTrades.Keys[i] == trade) return i; return int.MaxValue; }
+        foreach (var trade in GuaranteedTrades)
+        {
+            if (street.Any(id => TradeOf(id) == trade)) continue;
+            var pool = street.Where(id => !stallDwellings.Contains(byId[id].Dwelling) && !GuaranteedTrades.Contains(TradeOf(id))).ToList();
+            if (pool.Count == 0) continue;
+            var idle = pool.Where(id => TradeOf(id) == PolisTrades.Idle).ToList();
+            var candidates = idle.Count > 0
+                ? idle
+                : pool.GroupBy(TradeOf).OrderByDescending(g => g.Count()).ThenBy(g => Rank(g.Key)).First().ToList();
+            changed[candidates.OrderBy(id => id, StringComparer.Ordinal).First()] = trade;
+        }
+        return changed.Count == 0 ? citizens : citizens.Select(c => changed.TryGetValue(c.Id, out var t) ? c with { Trade = t } : c).ToList();
+    }
+
+    /// <summary>
+    /// 城里的住所：文件夹的建筑（推给页面的那一份里的村舍也在内，键以 <c>household:</c> 开头）与市集的摊位。
+    /// 摊位没有自己的地块：次序排在所有建筑之后，最近动过的时刻借广场的。
+    /// </summary>
+    public static IReadOnlyList<PolisDwelling> Dwellings(PolisFixtureDocument city)
+    {
+        ArgumentNullException.ThrowIfNull(city);
+        var list = city.Buildings
+            .Select(b => new PolisDwelling(b.Key, b.Kind, b.SizeClass, b.State, b.Plot.X, b.Plot.Z, b.Order, b.LastModified,
+                Cottage: PolisHouseholds.IsHouseholdKey(b.Key)))
+            .ToList();
+        var stallTime = city.Agora.LastModified ?? DateTimeOffset.MinValue;
+        var order = list.Count == 0 ? 0 : list.Max(d => d.Order) + 1;
+        foreach (var stall in city.Market ?? Array.Empty<string>())
+            list.Add(new PolisDwelling(stall, PolisBuildingKind.House, 1, PolisBuildingState.Lived, 0, 0, order++, stallTime, Stall: true));
+        return list;
     }
 
     public static PolisCensus Census(IReadOnlyList<PolisCitizen> citizens)
     {
         ArgumentNullException.ThrowIfNull(citizens);
         var street = citizens.Count(c => c.OnStreet);
-        var elders = citizens.Count(c => c.Elder);
-        return new PolisCensus(citizens.Count, street, citizens.Count - street - elders, elders);
-    }
-
-    /// <summary>
-    /// 那场会话里成功的工具调用碰过的顶层文件夹，按次数从多到少（同样多的按先碰到的先排）。只看参数里的路径（<see cref="PolisToolTargets"/>），
-    /// 落在工作区外、或者不是一座建筑 / 市集摊位的，不算。
-    /// </summary>
-    public static IReadOnlyList<string> TouchedFolders(
-        IReadOnlyList<ChatMessage> messages,
-        string workspaceRoot,
-        string? homeDirectory,
-        IReadOnlySet<string> buildingKeys,
-        IReadOnlySet<string> marketKeys,
-        bool ignoreCase = true)
-    {
-        ArgumentNullException.ThrowIfNull(messages);
-        var counts = new Dictionary<string, (int Count, int First)>(StringComparer.Ordinal);
-        var order = 0;
-        foreach (var entry in messages
-                     .Where(m => string.Equals(m.Role, "assistant", StringComparison.Ordinal))
-                     .SelectMany(m => m.Segments)
-                     .Where(s => s.IsToolCallGroup)
-                     .SelectMany(s => s.ToolCalls))
-        {
-            if (entry.Status != ToolCallStatus.Success) continue;
-            var (place, path) = PolisToolTargets.ResolvePath(PolisToolTargets.ExtractTargetPath(entry.Arguments), workspaceRoot, homeDirectory, ignoreCase);
-            if (place != "inside" || string.IsNullOrEmpty(path)) continue;
-            var slash = path.IndexOf('/');
-            var top = slash < 0 ? path : path[..slash];
-            if (!buildingKeys.Contains(top) && !marketKeys.Contains(top)) continue;
-            counts[top] = counts.TryGetValue(top, out var seen) ? (seen.Count + 1, seen.First) : (1, order);
-            order++;
-        }
-        return counts.OrderByDescending(kv => kv.Value.Count).ThenBy(kv => kv.Value.First).Select(kv => kv.Key).ToList();
+        return new PolisCensus(citizens.Count, street, citizens.Count - street);
     }
 
     /// <summary>"|" 分隔的几种说法里按种子挑一种（同一个人永远说同一种）。</summary>
@@ -249,10 +279,9 @@ public static class PolisCitizens
     }
 
     /// <summary>
-    /// 一座城里的人起名字（2026-10-13，用户：完整的希腊名，不拿会话标题拼，同一座城里不重名，男女有别）。
-    /// 按会话开始的先后（最老的先挑；同时开始的按会话 Id），每人先按种子挑一个首选名，被占了就按种子定的步长往后找一个空着的——
-    /// 新来的会话永远不会改动老居民的名字。同性别的人多过名表，第二轮从头再分一遍，名字后面带上序号（<c>Polis.Citizen.NameNth</c>）。
-    /// 删掉一位老居民，曾经因为他而让开首选名的后来者会拿回首选名——名字从会话树推导、从不另存，这是唯一会变名字的时候。
+    /// 规则 3：一座城里的人起名字——完整的希腊名，同城不重，男女有别。按给的次序（住所的生长次序、序号）一位一位挑：先按种子挑首选名，
+    /// 被占了就按种子定的步长往后找空着的；同性别的人多过名表，第二轮从头再分一遍，名字后面带序号（<c>Polis.Citizen.NameNth</c>）。
+    /// 新盖一座楼只会给新来的人起名，不会改动老住户的名字。
     /// </summary>
     public static IReadOnlyList<PolisCitizen> AssignNames(IEnumerable<PolisCitizen> citizens, int namesPerSex = NamesPerSex)
     {
@@ -261,7 +290,7 @@ public static class PolisCitizens
         var list = citizens.ToList();
         var taken = new Dictionary<(bool Female, int Round), HashSet<int>>();
         var assigned = new Dictionary<string, (int Index, int Round)>(StringComparer.Ordinal);
-        foreach (var c in list.OrderBy(c => c.StartedAt).ThenBy(c => c.ConversationId, StringComparer.Ordinal))
+        foreach (var c in list.OrderBy(c => c.DwellingOrder).ThenBy(c => c.Index).ThenBy(c => c.Id, StringComparer.Ordinal))
         {
             var preferred = (int)((c.Seed >> 8) % (uint)namesPerSex);
             // 步长与名表长度互质，绕一整圈才回到首选名：每个名字都试得到
@@ -275,11 +304,11 @@ public static class PolisCitizens
                 var index = preferred;
                 while (used.Contains(index)) index = (index + stride) % namesPerSex;
                 used.Add(index);
-                assigned[c.ConversationId] = (index, round);
+                assigned[c.Id] = (index, round);
                 break;
             }
         }
-        return list.Select(c => assigned.TryGetValue(c.ConversationId, out var n) ? c with { NameIndex = n.Index, NameRound = n.Round } : c).ToList();
+        return list.Select(c => assigned.TryGetValue(c.Id, out var n) ? c with { NameIndex = n.Index, NameRound = n.Round } : c).ToList();
     }
 
     private static int Gcd(int a, int b)
@@ -301,43 +330,5 @@ public static class PolisCitizens
         return citizen.NameRound == 0
             ? name
             : string.Format(CultureInfo.CurrentCulture, nthPattern, name, citizen.NameRound + 1);
-    }
-
-    /// <summary>预览里最多带多少条消息、多少字（新的优先；再多的只告诉页面前面还有几条）。</summary>
-    public const int TranscriptMaxMessages = 300;
-    public const int TranscriptMaxChars = 120_000;
-
-    /// <summary>
-    /// 那场会话的预览（2026-10-13，用户：居民的卡片上能点开看那场会话，只显示你和雅典娜说的话，工具一概不显示）。
-    /// 只取气泡里看得见的正文（<see cref="PolisCitizenAnswers.VisibleText"/>：用户消息的内容、雅典娜的正文段；隐藏的工具调用载体、
-    /// 工具结果、系统消息、推理、工具参数都不要），从新往旧取到条数或字数用完为止，再按原来的先后排回去。
-    /// </summary>
-    public static (IReadOnlyList<(string Role, string Text)> Entries, int Omitted) Transcript(
-        IReadOnlyList<ChatMessage> messages,
-        int maxMessages = TranscriptMaxMessages,
-        int maxChars = TranscriptMaxChars)
-    {
-        ArgumentNullException.ThrowIfNull(messages);
-        var visible = messages
-            .Where(m => !m.IsHidden && m.Role is ("user" or "assistant"))
-            .Select(m => (m.Role, Text: PolisCitizenAnswers.VisibleText(m)))
-            .Where(e => e.Text.Length > 0)
-            .ToList();
-        var kept = new List<(string Role, string Text)>();
-        var chars = 0;
-        for (var i = visible.Count - 1; i >= 0 && kept.Count < maxMessages; i--)
-        {
-            var text = visible[i].Text;
-            if (chars + text.Length > maxChars)
-            {
-                // 最新的那一条也放不下：留它的开头，免得预览一条都没有
-                if (kept.Count == 0) kept.Add((visible[i].Role, text[..maxChars]));
-                break;
-            }
-            chars += text.Length;
-            kept.Add(visible[i]);
-        }
-        kept.Reverse();
-        return (kept, visible.Count - kept.Count);
     }
 }

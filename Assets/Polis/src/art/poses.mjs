@@ -20,6 +20,8 @@ export const WORK_VARIANTS = Object.freeze([
   'read', 'write', 'hammer', 'forge', 'summon', 'haul', 'paint', 'announce', 'shelve', 'count', 'survey', 'carve', 'tend', 'await',
   // 第三轮：敲门（你，需求 3）；居民的手艺（需求 4，art/crafts.mjs 的十种活）
   'knock', 'wheel', 'spin', 'fish', 'knead', 'hoe', 'grind', 'stitch', 'dress', 'saw', 'lyre',
+  // 第四轮（需求 5）：织工在立式织机前织布、牧人拄着牧杖看羊、商贩在市集吆喝
+  'weave', 'herd', 'hawk',
 ]);
 
 /** 敲门一次多长（第三轮需求 3）：抬手、叩两下、放下。game 按它把"做事 / knock"当一次性的动作放。 */
@@ -163,6 +165,13 @@ export const CRAFT_ARMS = Object.freeze({
   lyreB: { R: [-0.299, 0.61, 0.258, -1.447, 0.159, 0.065, 0.41] },
   spin: { L: [0.215, -0.479, 0.74, -1.651, 1.1, 0, -0.6], R: [-0.172, 0.539, -0.007, -1.015, 1.089, 0, 0.075] },
   fish: { L: [-0.464, -0.049, -0.25, -0.809, 0.016, -1.591, -0.001], R: [0.344, 0.1, 0.045, -0.874, 0.078, 1.615, 0.064] },
+  // 第四轮（需求 5）。织布——经线面在人前 0.42 米，两只掌心朝前贴着经线（织口在 1.22–1.34 米）：右手从右边把梭子递到中间（A → B），
+  // 再两手往上把纬线打紧（Beat）；三帧从 A 出发接着解，插值时掌心不离经线面
+  weaveA: { L: [-0.421, 0.373, -0.299, -1.189, -1.1, -2.68, 0.541], R: [-0.419, -0.708, 0.312, -1.009, -1.1, 2.646, -0.453] },
+  weaveB: { L: [-0.328, 0.49, -0.5, -1.222, -1.1, -2.68, 0.326], R: [-0.494, -0.084, 0.484, -0.811, -1.1, 2.68, -0.6] },
+  weaveBeat: { L: [-0.498, 0.274, -0.429, -1.277, -1.1, -2.68, 0.6], R: [-0.467, -0.265, 0.5, -1.284, -1.1, 2.676, -0.594] },
+  // 看羊——右拳 1.02 米高攥着牧杖、手的 y 轴朝上（杖竖着、杖脚在右前方的地上），左拳叠在右拳上面 0.11 米
+  herd: { L: [-0.698, -0.951, -0.5, -0.963, -0.053, -1.536, 0.009], R: [0.122, 0.175, -0.21, -1.264, 0.509, 1.294, 0.503] },
 });
 
 /** 解 CRAFT_ARMS 时身体的样子（脊柱前倾、低头、膝、髋往后、两腿前后）；举起来那一帧的脊柱另记。 */
@@ -177,6 +186,9 @@ export const CRAFT_BODY = Object.freeze({
   lyre: Object.freeze({ spine: 0.02, head: 0.12, headTurn: 0.18 }),
   spin: Object.freeze({ spine: 0.04, head: 0.22, headTurn: -0.1 }),
   fish: Object.freeze({ spine: 0.05, head: 0.12 }),
+  weave: Object.freeze({ spine: 0.04, head: 0.02 }),
+  herd: Object.freeze({ spine: 0.06, head: 0.05 }),
+  hawk: Object.freeze({ spine: -0.02, head: -0.04 }),
 });
 
 function craftBody(p, b) {
@@ -635,6 +647,40 @@ function work(t, style) {
       p.shoulderL.rx -= 0.18 * lift + 0.03 * Math.sin(w(2600));
       p.shoulderR.rx -= 0.08 * lift;
       p.propL = 'fishingRod';
+      break;
+    }
+    case 'weave': {  // 织布（第四轮）：A → B 递梭子，B → Beat 打纬，Beat → A 回到右边；头跟着手里的梭子走
+      const f = (t % 2600) / 2600;
+      let a, b, u;
+      if (f < 0.4) [a, b, u] = [CRAFT_ARMS.weaveA, CRAFT_ARMS.weaveB, smooth(f / 0.4)];
+      else if (f < 0.6) [a, b, u] = [CRAFT_ARMS.weaveB, CRAFT_ARMS.weaveBeat, smooth((f - 0.4) / 0.2)];
+      else [a, b, u] = [CRAFT_ARMS.weaveBeat, CRAFT_ARMS.weaveA, smooth((f - 0.6) / 0.4)];
+      craftBody(p, CRAFT_BODY.weave);
+      setArm(p, 'L', a.L, b.L, u);
+      setArm(p, 'R', a.R, b.R, u);
+      p.head.ry = f < 0.4 ? lerp(-0.12, 0.08, smooth(f / 0.4)) : f < 0.6 ? 0.08 : lerp(0.08, -0.12, smooth((f - 0.6) / 0.4));
+      break;
+    }
+    case 'herd': {  // 看羊（第四轮）：两拳叠着拄在牧杖上，身子随着呼吸微微晃，头慢慢转着看羊群
+      craftBody(p, CRAFT_BODY.herd);
+      setArm(p, 'L', CRAFT_ARMS.herd.L);
+      setArm(p, 'R', CRAFT_ARMS.herd.R);
+      p.head.ry = 0.42 * Math.sin(w(9000)) + 0.12 * Math.sin(w(2300));
+      p.spine.rz = 0.025 * Math.sin(w(5200));
+      p.propR = 'crook';
+      break;
+    }
+    case 'hawk': {  // 吆喝（第四轮，商贩在市集）：右手掌心朝上朝过路的人一招一招，左手叉腰，头左右张望
+      craftBody(p, CRAFT_BODY.hawk);
+      const beckon = 0.5 - 0.5 * Math.cos(w(900));
+      const call = Math.max(0, Math.sin(w(5400)));   // 隔一阵扬一扬手
+      p.shoulderR.rx = -1.0 - 0.35 * call; p.shoulderR.ry = 0.25; p.shoulderR.rz = -0.32;
+      p.elbowR.rx = -0.75 - 0.6 * beckon;
+      p.handR.rx = -0.35 + 0.5 * beckon; p.handR.ry = 0.2; p.handR.rz = 0;
+      p.shoulderL.rx = 0.25; p.shoulderL.ry = -0.2; p.shoulderL.rz = 0.55;
+      p.elbowL.rx = -1.65;
+      p.handL.rx = 0.2; p.handL.ry = -1.2; p.handL.rz = 0.3;
+      p.head.ry = 0.45 * Math.sin(w(6200));
       break;
     }
     case 'await':  // 等审批：停在门槛前，两只掌心把封着红印的石板捧在胸前，静静等（设计稿 6.1）

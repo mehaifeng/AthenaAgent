@@ -645,7 +645,7 @@ async function doorCheck(name, browser) {
     await send({ type: 'city', key: 'ws-1', city });
     const street = [
       { id: 'house-a', home: 'b:杂物' }, { id: 'shop-a', home: 'b:网站' }, { id: 'agora-a', home: 'agora:1' },
-    ].map((c, i) => ({ ...c, seed: (Math.imul(i + 51, 2654435761) >>> 0), female: i % 2 === 0, name: `住户${i}`, title: `委托 ${i}`, age: 'adult', outcome: 'completed', folders: [], turns: 2, trade: 'weaver' }));
+    ].map((c, i) => ({ ...c, seed: (Math.imul(i + 51, 2654435761) >>> 0), female: i % 2 === 0, name: `住户${i}`, title: `委托 ${i}`, age: 'adult', outcome: 'completed', folders: [], turns: 2, trade: 'spinner' }));
     const indoors = [{ id: 'indoor-a', seed: 4242, female: true, name: '屋里的阿伽忒', home: 'b:杂物', age: 'young', trade: 'baker' }];
     await send({ type: 'citizens', citizens: { street, indoors, elders: [], census: { total: 4, street: 3, indoors: 1, elders: 0 } } });
     await page.waitForFunction(() => {
@@ -716,7 +716,9 @@ async function doorCheck(name, browser) {
     await page.keyboard.press('Enter');
     await page.waitForTimeout(120);
     const doorChat = (await sentSince(n)).find((m) => m.type === 'chat');
+    const doorLineBefore = await page.evaluate(() => [...window.__polisGame.doorSayings.keys()]);
     await send({ type: 'talk', who: 'indoor-a', n: 1, text: '在呢，你等等，我出来跟你说。', done: true, status: 'ok', door: 'out' });
+    const doorLineAfter = await page.evaluate(() => [...window.__polisGame.doorSayings.keys()]);
     await page.waitForFunction(() => window.__polisGame.world.citizens.get('indoor-a')?.at?.at === 'visit', null, { timeout: 15_000 }).catch(() => {});
     const cameOut = await page.evaluate(() => {
       const g = window.__polisGame;
@@ -724,6 +726,18 @@ async function doorCheck(name, browser) {
       return { guest: !!c, at: c?.at?.at ?? null, visible: c?.figure?.root.visible ?? false, lent: window.__polisTalk.lentTo, mode: window.__polisTalk.mode, visits: [...g.visits.keys()] };
     });
     await page.keyboard.press('Escape');
+    await page.waitForTimeout(100);
+
+    // —— 他不肯出来（2026-10-15 走查）：门里回绝一句，面板留在他身上，只剩"隔着门说话"——再敲一次会算敲得太勤 ——
+    await page.evaluate(() => window.__polisGame.knock(window.__polisGame.world.citizens.get('house-a').plan.door.id));
+    await send({ type: 'knock-reply', who: ['house-a'], pestered: [], ignoring: [] });
+    await page.waitForTimeout(1500);
+    await page.evaluate(() => window.__polisGame.onButton('door-pick:house-a'));
+    await page.evaluate(() => window.__polisGame.onButton('door-call'));
+    await send({ type: 'call-out-reply', who: 'house-a', out: false });
+    await page.waitForTimeout(150);
+    const refused = await page.evaluate(() => ({ panel: window.__polisGame.panelView(), regions: (window.__polisGame.regions ?? []).map((r) => r.id), said: window.__polis.doorSaid?.text ?? null, state: window.__polis.knock?.state }));
+    await page.evaluate(() => window.__polisGame.onButton('panel-close'));
     await page.waitForTimeout(100);
 
     // —— 请他出来：住户 house-a；C# 说出来——门开、他走到门阶上，卡片打开 ——
@@ -768,14 +782,18 @@ async function doorCheck(name, browser) {
       panelListsWhoIsIn: asked.panel === 'door' && asked.regions.includes('door-pick:house-a') && asked.regions.includes('door-pick:indoor-a') && /谁|来了/.test(asked.said ?? ''),
       pickedOffersChoices: picked.regions.includes('door-call') && picked.regions.includes('door-talk') && picked.view?.title === '屋里的阿伽忒',
       talkThroughDoor: lent.lent?.kind === 'chat' && lent.lent.id === 'indoor-a' && /隔着门/.test(lent.status) && doorChat?.door === true && doorChat.who === 'indoor-a',
+      // 门里那位的话挂在门上时，门自己的那句（"谁呀？"）让位，不叠在一起
+      doorLineGivesWay: doorLineBefore.includes(doors.house) && !doorLineAfter.includes(doors.house),
       comesOutToTalk: cameOut.guest && cameOut.at === 'visit' && cameOut.visible && cameOut.lent?.id === 'indoor-a',
       callOutSent: callSent?.who === 'house-a',
+      refusedKeepsTheDoorTalk: refused.state === 'refused' && refused.panel?.type === 'door' && refused.panel.title === '住户0'
+        && refused.regions.includes('door-talk') && !refused.regions.includes('door-call') && !!refused.said,
       calledOutComes: calledOut.at === 'visit' && calledOut.visible && calledOut.panel === 'citizen' && calledOut.opened === 'house-a',
       pesteredSaysStop: pestered.state === 'pestered' && /别敲|又敲/.test(pestered.said ?? '') && pestered.panel !== 'door',
       emptyHouseIsSilent: nobody.state === 'nobody' && nobody.said === '（没有人应门）',
       noProblems: problems.length === 0,
     };
-    Object.assign(result, { checks, doors, inside, exiting, afterPush, focus, knocked, knockSent, asked: { panel: asked.panel, said: asked.said }, picked: picked.view?.title, lent, doorChat, cameOut, calledOut, pestered, nobody, problems, seconds: +((Date.now() - started) / 1000).toFixed(1) });
+    Object.assign(result, { checks, doors, inside, exiting, afterPush, focus, knocked, knockSent, asked: { panel: asked.panel, said: asked.said }, picked: picked.view?.title, lent, doorChat, cameOut, refused: { state: refused.state, regions: refused.regions, said: refused.said }, calledOut, pestered, nobody, problems, seconds: +((Date.now() - started) / 1000).toFixed(1) });
     await page.close();
     console.log(JSON.stringify(result, null, 2));
     return Object.values(checks).every(Boolean);
@@ -806,7 +824,7 @@ async function craftCheck(name, browser) {
     await send({ type: 'city', key: 'ws-1', city });
     const people = [
       { id: 'baker-a', home: 'b:杂物', trade: 'baker', seed: 15 },
-      { id: 'weaver-a', home: 'agora:1', trade: 'weaver', seed: 4243 },
+      { id: 'weaver-a', home: 'agora:1', trade: 'spinner', seed: 4243 },
     ];
     const street = people.map((c, i) => ({ ...c, female: (c.seed & 1) === 1, name: `匠人${i}`, title: `委托 ${i}`, age: 'adult', outcome: 'completed', folders: [], turns: 2 }));
     const census = (n) => ({ total: n, street: n, indoors: 0, elders: 0 });
@@ -895,7 +913,7 @@ async function craftCheck(name, browser) {
         && Math.abs(working.station.scale - working.station.height / 1.75) < 1e-9,
       stationNeverBlocks: working.station?.blocks === false,
       oneStationDrawn: working.stationObjects === 1 && working.crafts?.stations === 1,
-      weaverSpinsOnTheAgora: working.weaver.action === 'work' && working.weaver.work === 'spin' && working.weaver.distaff === true && working.weaver.spindle === true,
+      spinnerSpinsOnTheAgora: working.weaver.action === 'work' && working.weaver.work === 'spin' && working.weaver.distaff === true && working.weaver.spindle === true,
       stopsToGreetYou: greeting.greeting === 'weaver-a' && /^(talk|wave)/.test(greeting.key ?? ''),
       backToWorkAfter: /^work:spin/.test(after ?? ''),
       replannedWhenHisHouseChanges: replanned.update === 'patched' && replanned.replanned,
@@ -925,16 +943,19 @@ async function citizensCheck(name, browser) {
     await page.goto(`${server.origin}/polis/index.html?mode=live`);
     await page.waitForFunction(() => (window.__hostInbox ?? []).some((m) => m.type === 'ready') || document.title === 'error', null, { timeout: 90_000 });
     const send = (message) => page.evaluate((m) => window.polis.receive(JSON.stringify(m)), message);
-    const sentSince = async (n) => (await page.evaluate(() => window.__hostInbox)).slice(n);
-    const inboxLength = () => page.evaluate(() => window.__hostInbox.length);
+    const inbox = () => page.evaluate(() => window.__hostInbox);
+    const sentSince = async (n) => (await inbox()).slice(n);
     await send({ type: 'init', tables: {} });
     await send({ type: 'city', key: 'ws-1', city });
-    const homes = ['agora:0', 'agora:3', 'market', 'harbor', 'library', 'temple', ...city.buildings.slice(0, 4).map((b) => `b:${b.key}`)];
+    // 第四轮：城里的人从建筑来——每人住在一座楼里，带职业、脾气、住处；每八位里一位夜里也出门
+    const homes = city.buildings.slice(0, 8).map((b) => b.key);
     const street = Array.from({ length: 40 }, (_, i) => ({
-      id: `conv-${i}`, seed: (Math.imul(i + 7, 2654435761) >>> 0), female: i % 2 === 1, name: `第${i}位`, title: `委托 ${i}`,
-      home: homes[i % homes.length], age: ['young', 'adult', 'old'][i % 3], outcome: 'completed', folders: [], turns: 2,
+      id: `n:test0000:${String(i).padStart(12, '0')}`, seed: (Math.imul(i + 7, 2654435761) >>> 0), female: i % 2 === 1, name: `第${i}位`,
+      home: `b:${homes[i % homes.length]}`, homeName: homes[i % homes.length], age: ['young', 'adult', 'old'][i % 3],
+      trade: ['potter', 'baker', 'idle', 'merchant'][i % 4], tradeName: ['陶工', '面包师', '无业的人', '商贩'][i % 4], temper: '爽朗', stall: false, cottage: false, nightOwl: i % 8 === 0,
     }));
-    await send({ type: 'citizens', citizens: { street, elders: [{ id: 'old-1', name: '老居民甲', home: 'agora:0' }, { id: 'old-2', name: '老居民乙', home: 'agora:0' }], census: { total: 42, street: 32, indoors: 8, elders: 2 } } });
+    const indoors = [{ id: 'n:test0000:indoor000001', seed: 4242, female: true, name: '屋里的阿伽忒', home: 'b:杂物', homeName: '杂物', age: 'young', trade: 'baker', tradeName: '面包师', temper: '腼腆' }];
+    await send({ type: 'citizens', citizens: { street, indoors, census: { total: 41, street: 32, indoors: 9 } } });
     await page.waitForFunction(() => {
       const g = window.__polisGame;
       return g.world.citizens.size > 0 && [...g.world.citizens.values()].every((c) => c.figure && c.plan);
@@ -944,10 +965,10 @@ async function citizensCheck(name, browser) {
       const g = window.__polisGame;
       let figures = 0;
       g.R.scene.traverse((o) => { if (/^figure:citizen:/.test(o.name)) figures++; });
-      return { figures, size: g.world.citizens.size, tiers: window.__polis.citizenTiers, steles: g.world.steles.size, status: window.__polis.citizens };
+      return { figures, size: g.world.citizens.size, tiers: window.__polis.citizenTiers, status: window.__polis.citizens };
     });
 
-    // 走到一位此刻闲着、还要待一阵的居民跟前（1 米），面朝他，按 E
+    // 走到一位此刻闲着、还要待一阵的居民跟前（1 米），面朝他，按 E：卡片上是他的职业、年纪、性子、住处
     const target = await page.evaluate(() => {
       const g = window.__polisGame;
       const c = [...g.world.citizens.values()].find((x) => x.at?.action === 'idle' && x.at.idleLeft > 8000 && x.figure.root.visible);
@@ -962,51 +983,127 @@ async function citizensCheck(name, browser) {
     await page.keyboard.press('KeyE');
     await page.waitForTimeout(200);
     const card = await page.evaluate(() => ({ opened: window.__polis.citizenOpened, panel: window.__polis.panel, view: window.__polisGame.panelView?.() ?? null }));
-    // 卡片上的按钮（这一帧画出来的）：有"看看那场会话"，没有"去看那份委托"（2026-10-13 第三轮，用户：拿掉）
     const cardButtons = await page.evaluate(() => (window.__polisGame.regions ?? []).map((r) => r.id));
+    const targetData = street.find((c) => c.id === target);
     await page.evaluate(() => window.__polisGame.onButton('panel-close'));
+    await page.evaluate(() => window.__polisGame.placePlayer(0, -6, 0));
 
-    // 碑：走到它跟前按 E，卡片列出刻在上面的名字
-    const stele = await page.evaluate(() => {
+    // —— 夜里（第四轮需求 4）：打开页面时就是夜里——不是夜游的人一开始就在屋里；天亮（直接到位）照常 ——
+    const hidden = () => page.evaluate(() => {
       const g = window.__polisGame;
-      const s = [...g.world.steles.values()][0];
-      if (!s) return null;
-      // 站在碑的外侧（背对门前那一点）面朝它：门前那一点上站着雅典娜和住在那儿的居民，近了她们先被挑中
-      const stand = g.layout.sitePoint(s.home);
-      const dx = s.x - stand.x, dz = s.z - stand.z, d = Math.hypot(dx, dz) || 1;
-      const px = s.x + (dx / d) * 0.9, pz = s.z + (dz / d) * 0.9;
-      g.placePlayer(px, pz, Math.atan2(s.x - px, s.z - pz));
-      return s.home;
+      const all = [...g.world.citizens.values()];
+      return {
+        // 没门、又哪儿都去不了的人整夜站在家门前（citizens 规则 8），不算在"回了屋"的人里
+        hidden: all.filter((c) => c.at?.hidden).map((c) => c.id), nonOwls: all.filter((c) => !c.data.nightOwl && (c.plan?.door || c.plan?.dest)).length,
+        nonOwlsHidden: all.filter((c) => !c.data.nightOwl && (c.plan?.door || c.plan?.dest) && c.at?.hidden).length,
+        owlsHidden: all.filter((c) => c.data.nightOwl && c.at?.hidden).map((c) => c.id), total: all.length,
+      };
     });
-    await page.waitForTimeout(250);
-    const steleFocus = await page.evaluate(() => window.__polis.focus);
-    await page.keyboard.press('KeyE');
+    const dayHidden = await hidden();
+    await send({ type: 'theme', night: true, instant: true });
+    await page.waitForTimeout(300);
+    const nightLoad = await hidden();
+    await send({ type: 'theme', night: false, instant: true });
+    await page.waitForTimeout(300);
+    const dayAgain = await hidden();
+    // 入夜（过渡）：那一刻谁也不消失；各自走完手上这一圈再回屋（把每人的日程往后拨 310 秒——没门的家最多要两个周期）
+    await send({ type: 'theme', night: true });
+    await page.waitForTimeout(300);
+    const dusk = await hidden();
+    await page.evaluate(() => { for (const c of window.__polisGame.world.citizens.values()) { c.schedule.holdAt = null; c.schedule.shift = -310_000; } });
+    await page.waitForTimeout(300);
+    const lateNight = await hidden();
+    await page.evaluate(() => { for (const c of window.__polisGame.world.citizens.values()) c.schedule.shift = 0; });
+    await send({ type: 'theme', night: false, instant: true });
+    await page.waitForTimeout(300);
+
+    // —— 客人顶一位（第四轮需求 2）：街上满了（32 位），敲门请屋里的阿伽忒出来——画面外的一位回屋，街上不超过 32 ——
+    const doorId = await page.evaluate(() => window.__polisGame.world.doorFor('b:杂物', 4242)?.id ?? null);
+    await page.evaluate((id) => {
+      const g = window.__polisGame;
+      const p = g.world.doorPlan(id);
+      g.placePlayer(p.step.x, p.step.z + 0.5, Math.atan2(p.x - p.step.x, p.z - (p.step.z + 0.5)));
+      g.knock(id);
+    }, doorId);
+    await send({ type: 'knock-reply', who: ['n:test0000:indoor000001'], pestered: [], ignoring: [] });
+    await page.waitForTimeout(1500);
+    await page.evaluate(() => window.__polisGame.onButton('door-pick:n:test0000:indoor000001'));
+    let n = (await inbox()).length;
+    await page.evaluate(() => window.__polisGame.onButton('door-call'));
+    await page.waitForTimeout(80);
+    const callSent = (await sentSince(n)).find((m) => m.type === 'call-out');
+    await send({ type: 'call-out-reply', who: 'n:test0000:indoor000001', out: true });
+    await page.waitForFunction(() => window.__polisGame.visits.get('n:test0000:indoor000001')?.phase === 'out', null, { timeout: 15_000 }).catch(() => {});
+    await page.waitForTimeout(200);
+    const bench = await page.evaluate(() => {
+      const g = window.__polisGame;
+      const benched = window.__polis.benched ?? {};
+      const sent = benched['n:test0000:indoor000001'];
+      const c = sent ? g.world.citizens.get(sent) : null;
+      const onStreet = [...g.world.citizens.values()].filter((x) => !x.at?.hidden || x.id === 'n:test0000:indoor000001').length;
+      return { sent, hidden: !!c?.at?.hidden, size: g.world.citizens.size, onStreetMax: [...g.world.citizens.values()].filter((x) => x.id !== sent).length };
+    });
+    await page.evaluate(() => window.__polisGame.onButton('panel-close'));
+    // 你走远了：客人回屋，被顶回去的那位回到日程上
+    await page.evaluate(() => window.__polisGame.placePlayer(0, 30, 0));
+    await page.waitForFunction(() => !window.__polisGame.world.citizens.has('n:test0000:indoor000001'), null, { timeout: 25_000 }).catch(() => {});
+    const benchAfter = await page.evaluate(() => ({ benched: Object.keys(window.__polis.benched ?? {}).length, size: window.__polisGame.world.citizens.size,
+      visit: [...(window.__polisGame.visits ?? new Map())].map(([id, v]) => `${id}:${v.phase}`), player: window.__polisGame.player, panel: window.__polis.panel }));
+
+    // —— 雅典娜和城里的人说话（第四轮需求 8）：ambient-chat 带着 athena；她的话在她头顶，她转向对方、说话时打手势 ——
+    n = (await inbox()).length;
+    const partner = await page.evaluate(() => {
+      const g = window.__polisGame;
+      const a = g.world.athena.position;
+      const c = [...g.world.citizens.values()].filter((x) => !x.at?.hidden && x.figure.root.visible)
+        .sort((x, y) => Math.hypot(x.figure.root.position.x - a.x, x.figure.root.position.z - a.z) - Math.hypot(y.figure.root.position.x - a.x, y.figure.root.position.z - a.z))[0];
+      g.placePlayer(a.x + 6, a.z + 6, 0);
+      return g.ambientNow('athena', c.id) ? c.id : null;
+    });
+    const athenaSent = (await sentSince(n)).find((m) => m.type === 'ambient-chat');
+    await send({ type: 'talk', who: 'athena', n: 1, text: '今天集市上热闹吗？', done: false });
+    // 她正走着的那一段照样走完（每次移动都要完成），停下来就转向他说话
+    await page.waitForFunction(() => window.__polis.athenaPose === 'talk', null, { timeout: 15_000 }).catch(() => {});
+    const athenaTalking = await page.evaluate(() => {
+      const g = window.__polisGame;
+      return { pose: window.__polis.athenaPose, bubble: (g.used?.citizenBubbles ?? []).find((b) => b.id === 'athena')?.text ?? null, chat: window.__polis.chat };
+    });
+    await send({ type: 'talk', who: 'athena', n: 1, text: '今天集市上热闹吗？', done: true, status: 'ok' });
+    await send({ type: 'ambient-end', a: 'athena', b: partner, status: 'ok' });
     await page.waitForTimeout(150);
-    const steleCard = await page.evaluate(() => ({ panel: window.__polis.panel, view: window.__polisGame.panelView?.() ?? null }));
+    const athenaDone = await page.evaluate(() => window.__polis.chat);
 
     // 名单变了：拆掉不在名单里的，人数跟着变
-    await send({ type: 'citizens', citizens: { street: street.slice(0, 5), elders: [], census: { total: 5, street: 5, indoors: 0, elders: 0 } } });
+    await send({ type: 'citizens', citizens: { street: street.slice(0, 5), indoors: [], census: { total: 5, street: 5, indoors: 0 } } });
     await page.waitForTimeout(300);
     const shrunk = await page.evaluate(() => {
       const g = window.__polisGame;
       let figures = 0;
       g.R.scene.traverse((o) => { if (/^figure:citizen:/.test(o.name)) figures++; });
-      return { size: g.world.citizens.size, figures, steles: g.world.steles.size };
+      return { size: g.world.citizens.size, figures };
     });
-    const of = (list, type) => list.find((m) => m.type === type);
+    const owlsOnStreet = street.slice(0, 32).filter((c) => c.nightOwl).length;
     const checks = {
       streetCapped: census.size === 32 && census.figures === 32,
       fewFullyPosed: census.tiers != null && census.tiers.A <= 4,
-      steleStands: census.steles === 1,
       focusOnCitizen: target != null && focus?.type === 'citizen' && focus.id === target,
       cardOpens: card.opened === target && card.panel === 'citizen',
-      cardShowsCensus: (card.view?.lines ?? []).some((l) => /42/.test(l)),
-      cardHasNoCommissionButton: cardButtons.includes('citizen-transcript') && !cardButtons.includes('citizen-open'),
-      steleOpens: stele === 'agora:0' && steleFocus?.type === 'stele' && steleCard.panel === 'stele',
-      listShrinks: shrunk.size === 5 && shrunk.figures === 5 && shrunk.steles === 0,
+      cardSaysWhoHeIs: (card.view?.lines ?? []).some((l) => l.includes(targetData?.tradeName ?? '?') && l.includes('性子')) && (card.view?.lines ?? []).some((l) => l.includes(`「${targetData?.homeName}」`)),
+      cardShowsCensus: (card.view?.lines ?? []).some((l) => /41/.test(l)),
+      cardHasNoConversationButtons: cardButtons.includes('citizen-chat') && !cardButtons.includes('citizen-transcript') && !cardButtons.includes('citizen-open'),
+      // 夜游的人照着白天的日程（也许正好在屋里那一段）；其余的人都在屋里
+      nightOnLoadOnlyOwlsOut: nightLoad.nonOwlsHidden === nightLoad.nonOwls && nightLoad.owlsHidden.every((id) => dayHidden.hidden.includes(id)) && owlsOnStreet === 4,
+      dayComesBack: dayAgain.hidden.length === dayHidden.hidden.length,
+      duskIsNoVanishing: dusk.hidden.length <= dayHidden.hidden.length + 3,
+      afterAPeriodOnlyOwlsOut: lateNight.nonOwlsHidden === lateNight.nonOwls && lateNight.owlsHidden.length < owlsOnStreet,
+      guestSendsSomeoneIn: callSent?.who === 'n:test0000:indoor000001' && !!bench.sent && bench.hidden && bench.size === 33 && bench.onStreetMax === 32,
+      benchReleasedWhenGuestLeaves: benchAfter.benched === 0 && benchAfter.size === 32,
+      listShrinks: shrunk.size === 5 && shrunk.figures === 5,
+      athenaChatsWithTownsfolk: partner != null && athenaSent?.a === 'athena' && athenaSent.b === partner && athenaSent.states?.[partner] != null
+        && athenaTalking.pose === 'talk' && athenaTalking.bubble === '今天集市上热闹吗？' && athenaTalking.chat?.a === 'athena' && athenaDone == null,
       noProblems: problems.length === 0,
     };
-    Object.assign(result, { checks, census, target, focus, card, stele: { home: stele, focus: steleFocus, panel: steleCard.panel }, shrunk, problems, seconds: +((Date.now() - started) / 1000).toFixed(1) });
+    Object.assign(result, { checks, census, target, focus, card, cardButtons, athena: { partner, sent: athenaSent, talking: athenaTalking }, nights: { dayHidden: dayHidden.hidden.length, nightLoad: nightLoad.hidden.length, dayAgain: dayAgain.hidden.length, dusk: dusk.hidden.length, lateNight: lateNight.hidden.length, owls: owlsOnStreet }, bench, benchAfter, shrunk, problems, seconds: +((Date.now() - started) / 1000).toFixed(1) });
     await page.close();
     console.log(JSON.stringify(result, null, 2));
     return Object.values(checks).every(Boolean);
@@ -1141,7 +1238,7 @@ async function chatCheck(name, browser) {
     const all = await inbox();
     const chats = all.filter((m) => m.type === 'chat');
     const checks = {
-      cardOffersChat: card.view?.type === 'citizen' && card.view.askable === true && card.regions.includes('citizen-chat') && card.regions.includes('citizen-transcript'),
+      cardOffersChat: card.view?.type === 'citizen' && card.view.askable === true && card.regions.includes('citizen-chat') && !card.regions.includes('citizen-transcript'),
       barLentToCitizen: lent.talk.mode === 'chat' && lent.focused && lent.name === target?.name && lent.placeholder.includes(target?.name ?? '?') && lent.value === '',
       citizenHeldInCloseUp: lent.chatting?.id === target?.id && lent.closeUp === 'citizen',
       onlyChatSent: sentNow.length === 1 && sentNow[0].type === 'chat' && sentNow[0].who === target?.id && sentNow[0].text === '今天风大吗？',
@@ -1596,8 +1693,9 @@ async function controlsCheck(name, browser) {
     const all = await inbox();
     const checks = {
       talkHiddenUntilComposer: talkBefore === true && talkShown === true,
-      freeViewByDefault: viewDefault.status === 'free' && viewDefault.radio === 'free',
-      viewCycles: views.join(',') === 'player,athena,free',
+      // 第四轮需求 7：缺省跟着你
+      followsYouByDefault: viewDefault.status === 'player' && viewDefault.radio === 'player',
+      viewCycles: views.join(',') === 'athena,free,player',
       dragTurns: Math.abs(a1.azimuth - a0.azimuth) > 20 && a1.elevation <= 72.001 && a1.elevation > a0.elevation,
       walks: Math.hypot(samples.at(-1).x - p0.x, samples.at(-1).z - p0.z) > 5 && Math.hypot(p1.x - samples.at(-1).x, p1.z - samples.at(-1).z) > 1,
       neverInsideWalls: samples.every((s) => s.ok),

@@ -190,6 +190,13 @@ export function makeMaterials() {
     // 围裙的鞣皮：比靴子和帽子的皮浅两档。第一版用同一种深皮，挂在胸前是一块纯黑的板
     hide: new THREE.MeshStandardMaterial({ color: 0x9a7354, roughness: 0.84, side: THREE.DoubleSide }),
     greyHair: new THREE.MeshStandardMaterial({ color: 0xb8b2aa, roughness: 0.7 }),
+    // 第四轮（需求 5）城北的农田与牧场：翻过的土比路边的干土深一档、偏红褐；快熟的麦子是淡金；菜叶、葡萄叶是鲜一点的绿；
+    // 羊毛是带一点黄的米白（比雅典娜的白衣暗，她仍然是城里最亮的），羊脸、羊腿是暗灰褐
+    soil: new THREE.MeshStandardMaterial({ map: earthMap, color: 0x8a6a4c, roughness: 1 }),
+    wheat: new THREE.MeshStandardMaterial({ color: 0xd2b46a, roughness: 0.9, side: THREE.DoubleSide }),
+    greens: new THREE.MeshStandardMaterial({ color: 0x6f8f45, roughness: 0.9, side: THREE.DoubleSide }),
+    wool: new THREE.MeshStandardMaterial({ color: 0xd8d0bd, roughness: 1 }),
+    muzzle: new THREE.MeshStandardMaterial({ color: 0x4a4038, roughness: 0.85 }),
   };
   // 夜里街上的灯照到的一切（lamps.mjs 的 patchLampLit）：除了灯火本身和水（水有自己的着色器），每一份受光材质都读光照图
   for (const value of Object.values(M)) {

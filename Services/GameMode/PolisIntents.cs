@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Text;
 using System.Text.Json;
 
@@ -68,14 +69,9 @@ public enum PolisIntentType
     Chat,
     /// <summary>
     /// 两位居民在街上碰上了，请他们聊两句（2026-10-13，用户：NPC 之间的对话只用模型，不预置台词）。页面挑人、挑时机；
-    /// <c>a</c>、<c>b</c> 都得是这座城里此刻有的居民，而且不是同一位。他们的话只回到页面（头顶的气泡），不进任何会话。
-    /// </summary>
+    /// <c>a</c>、<c>b</c> 都得是这座城里此刻有的居民，而且不是同一位；第四轮起其中一位可以是雅典娜（<c>athena</c>，需求 8）。
+    /// 他们的话只回到页面（头顶的气泡），不进任何会话。</summary>
     AmbientChat,
-    /// <summary>
-    /// 看看一位居民那场会话（2026-10-13）：只认这座城里此刻有的居民。C# 回 <c>citizen-transcript</c>——你和雅典娜看得见的那些话，
-    /// 工具、推理一概不带；只回到页面的卷轴阅读器（模型写的字只经 textContent 进 DOM）。
-    /// </summary>
-    CitizenTranscript,
     /// <summary>在讲台前提一个议题，开一场辩论（M-E）：议题去掉首尾空白后 1–200 字，超长整条拒绝。</summary>
     DebateStart,
     /// <summary>你这一轮的论点（1–600 字，超长整条拒绝）。只在等你说的时候收（ViewModel 核对状态）。</summary>
@@ -122,6 +118,11 @@ public sealed record PolisIntent(PolisIntentType Type)
     public IReadOnlyList<string>? Speakers { get; init; }
     /// <summary>chat：你是隔着门和他说话（第三轮需求 3）。</summary>
     public bool ThroughDoor { get; init; }
+    /// <summary>
+    /// 此刻（第四轮需求 4、5）：说话的人各自在哪儿、在干什么（Id → (where, doing)，键在 <see cref="PolisTalk.WhereKeys"/> /
+    /// <see cref="PolisTalk.DoingKeys"/> 里；不认识的键丢掉，不拒整条）。chat 是 who 的那一份，chorus、ambient-chat 是每一位的。
+    /// </summary>
+    public IReadOnlyDictionary<string, (string? Where, string? Doing)>? States { get; init; }
 }
 
 /// <summary>校验时需要知道的现场：当前城邦的根目录（神殿为 null）、有哪些会话、有哪些藏品。</summary>
@@ -201,7 +202,6 @@ public static class PolisIntents
         ["draft"] = PolisIntentType.Draft,
         ["chat"] = PolisIntentType.Chat,
         ["ambient-chat"] = PolisIntentType.AmbientChat,
-        ["citizen-transcript"] = PolisIntentType.CitizenTranscript,
         ["debate-start"] = PolisIntentType.DebateStart,
         ["debate-say"] = PolisIntentType.DebateSay,
         ["debate-end"] = PolisIntentType.DebateEnd,
@@ -318,7 +318,7 @@ public static class PolisIntents
                 case PolisIntentType.Chat:
                 {
                     var who = ReadString(root, "who");
-                    // 居民（会话 Id），或者职业居民（resident:<名字>，2026-10-13）
+                    // 居民（n:…，第四轮起从建筑来），或者职业居民（resident:<名字>，2026-10-13）
                     var known = !string.IsNullOrEmpty(who) && (context.KnownCitizenIds.Contains(who)
                         || (who.StartsWith(ResidentSpeakerPrefix, StringComparison.Ordinal) && context.KnownResidentIds.Contains(who[ResidentSpeakerPrefix.Length..])
                             && PolisResidents.TryParse(who[ResidentSpeakerPrefix.Length..], out _)));
@@ -334,7 +334,10 @@ public static class PolisIntents
                     var door = root.TryGetProperty("door", out var rawDoor) && rawDoor.ValueKind == JsonValueKind.True;
                     // 隔着门说话只和居民（职业居民不住在门里）；听见的和隔着门的不能同时是
                     if (door && (overheard || who!.StartsWith(ResidentSpeakerPrefix, StringComparison.Ordinal))) return PolisIntentResult.Reject("only a citizen talks through a door");
-                    return new PolisIntentResult(new PolisIntent(type) { ConversationId = who, Text = line, Overheard = overheard, ThroughDoor = door }, null);
+                    var states = new Dictionary<string, (string? Where, string? Doing)>(StringComparer.Ordinal);
+                    var state = ReadState(root);
+                    if (state.Where != null || state.Doing != null) states[who!] = state;
+                    return new PolisIntentResult(new PolisIntent(type) { ConversationId = who, Text = line, Overheard = overheard, ThroughDoor = door, States = states }, null);
                 }
 
                 case PolisIntentType.Knock:
@@ -376,25 +379,18 @@ public static class PolisIntents
                         speakers.Add(who!);
                     }
                     if (speakers.Count is 0 or > PolisTalk.MaxChorusSpeakers) return PolisIntentResult.Reject($"1-{PolisTalk.MaxChorusSpeakers} speakers");
-                    return new PolisIntentResult(new PolisIntent(type) { Text = line, Speakers = speakers }, null);
+                    return new PolisIntentResult(new PolisIntent(type) { Text = line, Speakers = speakers, States = ReadStates(root, speakers) }, null);
                 }
 
                 case PolisIntentType.AmbientChat:
                 {
                     var a = ReadString(root, "a");
                     var b = ReadString(root, "b");
-                    if (string.IsNullOrEmpty(a) || string.IsNullOrEmpty(b) || !context.KnownCitizenIds.Contains(a) || !context.KnownCitizenIds.Contains(b))
-                        return PolisIntentResult.Reject("unknown citizen");
+                    // 第四轮需求 8：其中一位可以是雅典娜（只能一位）
+                    bool Known(string? id) => !string.IsNullOrEmpty(id) && (context.KnownCitizenIds.Contains(id) || id == PolisRelations.AthenaId);
+                    if (!Known(a) || !Known(b)) return PolisIntentResult.Reject("unknown citizen");
                     if (string.Equals(a, b, StringComparison.Ordinal)) return PolisIntentResult.Reject("a citizen cannot chat with himself");
-                    return new PolisIntentResult(new PolisIntent(type) { ConversationId = a, OtherId = b }, null);
-                }
-
-                case PolisIntentType.CitizenTranscript:
-                {
-                    var id = ReadString(root, "conversationId");
-                    if (string.IsNullOrEmpty(id) || !context.KnownCitizenIds.Contains(id))
-                        return PolisIntentResult.Reject("unknown citizen");
-                    return new PolisIntentResult(new PolisIntent(type) { ConversationId = id }, null);
+                    return new PolisIntentResult(new PolisIntent(type) { ConversationId = a, OtherId = b, States = ReadStates(root, new[] { a!, b! }) }, null);
                 }
 
                 case PolisIntentType.PlaceItem:
@@ -489,11 +485,34 @@ public static class PolisIntents
         return (full, null);
     }
 
-    /// <summary>城里能开口的人：这座城的居民（会话 Id），或者职业居民（<c>resident:&lt;名字&gt;</c>）。</summary>
+    /// <summary>城里能开口的人：这座城的居民（<c>n:…</c>），或者职业居民（<c>resident:&lt;名字&gt;</c>）。</summary>
     private static bool IsKnownSpeaker(string? who, PolisIntentContext context)
         => !string.IsNullOrEmpty(who) && (context.KnownCitizenIds.Contains(who)
             || (who.StartsWith(ResidentSpeakerPrefix, StringComparison.Ordinal) && context.KnownResidentIds.Contains(who[ResidentSpeakerPrefix.Length..])
                 && PolisResidents.TryParse(who[ResidentSpeakerPrefix.Length..], out _)));
+
+    /// <summary>一个人的此刻（<c>where</c> / <c>doing</c>）：只认封闭集合里的键，不认识的当没给。</summary>
+    private static (string? Where, string? Doing) ReadState(JsonElement element)
+    {
+        if (element.ValueKind != JsonValueKind.Object) return (null, null);
+        var where = ReadString(element, "where");
+        var doing = ReadString(element, "doing");
+        return (where != null && PolisTalk.WhereKeys.Contains(where) ? where : null, doing != null && PolisTalk.DoingKeys.Contains(doing) ? doing : null);
+    }
+
+    /// <summary>几个人的此刻（<c>states</c>：Id → { where, doing }）：只收 <paramref name="ids"/> 里的人。</summary>
+    private static IReadOnlyDictionary<string, (string? Where, string? Doing)> ReadStates(JsonElement root, IReadOnlyList<string> ids)
+    {
+        var result = new Dictionary<string, (string? Where, string? Doing)>(StringComparer.Ordinal);
+        if (!root.TryGetProperty("states", out var states) || states.ValueKind != JsonValueKind.Object) return result;
+        foreach (var id in ids)
+        {
+            if (!states.TryGetProperty(id, out var one)) continue;
+            var state = ReadState(one);
+            if (state.Where != null || state.Doing != null) result[id] = state;
+        }
+        return result;
+    }
 
     private static string? ReadString(JsonElement root, string name)
         => root.TryGetProperty(name, out var value) && value.ValueKind == JsonValueKind.String ? value.GetString() : null;

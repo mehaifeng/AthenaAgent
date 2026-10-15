@@ -6,6 +6,8 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import * as THREE from '../../../../Assets/Polis/vendor/three.bundle.mjs';
+import { countrySpot, sheepAt, FIELD, PEN, furrowZ } from '../../../../Assets/Polis/src/art/countryside.mjs';
+import { PLOT } from '../../../../Assets/Polis/src/layout.mjs';
 import {
   TRADE_KEYS, TRADE_CRAFT, CRAFTS, STATION_GAPS, STATION_EXTENT, CRAFT_REFERENCE_HEIGHT, tradeOf, craftFor, craftSite,
 } from '../../../../Assets/Polis/src/art/crafts.mjs';
@@ -68,18 +70,24 @@ function worker(trade, { female = false, height = CRAFT_REFERENCE_HEIGHT } = {})
   return { f, sample, variant };
 }
 
-test('crafts: every trade has a craft, every craft is somebody\'s, and an unknown trade falls back to the seed exactly as C# picks it', () => {
-  // 与 C# 的 PolisTalk.TradeIndex 同一个式子（Archive 的 polis relations 断言同样的十组）
-  const parity = [[0, 'potter'], [1, 'carpenter'], [7, 'baker'], [12345, 'herbalist'], [2654435761, 'beekeeper'], [4294967295, 'carpenter'],
-    [2654435769, 'musician'], [305419896, 'potter'], [99999, 'potter'], [3141592653, 'boatwright']];
-  for (const [seed, trade] of parity) assert.equal(tradeOf(seed), trade, `种子 ${seed}`);
-  assert.equal(TRADE_KEYS.length, 14);
-  for (const t of TRADE_KEYS) assert.ok(CRAFTS[TRADE_CRAFT[t]], `${t} 有活干`);
+test('crafts: the trade table is C#\'s (PolisTrades), every trade but the idle has a craft, every craft is somebody\'s, and an unknown trade falls back to the seed', () => {
+  // 与 C# 的 PolisTrades.Keys 同一个次序（Archive 的 polis citizens 断言同一张表）
+  assert.deepEqual([...TRADE_KEYS], ['farmer', 'herder', 'fisher', 'weaver', 'spinner', 'potter', 'baker', 'miller', 'cobbler', 'mason', 'carpenter', 'musician', 'merchant', 'idle']);
+  for (const t of TRADE_KEYS) {
+    if (t === 'idle') { assert.equal(craftFor(t, 1).craft, null, '无业的人没有活'); assert.deepEqual([...craftFor(t, 1).props], []); continue; }
+    assert.ok(CRAFTS[TRADE_CRAFT[t]], `${t} 有活干`);
+  }
   for (const c of Object.keys(CRAFTS)) assert.ok(Object.values(TRADE_CRAFT).includes(c), `${c} 有人干`);
-  assert.deepEqual(craftFor('nonsense', 12345), craftFor('herbalist', 12345), '不认识的职业按种子算');
-  assert.equal(craftFor(null, 7).trade, 'baker');
-  assert.equal(craftFor('spiceTrader', 1).site, 'market', '香料商在市集研磨');
-  assert.equal(craftFor('herbalist', 1).site, 'home', '药草师在自家门前研磨');
+  assert.deepEqual(craftFor('nonsense', 12345), craftFor(tradeOf(12345), 12345), '不认识的职业按种子算');
+  assert.ok(TRADE_KEYS.includes(craftFor(null, 7).trade));
+  assert.equal(craftFor('farmer', 1).site, 'fields', '农夫在城北的田里锄地');
+  assert.equal(craftFor('farmer', 1).needsSpot, true, '农夫要田里的一条垄沟');
+  assert.equal(craftFor('herder', 1).site, 'pasture', '牧人在牧场');
+  assert.equal(craftFor('herder', 1).variant, 'herd');
+  assert.equal(craftFor('weaver', 1).station, 'loom', '织工在门前的织机上织布');
+  assert.equal(craftFor('merchant', 1).site, 'market', '商贩在市集吆喝');
+  assert.equal(craftFor('merchant', 1).portable, true, '走不到市集就在门前吆喝');
+  assert.equal(craftFor('miller', 1).site, 'home', '磨坊工在自家门前研磨');
   assert.equal(craftSite(craftFor('musician', 9), 9), 'agora:3', '乐师在广场一圈里按种子挑的那一点');
   assert.equal(craftFor('fisher', 1).needsSpot, true, '渔夫要世界给的站位');
 });
@@ -176,9 +184,22 @@ test('crafts: on the real rig the hands meet the work — dough, clay, the stone
       assert.ok(palm.y > 0.84 && palm.y < 0.9 && palm.z > 0.31 && palm.z < 0.53, `锯木 t=${t}：左掌按着木板（${palm.y.toFixed(3)}, ${palm.z.toFixed(2)}）`);
     }
   }
+  // 织布（第四轮）：经线面在人前 0.42 米；整个来回两只掌心都贴着经线（离面不到 3 厘米）、在织口一带、大致朝前
+  {
+    const { f, sample } = worker('weaver');
+    for (const t of [0, 520, 1040, 1300, 1560, 2080, 2340]) {
+      sample(t);
+      for (const side of ['L', 'R']) {
+        const p = at(f, side, GRIP.palm);
+        assert.ok(Math.abs(p.z - STATION_GAPS.loom) < 0.03, `织布 t=${t} ${side}：掌心贴着经线（离面 ${(p.z - STATION_GAPS.loom).toFixed(3)} 米）`);
+        assert.ok(p.y > 1.15 && p.y < 1.4 && Math.abs(p.x) < 0.55, `织布 t=${t} ${side}：在织口一带（${p.x.toFixed(2)}, ${p.y.toFixed(2)}）`);
+        assert.ok(dirOf(f, side, [0, 0, 1]).z > 0.5, `织布 t=${t} ${side}：掌心朝着织机`);
+      }
+    }
+  }
   // 锄地：落锄那一下锄刃落在人前 0.7–1 米的地上；两只手都在锄柄上
   {
-    const { f, sample } = worker('vineGrower');
+    const { f, sample } = worker('farmer');
     sample(1300);
     const low = lowest(f.props.get('hoe'));
     assert.ok(low.y > -0.03 && low.y < 0.06, `锄刃到地（${low.y.toFixed(3)}）`);
@@ -189,7 +210,7 @@ test('crafts: on the real rig the hands meet the work — dough, clay, the stone
 test('crafts: on the real rig the hand-held crafts touch what they hold — the mortar, the sole, the strings', () => {
   // 研磨：杵头捣下去落在钵底（钵里 1.6 厘米上），提起来离钵底 0.1 米以上；研钵口朝上
   {
-    const { f, sample } = worker('herbalist');
+    const { f, sample } = worker('miller');
     sample(0);
     const mortar = f.props.get('mortar').children[0];
     const bottom = V(0, 0.016, 0).applyMatrix4(mortar.matrixWorld);
@@ -220,9 +241,24 @@ test('crafts: on the real rig the hand-held crafts touch what they hold — the 
       assert.ok(pinch.distanceTo(strings) < 0.07, `弹琴 t=${t}：指尖在弦上（差 ${pinch.distanceTo(strings).toFixed(3)} 米）`);
     }
   }
+  // 看羊（第四轮）：牧杖竖着、杖脚落在右前方的地上，左拳叠在右拳上面
+  {
+    const { f, sample } = worker('herder');
+    for (const t of [0, 3000, 6000]) {
+      sample(t);
+      const crook = f.props.get('crook');
+      assert.ok(crook.visible, `看羊 t=${t}：拿着牧杖`);
+      assert.ok(dirOf(f, 'R', [0, 1, 0]).y > 0.97, `看羊 t=${t}：牧杖竖着`);
+      const foot = lowest(crook);
+      assert.ok(foot.y > -0.03 && foot.y < 0.08, `看羊 t=${t}：杖脚在地上（${foot.y.toFixed(3)}）`);
+      assert.ok(foot.z > 0.1 && foot.x < -0.05, `看羊 t=${t}：在右前方（${foot.x.toFixed(2)}, ${foot.z.toFixed(2)}）`);
+      const L = at(f, 'L', GRIP.fist), R = at(f, 'R', GRIP.fist);
+      assert.ok(L.y - R.y > 0.07 && Math.hypot(L.x - R.x, L.z - R.z) < 0.06, `看羊 t=${t}：左拳叠在右拳上`);
+    }
+  }
   // 纺线：卷线杆竖着、纺锤竖着垂下
   {
-    const { f, sample } = worker('weaver');
+    const { f, sample } = worker('spinner');
     sample(400);
     assert.ok(dirOf(f, 'L', [0, 1, 0]).y > 0.9, '卷线杆竖着');
     assert.ok(dirOf(f, 'R', [0, 1, 0]).y > 0.85, '纺锤竖着垂下');
@@ -278,7 +314,7 @@ test('crafts: at home a worker stands along the wall with the door behind him an
   const doors = [...world.doors.values()];
   let worked = 0, stations = 0;
   for (const door of doors) {
-    for (const trade of ['potter', 'baker', 'mason', 'carpenter', 'herbalist', 'cobbler', 'weaver']) {
+    for (const trade of ['potter', 'baker', 'mason', 'carpenter', 'miller', 'cobbler', 'weaver', 'spinner']) {
       for (const seed of [11, 12, 13, 14]) {
         const craft = craftFor(trade, seed);
         const plan = planCitizen({ id: `${trade}-${seed}`, seed, home: door.building, craft: { ...craft, site: craftSite(craft, seed), scale: 1 } }, {
@@ -391,7 +427,7 @@ test('crafts: away from home — the fisher fishes only from a spot the world gi
   assert.ok(played >= 1, '有乐师在广场上弹琴');
 });
 
-test('crafts: a public place out of reach — the musician and the spice trader work at their own door; the fisher and the vine grower never fish or hoe on the paving; at a public home only crafts without a station (citizens rule 7)', () => {
+test('crafts: a public place out of reach — the musician and the merchant work at their own door; the fisher and the farmer never fish or hoe on the paving; at a public home only crafts without a station (citizens rule 7)', () => {
   const { world, layout } = buildCity();
   const far = 'b:杂物';   // 城的东北角：广场、橄榄林、港口都在一程（30 秒）以外
   const planFor = (trade, seed, home) => {
@@ -400,7 +436,7 @@ test('crafts: a public place out of reach — the musician and the spice trader 
       sitePoint: layout.sitePoint, route: layout.route, walkable: layout.walkable, hasSite: has(layout), neighbours: [], doorFor: (s, sd) => world.doorFor(s, sd),
     });
   };
-  for (const trade of ['musician', 'spiceTrader']) {
+  for (const trade of ['musician', 'merchant']) {
     let n = 0;
     for (let seed = 1; seed < 40; seed++) {
       const k = craftFor(trade, seed);
@@ -418,16 +454,18 @@ test('crafts: a public place out of reach — the musician and the spice trader 
   }
   for (let seed = 1; seed < 40; seed++) {
     assert.ok(!planFor('fisher', seed, far).craft?.atHome, '渔夫不在家门前钓鱼');
-    assert.ok(!planFor('vineGrower', seed, far).craft?.atHome, '葡萄农不在门前的铺石上锄地');
-    assert.ok(!planFor('vineGrower', seed, 'agora:2').craft?.atHome, '住在广场上的葡萄农也不在广场上锄地');
+    assert.ok(!planFor('farmer', seed, far).craft?.atHome, '农夫不在门前的铺石上锄地');
+    assert.ok(!planFor('farmer', seed, 'agora:2').craft?.atHome, '住在广场上的农夫也不在广场上锄地');
+    assert.ok(!planFor('herder', seed, far).craft?.atHome, '牧人不在门前看羊');
   }
   // 住在公共地方：纺线（不要工位）照干，拉坯（要陶轮）不干
   let spun = 0;
   for (let seed = 1; seed < 20; seed++) {
-    if (planFor('weaver', seed, 'agora:2').craft?.atHome) spun++;
+    if (planFor('spinner', seed, 'agora:2').craft?.atHome) spun++;
+    assert.ok(!planFor('weaver', seed, 'agora:2').craft?.atHome, '公共地方不摆织机');
     assert.ok(!planFor('potter', seed, 'agora:2').craft?.atHome, '公共地方不摆陶轮');
   }
-  assert.ok(spun > 10, `住在广场上的织工在那儿纺线（${spun}）`);
+  assert.ok(spun > 10, `住在广场上的纺纱工在那儿纺线（${spun}）`);
 });
 
 test('crafts: a station never sits on the way to the door — the worker and his station step out from the wall until it clears (citizens rule 7)', () => {
@@ -478,4 +516,58 @@ test('crafts: settling stations — one covering a neighbour\'s spot is not plac
   // 名单变了再收一遍：没收下的那件回来
   settleStations([e]);
   assert.ok(e.craft.station && e.craft.atHome, '名单变了，没收下的那件回来');
+});
+
+test('countryside (fourth round, need 5): the fields and the pasture sit on the northern plot row; the farmer hoes in a furrow facing along it, the herder stands inside the pen through its gate, and the sheep stay in the pen', () => {
+  const { world, layout } = buildCity();
+  const fields = layout.country.filter((c) => c.country === 'field');
+  const pen = layout.country.find((c) => c.country === 'pasture');
+  assert.ok(pen && fields.length >= 2, `城北有一块牧场、几块农田（${fields.length}）`);
+  for (const site of layout.country) {
+    assert.equal(site.z, -layout.ring - 1, '在城外最北一排地块');
+    assert.ok(!layout.plots.has(`b:${site.x},${site.z}`), '不占文件夹的地');
+    assert.ok(site.cz - PLOT / 2 >= layout.mapRect.minZ + 1, '整块在地图里（地图往北多留了一条）');
+  }
+  assert.equal(world.fields.length, fields.length, '每块农田都盖了');
+  assert.ok(world.sheep.length >= 5 && world.sheep.length <= 7, `圈里 5–7 只羊（${world.sheep.length}）`);
+  // 农田不挡路（庄稼在人身高度带里），羊圈的栅栏挡路、圈门不挡
+  for (const f of fields) for (const [dx, dz] of [[0, 0], [2, furrowZ(2)], [-3, furrowZ(4)]]) assert.ok(layout.walkable({ x: f.cx + dx, z: f.cz + dz }), '田里能走');
+  assert.ok(!layout.walkable({ x: pen.cx + PEN.hw, z: pen.cz }), '东边的栅栏挡路');
+  assert.ok(!layout.walkable({ x: pen.cx - 2.5, z: pen.cz + PEN.hd }), '南边的栅栏挡路');
+  assert.ok(layout.walkable({ x: pen.cx, z: pen.cz + PEN.hd }), '圈门能走');
+  let farmers = 0, herders = 0;
+  for (let seed = 1; seed < 40; seed++) {
+    const f = countrySpot(layout, 'fields', seed);
+    if (f) {
+      farmers++;
+      assert.ok(Math.abs(Math.abs(f.yaw) - Math.PI / 2) < 1e-9, '面朝垄的方向（沿 x）');
+      const field = fields.find((x) => Math.abs(x.cx - f.via[0].x) < 1e-9);
+      assert.ok(field, '先走到一块田的南沿');
+      assert.ok(Array.from({ length: FIELD.rows }, (_, k) => field.cz + furrowZ(k)).some((z) => Math.abs(z - f.z) < 1e-9), '站在一条垄沟里');
+      const blade = { x: f.x + Math.sin(f.yaw) * 0.85, z: f.z + Math.cos(f.yaw) * 0.85 };
+      assert.ok(Math.abs(blade.x - field.cx) < FIELD.w / 2 && Math.abs(blade.z - field.cz) < FIELD.d / 2, '锄刃落在田里');
+      assert.ok(routeClear([field.stand, ...f.via, f], layout.walkable, 0.1), '从田南沿走进去一路能走');
+    }
+    const h = countrySpot(layout, 'pasture', seed);
+    if (h) {
+      herders++;
+      assert.ok(Math.abs(h.x - pen.cx) < PEN.hw && Math.abs(h.z - pen.cz) < PEN.hd, '站在圈里');
+      assert.equal(h.yaw, Math.PI, '面朝圈里');
+      assert.ok(routeClear([pen.stand, ...h.via, h], layout.walkable, 0.1), '从圈门走进去');
+    }
+  }
+  assert.ok(farmers >= 30 && herders >= 30, `站位几乎总有（农夫 ${farmers}、牧人 ${herders}）`);
+  // 羊：同一刻同一个样子；始终在圈里、离栅栏有距离；有走有吃草
+  let walking = 0, grazing = 0;
+  for (const s of world.sheep) {
+    assert.deepEqual(sheepAt(s.seed, 4321), sheepAt(s.seed, 4321));
+    for (let wall = 0; wall < 600_000; wall += 1777) {
+      const a = sheepAt(s.seed, wall);
+      assert.ok(Math.abs(a.x) <= PEN.hw - 0.5 && Math.abs(a.z) <= PEN.hd - 0.5, `羊在圈里（${a.x.toFixed(2)}, ${a.z.toFixed(2)}）`);
+      if (a.walking) walking++; else if (a.graze > 0.5) grazing++;
+    }
+  }
+  assert.ok(walking > 50 && grazing > 50, `有走有吃草（走 ${walking}、吃草 ${grazing}）`);
+  world.stepSheep(1234);
+  assert.ok(world.sheep.every((s) => Math.hypot(s.root.position.x - pen.cx, s.root.position.z - pen.cz) < 6), 'stepSheep 把羊摆进圈里');
 });

@@ -220,41 +220,183 @@ export function buildStele(M, { width = 1.3, height = 2.6 } = {}) {
   return kit.build();
 }
 
-/** 木箱（货堆里的）：一只钉了横档的方箱。 */
+/**
+ * 木箱（货堆里的）：第四轮（需求 9，2026-10-15，用户：给杂物多加一点细节）——竖着的木板（板缝是一道道暗线）、上下两道铁箍、
+ * 箍上一排钉头、四角的包角，盖板比箱身宽一圈，两侧一对绳提手。
+ */
 export function buildCrate(M) {
   const kit = new Kit();
-  kit.box(M.wood, 0.7, 0.6, 0.7, 0, 0.3, 0);
-  for (const y of [0.1, 0.5]) kit.box(M.darkWood, 0.72, 0.06, 0.72, 0, y, 0);
+  kit.box(M.wood, 0.7, 0.58, 0.7, 0, 0.29, 0);
+  kit.box(M.wood, 0.76, 0.05, 0.76, 0, 0.605, 0);                          // 盖板
+  for (let k = -2; k <= 2; k++) {
+    for (const [w, d, x, z] of [[0.006, 0.71, k * 0.14, 0], [0.71, 0.006, 0, k * 0.14]]) kit.box(M.darkWood, w, 0.56, d, x, 0.29, z);   // 板缝
+  }
+  for (const y of [0.1, 0.48]) {
+    kit.box(M.dark, 0.72, 0.045, 0.72, 0, y, 0);                            // 铁箍
+    for (let k = -2; k <= 2; k++) for (const [x, z] of [[k * 0.14, 0.362], [k * 0.14, -0.362], [0.362, k * 0.14], [-0.362, k * 0.14]]) {
+      kit.box(M.bronze, 0.018, 0.018, 0.018, x, y, z);                      // 钉头
+    }
+  }
+  for (const sx of [-1, 1]) for (const sz of [-1, 1]) kit.box(M.dark, 0.05, 0.6, 0.05, sx * 0.34, 0.3, sz * 0.34);   // 包角
+  for (const sx of [-1, 1]) kit.add(M.hide, new THREE.TorusGeometry(0.07, 0.012, 6, 12, Math.PI), m4(sx * 0.365, 0.36, 0, Math.PI / 2, 0, 0));   // 绳提手
   return kit.build();
 }
 
-/** 篮子：编织的圆篮，里面堆着羊毛团（作坊、市集）。 */
+/**
+ * 篮子：第四轮——一圈圈编出来的筐（几道横向的藤圈加一排竖着的筋，口沿一道粗一点的箍），一只提梁，里面堆着羊毛团和几颗果子。
+ */
 export function buildBasket(M) {
   const kit = new Kit();
-  kit.add(M.wood, new THREE.CylinderGeometry(0.26, 0.2, 0.3, 14, 1, true), m4(0, 0.15, 0));
+  kit.add(M.wood, new THREE.CylinderGeometry(0.26, 0.2, 0.3, 18, 1, true), m4(0, 0.15, 0));
   kit.cylinder(M.wood, 0.2, 0.2, 0.02, 0, 0.01, 0, 14);
+  for (let k = 0; k < 6; k++) {
+    const y = 0.03 + k * 0.05, r = 0.2 + (0.06 * y) / 0.3 + 0.006;
+    kit.add(M.darkWood, new THREE.TorusGeometry(r, 0.008, 4, 22), m4(0, y, 0, 0, Math.PI / 2, 0));   // 横向的藤圈
+  }
+  for (let k = 0; k < 16; k++) {
+    const a = (k / 16) * Math.PI * 2;
+    kit.add(M.darkWood, new THREE.CylinderGeometry(0.006, 0.006, 0.31, 4), m4(Math.cos(a) * 0.232, 0.155, Math.sin(a) * 0.232, 0, 0, Math.cos(a) * 0.19));
+  }
+  kit.add(M.wood, new THREE.TorusGeometry(0.262, 0.016, 6, 24), m4(0, 0.3, 0, 0, Math.PI / 2, 0));   // 口沿
+  kit.add(M.wood, new THREE.TorusGeometry(0.24, 0.014, 6, 18, Math.PI), m4(0, 0.3, 0));               // 提梁
   for (let i = 0; i < 4; i++) kit.add(M.awning, new THREE.SphereGeometry(0.1, 10, 8), m4(Math.cos(i * 1.7) * 0.1, 0.3, Math.sin(i * 1.7) * 0.1));
+  for (let i = 0; i < 3; i++) kit.add(M.terracotta, new THREE.SphereGeometry(0.045, 8, 6), m4(0.12 * Math.cos(i * 2.2 + 0.5), 0.36, 0.12 * Math.sin(i * 2.2 + 0.5)));
   return kit.build();
 }
 
-/** 雕塑园里的立像：便宜的一体几何（衣褶 + 头 + 一条手臂），去色后是一尊尊白色大理石像。 */
-export function statueGeometry(drape, blob, limb, merge, keyed) {
-  const n = valueNoise(7);
-  return merge([
-    drape({
-      y0: 0.0, y1: 1.55, rings: 16, segs: 36, ez: 0.75,
-      radius: (t, th) => keyed([[0, 0.3], [0.55, 0.2], [1, 0.15]])(t) + 0.015 * fbm(n, th * 2, t * 4, 8, 2),
-      folds: [{ n: 11, amp: 0.016, ph: 0.6, wobble: 0.3, wf: 2.2 }],
-    }),
-    blob([0, 1.72, 0.01], [0.1, 0.13, 0.11], [0, 0, 0], [16, 12]),
-    limb([0.2, 1.5, 0], [0.32, 1.9, 0.12], 0.045),
-  ]);
+/** 麻袋（第四轮）：鼓鼓囊囊的一袋谷子，口子用绳扎着，袋身几道褶。 */
+export function buildSack(M) {
+  const kit = new Kit();
+  const body = new THREE.SphereGeometry(0.24, 14, 10);
+  const pos = body.attributes.position, v = new THREE.Vector3();
+  for (let i = 0; i < pos.count; i++) {
+    v.fromBufferAttribute(pos, i);
+    const sag = v.y < 0 ? 1.15 : 1 - 0.35 * (v.y / 0.24) ** 2;        // 底下坠、上面收口
+    pos.setXYZ(i, v.x * sag * (1 + 0.04 * Math.sin(v.y * 40 + Math.atan2(v.z, v.x) * 5)), v.y * 1.25, v.z * sag);
+  }
+  body.computeVertexNormals();
+  kit.add(M.awning, body, m4(0, 0.3, 0));
+  kit.add(M.awning, new THREE.CylinderGeometry(0.05, 0.07, 0.12, 8), m4(0, 0.63, 0));    // 扎起来的袋口
+  kit.add(M.hide, new THREE.TorusGeometry(0.06, 0.012, 6, 12), m4(0, 0.6, 0, 0, Math.PI / 2, 0));
+  return kit.build();
 }
 
+/** 晾网架（第四轮，港口）：两根桩子一根横杆，挂着一张渔网（网格是一道道细绳），网脚坠着几颗石坠。 */
+export function buildNetRack(M) {
+  const kit = new Kit();
+  for (const sx of [-1, 1]) kit.box(M.darkWood, 0.08, 1.9, 0.08, sx * 1.1, 0.95, 0);
+  kit.cylinder(M.wood, 0.03, 0.03, 2.4, 0, 1.85, 0, 8, 0, Math.PI / 2);
+  for (let k = 0; k <= 12; k++) {
+    const x = -1 + k / 6;
+    const sag = 0.08 * Math.sin((k / 12) * Math.PI);
+    kit.box(M.hide, 0.008, 1.35, 0.008, x, 1.18 - sag / 2, 0.03 + 0.02 * Math.sin(k));
+    kit.add(M.stone, new THREE.SphereGeometry(0.03, 6, 4), m4(x, 0.48 - sag, 0.03));
+  }
+  for (let j = 0; j <= 8; j++) kit.box(M.hide, 2.0, 0.008, 0.008, 0, 0.5 + j * 0.165, 0.04);
+  return kit.build();
+}
+
+/** 柴垛（第四轮，作坊与民居旁）：劈好的柴一层层码着，两头各一根木桩挡着。 */
+export function buildWoodpile(M) {
+  const kit = new Kit();
+  woodpileInto(kit, M);
+  return kit.build();
+}
+
+/** 把一垛柴码进别的东西的 kit 里（作坊的窑边）：原点在柴垛底面中心，ry 转它的朝向。 */
+export function woodpileInto(kit, M, { x = 0, z = 0, ry = 0 } = {}) {
+  const c = Math.cos(ry), sn = Math.sin(ry);
+  const at = (lx, lz) => [x + lx * c + lz * sn, z - lx * sn + lz * c];
+  for (let row = 0; row < 4; row++) {
+    for (let k = 0; k < 7 - (row % 2); k++) {
+      const [px, pz] = at(-0.54 + k * 0.18 + (row % 2) * 0.09, 0);
+      kit.cylinder(row % 2 ? M.wood : M.darkWood, 0.075, 0.08, 0.7, px, 0.08 + row * 0.15, pz, 7, Math.PI / 2, 0, ry + (k * 0.7 + row) % 0.3);
+    }
+  }
+  for (const sx of [-1, 1]) { const [px, pz] = at(sx * 0.68, 0); kit.box(M.darkWood, 0.08, 0.75, 0.08, px, 0.375, pz, ry); }
+}
+
+/**
+ * 雕像的台座（第四轮，需求 9）：一层座脚、一截方柱身、一道挑出的檐，正面一条略深的刻字带（几行浅刻的字痕）。
+ * 原点在台座底面中心，正面朝 +z；返回台面的高度。
+ */
+export function statuePlinth(kit, M, { x = 0, z = 0, width = 0.9, height = 0.9, ry = 0 } = {}) {
+  const at = (lx, ly, lz) => {
+    const c = Math.cos(ry), sn = Math.sin(ry);
+    return [x + lx * c + lz * sn, ly, z - lx * sn + lz * c];
+  };
+  const box = (mat, w, h, d, lx, ly, lz) => { const [px, py, pz] = at(lx, ly, lz); kit.box(mat, w, h, d, px, py, pz, ry); };
+  box(M.marble, width + 0.14, 0.1, width + 0.14, 0, 0.05, 0);
+  box(M.marble, width + 0.06, 0.05, width + 0.06, 0, 0.125, 0);
+  box(M.marble, width - 0.04, height - 0.27, width - 0.04, 0, 0.15 + (height - 0.27) / 2, 0);
+  box(M.marble, width + 0.06, 0.05, width + 0.06, 0, height - 0.095, 0);
+  box(M.marble, width + 0.12, 0.07, width + 0.12, 0, height - 0.035, 0);
+  // 刻字带：正面一块略深的石面，上面几行浅刻的字痕
+  box(M.stone, width - 0.24, 0.26, 0.01, 0, height * 0.55, (width - 0.04) / 2 + 0.004);
+  for (let line = 0; line < 3; line++) {
+    for (let k = 0; k < 7; k++) box(M.shadowGap, 0.045 + (k % 3) * 0.012, 0.022, 0.006, -0.26 + k * 0.087, height * 0.55 + 0.08 - line * 0.075, (width - 0.04) / 2 + 0.01);
+  }
+  return height;
+}
+
+/**
+ * 雕塑园、港口、广场的立像（第四轮，需求 9：给雕像多加一点细节）。一尊持矛的着衣立像：对立式平衡（重心落在右腿，左膝微曲、
+ * 衣褶顺着左腿往下垂），下身长袍细密的竖褶加上斜挂的外袍（himation）从左肩斜到右胯，上身胸肩、颈、头，头发与鬓角、
+ * 鼻梁，一只手举着长矛、一只手垂着挽住外袍的一角，袍下露出两只脚尖。一体几何（几尊共用一份），约三千个三角形。
+ */
+export function statueGeometry(drape, blob, limb, merge, keyed) {
+  const n = valueNoise(7);
+  const parts = [
+    // 下身长袍：右腿承重——左边（+x）的衣褶往前鼓一点，裙摆略微斜
+    drape({
+      y0: 0.0, y1: 0.98, rings: 18, segs: 40, ez: 0.72,
+      radius: (t, th) => keyed([[0, 0.27], [0.35, 0.22], [0.75, 0.19], [1, 0.17]])(t) + 0.012 * fbm(n, th * 2, t * 4, 8, 2) + 0.025 * Math.max(0, Math.sin(th)) * (1 - t),
+      folds: [{ n: 17, amp: 0.012, ph: 0.6, wobble: 0.25, wf: 2.4 }, { n: 5, amp: 0.018, ph: 1.4, wobble: 0.6, wf: 1.1 }],
+      hem: { amp: 0.03, n: 3, ph: 0.4 },
+    }),
+    // 上身：胸、腰，衣褶斜着走
+    drape({
+      y0: 0.96, y1: 1.42, rings: 10, segs: 32, ez: 0.68,
+      radius: (t) => keyed([[0, 0.17], [0.45, 0.19], [0.85, 0.2], [1, 0.12]])(t),
+      folds: [{ n: 9, amp: 0.008, ph: 0.2, wobble: 0.9, wf: 6 }],
+    }),
+    blob([0, 1.37, 0], [0.22, 0.07, 0.12], [0, 0, 0], [16, 8]),       // 两肩
+    limb([0, 1.4, 0], [0, 1.56, 0.012], 0.047),                         // 颈
+    blob([0, 1.67, 0.015], [0.088, 0.112, 0.1], [0, 0, 0], [16, 12]),  // 头
+    blob([0, 1.705, -0.012], [0.096, 0.098, 0.103], [0.2, 0, 0], [14, 10]),   // 头发（后脑饱满、额前一道发际）
+    blob([0, 1.63, 0.03], [0.07, 0.04, 0.07], [0, 0, 0], [10, 6]),     // 胡须的轮廓（下颌）
+    blob([0, 1.665, 0.11], [0.014, 0.03, 0.02], [0.2, 0, 0], [8, 6]),  // 鼻梁
+    // 斜挂的外袍：从左肩斜到右胯的一道厚褶（一根顺着胸前弯过去的管子，压扁一点）
+    new THREE.TubeGeometry(new THREE.CatmullRomCurve3([
+      new THREE.Vector3(0.17, 1.39, 0.0), new THREE.Vector3(0.1, 1.3, 0.12), new THREE.Vector3(-0.02, 1.12, 0.17), new THREE.Vector3(-0.15, 0.95, 0.14), new THREE.Vector3(-0.2, 0.86, 0.06),
+    ]), 20, 0.05, 8, false).scale(1, 1, 0.8),
+    // 举矛的右手（−x）：上臂、前臂、拳；矛杆直立
+    limb([-0.2, 1.36, 0], [-0.29, 1.6, 0.07], 0.042),
+    limb([-0.29, 1.6, 0.07], [-0.27, 1.84, 0.12], 0.036),
+    blob([-0.27, 1.87, 0.13], [0.04, 0.045, 0.04], [0, 0, 0], [8, 6]),
+    limb([-0.27, 0.05, 0.15], [-0.27, 2.12, 0.12], 0.011),
+    blob([-0.27, 2.17, 0.12], [0.022, 0.06, 0.012], [0, 0, 0], [6, 6]),     // 矛头
+    // 垂着的左手（+x）挽着外袍的一角：上臂、前臂、垂下来的一角布
+    limb([0.2, 1.36, 0], [0.27, 1.1, 0.05], 0.042),
+    limb([0.27, 1.1, 0.05], [0.2, 0.93, 0.17], 0.036),
+    drape({
+      y0: 0.42, y1: 0.93, rings: 6, segs: 12, ez: 0.5,
+      radius: (t) => 0.035 + 0.03 * (1 - t),
+      folds: [{ n: 3, amp: 0.01, ph: 0, wobble: 0, wf: 1 }],
+    }).translate(0.21, 0, 0.17),
+    // 袍下露出两只脚尖（右脚站稳、左脚往前一点）
+    blob([-0.07, 0.03, 0.21], [0.045, 0.03, 0.08], [0, 0, 0], [10, 6]),
+    blob([0.09, 0.03, 0.18], [0.045, 0.03, 0.08], [0, 0.25, 0], [10, 6]),
+  ];
+  return merge(parts);
+}
+
+/** 立像（第四轮）：立在带线脚与刻字带的台座上（statuePlinth）。原点在台座底面中心。 */
 export function buildStatue(M, geometry) {
-  const g = new THREE.Group();
-  g.add(mesh(geometry, M.marble));
-  return g;
+  const kit = new Kit();
+  const top = statuePlinth(kit, M, { width: 0.8, height: 0.85 });
+  kit.add(M.marble, geometry, m4(0, top, 0));
+  return kit.build();
 }
 
 /** 底座：藏品摆在上面的那种（场馆里两排各 6 个）。遗失的藏品只剩它（11.3"空底座"）。 */

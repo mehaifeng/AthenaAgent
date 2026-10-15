@@ -19,6 +19,7 @@ import { poseAt } from './poses.mjs';
 import { prepareExternalBody, attachExternalBody } from './bind.mjs';
 import { footprintOf, BLOCKING_HEIGHT } from '../footprint.mjs';
 import { buildStation } from './stations.mjs';
+import * as country from './countryside.mjs';
 
 /**
  * 资产表：Id → { kind, label, build(params) }。label 是美术审查里的中文名。
@@ -51,6 +52,12 @@ export function createAssetRegistry(M) {
   add('civic.vault', 'civic', '金库（城邦）', () => civic.buildVault(M));
   add('civic.terrace', 'civic', '港前石台', (p = {}) => civic.buildTerrace(M, p));
   add('civic.groveMarker', 'civic', '橄榄林界碑', () => civic.buildGroveMarker(M));
+  // 第四轮（需求 5）：城北的农田（不挡路：庄稼落在人身高度带里，算足迹整块田都是墙）、牧场（栅栏挡路）、羊（会动的那几只由 world 另建）
+  for (const crop of ['wheat', 'greens', 'vines']) {
+    add(`civic.field-${crop}`, 'civic', { wheat: '农田（麦子）', greens: '农田（菜地）', vines: '农田（葡萄架）' }[crop], (p = {}) => country.buildField(M, { crop, seed: p.seed ?? 1, scarecrow: !!p.scarecrow }), 'none');
+  }
+  add('civic.pasture', 'civic', '牧场（羊圈）', () => country.buildPasture(M));
+  add('prop.sheep', 'prop', '羊', (p = {}) => country.buildSheep(M, p.seed ?? 1).root, 'none');
   const propTable = {
     amphora: ['双耳瓶', props.buildAmphora], hydria: ['水罐', props.buildHydria], krater: ['调酒缸', props.buildKrater],
     kylix: ['酒杯', props.buildKylix], oinochoe: ['酒壶', props.buildOinochoe], lekythos: ['白底油壶', props.buildLekythos],
@@ -58,11 +65,13 @@ export function createAssetRegistry(M) {
     stool: ['凳子', props.buildStool], chest: ['箱子', props.buildChest], scrollCase: ['卷轴筒', props.buildScrollCase],
     easel: ['画架', props.buildEasel], herm: ['方柱头像', props.buildHerm], stele: ['石碑', props.buildStele],
     crate: ['木箱', props.buildCrate], basket: ['篮子', props.buildBasket], pedestal: ['底座', props.buildPedestal],
+    // 第四轮（需求 9）：港口与作坊旁添的几样杂物
+    sack: ['麻袋', props.buildSack], netRack: ['晾网架', props.buildNetRack], woodpile: ['柴垛', props.buildWoodpile],
   };
   for (const [name, [label, fn]] of Object.entries(propTable)) add(`prop.${name}`, 'prop', label, () => fn(M));
   add('prop.statue', 'prop', '立像', () => props.buildStatue(M, statue));
   // 第三轮（需求 4）：居民干活的工位，摆在门前干活的人面前——不挡路（citizens.mjs 规则 7）
-  for (const [kind, label] of Object.entries({ wheel: '陶轮', trough: '揉面台', block: '石料', sawhorse: '锯木架' })) {
+  for (const [kind, label] of Object.entries({ wheel: '陶轮', trough: '揉面台', block: '石料', sawhorse: '锯木架', loom: '立式织机' })) {
     add(`prop.station-${kind}`, 'prop', `工位：${label}`, () => buildStation(M, kind), 'none');
   }
   for (const kind of ['scroll', 'ledger', 'painting', 'answer']) {

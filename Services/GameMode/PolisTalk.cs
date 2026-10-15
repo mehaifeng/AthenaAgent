@@ -10,10 +10,10 @@ namespace Athena.UI.Services.GameMode;
 public sealed record PolisPersona(string Trade, string Temperament, string Manner, string Pastime);
 
 /// <summary>
-/// 说话的人在这座城里是谁：名字、男女、年纪、性子；<see cref="Calling"/> 是他的身份（一位居民托付过的那件事）。
-/// 职业居民（2026-10-13）用 <see cref="Portrait"/>：他的职业与他管的那摊事、他的性子，写好的一段，代替按种子挑的性子。
+/// 说话的人在这座城里是谁：名字、男女、年纪、性子；<see cref="Calling"/> 是他的身份（第四轮起：他住在哪儿、和谁同住、靠什么过日子）。
+/// 职业居民（2026-10-13）与雅典娜用 <see cref="Portrait"/>：写好的一段，代替按种子挑的性子。
 /// </summary>
-public sealed record PolisSpeaker(string Name, bool Female, PolisCitizenAge Age, PolisPersona Persona, string Calling, string? Portrait = null);
+public sealed record PolisSpeaker(string Name, bool Female, PolisCitizenAge Age, PolisPersona Persona, string Calling, string? Portrait = null, bool Goddess = false);
 
 /// <summary>这座城此刻的样子（提示词里的世界观）：城名、是不是神殿、白天还是夜里、多少居民、有哪些文件夹（建筑）。</summary>
 public sealed record PolisWorldFacts(string CityName, bool Sanctuary, bool Night, int Population, IReadOnlyList<string> Buildings);
@@ -28,6 +28,25 @@ public sealed record PolisTalkTurn(string You, string Them);
 /// </summary>
 public sealed record PolisTalkPrompt(string System, IReadOnlyList<(string Role, string Text)> Messages, int MaxReplyChars = PolisTalk.MaxBubbleChars, bool Raw = false);
 
+/// <summary>
+/// 此刻（第四轮需求 4、5，2026-10-15，用户：NPC 预置的上下文还要有环境和时间、以及他当前的状态）：本地的时刻、城里是不是夜里、
+/// 他在哪儿（<see cref="PolisTalk.WhereKeys"/>）、在干什么（<see cref="PolisTalk.DoingKeys"/>）。地点与状态由页面随意图送来，C# 逐个校验。
+/// </summary>
+public sealed record PolisMoment(DateTimeOffset Local, bool Night, string? Where = null, string? Doing = null);
+
+/// <summary>
+/// 一次说话的上下文（第四轮）：他对你的态度、对雅典娜的态度、隔着门的那一句、此刻、他住的那座楼（详）、整个项目（略）。
+/// 楼与项目里的文件内容只在你开口时才有（<see cref="PolisBriefs"/>）；两个人自己闲聊时为 null。
+/// </summary>
+public sealed record PolisTalkContext(
+    string? Attitude = null,
+    string? AthenaRegard = null,
+    string? Door = null,
+    string? Moment = null,
+    string? Building = null,
+    string? Project = null,
+    bool Night = false);
+
 /// <summary>辩论时围观的人的一句：喝彩（cheer）、嘘（boo）或者一句短评（comment）。</summary>
 public sealed record PolisCrowdReaction(string Kind, string Text);
 
@@ -36,16 +55,17 @@ public sealed record PolisCrowdReaction(string Kind, string Text);
 /// 所以能闲聊；回复出现在他头顶的气泡里）。纯函数：性子从种子挑，世界观、身份与记忆拼成提示词，流式输出里推理块之外的字是"看得见的"。
 ///
 /// 规则（<c>Athena.Archive.Tests</c> 的 <c>polis talk</c> 逐条断言）：
-/// 1. 性子按种子从四张表里各挑一样（职业、脾气、说话习惯、闲时爱做的事），中英两份表一一对应——换界面语言还是同一副脾气。
-///    职业避开十位职业居民的行当（抄写员、铁匠、水手……），他们靠这个在远处就被认出来，居民不和他们撞行。
-/// 2. 世界观只有城名、白天黑夜、人口、建筑（文件夹）名——没有任何消息正文；记忆只来自他那场会话里你看得见的片段
-///    （<see cref="PolisCitizenAnswers.SelectExcerpts"/>），工具、推理一概不进。
-/// 3. 说话的规矩：口语、一到三句、不超过 <see cref="MaxReplyChars"/> 字、用对方用的语言；可以闲聊；说到他那件事只凭记忆，
-///    记忆里没有的就说记不清；不说自己是 AI，不用 Markdown、列表、表情。
+/// 1. 性子按种子从三张表里各挑一样（脾气、说话习惯、闲时爱做的事），中英两份表一一对应——换界面语言还是同一副脾气；职业是住所分给他的
+///    （<see cref="PolisTrades"/>），不和十位职业居民的行当撞（抄写员、铁匠、水手……，他们靠这个在远处就被认出来）。
+/// 2. 世界观只有城名、白天黑夜、人口、建筑（文件夹）名；他是谁（名字、性子、职业、住哪儿）；此刻（时刻、昼夜、他在哪儿干什么，<see cref="MomentText"/>）；
+///    他对你、对雅典娜的态度。你开口和他说话时，再带他住的那座楼的详情与整个项目的大概（<see cref="BuildingText"/> / <see cref="ProjectText"/>）——
+///    所以能聊项目；没有任何会话的东西。
+/// 3. 说话的规矩：口语、一到三句、不超过 <see cref="MaxReplyChars"/> 字、用对方用的语言；可以闲聊、可以聊项目，说到项目只凭写给他的那些，
+///    没写的就说不清楚；夜里说话轻一点、短一点；不说自己是 AI，不用 Markdown、列表、表情。
 /// 4. 记住的来回最多 <see cref="MaxHistoryTurns"/> 轮（旧的先忘）。
-/// 5. 城里的人自己聊（2026-10-13，用户：NPC 之间的对话只用模型，不预置台词）：一人一句，各一次调用——先开口的那句、接话的那句
-///    （带着对方刚说的）。这是没人按回车也会发生的调用，所以只带世界观、两人的名字与性子、那件事办到哪一步（<see cref="AmbientCalling"/>），
-///    <b>不带会话标题、不带任何原话</b>；一句不超过 <see cref="MaxAmbientChars"/> 字。
+/// 5. 城里的人自己聊（2026-10-13，用户：NPC 之间的对话只用模型，不预置台词；第四轮起雅典娜也会和人聊）：一人一句，各一次调用——先开口的那句、
+///    接话的那句（带着对方刚说的）。这是没人按回车也会发生的调用，所以只带世界观、两人是谁、此刻与交情，<b>不带任何文件内容</b>；
+///    一句不超过 <see cref="MaxAmbientChars"/> 字。
 /// </summary>
 public static class PolisTalk
 {
@@ -58,14 +78,7 @@ public static class PolisTalk
     /// <summary>两位居民街头闲聊，一人一句不超过这么多字。</summary>
     public const int MaxAmbientChars = 40;
 
-    // —— 规则 1：性子的四张表（中、英一一对应） ——
-    private static readonly (string Zh, string En)[] Trades =
-    {
-        ("陶工", "potter"), ("织工", "weaver"), ("渔夫", "fisher"), ("面包师", "baker"), ("葡萄农", "vine grower"), ("鞋匠", "cobbler"),
-        ("石匠", "mason"), ("造船匠", "boatwright"), ("药草师", "herbalist"), ("牧羊人", "shepherd"), ("乐师", "musician"), ("香料商", "spice trader"),
-        ("木匠", "carpenter"), ("养蜂人", "beekeeper"),
-    };
-
+    // —— 规则 1：性子的三张表（中、英一一对应）；职业在 PolisTrades ——
     private static readonly (string Zh, string En)[] Temperaments =
     {
         ("爽朗", "cheerful"), ("腼腆", "shy"), ("较真", "exacting"), ("爱打趣", "teasing"), ("慢性子", "unhurried"), ("热心肠", "warm-hearted"),
@@ -94,13 +107,13 @@ public static class PolisTalk
         "surveyor", "scribe", "accountant", "smith", "sailor", "librarian", "herald", "painter", "artisan", "priestess",
     };
 
-    /// <summary>四张表各有几样（测试核对两种语言一一对应）。</summary>
-    public static (int Trades, int Temperaments, int Manners, int Pastimes) TableSizes => (Trades.Length, Temperaments.Length, Manners.Length, Pastimes.Length);
+    /// <summary>几张表各有几样（测试核对两种语言一一对应）。</summary>
+    public static (int Trades, int Temperaments, int Manners, int Pastimes) TableSizes => (PolisTrades.All.Count, Temperaments.Length, Manners.Length, Pastimes.Length);
 
     public static bool IsChinese(string language) => language.StartsWith("zh", StringComparison.OrdinalIgnoreCase);
 
-    /// <summary>规则 1：种子 → 性子。四样用种子不同的几段位，彼此不相关。</summary>
-    public static PolisPersona PersonaFor(uint seed, string language)
+    /// <summary>规则 1：种子 → 性子；职业是住所分给他的那一门（键，见 <see cref="PolisTrades"/>）。三样用种子不同的几段位，彼此不相关。</summary>
+    public static PolisPersona PersonaFor(uint seed, string trade, string language)
     {
         var zh = IsChinese(language);
         string Pick((string Zh, string En)[] table, int shift)
@@ -108,7 +121,8 @@ public static class PolisTalk
             var row = table[IndexOf(seed, shift, table.Length)];
             return zh ? row.Zh : row.En;
         }
-        return new PolisPersona(Pick(Trades, 3), Pick(Temperaments, 9), Pick(Manners, 15), Pick(Pastimes, 21));
+        var t = PolisTrades.ByKey(trade);
+        return new PolisPersona(zh ? t.Zh : t.En, Pick(Temperaments, 9), Pick(Manners, 15), Pick(Pastimes, 21));
     }
 
     private static int IndexOf(uint seed, int shift, int length) => (int)(((seed >> shift) ^ (seed * 2654435761u >> (shift + 3))) % (uint)length);
@@ -116,15 +130,12 @@ public static class PolisTalk
     /// <summary>他的脾气在脾气表里的位置（关系的暖度、耐心、健谈都按它，见 <see cref="PolisRelations"/>）。</summary>
     public static int TemperamentIndex(uint seed) => IndexOf(seed, 9, Temperaments.Length);
 
-    /// <summary>他的职业在职业表里的位置（页面按它挑他干的活，第三轮需求 4）。</summary>
-    public static int TradeIndex(uint seed) => IndexOf(seed, 3, Trades.Length);
-
-    /// <summary>职业的键（与职业表同一个次序；页面的 crafts.mjs 认这些键）。</summary>
-    public static IReadOnlyList<string> TradeKeys { get; } = new[]
+    /// <summary>脾气的名字（页面的卡片上写着）。</summary>
+    public static string TemperamentName(uint seed, string language)
     {
-        "potter", "weaver", "fisher", "baker", "vineGrower", "cobbler", "mason", "boatwright", "herbalist", "shepherd", "musician", "spiceTrader",
-        "carpenter", "beekeeper",
-    };
+        var row = Temperaments[TemperamentIndex(seed)];
+        return IsChinese(language) ? row.Zh : row.En;
+    }
 
     /// <summary>
     /// 他对城的主人的态度（第三轮需求 1：好恶直接影响对话）——按关系的档写一句，放进和他说话的系统提示里。
@@ -167,42 +178,182 @@ public static class PolisTalk
             _ => $"You really do not like {otherName}; meeting them is awkward - you may be a little prickly, but no quarrels or insults.",
         };
 
-    /// <summary>一位居民的身份：他托雅典娜办过的那件事（标题、哪天开始、办到哪一步、常去哪儿）。只有标题、日期、文件夹名和数字。</summary>
-    public static string CitizenCalling(PolisCitizen citizen, string language)
+    /// <summary>
+    /// 一个人的身份（第四轮）：住在哪儿、和几个人同住、靠什么过日子。<paramref name="homeName"/> 是他那座楼的名字（文件夹名、村舍的户名、摊位的文件夹名）。
+    /// </summary>
+    public static string HomeText(PolisCitizen citizen, string homeName, int housemates, string language)
     {
         ArgumentNullException.ThrowIfNull(citizen);
         var zh = IsChinese(language);
-        var date = citizen.StartedAt.ToLocalTime().ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
-        var title = string.IsNullOrWhiteSpace(citizen.Title) ? (zh ? "（没有标题）" : "(untitled)") : citizen.Title.Trim();
-        var outcome = citizen.Outcome switch
+        var trade = PolisTrades.ByKey(citizen.Trade);
+        var with = housemates <= 0 ? string.Empty : zh ? $"，和另外 {housemates} 人同住" : $", together with {housemates} other{(housemates == 1 ? string.Empty : "s")}";
+        var where = citizen.Home == "market"
+            ? (zh ? $"你在市集上守着「{homeName}」那个摊位" : $"You keep the \"{homeName}\" stall at the market")
+            : citizen.Cottage
+                ? (zh ? $"你住在城郊的一座村舍里（「{homeName}」）{with}" : $"You live in a cottage on the edge of town (\"{homeName}\"){with}")
+                : (zh ? $"你住在「{homeName}」这座楼里{with}——这座楼就是城的主人的一个文件夹" : $"You live in the building \"{homeName}\"{with} - the building is one of the city owner's folders");
+        return zh ? $"{where}。平日里你{trade.ZhWork}。" : $"{where}. Most days you {trade.EnWork}.";
+    }
+
+    /// <summary>他在哪儿（页面送来的键，C# 逐个校验）：家门前、屋里、广场、市集、港口、神庙、图书馆、橄榄林、田里、牧场、邻居门前、讲台前、路上。</summary>
+    public static IReadOnlyList<string> WhereKeys { get; } = new[]
+    {
+        "home", "inside", "agora", "market", "harbor", "temple", "library", "grove", "fields", "pasture", "neighbour", "bema", "road",
+    };
+
+    /// <summary>他在干什么：干活、走路、闲站、和人聊、围观辩论、夜里出来走走。</summary>
+    public static IReadOnlyList<string> DoingKeys { get; } = new[] { "work", "walk", "idle", "chat", "audience", "stroll" };
+
+    private static string WherePhrase(string? where, bool zh) => where switch
+    {
+        "home" => zh ? "站在自家门前" : "standing by your own door",
+        "inside" => zh ? "在自己家里" : "at home indoors",
+        "agora" => zh ? "在广场上" : "in the agora",
+        "market" => zh ? "在市集上" : "at the market",
+        "harbor" => zh ? "在港口" : "at the harbour",
+        "temple" => zh ? "在神庙前" : "in front of the temple",
+        "library" => zh ? "在图书馆前" : "by the library",
+        "grove" => zh ? "在橄榄林里" : "in the olive grove",
+        "fields" => zh ? "在城北的田里" : "in the fields north of the city",
+        "pasture" => zh ? "在城北的牧场上" : "on the pasture north of the city",
+        "neighbour" => zh ? "在邻居家门前" : "by a neighbour's door",
+        "bema" => zh ? "在讲台前" : "by the speaker's platform",
+        "road" => zh ? "在街上" : "in the street",
+        _ => zh ? "在城里" : "in town",
+    };
+
+    private static string DoingPhrase(string? doing, string? trade, bool zh)
+    {
+        var t = trade == null ? null : PolisTrades.ByKey(trade);
+        return doing switch
         {
-            PolisCitizenOutcome.Running => zh ? "雅典娜正在办" : "Athena is working on it now",
-            PolisCitizenOutcome.Scheduled => zh ? "那是一件到时辰就办的定时差事" : "it is a scheduled errand that runs on the hour",
-            PolisCitizenOutcome.Interrupted => zh ? "做到一半停下了" : "it stopped halfway",
-            PolisCitizenOutcome.Completed => zh ? $"已经办完，来回了 {citizen.Turns} 回" : $"it is done, after {citizen.Turns} rounds",
-            _ => zh ? "还没真正开头" : "it has not really started",
+            "work" => t == null || t.Key == PolisTrades.Idle ? (zh ? "，手上忙着点零活" : ", busy with an odd job") : (zh ? $"，正在干活（{t.Zh}的活）" : $", at work ({t.En}'s work)"),
+            "walk" => zh ? "，正走着路" : ", walking along",
+            "chat" => zh ? "，正和人说着话" : ", in the middle of a chat",
+            "audience" => zh ? "，挤在人群里看辩论" : ", in the crowd watching a debate",
+            "stroll" => zh ? "，夜里睡不着出来走走" : ", out for a walk because you cannot sleep",
+            _ => zh ? "，闲站着" : ", standing about",
         };
-        var where = citizen.Folders.Count == 0 ? null : string.Join(zh ? "、" : ", ", citizen.Folders);
-        return zh
-            ? $"你托雅典娜办过一件事——「{title}」，{date} 开始，{outcome}{(where == null ? string.Empty : $"，那阵子常在「{where}」一带")}。"
-            : $"You once entrusted Athena with something - \"{title}\", begun on {date}; {outcome}{(where == null ? string.Empty : $"; in those days you were often around \"{where}\"")}.";
     }
 
     /// <summary>
-    /// 规则 5：闲聊时的身份——只说他托雅典娜办过一件事、办到哪一步，<b>不带标题、日期、文件夹</b>（没人按回车也会发出去的调用，少带为好）。
+    /// 规则 2：此刻——日期、星期、钟点（本地），城里是白天还是夜里（夜里写明大多数人已经回家），他在哪儿、在干什么。
+    /// <paramref name="trade"/> 是他的职业键（"在干活"说得出是什么活；职业居民为 null）。
     /// </summary>
-    public static string AmbientCalling(PolisCitizen citizen, string language)
+    public static string MomentText(PolisMoment moment, string? trade, string language)
     {
-        ArgumentNullException.ThrowIfNull(citizen);
+        ArgumentNullException.ThrowIfNull(moment);
         var zh = IsChinese(language);
-        return citizen.Outcome switch
+        var culture = CultureInfo.GetCultureInfo(zh ? "zh-CN" : "en-US");
+        var when = moment.Local.ToString(zh ? "yyyy年M月d日 dddd HH:mm" : "dddd d MMMM yyyy, HH:mm", culture);
+        var sky = moment.Night
+            ? (zh ? "城里已经入夜，家家户户点着灯，大多数人都回家了，街上只有零星几个人。" : "Night has fallen; lamps are lit in the houses, most people have gone home and only a few are still about.")
+            : (zh ? "城里是白天，人们在街上来来往往、各忙各的。" : "It is day in the city; people come and go about their business.");
+        var you = zh ? $"你此刻{WherePhrase(moment.Where, true)}{DoingPhrase(moment.Doing, trade, true)}。" : $"Right now you are {WherePhrase(moment.Where, false)}{DoingPhrase(moment.Doing, trade, false)}.";
+        return zh ? $"现在是{when}。{sky}{you}" : $"It is {when}. {sky} {you}";
+    }
+
+    /// <summary>建筑类型的名字。</summary>
+    public static string KindName(PolisBuildingKind kind, string language) => IsChinese(language)
+        ? kind switch
         {
-            PolisCitizenOutcome.Running => zh ? "你托雅典娜办的一件事，她正在办。" : "Athena is working on something you entrusted to her.",
-            PolisCitizenOutcome.Scheduled => zh ? "雅典娜替你按时辰办一件差事。" : "Athena runs an errand for you on a schedule.",
-            PolisCitizenOutcome.Interrupted => zh ? "你托雅典娜办的一件事做到一半停下了。" : "Something you entrusted to Athena stopped halfway.",
-            PolisCitizenOutcome.Completed => zh ? "你托雅典娜办的一件事已经办完了。" : "Something you entrusted to Athena is done.",
-            _ => zh ? "你想托雅典娜办一件事，还没真正开头。" : "You meant to entrust Athena with something, but it has not really started.",
+            PolisBuildingKind.StoaLibrary => "柱廊书库（多是文档）",
+            PolisBuildingKind.SculptureGarden => "雕塑园（多是图片）",
+            PolisBuildingKind.Treasury => "金库（多是表格）",
+            PolisBuildingKind.Workshop => "作坊（多是代码）",
+            PolisBuildingKind.Warehouse => "货栈（多是压缩包）",
+            _ => "民居（什么都有一点）",
+        }
+        : kind switch
+        {
+            PolisBuildingKind.StoaLibrary => "a colonnaded library (mostly documents)",
+            PolisBuildingKind.SculptureGarden => "a sculpture garden (mostly images)",
+            PolisBuildingKind.Treasury => "a treasury (mostly spreadsheets)",
+            PolisBuildingKind.Workshop => "a workshop (mostly code)",
+            PolisBuildingKind.Warehouse => "a warehouse (mostly archives)",
+            _ => "a house (a bit of everything)",
         };
+
+    private static string Size(long bytes) => bytes switch
+    {
+        < 1024 => $"{bytes} B",
+        < 1024 * 1024 => string.Create(CultureInfo.InvariantCulture, $"{bytes / 1024.0:0.#} KB"),
+        < 1024L * 1024 * 1024 => string.Create(CultureInfo.InvariantCulture, $"{bytes / (1024.0 * 1024):0.#} MB"),
+        _ => string.Create(CultureInfo.InvariantCulture, $"{bytes / (1024.0 * 1024 * 1024):0.#} GB"),
+    };
+
+    /// <summary>
+    /// 规则 2：他住的那座楼（详）：名字、类型、文件数与体积、按类型的分布、最近改动、第一层的条目、README 的开头。只在你开口和他说话时进提示词。
+    /// </summary>
+    public static string BuildingText(PolisBuildingBrief brief, string language)
+    {
+        ArgumentNullException.ThrowIfNull(brief);
+        var zh = IsChinese(language);
+        var sb = new StringBuilder();
+        var kinds = string.Join(zh ? "、" : ", ", brief.Kinds.OrderByDescending(k => k.Value).Take(6).Select(k => $"{k.Key} {k.Value}"));
+        var modified = brief.LastModified.ToLocalTime().ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
+        sb.AppendLine(zh
+            ? $"你住的这座楼「{brief.Key}」是{KindName(brief.Kind, language)}，里面有 {brief.Files} 个文件、共 {Size(brief.Bytes)}{(kinds.Length == 0 ? string.Empty : $"（{kinds}）")}，最近一次改动在 {modified}。"
+            : $"Your building \"{brief.Key}\" is {KindName(brief.Kind, language)} holding {brief.Files} files, {Size(brief.Bytes)} in all{(kinds.Length == 0 ? string.Empty : $" ({kinds})")}; last changed on {modified}.");
+        if (brief.Entries.Count > 0)
+        {
+            var items = brief.Entries.Select(e => e.IsDirectory ? e.Name + "/" : e.Name);
+            sb.AppendLine((zh ? "楼里第一层有：" : "On its first floor: ") + string.Join(zh ? "、" : ", ", items)
+                + (brief.MoreEntries > 0 ? (zh ? $"……还有 {brief.MoreEntries} 样" : $"... and {brief.MoreEntries} more") : string.Empty));
+        }
+        if (!string.IsNullOrEmpty(brief.Readme))
+            sb.AppendLine(zh ? "楼里那份说明（README）开头写着：" : "The README there begins:").AppendLine(brief.Readme);
+        return sb.ToString().TrimEnd();
+    }
+
+    /// <summary>规则 2：整个项目（略）：工作区名、几座楼（名字、类型、文件数）、市集的摊位、根目录 README 的开头。只在你开口和他说话时进提示词。</summary>
+    public static string ProjectText(PolisProjectBrief brief, string language)
+    {
+        ArgumentNullException.ThrowIfNull(brief);
+        var zh = IsChinese(language);
+        var sb = new StringBuilder();
+        var list = string.Join(zh ? "；" : "; ", brief.Buildings.Select(b => zh ? $"「{b.Key}」{KindName(b.Kind, language)}，{b.Files} 个文件" : $"\"{b.Key}\", {KindName(b.Kind, language)}, {b.Files} files"));
+        sb.AppendLine(zh
+            ? $"整座城（城的主人的项目「{brief.Name}」）大概是这样：{(list.Length == 0 ? "还没有楼" : list)}{(brief.MoreBuildings > 0 ? $"……另有 {brief.MoreBuildings} 座" : string.Empty)}。"
+            : $"The whole city (the owner's project \"{brief.Name}\") in brief: {(list.Length == 0 ? "no buildings yet" : list)}{(brief.MoreBuildings > 0 ? $"... and {brief.MoreBuildings} more" : string.Empty)}.");
+        if (brief.Stalls.Count > 0)
+            sb.AppendLine((zh ? "市集上的摊位：" : "Stalls at the market: ") + string.Join(zh ? "、" : ", ", brief.Stalls) + (zh ? "。" : "."));
+        if (!string.IsNullOrEmpty(brief.Readme))
+            sb.AppendLine(zh ? "项目的说明（README）开头写着：" : "The project's README begins:").AppendLine(brief.Readme);
+        return sb.ToString().TrimEnd();
+    }
+
+    /// <summary>
+    /// 他对雅典娜的态度（第四轮需求 8，2026-10-15，用户：不是所有 NPC 对雅典娜都是尊敬的）。不服她的人说起她可以带刺，但不骂人、不咒神。
+    /// </summary>
+    public static string AthenaRegardText(PolisRelationBand band, string language) => IsChinese(language)
+        ? band switch
+        {
+            PolisRelationBand.Close => "你非常敬重雅典娜，觉得这座城有她是福气。",
+            PolisRelationBand.Friendly => "你敬重雅典娜，见了她客客气气的。",
+            PolisRelationBand.Neutral => "你对雅典娜谈不上敬不敬，只当她是城里管事的。",
+            PolisRelationBand.Cool => "你对雅典娜不太服气，觉得她有点高高在上。",
+            _ => "你看不惯雅典娜，觉得她什么都要管、自以为是——说起她、对着她都会带刺，但不骂人、不咒神。",
+        }
+        : band switch
+        {
+            PolisRelationBand.Close => "You revere Athena and count the city lucky to have her.",
+            PolisRelationBand.Friendly => "You respect Athena and are courteous when you meet her.",
+            PolisRelationBand.Neutral => "You neither revere nor resent Athena; to you she is the one who runs things here.",
+            PolisRelationBand.Cool => "You do not quite accept Athena; she seems a little high-handed to you.",
+            _ => "You cannot stand Athena: she meddles in everything and thinks she knows best - you are prickly about her and to her face, but you never insult or curse the goddess.",
+        };
+
+    /// <summary>
+    /// 雅典娜自己（第四轮需求 8：雅典娜和 NPC 交流）：她和城里的人闲聊时，"她是谁"这一段。<paramref name="name"/> 是她在界面语言里的名字。
+    /// </summary>
+    public static PolisSpeaker AthenaSpeaker(string name, string language)
+    {
+        var zh = IsChinese(language);
+        var portrait = zh
+            ? "你是雅典娜本人——这座城的守护女神，智慧、温和、有分寸，替城的主人打理这座城。你对城里的每个人都和气；有人不服你，你也不恼，只是不卑不亢地回一句，偶尔带一点幽默。"
+            : "You are Athena herself - the city's guardian goddess, wise, gentle and measured, who looks after the city for its owner. You are kind to everyone in town; when someone resents you, you are not offended and answer with quiet dignity, sometimes with a touch of humour.";
+        return new PolisSpeaker(name, true, PolisCitizenAge.Adult, new PolisPersona(zh ? "守护女神" : "guardian goddess", string.Empty, string.Empty, string.Empty), string.Empty, Portrait: portrait, Goddess: true);
     }
 
     /// <summary>规则 2：世界观。只有城名、白天黑夜、人口、建筑名（最多 12 个）。</summary>
@@ -215,22 +366,22 @@ public static class PolisTalk
         {
             var sb = new StringBuilder();
             sb.Append(world.Sanctuary
-                ? "这里是神殿岛，一座古希腊式的小城，住着那些不属于任何工作区的人。"
+                ? "这里是神殿岛，一座古希腊式的小城，几户人家住在城郊的村舍里。"
                 : $"这里是古希腊式的城邦「{world.CityName}」。城就是用户的一个工作区：每座建筑是一个文件夹");
             if (!world.Sanctuary) sb.Append(buildings.Count == 0 ? "。" : $"（{string.Join("、", buildings)}……）。");
             sb.Append("城中央是广场，有讲台和日晷，常有人在讲台前辩论；还有市集、港口（船按时出海打听消息）、神庙、圆形的图书馆和橄榄林（每办完一件托付就多一棵橄榄树）。");
-            sb.Append("雅典娜是这座城的守护女神，就住在城里，替城的主人（用户）办事；城里的人敬重她，也常托她办事。");
+            sb.Append("雅典娜是这座城的守护女神，就住在城里，替城的主人（用户）办事；城里多数人敬重她，也有人不服她。");
             sb.Append(CultureInfo.InvariantCulture, $"城里住着 {world.Population} 位居民。此刻是{(world.Night ? "夜里，家家户户点着灯" : "白天")}。");
             sb.Append("跟你说话的是这座城的主人，大家叫他「你」，不知道他的名字。");
             return sb.ToString();
         }
         var en = new StringBuilder();
         en.Append(world.Sanctuary
-            ? "This is the sanctuary island, a small ancient Greek town where the people who belong to no workspace live. "
+            ? "This is the sanctuary island, a small ancient Greek town; a few families live in cottages on its edge. "
             : $"This is the ancient Greek polis \"{world.CityName}\". The city is one of the user's workspaces: every building is a folder"
               + (buildings.Count == 0 ? ". " : $" ({string.Join(", ", buildings)}...). "));
         en.Append("At its centre is the agora with a speaker's platform and a sundial, where people often debate; there are also a market, a harbour (a boat sails out on schedule to gather news), a temple, a round library and an olive grove (one more olive tree for every finished commission). ");
-        en.Append("Athena is the city's guardian goddess; she lives in the city and works for its owner (the user). The townsfolk respect her and often ask her for help. ");
+        en.Append("Athena is the city's guardian goddess; she lives in the city and works for its owner (the user). Most townsfolk respect her, though not all. ");
         en.Append(CultureInfo.InvariantCulture, $"{world.Population} citizens live here. It is {(world.Night ? "night, and the lamps are lit" : "daytime")} now. ");
         en.Append("The person talking to you is the city's owner; people simply call them \"you\" and do not know their name.");
         return en.ToString();
@@ -256,67 +407,54 @@ public static class PolisTalk
                 : $"You are {speaker.Name}, the city's {p.Trade}, a {sex}, {age}. {speaker.Portrait}";
         }
         return zh
-            ? $"你是这座城里的{(speaker.Female ? "女子" : "男子")}「{speaker.Name}」，{age}，以{p.Trade}为生。你性子{p.Temperament}，{p.Manner}，闲时爱{p.Pastime}。{speaker.Calling}"
-            : $"You are {speaker.Name}, a {(speaker.Female ? "woman" : "man")} of this city, {age}, who works as a {p.Trade}. You are {p.Temperament}, {p.Manner}, and in your free time you enjoy {p.Pastime}. {speaker.Calling}";
+            ? $"你是这座城里的{(speaker.Female ? "女子" : "男子")}「{speaker.Name}」，{age}，{(p.Trade == PolisTrades.ByKey(PolisTrades.Idle).Zh ? "没有正经营生" : $"以{p.Trade}为生")}。你性子{p.Temperament}，{p.Manner}，闲时爱{p.Pastime}。{speaker.Calling}"
+            : $"You are {speaker.Name}, a {(speaker.Female ? "woman" : "man")} of this city, {age}, {(p.Trade == PolisTrades.ByKey(PolisTrades.Idle).En ? "without steady work" : $"who works as a {p.Trade}")}. You are {p.Temperament}, {p.Manner}, and in your free time you enjoy {p.Pastime}. {speaker.Calling}";
     }
 
     /// <summary>
-    /// 规则 3：说话的规矩。<paramref name="remembers"/> 为真（一位居民）时多一条：说到他托付过的那件事只凭记得的；
-    /// 职业居民没有托付过的事，说起自己的行当照实说。谁都只是聊天——不能替雅典娜办事、也不答应替谁办事（城里没有一个人能动工具）。
+    /// 规则 3：说话的规矩。<paramref name="knowsProject"/> 为真（城里的人，提示词里有他的楼与项目）时多一条：说到项目只凭写给他的；
+    /// <paramref name="night"/> 为真时多一条：夜里说话轻、短，可以聊点心事、劝人早点回家。谁都只是聊天——不能替雅典娜办事、也不答应替谁办事（城里没有一个人能动工具）。
     /// </summary>
-    public static string RulesText(string language, bool remembers = true) => IsChinese(language)
+    public static string RulesText(string language, bool knowsProject = true, bool night = false) => IsChinese(language)
         ? $"像城里的人在街上被人搭话那样口语交谈：一到三句，不超过 {MaxReplyChars} 个字；对方用什么语言你就用什么语言。"
-          + (remembers
-              ? "可以闲聊城里的事、天气、你的生活和你的行当。说到你托付过的那件事，只凭下面「你记得的」那几段；那里没有的就说记不清了，不要编，不要猜。"
+          + (knowsProject
+              ? "可以闲聊城里的事、天气、你的生活和营生，也可以聊这座城（城的主人的项目）和你住的那座楼里有些什么——只凭下面写给你的那些，没写的就说不清楚，不要编，不要猜。"
               : "可以闲聊城里的事、天气、你的生活；说起你的行当和你管的那摊事就照实说，不知道的不要编。")
+          + (night ? "夜深了：说话放轻、更简短些，可以聊点白天不聊的心事，也可以劝对方早点回家。" : string.Empty)
           + "你只是在聊天：不能替雅典娜办事，也不答应替谁办事；真有事要办，就请对方去找雅典娜。"
-          + "不要说自己是 AI、模型或一段对话，不要提「片段」「记录」这类词；不要用 Markdown、列表、引号包住整句或表情符号。只说你这一句话本身。"
+          + "不要说自己是 AI、模型或一段对话，不要提「提示」「资料」这类词；不要用 Markdown、列表、引号包住整句或表情符号。只说你这一句话本身。"
         : $"Talk like a townsperson stopped in the street: one to three spoken sentences, at most {MaxReplyChars} characters; answer in the language you are spoken to in. "
-          + (remembers
-              ? "You may chat about the city, the weather, your life and your trade. About the thing you entrusted to Athena, rely only on the passages under \"What you remember\"; if they do not say, say you cannot quite remember - never invent or guess. "
+          + (knowsProject
+              ? "You may chat about the city, the weather, your life and your work, and about the city itself (the owner's project) and what is in your building - relying only on what is written below; if it does not say, say you are not sure - never invent or guess. "
               : "You may chat about the city, the weather and your life; speak truthfully about your trade and what you look after, and never invent what you do not know. ")
+          + (night ? "It is late at night: speak softly and briefly; you may share something you would not say by day, or tell them to get home. " : string.Empty)
           + "You are only chatting: you cannot do anything on Athena's behalf and you do not promise to do anything for anyone; if there is real work to do, send them to Athena. "
-          + "Never say you are an AI, a model or a conversation, and do not mention passages or records; no Markdown, lists, quotes around the whole reply or emoji. Say only your own line.";
-
-    /// <summary>"你记得的"：那场会话里挑出来的几段（空的也写明，免得模型以为漏了）。</summary>
-    public static string MemoryText(IReadOnlyList<PolisCitizenExcerpt> excerpts, string language)
-    {
-        ArgumentNullException.ThrowIfNull(excerpts);
-        var zh = IsChinese(language);
-        var sb = new StringBuilder();
-        sb.AppendLine(zh ? "你记得的（那件事里你和雅典娜说过的话）：" : "What you remember (what you and Athena said about it):");
-        if (excerpts.Count == 0) sb.AppendLine(zh ? "（几乎什么都不记得了）" : "(almost nothing)");
-        for (var i = 0; i < excerpts.Count; i++)
-        {
-            var e = excerpts[i];
-            var who = e.Role == "user" ? (zh ? "你" : "You") : (zh ? "雅典娜" : "Athena");
-            sb.Append(CultureInfo.InvariantCulture, $"[{i + 1}] {who}：").AppendLine(e.Text);
-        }
-        return sb.ToString().TrimEnd();
-    }
+          + "Never say you are an AI, a model or a conversation, and do not mention prompts or notes; no Markdown, lists, quotes around the whole reply or emoji. Say only your own line.";
 
     /// <summary>
-    /// 你和一位居民说话的提示词：系统提示 = 世界观 + 他是谁 + 规矩 + 他记得的；消息 = 之前的来回（最多 <see cref="MaxHistoryTurns"/> 轮）+ 你这一句。
-    /// <paramref name="memory"/> 为 null 是职业居民（没有托付过的事，也就没有"你记得的"那一段）。
+    /// 你和城里一个人说话的提示词：系统提示 = 世界观 + 他是谁（+ 对你、对雅典娜的态度 + 隔着门）+ 此刻 + 规矩 + 他住的楼（详）+ 整个项目（略）；
+    /// 消息 = 之前的来回（最多 <see cref="MaxHistoryTurns"/> 轮）+ 你这一句。职业居民没有楼与项目那两段（<see cref="PolisTalkContext.Building"/> 为 null）。
     /// </summary>
     public static PolisTalkPrompt BuildChat(
         PolisWorldFacts world,
         PolisSpeaker speaker,
-        IReadOnlyList<PolisCitizenExcerpt>? memory,
+        PolisTalkContext context,
         IReadOnlyList<PolisTalkTurn> history,
         string line,
-        string language,
-        string? attitude = null,
-        string? door = null)
+        string language)
     {
+        ArgumentNullException.ThrowIfNull(context);
         ArgumentNullException.ThrowIfNull(history);
         ArgumentNullException.ThrowIfNull(line);
-        // 他对你的态度（第三轮需求 1）紧跟在"他是谁"后面：先知道自己是谁、怎么看你，再看规矩；隔着门说话（需求 3）再跟一句门里门外
-        var who = string.IsNullOrEmpty(attitude) ? SpeakerText(speaker, language) : SpeakerText(speaker, language) + (IsChinese(language) ? string.Empty : " ") + attitude;
-        if (!string.IsNullOrEmpty(door)) who += (IsChinese(language) ? string.Empty : " ") + DoorText(door, language);
-        var system = memory == null
-            ? string.Join("\n\n", WorldText(world, language), who, RulesText(language, remembers: false))
-            : string.Join("\n\n", WorldText(world, language), who, RulesText(language), MemoryText(memory, language));
+        var sep = IsChinese(language) ? string.Empty : " ";
+        // 他对你的态度（第三轮需求 1）、对雅典娜的态度（第四轮需求 8）紧跟在"他是谁"后面；隔着门说话（第三轮需求 3）再跟一句门里门外
+        var who = SpeakerText(speaker, language);
+        if (!string.IsNullOrEmpty(context.Attitude)) who += sep + context.Attitude;
+        if (!string.IsNullOrEmpty(context.AthenaRegard)) who += sep + context.AthenaRegard;
+        if (!string.IsNullOrEmpty(context.Door)) who += sep + DoorText(context.Door, language);
+        var knows = context.Building != null || context.Project != null;
+        var system = string.Join("\n\n", new[] { WorldText(world, language), who, context.Moment, RulesText(language, knows, context.Night), context.Building, context.Project }
+            .Where(x => !string.IsNullOrEmpty(x)));
         var messages = new List<(string Role, string Text)>();
         foreach (var turn in history.Skip(Math.Max(0, history.Count - MaxHistoryTurns)))
         {
@@ -328,25 +466,36 @@ public static class PolisTalk
     }
 
     /// <summary>
-    /// 规则 5：两位居民在街上碰上了，<paramref name="speaker"/> 说一句。<paramref name="heard"/> 为 null 是他先开口；不然是对方刚说的那句，他接一句。
-    /// 系统提示 = 世界观 + 他是谁 + 碰上了谁 + 闲聊的规矩；消息只有一条（先开口时是一句提示，接话时是对方的原话）。语言用界面语言。
+    /// 规则 5：两个人在街上碰上了，<paramref name="speaker"/> 说一句。<paramref name="heard"/> 为 null 是他先开口；不然是对方刚说的那句，他接一句。
+    /// 系统提示 = 世界观 + 他是谁（+ 对雅典娜的态度）+ 此刻 + 碰上了谁、两人的交情 + 闲聊的规矩；消息只有一条（先开口时是一句提示，接话时是对方的原话）。
+    /// 语言用界面语言。不带任何文件内容（<see cref="PolisTalkContext.Building"/> / <see cref="PolisTalkContext.Project"/> 不用）——没人按回车也会发生的调用。
+    /// 第四轮起一方可以是雅典娜（<see cref="AthenaSpeaker"/>）：对方的 <paramref name="ties"/> 写的是他怎么看她。
     /// </summary>
-    public static PolisTalkPrompt BuildAmbientLine(PolisWorldFacts world, PolisSpeaker speaker, PolisSpeaker other, string? heard, string language, string? ties = null)
+    public static PolisTalkPrompt BuildAmbientLine(PolisWorldFacts world, PolisSpeaker speaker, PolisSpeaker other, string? heard, string language, string? ties = null, PolisTalkContext? context = null)
     {
         ArgumentNullException.ThrowIfNull(other);
         var zh = IsChinese(language);
         var o = other.Persona;
-        var meeting = zh
-            ? $"你在街上碰到了城里的{(other.Female ? "女子" : "男子")}「{other.Name}」（{o.Trade}，性子{o.Temperament}），站下来闲聊两句。"
-            : $"You run into {other.Name}, a {(other.Female ? "woman" : "man")} of the city ({o.Trade}, {o.Temperament}), and stop for a word.";
-        // 两人的交情（第三轮需求 1）：要好的聊得热络，不对付的带点刺
+        var meeting = other.Goddess
+            ? (zh ? "雅典娜（这座城的守护女神）在街上走到你跟前，站下来和你说两句。" : "Athena, the city's guardian goddess, comes up to you in the street and stops for a word.")
+            : speaker.Goddess
+                ? (zh ? $"你在街上走到城里的{(other.Female ? "女子" : "男子")}「{other.Name}」（{o.Trade}）跟前，和{(other.Female ? "她" : "他")}说两句。" : $"You walk up to {other.Name}, a {(other.Female ? "woman" : "man")} of the city ({o.Trade}), in the street for a word.")
+                : zh
+                    ? $"你在街上碰到了城里的{(other.Female ? "女子" : "男子")}「{other.Name}」（{o.Trade}{(o.Temperament.Length == 0 ? string.Empty : $"，性子{o.Temperament}")}），站下来闲聊两句。"
+                    : $"You run into {other.Name}, a {(other.Female ? "woman" : "man")} of the city ({o.Trade}{(o.Temperament.Length == 0 ? string.Empty : $", {o.Temperament}")}), and stop for a word.";
+        // 两人的交情（第三轮需求 1）：要好的聊得热络，不对付的带点刺；对雅典娜（第四轮需求 8）：敬重的恭敬，不服的带刺
         if (!string.IsNullOrEmpty(ties)) meeting += (zh ? string.Empty : " ") + ties;
+        var night = context?.Night ?? false;
         var rules = zh
             ? $"只说你这一句话本身：口语，一句，不超过 {MaxAmbientChars} 个字，用中文。聊城里的事、天气、各自的营生或家常，带一点你自己的性子。"
+              + (night ? "夜深了，说话轻一点。" : string.Empty)
               + "不要说自己是 AI，不要用 Markdown、引号、表情符号，不要写出说话人的名字。"
             : $"Say only your own line: spoken, one sentence, at most {MaxAmbientChars} characters, in English. Talk about the city, the weather, your trades or daily life, in your own manner. "
+              + (night ? "It is late at night; keep your voice down. " : string.Empty)
               + "Never say you are an AI; no Markdown, quotes, emoji, and do not write the speaker's name.";
-        var system = string.Join("\n\n", WorldText(world, language), SpeakerText(speaker, language), meeting, rules);
+        var who = SpeakerText(speaker, language);
+        if (!string.IsNullOrEmpty(context?.AthenaRegard)) who += (zh ? string.Empty : " ") + context!.AthenaRegard;
+        var system = string.Join("\n\n", new[] { WorldText(world, language), who, context?.Moment, meeting, rules }.Where(x => !string.IsNullOrEmpty(x)));
         var user = heard == null
             ? (zh ? "（你先开口。）" : "(You speak first.)")
             : (zh ? $"{other.Name}说：{heard}" : $"{other.Name} says: {heard}");
@@ -386,20 +535,23 @@ public static class PolisTalk
     /// <summary>
     /// 你自己说了一句，附近已经有人接了话，<paramref name="speaker"/> 也插一句（第三轮需求 6，2026-10-13，用户：不点名说话时，附近的几个人都有反应）。
     /// 系统提示 = 世界观 + 他是谁 + 他对你的态度 + 插话的规矩 + 他和前面每一位的交情；消息是一条：你那句（前面说明是听见的）和前面几位依次说的话。
-    /// 没有他那场会话里的话（他是凑热闹，不是在回你的问题）；一句、不超过 <see cref="MaxAmbientChars"/> 字、用对方的语言。
+    /// 没有楼与项目的详情（他是凑热闹，不是在回你的问题）；一句、不超过 <see cref="MaxAmbientChars"/> 字、用对方的语言。
     /// </summary>
     public static PolisTalkPrompt BuildChorusLine(
         PolisWorldFacts world,
         PolisSpeaker speaker,
-        string? attitude,
+        PolisTalkContext context,
         string line,
         IReadOnlyList<(string Name, string Text, string? Ties)> earlier,
         string language)
     {
+        ArgumentNullException.ThrowIfNull(context);
         ArgumentNullException.ThrowIfNull(line);
         ArgumentNullException.ThrowIfNull(earlier);
         var zh = IsChinese(language);
-        var who = string.IsNullOrEmpty(attitude) ? SpeakerText(speaker, language) : SpeakerText(speaker, language) + (zh ? string.Empty : " ") + attitude;
+        var who = SpeakerText(speaker, language);
+        if (!string.IsNullOrEmpty(context.Attitude)) who += (zh ? string.Empty : " ") + context.Attitude;
+        if (!string.IsNullOrEmpty(context.AthenaRegard)) who += (zh ? string.Empty : " ") + context.AthenaRegard;
         var rules = zh
             ? $"你在街上，听见城的主人在旁边说了一句话，旁边几个人已经接了话。你也插一句：口语，一句，不超过 {MaxAmbientChars} 个字，用对方用的语言；"
               + "可以接城的主人的话，也可以接前面哪一位的话，带着你自己的性子和你对他们的态度。你只是在聊天，不能替雅典娜办事，也不答应替谁办事。"
@@ -408,7 +560,7 @@ public static class PolisTalk
               + "answer the owner or any of the others, in your own manner and with your feelings towards them. You are only chatting: you cannot do anything on Athena's behalf and you promise nothing. "
               + "Never say you are an AI; no Markdown, quotes or emoji, and do not write the speaker's name. Say only your own line.";
         var ties = string.Join(zh ? string.Empty : " ", earlier.Where(e => !string.IsNullOrEmpty(e.Ties)).Select(e => e.Ties));
-        var system = string.Join("\n\n", new[] { WorldText(world, language), who, rules, ties }.Where(s => !string.IsNullOrEmpty(s)));
+        var system = string.Join("\n\n", new[] { WorldText(world, language), who, context.Moment, rules, ties }.Where(s => !string.IsNullOrEmpty(s)));
         var sb = new StringBuilder(Overheard(line, language));
         foreach (var (name, text, _) in earlier)
             sb.Append('\n').Append(zh ? $"{name}说：{text.Trim()}" : $"{name} says: {text.Trim()}");
@@ -460,7 +612,7 @@ public static class PolisTalk
                 if (outList.Count >= MaxCrowdReactions) break;
                 if (r.ValueKind != System.Text.Json.JsonValueKind.Object) continue;
                 var kind = r.TryGetProperty("kind", out var k) && k.ValueKind == System.Text.Json.JsonValueKind.String ? k.GetString() : null;
-                var text = r.TryGetProperty("text", out var t) && t.ValueKind == System.Text.Json.JsonValueKind.String ? PolisCitizenAnswers.Sanitize(t.GetString(), MaxCrowdChars) : null;
+                var text = r.TryGetProperty("text", out var t) && t.ValueKind == System.Text.Json.JsonValueKind.String ? Sanitize(t.GetString(), MaxCrowdChars) : null;
                 if (kind == null || !CrowdKinds.Contains(kind) || text == null) continue;
                 outList.Add(new PolisCrowdReaction(kind, text));
             }
@@ -470,6 +622,22 @@ public static class PolisTalk
         {
             return Array.Empty<PolisCrowdReaction>();
         }
+    }
+
+    /// <summary>
+    /// 模型的回答压成能放进气泡的样子：去掉首尾空白、引号与 Markdown 的粗体，换行收成空格，最多 <paramref name="maxChars"/> 字。空的算没有回答。
+    /// </summary>
+    public static string? Sanitize(string? text, int maxChars = 1200)
+    {
+        if (string.IsNullOrWhiteSpace(text)) return null;
+        var lines = text.Replace("\r", string.Empty, StringComparison.Ordinal)
+            .Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        var joined = string.Join(" ", lines).Replace("**", string.Empty, StringComparison.Ordinal).Trim().Trim('"', '“', '”', '「', '」');
+        if (joined.Length == 0) return null;
+        if (joined.Length <= maxChars) return joined;
+        var cut = maxChars;
+        if (char.IsHighSurrogate(joined[cut - 1])) cut--;
+        return joined[..cut] + "…";
     }
 
     /// <summary>记住这一轮：追加到末尾，超过 <see cref="MaxHistoryTurns"/> 轮就忘掉最旧的。</summary>

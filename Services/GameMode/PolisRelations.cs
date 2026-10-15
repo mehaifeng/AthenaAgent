@@ -39,25 +39,26 @@ public enum PolisRelationEvent
 }
 
 /// <summary>
-/// 关系里的一个人：居民（会话 Id）或职业居民（<c>resident:&lt;名字&gt;</c>）。起点都从这些真实的数推（规则 2）。
-/// <see cref="Temperament"/> 是 <see cref="PolisTalk.PersonaFor"/> 那张脾气表里的位置（职业居民为 -1，用 <see cref="FixedBase"/>）；
-/// <see cref="Household"/> 是户的钥匙（住民居的）、<see cref="Building"/> 是住的文件夹楼（<c>b:&lt;文件夹&gt;</c>），都没有为 null；
-/// <see cref="TitleTokens"/> 是那场会话标题的分词（默认标题为空）。
+/// 关系里的一个人（第四轮，2026-10-15 起居民从建筑来）：城里的人（<c>n:…</c>）、职业居民（<c>resident:&lt;名字&gt;</c>）或者雅典娜（<c>athena</c>）。
+/// 起点都从这些真实的数推（规则 2）：<see cref="Temperament"/> 是 <see cref="PolisTalk.PersonaFor"/> 那张脾气表里的位置（职业居民与雅典娜为 -1，
+/// 用 <see cref="FixedBase"/>）；<see cref="Building"/> 是他住的地方（页面的站点名，<c>b:&lt;文件夹&gt;</c> 或 market），<see cref="PlotX"/> /
+/// <see cref="PlotZ"/> 是那块地（摊位与职业居民没有）；<see cref="Trade"/> 是职业的键；<see cref="IdleDays"/> 是他那座楼多少天没人动过
+/// （城的主人有没有照看他那条街；村舍、摊位为 null）。
 /// </summary>
 public sealed record PolisRelationPerson(
     string Id,
     uint Seed,
     int Temperament,
-    string? Household,
     string? Building,
-    IReadOnlySet<string> TitleTokens,
+    int? PlotX,
+    int? PlotZ,
+    string? Trade,
     PolisCitizenAge Age,
-    PolisCitizenOutcome? Outcome,
-    int Turns,
-    int IdleDays,
+    int? IdleDays,
     int? FixedBase = null)
 {
     public bool IsResident => Id.StartsWith(PolisIntents.ResidentSpeakerPrefix, StringComparison.Ordinal);
+    public bool IsAthena => string.Equals(Id, PolisRelations.AthenaId, StringComparison.Ordinal);
 }
 
 /// <summary>一个人此刻怎么看你，以及由它推出的行为参数（规则 4），连同两条最主要的原因（页面本地化的键）。</summary>
@@ -84,10 +85,13 @@ public sealed record PolisRelationLedger(IReadOnlyList<PolisPlayerTie> You, IRea
 ///
 /// 规则：
 /// 1. 关系值 −100…100，五档（<see cref="BandOf"/>）：亲近 ≥ 60、友好 ≥ 25、寻常 > −25、冷淡 > −60、其余厌恶。
-/// 2. <b>起点按真实的数推，不存</b>。居民对你：那场会话办完了 +15、正在办 +5、做到一半停下 −10；来回越多越熟（每回合 +1，最多 +15）；
-///    两周内动过 +5；脾气的"暖度"（<see cref="Warmth"/>，热心肠 +20 … 爱发牢骚 −15）；再加一点按种子的个人差异（±6）。
-///    职业居民按人设各有一个起点（<see cref="ResidentBase"/>）。两人之间（有方向）：同一户 +40、住同一座楼 +25、标题相近（Jaccard × 20）、
+/// 2. <b>起点按真实的数推，不存</b>（第四轮起居民从建筑来）。居民对你：脾气的"暖度"（<see cref="Warmth"/>，热心肠 +20 … 爱发牢骚 −15）；
+///    他那座楼两周内有人动过 +8（城的主人在照看他那条街），半年多没人动 −8；无业的人 −4；再加一点按种子的个人差异（±6）。
+///    职业居民按人设各有一个起点（<see cref="ResidentBase"/>）。两人之间（有方向）：住同一处 +30、邻居（地块挨着）+8、同行 +6、
 ///    "缘分"（两人种子的对称哈希，−30…+30）、年纪差一档 −5、两种脾气合不合（<see cref="Compatibility"/>）、再加他自己暖度的一半。
+///    对雅典娜（第四轮需求 8：不是所有 NPC 对雅典娜都是尊敬的）：敬神心（按种子 −35…+35）、脾气（多疑、爱发牢骚的不服，热心肠、沉稳的敬重）、
+///    职业（乐师、陶工、织工偏敬重，无业的、商贩偏不服）、年纪（年长的敬重、年轻的不服）（<see cref="BaseToAthena"/>）；职业居民各有一个起点
+///    （<see cref="ResidentAthenaBase"/>）。雅典娜对谁都和气（+35 加对方暖度的三成）。
 /// 3. <b>只有事件带来的变化记账</b>（<see cref="PolisRelationLedger"/>，存全局的 relations.json）：聊一句 +2（每人每小时最多 +6）、
 ///    接了你的话 +1（每小时最多 +2）、请出来了 +1（每小时最多 +2）、说烦了 −4、敲得太勤 −3（每小时最多 −6）；对你的累计变化夹在 ±60 之内。
 ///    两位居民闲聊一次彼此 +1，两人之间因此累计最多 +15。变化随时间淡去（半衰期 <see cref="HalfLife"/>）。
@@ -138,24 +142,45 @@ public static class PolisRelations
         _ => 0,
     };
 
+    /// <summary>雅典娜在关系里的 Id（和她闲聊、她怎么看谁、谁怎么看她）。</summary>
+    public const string AthenaId = "athena";
+
+    /// <summary>雅典娜这个人（没有脾气、没有楼）。</summary>
+    public static PolisRelationPerson AthenaPerson { get; } = new(AthenaId, PolisCitizens.SeedOf(AthenaId), -1, null, null, null, null, PolisCitizenAge.Adult, null, 40);
+
+    /// <summary>职业居民对雅典娜的起点（女祭司最敬她，账房只认账）。</summary>
+    public static int ResidentAthenaBase(PolisResidentKind kind) => kind switch
+    {
+        PolisResidentKind.Priestess => 70,
+        PolisResidentKind.Herald => 45,
+        PolisResidentKind.Librarian => 40,
+        PolisResidentKind.Scribe => 35,
+        PolisResidentKind.Painter => 30,
+        PolisResidentKind.Sailor => 25,
+        PolisResidentKind.Surveyor => 25,
+        PolisResidentKind.Artisan => 20,
+        PolisResidentKind.Smith => 15,
+        PolisResidentKind.Accountant => 5,
+        _ => 20,
+    };
+
     /// <summary>职业居民在关系里的那个人（种子按名字取，脾气没有，用起点）。</summary>
     public static PolisRelationPerson ResidentPerson(PolisResidentKind kind)
     {
         var slug = PolisResidents.Slug(kind);
-        return new PolisRelationPerson(PolisIntents.ResidentSpeakerPrefix + slug, PolisCitizens.SeedOf("resident:" + slug), -1, null, null,
-            new HashSet<string>(StringComparer.Ordinal), PolisResidents.AgeOf(kind), null, 0, 0, ResidentBase(kind));
+        return new PolisRelationPerson(PolisIntents.ResidentSpeakerPrefix + slug, PolisCitizens.SeedOf("resident:" + slug), -1, null, null, null, null,
+            PolisResidents.AgeOf(kind), null, ResidentBase(kind));
     }
 
-    /// <summary>居民在关系里的那个人。</summary>
-    public static PolisRelationPerson CitizenPerson(PolisCitizen citizen)
+    /// <summary>城里的一个人在关系里的那个人。<paramref name="dwelling"/> 是他的住所（给地块和那座楼多久没人动过）。</summary>
+    public static PolisRelationPerson CitizenPerson(PolisCitizen citizen, PolisDwelling? dwelling, DateTimeOffset now)
     {
         ArgumentNullException.ThrowIfNull(citizen);
-        var home = citizen.Home;
-        var household = PolisHouseholds.IsHouseholdKey(home.StartsWith("b:", StringComparison.Ordinal) ? home[2..] : null) ? home : null;
-        var building = household == null && home.StartsWith("b:", StringComparison.Ordinal) ? home : null;
-        var tokens = string.IsNullOrEmpty(citizen.Epithet) ? new HashSet<string>(StringComparer.Ordinal) : PolisCitizenAnswers.Tokens(citizen.Title);
-        return new PolisRelationPerson(citizen.ConversationId, citizen.Seed, PolisTalk.TemperamentIndex(citizen.Seed), household, building,
-            tokens, citizen.Age, citizen.Outcome, citizen.Turns, citizen.AgeDays);
+        var folder = dwelling != null && !dwelling.Stall && !dwelling.Cottage;
+        int? idle = folder ? Math.Max(0, (int)Math.Floor((now - dwelling!.LastModified).TotalDays)) : null;
+        return new PolisRelationPerson(citizen.Id, citizen.Seed, PolisTalk.TemperamentIndex(citizen.Seed), citizen.Home,
+            dwelling == null || dwelling.Stall ? null : dwelling.PlotX, dwelling == null || dwelling.Stall ? null : dwelling.PlotZ,
+            citizen.Trade, citizen.Age, idle);
     }
 
     public static PolisRelationBand BandOf(int score) => score >= CloseAt ? PolisRelationBand.Close
@@ -196,19 +221,15 @@ public static class PolisRelations
         }
         else
         {
-            var outcome = person.Outcome switch
-            {
-                PolisCitizenOutcome.Completed => ("done", 15),
-                PolisCitizenOutcome.Running => ("working", 5),
-                PolisCitizenOutcome.Interrupted => ("stopped", -10),
-                _ => ((string?)null, 0),
-            };
-            if (outcome.Item1 != null) parts.Add((outcome.Item1, outcome.Item2));
-            var familiar = Math.Min(15, Math.Max(0, person.Turns));
-            if (familiar > 0) parts.Add(("familiar", familiar));
-            if (person.IdleDays <= 14) parts.Add(("recent", 5));
             var warmth = WarmthOf(person);
             if (warmth != 0) parts.Add((warmth > 0 ? "warm" : "prickly", warmth));
+            // 城的主人照不照看他那条街：他那座楼两周内有人动过，街上热闹；半年多没人动，冷冷清清
+            if (person.IdleDays is int idle)
+            {
+                if (idle <= 14) parts.Add(("busy", 8));
+                else if (idle >= 180) parts.Add(("neglected", -8));
+            }
+            if (string.Equals(person.Trade, PolisTrades.Idle, StringComparison.Ordinal)) parts.Add(("idle", -4));
             // 个人差异（±6，按种子）：同样的会话、同样的脾气，人和人也不全一样
             parts.Add(("self", (int)(person.Seed % 13) - 6));
         }
@@ -244,20 +265,76 @@ public static class PolisRelations
 
     private static int AgeRank(PolisCitizenAge age) => age switch { PolisCitizenAge.Young => 0, PolisCitizenAge.Adult => 1, _ => 2 };
 
-    /// <summary>规则 2：<paramref name="a"/> 对 <paramref name="b"/> 的起点。</summary>
+    /// <summary>规则 2：<paramref name="a"/> 对 <paramref name="b"/> 的起点（任一方是雅典娜时见 <see cref="BaseToAthena"/>）。</summary>
     public static int BasePair(PolisRelationPerson a, PolisRelationPerson b)
     {
         ArgumentNullException.ThrowIfNull(a);
         ArgumentNullException.ThrowIfNull(b);
+        if (b.IsAthena) return BaseToAthena(a).Score;
+        if (a.IsAthena) return Clamp(35 + WarmthOf(b) * 0.3);
         double v = Chemistry(a.Seed, b.Seed);
-        if (a.Household != null && string.Equals(a.Household, b.Household, StringComparison.Ordinal)) v += 40;
-        if (a.Building != null && string.Equals(a.Building, b.Building, StringComparison.Ordinal)) v += 25;
-        v += 20 * PolisHouseholds.Jaccard(a.TitleTokens, b.TitleTokens);
+        var sameHome = a.Building != null && string.Equals(a.Building, b.Building, StringComparison.Ordinal);
+        if (sameHome) v += 30;
+        else if (a.PlotX is int ax && a.PlotZ is int az && b.PlotX is int bx && b.PlotZ is int bz && Math.Max(Math.Abs(ax - bx), Math.Abs(az - bz)) <= 1) v += 8;
+        if (a.Trade != null && string.Equals(a.Trade, b.Trade, StringComparison.Ordinal) && a.Trade != PolisTrades.Idle) v += 6;
         v -= 5 * Math.Abs(AgeRank(a.Age) - AgeRank(b.Age));
         v += Compatibility(a.Temperament, b.Temperament);
         v += WarmthOf(a) * 0.5;
         if (a.FixedBase is int fa) v += fa * 0.25;   // 职业居民待人的样子（温和的女祭司对谁都好一点）
         return Clamp(v);
+    }
+
+    /// <summary>
+    /// 规则 2：他对雅典娜的起点，连同各项的分量（"原因"按分量挑）。职业居民按人设（<see cref="ResidentAthenaBase"/>）；
+    /// 城里的人：敬神心（按种子，−35…+35）、脾气、职业、年纪。
+    /// </summary>
+    public static (int Score, IReadOnlyList<(string Why, int Weight)> Parts) BaseToAthena(PolisRelationPerson person)
+    {
+        ArgumentNullException.ThrowIfNull(person);
+        var parts = new List<(string, int)>();
+        if (person.IsResident && PolisResidents.TryParse(person.Id[PolisIntents.ResidentSpeakerPrefix.Length..], out var kind))
+        {
+            parts.Add(("nature", ResidentAthenaBase(kind)));
+            return (Clamp(parts.Sum(p => p.Item2)), parts);
+        }
+        var piety = (int)((person.Seed >> 23) % 71) - 35;
+        parts.Add((piety >= 0 ? "pious" : "doubting", piety));
+        var temper = person.Temperament switch
+        {
+            6 => -12,   // 有点多疑
+            10 => -10,  // 爱发牢骚
+            9 => -5,    // 急性子
+            3 => -3,    // 爱打趣
+            5 => 8,     // 热心肠
+            8 => 5,     // 沉稳
+            11 => 4,    // 好奇
+            _ => 0,
+        };
+        if (temper != 0) parts.Add((temper > 0 ? "reverent" : "defiant", temper));
+        var trade = person.Trade switch
+        {
+            "musician" => 8,
+            "potter" => 6,
+            "weaver" => 4,
+            PolisTrades.Merchant => -4,
+            PolisTrades.Idle => -10,
+            _ => 0,
+        };
+        if (trade != 0) parts.Add(("trade", trade));
+        var age = person.Age switch { PolisCitizenAge.Old => 8, PolisCitizenAge.Young => -4, _ => 0 };
+        if (age != 0) parts.Add(("age", age));
+        return (Clamp(parts.Sum(p => p.Item2)), parts);
+    }
+
+    /// <summary>他此刻怎么看雅典娜：起点加上和她闲聊攒下的（与两人之间同一本账）。返回分数、档与两条最主要的原因。</summary>
+    public static (int Score, PolisRelationBand Band, IReadOnlyList<string> Why) ToAthena(PolisRelationPerson person, PolisRelationLedger ledger, DateTimeOffset now)
+    {
+        ArgumentNullException.ThrowIfNull(person);
+        var (score, _) = Between(person, AthenaPerson, ledger, now);
+        var why = BaseToAthena(person).Parts
+            .OrderByDescending(p => Math.Abs(p.Weight)).ThenBy(p => p.Why, StringComparer.Ordinal)
+            .Take(2).Select(p => p.Why).ToList();
+        return (score, BandOf(score), why);
     }
 
     private static PolisPlayerTie? Find(PolisRelationLedger ledger, string id)
@@ -385,22 +462,42 @@ public static class PolisRelations
     }
 
     /// <summary>
-    /// 存盘前收拾：不认识的人（会话删掉了）的账清掉；淡到不足半分、最近一小时也没事的清掉；每人最近的几笔只留一小时内的。
+    /// 存盘前收拾：<paramref name="keep"/> 说不要了的人（拆掉的楼里的人、删掉的工作区的城、第四轮之前按会话 Id 记的旧账）清掉；
+    /// 淡到不足半分、最近一小时也没事的清掉；每人最近的几笔只留一小时内的。
     /// </summary>
-    public static PolisRelationLedger Prune(PolisRelationLedger ledger, IReadOnlySet<string> known, DateTimeOffset now)
+    public static PolisRelationLedger Prune(PolisRelationLedger ledger, Func<string, bool> keep, DateTimeOffset now)
     {
         ArgumentNullException.ThrowIfNull(ledger);
-        ArgumentNullException.ThrowIfNull(known);
+        ArgumentNullException.ThrowIfNull(keep);
         var you = ledger.You
-            .Where(t => known.Contains(t.Id))
+            .Where(t => keep(t.Id))
             .Select(t => t with { Recent = t.Recent.Where(m => now - m.At <= TimeSpan.FromHours(1)).ToList() })
             .Where(t => Math.Abs(Decayed(t.Delta, t.At, now)) >= 0.5 || t.Recent.Count > 0)
             .ToList();
         var pairs = ledger.Pairs
-            .Where(p => known.Contains(p.A) && known.Contains(p.B))
+            .Where(p => keep(p.A) && keep(p.B))
             .Where(p => Math.Abs(Decayed(p.Ab, p.At, now)) >= 0.5 || Math.Abs(Decayed(p.Ba, p.At, now)) >= 0.5)
             .ToList();
         return new PolisRelationLedger(you, pairs);
+    }
+
+    /// <summary>
+    /// 第四轮的收拾规则：雅典娜、十位职业居民留着；城里的人（<c>n:&lt;城&gt;:…</c>）——属于此刻这座城的，只留 <paramref name="cityPeople"/> 里有的；
+    /// 属于别的城的，那座城还在（<paramref name="cityTags"/>）就留着（这座城看不到那边的人，不能替它判断谁搬走了）；其余（旧的会话 Id、删掉的工作区）不留。
+    /// </summary>
+    public static Func<string, bool> KeepRule(string currentCityTag, IReadOnlySet<string> cityPeople, IReadOnlySet<string> cityTags)
+    {
+        ArgumentNullException.ThrowIfNull(cityPeople);
+        ArgumentNullException.ThrowIfNull(cityTags);
+        return id =>
+        {
+            if (string.Equals(id, AthenaId, StringComparison.Ordinal)) return true;
+            if (id.StartsWith(PolisIntents.ResidentSpeakerPrefix, StringComparison.Ordinal))
+                return PolisResidents.TryParse(id[PolisIntents.ResidentSpeakerPrefix.Length..], out _);
+            var tag = PolisCitizens.CityTagOf(id);
+            if (tag == null) return false;
+            return string.Equals(tag, currentCityTag, StringComparison.Ordinal) ? cityPeople.Contains(id) : cityTags.Contains(tag);
+        };
     }
 
     /// <summary>
@@ -415,6 +512,7 @@ public static class PolisRelations
         var you = new Dictionary<string, object>(StringComparer.Ordinal);
         foreach (var p in people)
         {
+            if (p.IsAthena) continue;
             var v = ToPlayer(p, ledger, now);
             you[p.Id] = new
             {
@@ -449,6 +547,14 @@ public static class PolisRelations
                 .Select(t => new object[] { t.Id, t.Score }).ToList();
             tieView[id] = new { friends, rivals };
         }
-        return new { you, pairs, ties = tieView };
+        // 第四轮需求 8：每个人怎么看雅典娜（分数、档、两条原因）——总览里多一行，闲聊挑雅典娜时按它
+        var athena = new Dictionary<string, object>(StringComparer.Ordinal);
+        foreach (var p in people)
+        {
+            if (p.IsAthena) continue;
+            var (score, band, why) = ToAthena(p, ledger, now);
+            athena[p.Id] = new { score, band = BandKey(band), why };
+        }
+        return new { you, pairs, ties = tieView, athena };
     }
 }

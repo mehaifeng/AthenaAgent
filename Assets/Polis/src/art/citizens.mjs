@@ -43,9 +43,9 @@ export const isFemale = (seed) => ((seed >>> 0) & 1) === 1;
 
 /**
  * 一位居民的长相。
- * @param {number} seed C# 给的种子（会话 Id 的哈希，32 位无符号）
- * @param {{ age?: 'young'|'adult'|'old', trade?: string|null }} [options] 年纪按会话开始了多久（C# 定）；职业是 C# 的 PolisTalk.TradeKeys 之一，
- *   没带就按种子算（art/crafts.mjs 的 tradeOf，与 C# 同一个式子）
+ * @param {number} seed C# 给的种子（城的键、地块与序号的哈希，32 位无符号）
+ * @param {{ age?: 'young'|'adult'|'old', trade?: string|null }} [options] 年纪由种子定（C# 推来）；职业是 C# 的 PolisTrades.Keys 之一，
+ *   没带就按种子算（art/crafts.mjs 的 tradeOf，只是夹具的退路）
  * @returns {{ spec: object, bust: object, key: string }} spec 给 rig.buildFigure（cloth 是衣色档位，建骨架时换成材质）；
  *   bust 给 busts.drawBust（带 key，缓存用）
  */
