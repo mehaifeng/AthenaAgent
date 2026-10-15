@@ -5761,7 +5761,10 @@ static void TestGameModeCitizens()
         var system = asked.Prompt.System;
         if (asked.Purpose != PolisTalkPurpose.Player || asked.Prompt.Messages[^1].Text != "这楼里放着什么？" || asked.Prompt.Messages.Count != 1)
             throw new InvalidOperationException($"你开的口走 Player 池，你这一句去掉首尾空白放在最后：{string.Join(" / ", asked.Prompt.Messages)}");
-        foreach (var part in new[] { contractName, "「我的工作区」", "住在「合同」", PolisTrades.ByKey(contractPerson.Trade).Zh, "在广场上", "现在是", "租期一律三年", "f00.txt", "这是一个演示工作区", "文件夹01" })
+        // 工作区的 Id 每次运行都是新的，城里每个人的种子（也就是职业）跟着变：无业的人在提示词里是「没有正经营生」，不是职业名；
+        // 乐师的营生里本来就有「在广场上」——所以「此刻」只认那一整句「你此刻在广场上」（CI 上碰到过这两种人，push 那一次就挂了）
+        var tradePart = contractPerson.Trade == PolisTrades.Idle ? "没有正经营生" : PolisTrades.ByKey(contractPerson.Trade).Zh;
+        foreach (var part in new[] { contractName, "「我的工作区」", "住在「合同」", tradePart, "你此刻在广场上", "现在是", "租期一律三年", "f00.txt", "这是一个演示工作区", "文件夹01" })
             if (!system.Contains(part, StringComparison.Ordinal)) throw new InvalidOperationException($"提示词里要有「{part}」：{system}");
         foreach (var gone in new[] { secret, "第0件事", "托付过的那件事" })
             if (system.Contains(gone, StringComparison.Ordinal)) throw new InvalidOperationException($"提示词里没有任何会话的东西：{gone}");
@@ -5780,7 +5783,8 @@ static void TestGameModeCitizens()
         if (!Enum.GetValues<PolisRelationBand>().Any(b => secondSystem.Contains(PolisTalk.AttitudeText(b, "zh-CN"), StringComparison.Ordinal))
             || !Enum.GetValues<PolisRelationBand>().Any(b => secondSystem.Contains(PolisTalk.AthenaRegardText(b, "zh-CN"), StringComparison.Ordinal)))
             throw new InvalidOperationException("提示词里有他对你的态度、对雅典娜的态度。");
-        if (secondSystem.Contains("在广场上", StringComparison.Ordinal)) throw new InvalidOperationException("这一句没说他在哪儿：不编。");
+        if (secondSystem.Contains("你此刻在广场上", StringComparison.Ordinal) || !secondSystem.Contains("你此刻在城里", StringComparison.Ordinal))
+            throw new InvalidOperationException("这一句没说他在哪儿：不编，只说在城里。");
         PumpTimers(() => ScoreOf(Relations(), contractPerson.Id) != scoreBefore, 5000, "聊过之后关系要重推。");
         if (Math.Min(100, scoreBefore + 4) != ScoreOf(Relations(), contractPerson.Id))
             throw new InvalidOperationException($"好好聊了两句：他对你 +4（{scoreBefore} → {ScoreOf(Relations(), contractPerson.Id)}）。");
