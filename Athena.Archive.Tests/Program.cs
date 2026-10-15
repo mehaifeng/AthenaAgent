@@ -11200,6 +11200,36 @@ static Task TestPolisCitizensAsync()
     AssertTrue(picks.All(s => PolisTrades.Pick(s, house) == PolisTrades.Pick(s, house)), "同一个种子、同一处住所，同一门职业");
     AssertTrue(PolisTrades.IsKnown("farmer") && !PolisTrades.IsKnown("vineGrower") && PolisTrades.ByKey("nonsense").Key == PolisTrades.Idle, "不认识的职业按无业");
 
+    // —— 规则 6（保底）：城北的田与牧场每座城都有——街上至少一位农夫、一位牧人；改行的只在街上、先挑无业的、摊主不动、每次一样 ——
+    {
+        var (needed, total) = (0, 0);
+        for (var k = 0; k < 200; k++)
+        {
+            var hamlet = new[] { Building("甲", PolisBuildingKind.House, 1, 0, -1, 0, 1), Building("乙", PolisBuildingKind.Workshop, 1, 1, -1, 1, 3), Building("丙", PolisBuildingKind.House, 1, -1, -1, 2, 5) };
+            var doc = City(hamlet, k % 2 == 0 ? new[] { "摊" } : null);
+            var dwell = PolisCitizens.Dwellings(doc).ToDictionary(d => d.Key, StringComparer.Ordinal);
+            var town2 = PolisCitizens.Derive("guard-" + k, PolisCitizens.Dwellings(doc));
+            var street2 = town2.Where(c => c.OnStreet).ToList();
+            string Raw(PolisCitizen c) => PolisTrades.Pick(c.Seed, dwell[c.Dwelling]);
+            var moved = town2.Where(c => c.Trade != Raw(c)).ToList();
+            total++;
+            if (moved.Count > 0) needed++;
+            if (street2.Count(c => !dwell[c.Dwelling].Stall) >= 2)
+                AssertTrue(street2.Any(c => c.Trade == "farmer") && street2.Any(c => c.Trade == "herder"), $"街上至少一位农夫、一位牧人（guard-{k}）");
+            AssertTrue(moved.All(c => c.OnStreet && !dwell[c.Dwelling].Stall && PolisCitizens.GuaranteedTrades.Contains(c.Trade)), "改行的只在街上、不是摊主、改成农夫或牧人");
+            AssertTrue(moved.Count <= 2 && moved.Select(c => c.Trade).Distinct().Count() == moved.Count, "每一行最多改一位");
+            foreach (var c in moved)
+            {
+                AssertFalse(street2.Any(o => o.Id != c.Id && Raw(o) == c.Trade), "街上本来就有这一行的，不改");
+                if (Raw(c) != PolisTrades.Idle)
+                    AssertFalse(street2.Any(o => !moved.Contains(o) && !dwell[o.Dwelling].Stall && Raw(o) == PolisTrades.Idle), "先挑无业的");
+            }
+            AssertTrue(street2.Where(c => dwell[c.Dwelling].Stall).All(c => c.Trade == PolisTrades.Merchant), "摊主一律是商贩");
+            AssertTrue(town2.SequenceEqual(PolisCitizens.Derive("guard-" + k, PolisCitizens.Dwellings(doc))), "同一座城每次进来都是同一批人、同一份职业");
+        }
+        AssertTrue(needed > total / 10, $"小城常常要靠保底（{needed}/{total}）——否则这一段没测到改行");
+    }
+
     // —— 规则 3：名字——完整的希腊名、同城不重、男女有别；新盖一座楼不改老住户的名字 ——
     const string male = "阿里斯提德|德摩斯|斐洛";
     const string female = "阿加莎|克里奥|菲莉亚";

@@ -76,9 +76,16 @@ public sealed record PolisCensus(int Total, int OnStreet, int Indoors);
 /// 3. <b>名字</b>：完整的希腊名，同城不重（<see cref="AssignNames"/>，先来后到按住所的生长次序与序号）。
 /// 4. <b>上街</b>：最多 <see cref="StreetCap"/> 位，按住所最近动过的先后轮流取——每处先出一位，再轮第二位，免得一座楼的人占满一条街。
 /// 5. <b>夜游</b>：街上的人里按种子约八分之一，按上街的次序最多 <see cref="MaxNightOwls"/> 位；夜里只有他们在外面（页面）。
+/// 6. <b>田和牧场有人</b>（2026-10-15，用户：保底规则）：城北的田与牧场每座城都有，职业却是按种子抽的——神殿岛十来个人，约五分之一的城
+///    一个牧人都没有。所以街上没有农夫（或牧人）时，从街上挑一位改行（<see cref="GuaranteedTrades"/>，<see cref="GuaranteeTrades"/>）：
+///    先挑无业的，没有就挑街上人数最多的那一行；同一行里按 Id 的序数取第一位，同一座城每次进来都是同一个人。市集的摊主不动（摊主一律是商贩），
+///    已经是农夫或牧人的不动。城变了（多盖一座楼、上街的人换了），改行的那位可能跟着换。
 /// </summary>
 public static class PolisCitizens
 {
+    /// <summary>规则 6：街上至少各有一位的职业（城北的田与牧场每座城都有）。</summary>
+    public static IReadOnlyList<string> GuaranteedTrades { get; } = new[] { "farmer", "herder" };
+
     /// <summary>街上同时露面的居民上限（用户定的 32）。人口不设上限，上限只在街上。</summary>
     public const int StreetCap = 32;
     public const int MaxPerDwelling = 4;
@@ -200,11 +207,41 @@ public static class PolisCitizens
                 if (round < people.Count) street.Add(people[round].Id);
             }
         }
+        // 规则 6：街上没有农夫或牧人，就从街上挑一位改行
+        var stallDwellings = ordered.Where(d => d.Stall).Select(d => d.Key).ToHashSet(StringComparer.Ordinal);
+        all = GuaranteeTrades(all, street, stallDwellings).ToList();
         // 规则 5：夜游的人（街上的里按种子挑、按上街的次序取最多四位）
         var byId = all.ToDictionary(c => c.Id, StringComparer.Ordinal);
         var owls = street.Where(id => (byId[id].Seed >> 17) % NightOwlOneIn == 0).Take(MaxNightOwls).ToHashSet(StringComparer.Ordinal);
         var onStreet = street.ToHashSet(StringComparer.Ordinal);
         return all.Select(c => c with { OnStreet = onStreet.Contains(c.Id), NightOwl = owls.Contains(c.Id) }).ToList();
+    }
+
+    /// <summary>
+    /// 规则 6：街上（<paramref name="street"/>）没有 <see cref="GuaranteedTrades"/> 里的哪一行，就从街上挑一位改成那一行。
+    /// 先挑无业的，没有就挑街上人数最多的那一行（同样多按职业表的次序）；同一行里按 Id 的序数取第一位。摊主与已经是保底职业的人不动。
+    /// </summary>
+    public static IReadOnlyList<PolisCitizen> GuaranteeTrades(IReadOnlyList<PolisCitizen> citizens, IReadOnlyList<string> street, IReadOnlySet<string> stallDwellings)
+    {
+        ArgumentNullException.ThrowIfNull(citizens);
+        ArgumentNullException.ThrowIfNull(street);
+        ArgumentNullException.ThrowIfNull(stallDwellings);
+        var byId = citizens.ToDictionary(c => c.Id, StringComparer.Ordinal);
+        var changed = new Dictionary<string, string>(StringComparer.Ordinal);
+        string TradeOf(string id) => changed.TryGetValue(id, out var t) ? t : byId[id].Trade;
+        int Rank(string trade) { for (var i = 0; i < PolisTrades.Keys.Count; i++) if (PolisTrades.Keys[i] == trade) return i; return int.MaxValue; }
+        foreach (var trade in GuaranteedTrades)
+        {
+            if (street.Any(id => TradeOf(id) == trade)) continue;
+            var pool = street.Where(id => !stallDwellings.Contains(byId[id].Dwelling) && !GuaranteedTrades.Contains(TradeOf(id))).ToList();
+            if (pool.Count == 0) continue;
+            var idle = pool.Where(id => TradeOf(id) == PolisTrades.Idle).ToList();
+            var candidates = idle.Count > 0
+                ? idle
+                : pool.GroupBy(TradeOf).OrderByDescending(g => g.Count()).ThenBy(g => Rank(g.Key)).First().ToList();
+            changed[candidates.OrderBy(id => id, StringComparer.Ordinal).First()] = trade;
+        }
+        return changed.Count == 0 ? citizens : citizens.Select(c => changed.TryGetValue(c.Id, out var t) ? c with { Trade = t } : c).ToList();
     }
 
     /// <summary>
