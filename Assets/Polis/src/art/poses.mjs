@@ -22,7 +22,13 @@ export const WORK_VARIANTS = Object.freeze([
   'knock', 'wheel', 'spin', 'fish', 'knead', 'hoe', 'grind', 'stitch', 'dress', 'saw', 'lyre',
   // 第四轮（需求 5）：织工在立式织机前织布、牧人拄着牧杖看羊、商贩在市集吆喝
   'weave', 'herd', 'hawk',
+  // 市集（2026-10-15）：买主看货、摊主摊开两手招呼、一次手递手（买主递钱接货 / 摊主收钱递货）、摆摆手走开
+  'browse', 'offer', 'buy', 'sell', 'pass',
 ]);
+
+/** 市集的手递手、摆手走开多长（毫秒；与 market.MARKET.tradeMs / passMs 一致——market.test 核对）。game 按它们给 t。 */
+export const TRADE_MS = 3600;
+export const PASS_MS = 1600;
 
 /** 敲门一次多长（第三轮需求 3）：抬手、叩两下、放下。game 按它把"做事 / knock"当一次性的动作放。 */
 export const KNOCK_MS = 1300;
@@ -198,6 +204,22 @@ function craftBody(p, b) {
   if (b.hipsZ) p.hips.z = b.hipsZ;
 }
 
+/** 一侧胳膊此刻的七个角（ARMS 的格式）。 */
+const armOf = (p, side) => [p[`shoulder${side}`].rx, p[`shoulder${side}`].ry, p[`shoulder${side}`].rz, p[`elbow${side}`].rx, p[`hand${side}`].rx, p[`hand${side}`].ry, p[`hand${side}`].rz];
+
+/**
+ * 市集上手递手的胳膊（2026-10-15）：隔着柜台、两人相距 1.37 米，伸直了才递得到——
+ *   reach —— 两只掌心朝上、伸到身前齐胸（托着那包货：腕、肘、肩的 rx 加起来和祭碗那一组一样，掌心朝向不变，只是伸得远）；
+ *   coinR —— 买主右手捏着钱，前臂端平伸过柜台；palmL —— 摊主左手掌心朝上伸过去接（面对面时，买主的右手正对着摊主的左手）。
+ * market.test 在两副真骨架上量递到没有。
+ */
+export const MARKET_ARMS = Object.freeze({
+  reachL: Object.freeze([-1.3, -0.18, -0.08, -0.22, -0.16, 0, -0.04]),
+  reachR: Object.freeze([-1.3, 0.18, 0.08, -0.22, -0.16, 0, 0.04]),
+  coinR: Object.freeze([-1.42, 0.1, -0.02, -0.12, -0.2, 0.6, 0]),
+  palmL: Object.freeze([-1.38, -0.2, 0.06, -0.18, -0.25, -0.25, 0]),
+});
+
 /** 把一组胳膊角（ARMS 的格式）摆到一侧；mix 给了就在两组之间按 k 插值。 */
 function setArm(p, side, a, b = null, k = 0) {
   const v = (i) => (b ? a[i] + (b[i] - a[i]) * k : a[i]);
@@ -210,9 +232,10 @@ function setArm(p, side, a, b = null, k = 0) {
 /**
  * 走和停的时候手里拿着家什（居民的 spec.carry）：
  *   staff — 长杖（测杆、权杖）：前臂平端、手腕补正，杖竖着；这只手不随步子摆；
- *   hug   — 石板、算板、卷轴、调色板：前臂收在胸前抱着。
+ *   hug   — 石板、算板、调色板平托在左掌上；卷轴垂手斜握在右胯旁；
+ *   both  — 市集上买的那包货（2026-10-15）：两只掌心捧在腰前（和等审批捧石板一样的胳膊），两只手都不随步子摆。
  */
-export const CARRY_GRIPS = Object.freeze(['staff', 'hug']);
+export const CARRY_GRIPS = Object.freeze(['staff', 'hug', 'both']);
 function applyCarry(p, carry) {
   if (!carry) return p;
   const side = carry.side === 'L' ? 'L' : 'R';
@@ -226,11 +249,16 @@ function applyCarry(p, carry) {
       // 板（蜡板、算板、调色板）平放在左掌上、托在腰前（掌心朝上）——第一版前臂收在胸前，板竖着贴在胸口、正面朝外
       setArm(p, 'L', ARMS.hugL);
     } else {
-      // 卷着的卷轴攥在右拳里，前臂转到拇指朝前：卷轴竖着靠在胸前（不转的话它横着从手里戳出去，像举着一根短棍）
-      p[`shoulder${side}`].rx = -0.38; p[`shoulder${side}`].rz = -0.06 * sx;
-      p[`elbow${side}`].rx = -1.55;
-      p[`hand${side}`].ry = NEUTRAL[side];
+      // 卷着的卷轴攥在右拳里，胳膊垂在身侧、肘微弯，拇指朝前、手腕往下压：卷轴斜着握在胯旁，前端朝前下
+      // （2026-10-16 之前前臂端在胸前、卷轴竖着立在拳上，顶到肩高、离身子 0.44 米——像举着火把）
+      p[`shoulder${side}`].rx = -0.1; p[`shoulder${side}`].rz = 0.1 * sx;
+      p[`elbow${side}`].rx = -0.3;
+      p[`hand${side}`].rx = 0.95; p[`hand${side}`].ry = NEUTRAL[side];
     }
+  } else if (carry.grip === 'both') {
+    setArm(p, 'L', ARMS.awaitL); setArm(p, 'R', ARMS.awaitR);
+    p.propR = carry.prop;
+    return p;
   } else {
     throw new Error(`poses: unknown carry grip '${carry.grip}'`);
   }
@@ -681,6 +709,83 @@ function work(t, style) {
       p.elbowL.rx = -1.65;
       p.handL.rx = 0.2; p.handL.ry = -1.2; p.handL.rz = 0.3;
       p.head.ry = 0.45 * Math.sin(w(6200));
+      break;
+    }
+    case 'browse': {  // 看货（市集）：俯身看柜台上的货，右手伸过去翻一翻、拿起来又放下；左手隔一阵托着下巴想想，其余时候叉着腰
+      p.spine.rx = 0.16 + 0.03 * Math.sin(w(5200));
+      p.head.rx = 0.38; p.head.ry = 0.3 * Math.sin(w(9300));
+      const touch = 0.5 - 0.5 * Math.cos(w(3100));
+      p.shoulderR.rx = -0.55 - 0.3 * touch; p.shoulderR.rz = -0.12;
+      p.elbowR.rx = -0.75 + 0.35 * touch;
+      p.handR.rx = -0.45; p.handR.ry = 0.3;
+      const think = smooth(clamp01((Math.sin(w(11000)) - 0.2) * 2.5));   // 一个循环里有一段托着下巴
+      p.shoulderL.rx = lerp(0.25, -0.62, think); p.shoulderL.ry = lerp(-0.2, 0, think); p.shoulderL.rz = lerp(0.55, -0.22, think);
+      p.elbowL.rx = lerp(-1.65, -2.3, think);
+      p.handL.rx = lerp(0.2, -0.2, think); p.handL.ry = lerp(-1.2, 0, think); p.handL.rz = lerp(0.3, 0, think);
+      p.head.rz = 0.06 * think;
+      break;
+    }
+    case 'offer': {  // 招呼（市集，摊主）：两手摊开、掌心朝上朝柜台上的货一引，身子微微前倾，头朝着买主点一点
+      const sweep = 0.5 - 0.5 * Math.cos(w(2600));
+      p.spine.rx = 0.08 + 0.05 * sweep;
+      for (const [side, sx] of [['L', 1], ['R', -1]]) {
+        p[`shoulder${side}`].rx = -0.75 - 0.2 * sweep; p[`shoulder${side}`].ry = -sx * 0.25; p[`shoulder${side}`].rz = sx * (0.18 + 0.22 * sweep);
+        p[`elbow${side}`].rx = -0.85 + 0.25 * sweep;
+        p[`hand${side}`].rx = -0.3; p[`hand${side}`].ry = -sx * 0.25; p[`hand${side}`].rz = 0;
+      }
+      p.head.rx = 0.1 + 0.08 * Math.max(0, Math.sin(w(1800)));
+      break;
+    }
+    case 'buy': {  // 买（市集，一次 TRADE_MS）：右手往腰间的钱袋里摸一枚钱、伸直了胳膊越过柜台递出去、收回；再两手伸出去接货、捧回腰前
+      const f = clamp01(t / TRADE_MS);
+      const purse = keyed([[0, 0], [0.08, 1], [0.14, 1], [0.2, 0], [1, 0]], f);
+      const reach = keyed([[0, 0], [0.14, 0], [0.26, 1], [0.36, 1], [0.46, 0], [1, 0]], f);
+      const take = keyed([[0, 0], [0.5, 0], [0.6, 1], [0.7, 1], [0.84, 0], [1, 0]], f);
+      const hold = keyed([[0, 0], [0.7, 0], [0.84, 1], [1, 1]], f);
+      p.spine.rx = 0.05 + 0.22 * reach + 0.24 * take;
+      p.head.rx = 0.12 + 0.12 * purse - 0.08 * reach;
+      // 右臂：钱袋（手垂到右胯前）→ 递钱（前臂端平，越过柜台）
+      setArm(p, 'R', [0.12 * purse + MARKET_ARMS.coinR[0] * reach, MARKET_ARMS.coinR[1] * reach, -0.06 - 0.2 * purse + (MARKET_ARMS.coinR[2] + 0.06) * reach,
+        -0.1 - 0.9 * purse + (MARKET_ARMS.coinR[3] + 0.1) * reach, -0.3 * purse + MARKET_ARMS.coinR[4] * reach, MARKET_ARMS.coinR[5] * reach, MARKET_ARMS.coinR[6] * reach]);
+      // 接货：两只手伸出去托住（MARKET_ARMS.reach），再捧回腰前（捧石板的那一组）
+      for (const side of ['L', 'R']) {
+        const base = armOf(p, side);
+        const target = MARKET_ARMS[`reach${side}`].map((v, i) => lerp(v, ARMS[`await${side}`][i], hold));
+        setArm(p, side, base.map((v, i) => lerp(v, target[i], Math.max(take, hold))));
+      }
+      p.propR = f > 0.1 && f < 0.34 ? 'coin' : f >= 0.66 ? 'parcel' : null;
+      break;
+    }
+    case 'sell': {  // 卖（市集，摊主，一次 TRADE_MS）：左手掌心朝上伸过去接钱（买主递钱的右手正对着他的左手）、收进腰间；
+      // 两手从柜台上捧起那包货、伸直了递过去，松手
+      const f = clamp01(t / TRADE_MS);
+      const palm = keyed([[0, 0], [0.12, 1], [0.36, 1], [0.44, 0], [1, 0]], f);
+      const purse = keyed([[0, 0], [0.4, 0], [0.45, 1], [0.49, 1], [0.54, 0], [1, 0]], f);
+      const lift = keyed([[0, 0], [0.47, 0], [0.54, 1], [0.6, 0], [1, 0]], f);
+      const give = keyed([[0, 0], [0.54, 0], [0.63, 1], [0.7, 1], [0.84, 0], [1, 0]], f);
+      p.spine.rx = 0.06 + 0.22 * palm + 0.32 * lift + 0.24 * give;
+      p.head.rx = 0.1 + 0.15 * lift - 0.06 * palm;
+      const P = MARKET_ARMS.palmL;
+      setArm(p, 'L', [P[0] * palm + 0.1 * purse, P[1] * palm, 0.06 + (P[2] - 0.06) * palm + 0.2 * purse,
+        -0.1 + (P[3] + 0.1) * palm - 0.9 * purse, P[4] * palm, P[5] * palm, P[6] * palm]);
+      for (const side of ['L', 'R']) {
+        const a = MARKET_ARMS[`reach${side}`], b = ARMS[`tend${side}`];
+        const low = [b[0] + 0.25, b[1], b[2], b[3] + 0.3, b[4], b[5], b[6]];   // 弯腰从柜台上捧起来
+        const base = armOf(p, side);
+        const target = low.map((v, i) => lerp(v, a[i], give));
+        setArm(p, side, base.map((v, i) => lerp(v, target[i], Math.max(lift, give))));
+      }
+      p.propR = f >= 0.5 && f < 0.66 ? 'parcel' : null;
+      break;
+    }
+    case 'pass': {  // 不买了（市集，一次 PASS_MS）：右手抬到胸前、掌心朝外左右摆两下，头跟着摇一摇，放下
+      const f = clamp01(t / PASS_MS);
+      const up = keyed([[0, 0], [0.22, 1], [0.75, 1], [1, 0]], f);
+      p.shoulderR.rx = -0.75 * up; p.shoulderR.rz = -0.06 - 0.12 * up;
+      p.elbowR.rx = -0.1 - 1.25 * up;
+      p.handR.ry = 0.9 * up; p.handR.rz = up * 0.35 * Math.sin(f * TAU * 2);
+      p.head.ry = up * 0.28 * Math.sin(f * TAU * 2 + 0.6);
+      p.head.rx = 0.05 * up;
       break;
     }
     case 'await':  // 等审批：停在门槛前，两只掌心把封着红印的石板捧在胸前，静静等（设计稿 6.1）

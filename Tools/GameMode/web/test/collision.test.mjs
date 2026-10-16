@@ -13,6 +13,7 @@ import { slide } from '../../../../Assets/Polis/src/controls.mjs';
 import { demoAccumulation } from '../../../../Assets/Polis/src/demo.mjs';
 import { PLAYER_RADIUS } from '../../../../Assets/Polis/src/footprint.mjs';
 import { TERRACE } from '../../../../Assets/Polis/src/civic-layout.mjs';
+import { STALLS, STALL, stallToMarket } from '../../../../Assets/Polis/src/market.mjs';
 import { RESIDENT_ROLES } from '../../../../Assets/Polis/src/art/characters.mjs';
 
 const fixture = JSON.parse(readFileSync(new URL('../fixtures/synthetic.json', import.meta.url), 'utf8'));
@@ -25,7 +26,7 @@ function stubMaterials() {
       if (typeof key !== 'string') return undefined;
       if (!cache.has(key)) {
         cache.set(key, key.endsWith('Shades')
-          ? [0, 1, 2, 3, 4].map((i) => new THREE.MeshStandardMaterial({ name: `${key}${i}` }))
+          ? Array.from({ length: 12 }, (_, i) => new THREE.MeshStandardMaterial({ name: `${key}${i}` }))
           : new THREE.MeshStandardMaterial({ name: key }));
       }
       return cache.get(key);
@@ -74,8 +75,14 @@ test('city collision: buildings, civic buildings and the agora furniture block b
   assert.ok(!W(layout, temple.cx, temple.cz), '神庙里进不去');
   assert.ok(!W(layout, temple.cx, temple.cz + 5.2), '神庙的台基从第二级起就挡（第一级迈得上去）');
   const market = layout.plots.get('market');
-  assert.ok(!W(layout, market.cx - 4.2, market.cz - 3.2 + 0.4), '市集的摊位（柜台）挡');
-  assert.ok(W(layout, market.cx - 4.2 + 1.45, market.cz - 0.5), '市集的摊位之间能走——以前整块市集都封着');
+  // 市集（2026-10-15，market.mjs）：十个摊的柜台挡，摊中间的空场能走、柜台后面摊主站的地方也能站
+  for (const st of STALLS) {
+    const [cx, cz] = stallToMarket(st, (STALL.counter.x0 + STALL.counter.x1) / 2, (STALL.counter.z0 + STALL.counter.z1) / 2);
+    assert.ok(!W(layout, market.cx + cx, market.cz + cz), `市集的摊位（${st.kind} 的柜台）挡`);
+    const [vx, vz] = stallToMarket(st, ...STALL.vendor);
+    assert.ok(W(layout, market.cx + vx, market.cz + vz), `${st.kind} 的柜台后面能站`);
+  }
+  assert.ok(W(layout, market.cx, market.cz), '市集的摊位之间能走——以前整块市集都封着');
   // 广场：委托板、讲台、日晷、长凳、方柱头像各挡自己那一块，中间是开阔地
   assert.ok(!W(layout, 0, -4.2), '委托板');
   assert.ok(!W(layout, -4.4, -2.05), '讲台');

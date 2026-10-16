@@ -7,7 +7,8 @@ import {
   Kit, m4, deg, doricColumn, column, triglyphGeometry, palmette, gable, gabledRoof, frontGabledRoof, flatRoof, podium, door,
   window_, colonnade, groundPlane, litOpening,
 } from './kit.mjs';
-import { amphoraBody, statuePlinth, buildSack, buildNetRack } from './props.mjs';
+import { amphoraBody, statuePlinth, buildSack, buildNetRack, buildLamp } from './props.mjs';
+import { STALLS, STALL, STALL_KINDS, stallToMarket } from '../market.mjs';
 import { venueSlotLocal, TERRACE, PLOT_SIZE } from '../civic-layout.mjs';
 
 
@@ -173,27 +174,204 @@ export function buildForge(M) {
   return group;
 }
 
-/** 市集：两排布篷摊位。顶层文件夹太多时，多出来的就在这里各占一个摊位。 */
+/**
+ * 市集（2026-10-15，用户：扩大市集规模、设计有职业特点的摊位）：占满它那块地——十个布篷摊（market.mjs 的 STALLS：北边四个、
+ * 东西各两个朝着中间的空场，南边两个朝街），中间空着让人逛，南边两摊之间是入口。每个摊卖一样东西（面包、陶器、布、凉鞋、面粉、
+ * 木器、鱼、果蔬、油酒、杂货），货摆在柜台上、挂在篷下；没开市、摊主不在时货收起来、柜台盖一块布（userData.stalls[k] 的
+ * wares / cover，world.setStallOpen 切换——两样都在柜台的足迹里，切换不改变哪里能走）。
+ * stallCount 是合并进市集的文件夹数：它们的名牌挂在商贩的那几个摊上（stallSpots，多了轮着挂）。
+ */
 export function buildMarket(M, stallCount) {
+  void stallCount;
   const kit = new Kit();
-  kit.add(M.pave, groundPlane(12, 12, 4), m4(0, 0.02, 0));
-  const n = Math.max(6, stallCount);
-  const spots = [];
-  for (let i = 0; i < n; i++) {
-    const row = i % 2, col = Math.floor(i / 2);
-    const x = -4.2 + col * 2.9, z = row === 0 ? -3.2 : 2.2;
-    if (x > 5) break;
-    spots.push([x, z]);
-    for (const sx of [-1, 1]) for (const sz of [-1, 1]) kit.cylinder(M.wood, 0.05, 0.06, 2.3, x + sx * 1.1, 1.15, z + sz * 0.8, 6);
-    kit.box(M.awning, 2.5, 0.06, 2.0, x, 2.35, z, 0, row === 0 ? 0.12 : -0.12);
-    kit.box(M.wood, 2.0, 0.1, 0.8, x, 0.9, z + (row === 0 ? 0.4 : -0.4));
-    kit.add(M.tile, amphoraBody(), m4(x - 0.5, 0.95, z + (row === 0 ? 0.4 : -0.4), i, 0, 0, 0.45));
-    kit.add(M.wood, new THREE.CylinderGeometry(0.3, 0.22, 0.28, 10), m4(x + 0.4, 1.09, z + (row === 0 ? 0.4 : -0.4)));
+  kit.add(M.pave, groundPlane(12.4, 12.4, 4), m4(0, 0.02, 0));
+  const stalls = [];
+  const shades = M.clothShades;
+  for (const st of STALLS) {
+    const group = new THREE.Group();
+    group.position.set(st.x, 0, st.z);
+    group.rotation.y = st.yaw;
+    const frame = new Kit();
+    stallFrame(frame, M, shades[st.index % shades.length]);
+    frame.build(group);
+    const wares = new Kit();
+    stallWares(wares, M, st.kind, st.index);
+    const waresGroup = wares.build();
+    waresGroup.name = `wares:${st.kind}`;
+    group.add(waresGroup);
+    const cover = new Kit();
+    const c = STALL.counter;
+    // 收市：柜台上盖一块布，前后垂下来一点——不出柜台的边（出一点，足迹就多出几格，开市收市哪里能走就变了；market.test 量过）
+    cover.box(M.hide, c.x1 - c.x0, 0.05, c.z1 - c.z0, (c.x0 + c.x1) / 2, c.h + 0.07, (c.z0 + c.z1) / 2);
+    for (const sz of [-1, 1]) cover.box(M.hide, c.x1 - c.x0, 0.16, 0.012, (c.x0 + c.x1) / 2, c.h + 0.0, (c.z0 + c.z1) / 2 + sz * ((c.z1 - c.z0) / 2 - 0.006));
+    cover.box(M.hide, 0.5, 0.09, 0.3, c.x0 + 0.4, c.h + 0.14, (c.z0 + c.z1) / 2, 0.2);   // 布底下鼓起来的一摞货
+    const coverGroup = cover.build();
+    coverGroup.name = `cover:${st.kind}`;
+    coverGroup.visible = false;
+    group.add(coverGroup);
+    kit.object(group);
+    stalls.push({ index: st.index, kind: st.kind, wares: waresGroup, cover: coverGroup });
   }
   const group = kit.build();
-  group.userData.height = 3.2;
-  group.userData.stallSpots = spots;
+  group.userData.height = 3.0;
+  group.userData.stalls = stalls;
+  // 文件夹合并成的摊位：名牌挂在商贩的摊上（market.assignVendors 让这些摊主先占这几个摊，名牌和人对得上）
+  group.userData.stallSpots = STALL_KINDS.filter((k) => k.folder).map((k) => {
+    const st = STALLS.find((s) => s.kind === k.kind);
+    return stallToMarket(st, -0.5, 0.2);
+  });
   return group;
+}
+
+/** 一个摊的架子（摊的坐标，+z 朝买主）：四根柱、前低后高的布篷（篷沿一道颜色）、柜台（左边一截），右边是摊主进出的口子。 */
+function stallFrame(kit, M, shade) {
+  const S = STALL, c = S.counter, A = S.awning;
+  const heightAt = (z) => A.back + ((A.front - A.back) * (z - A.z0)) / (A.z1 - A.z0);
+  for (const [x, z] of S.posts) { const h = heightAt(z) - 0.02; kit.cylinder(M.wood, 0.045, 0.055, h, x, h / 2, z, 6); }
+  // 布篷：后高前低、只遮后半个摊，有颜色的布、前沿一道本色的布边（2.0 米以上，在身高带之上）；两侧斜撑在头顶上
+  const depth = A.z1 - A.z0, tilt = Math.atan2(A.back - A.front, depth);
+  const mid = (A.z0 + A.z1) / 2;
+  kit.box(shade, 2.7, 0.04, Math.hypot(depth, A.back - A.front), 0, (A.back + A.front) / 2 + 0.04, mid, 0, tilt);
+  for (let k = -2; k <= 2; k++) kit.box(M.awning, 0.16, 0.045, Math.hypot(depth, A.back - A.front) + 0.005, k * 0.54, (A.back + A.front) / 2 + 0.042, mid, 0, tilt);   // 本色的条纹
+  kit.box(M.awning, 2.72, 0.16, 0.03, 0, A.front - 0.02, A.z1 + 0.01);
+  // 篷下一根横杆（后面），挂货用
+  kit.cylinder(M.darkWood, 0.022, 0.022, 2.4, 0, 1.98, -0.95, 6, 0, Math.PI / 2);
+  // 柜台：木板台面、前脸一块挡板、两头两根腿
+  kit.box(M.wood, c.x1 - c.x0, 0.06, c.z1 - c.z0, (c.x0 + c.x1) / 2, c.h - 0.03, (c.z0 + c.z1) / 2);
+  kit.box(M.darkWood, c.x1 - c.x0, c.h - 0.12, 0.04, (c.x0 + c.x1) / 2, (c.h - 0.06) / 2, c.z1 - 0.03);
+  for (const x of [c.x0 + 0.05, c.x1 - 0.05]) kit.box(M.darkWood, 0.06, c.h - 0.06, c.z1 - c.z0 - 0.06, x, (c.h - 0.06) / 2, (c.z0 + c.z1) / 2);
+  kit.box(shade, c.x1 - c.x0 - 0.1, 0.22, 0.012, (c.x0 + c.x1) / 2, c.h - 0.22, c.z1 + 0.002);   // 前脸上一块有颜色的布帘
+}
+
+/** 一个摊卖的东西（摊的坐标；柜台面在 STALL.counter.h）：都在柜台的足迹里，或者挂在 1.65 米以上、或者矮于 0.35 米放在地上。 */
+function stallWares(kit, M, kind, index) {
+  const c = STALL.counter, top = c.h;
+  const cx = (c.x0 + c.x1) / 2, cz = (c.z0 + c.z1) / 2;
+  const along = (k, n) => c.x0 + 0.14 + ((c.x1 - c.x0 - 0.28) * k) / Math.max(1, n - 1);
+  const r = (k) => ((Math.sin(index * 12.9898 + k * 78.233) * 43758.5453) % 1 + 1) % 1;
+  const bowl = (mat, rad, x, z, y = top) => kit.add(mat, new THREE.LatheGeometry([[0.02, 0], [rad * 0.8, 0.01], [rad, rad * 0.55], [rad * 0.94, rad * 0.58], [rad * 0.72, rad * 0.12]].map(([a, b]) => new THREE.Vector2(a, b)), 14), m4(x, y, z));
+  const hang = (mat, w, h, x, z) => { kit.box(mat, w, h, 0.012, x, 1.98 - h / 2 - 0.03, z); kit.cylinder(M.dark, 0.004, 0.004, 0.06, x, 1.95, z, 4); };
+  switch (kind) {
+    case 'bread': {
+      // 圆面包一排、两只环形的芝麻饼、一篮长面包
+      for (let k = 0; k < 5; k++) kit.add(M.crust, new THREE.SphereGeometry(0.085, 12, 8), m4(along(k, 5), top + 0.035, cz - 0.08 + (k % 2) * 0.12, 0, 0, 0, 1, 0.55, 1));
+      for (const [x, z] of [[cx - 0.25, cz + 0.12], [cx + 0.2, cz + 0.12]]) kit.add(M.crust, new THREE.TorusGeometry(0.07, 0.028, 8, 16), m4(x, top + 0.03, z, 0, Math.PI / 2));
+      kit.add(M.wood, new THREE.CylinderGeometry(0.2, 0.16, 0.12, 14, 1, true), m4(c.x0 + 0.3, 0.06, -0.55));
+      for (let k = 0; k < 4; k++) kit.add(M.crust, new THREE.CapsuleGeometry(0.035, 0.22, 4, 8), m4(c.x0 + 0.25 + k * 0.04, 0.16, -0.55, 0.3 * k, 0, Math.PI / 2 - 0.4));
+      break;
+    }
+    case 'pottery': {
+      // 小双耳瓶、碗、酒杯；地上一只大水罐（矮于 0.35 米）
+      for (let k = 0; k < 3; k++) kit.add(M.terracotta, amphoraBody(), m4(along(k, 4), top, cz - 0.05, k, 0, 0, 0.32));
+      bowl(M.glaze, 0.1, along(3, 4), cz + 0.08);
+      bowl(M.terracotta, 0.08, along(1, 4) + 0.18, cz + 0.12);
+      kit.add(M.terracotta, amphoraBody(), m4(-0.9, 0, -0.55, 0.4, 0, 0, 0.4));
+      break;
+    }
+    case 'cloth': {
+      // 叠好的几匹布、篷下挂着三幅
+      for (let k = 0; k < 3; k++) for (let j = 0; j < 2 + (k % 2); j++) kit.box(M.clothShades[(k + j + index) % 5], 0.32, 0.06, 0.26, along(k, 3), top + 0.03 + j * 0.062, cz, 0.05 * (j - 1));
+      for (let k = 0; k < 3; k++) hang(M.clothShades[(k + 2 + index) % 5], 0.5, 0.3, -0.8 + k * 0.62, -0.95);
+      break;
+    }
+    case 'sandals': {
+      // 几双凉鞋摆在台上，几只挂在右边那根中柱上（1.7 米以上）
+      for (let k = 0; k < 4; k++) {
+        for (const sx of [-1, 1]) {
+          const x = along(k, 4) + sx * 0.05, z = cz;
+          kit.box(M.leather, 0.08, 0.018, 0.24, x, top + 0.01, z, 0.08 * sx);
+          kit.box(M.hide, 0.085, 0.012, 0.025, x, top + 0.026, z + 0.05);
+          kit.box(M.hide, 0.085, 0.012, 0.025, x, top + 0.026, z - 0.04);
+        }
+      }
+      for (let k = 0; k < 3; k++) kit.box(M.leather, 0.09, 0.22, 0.02, 1.13, 1.85, STALL.posts[3][1] - 0.08 + k * 0.08);
+      break;
+    }
+    case 'grain': {
+      // 三只小麻袋、一只敞口的袋子露着麦粒，一把木勺；量斗
+      for (let k = 0; k < 2; k++) {
+        const sack = buildSack(M);
+        sack.scale.setScalar(0.42);
+        sack.position.set(along(k * 2, 4), top, cz - 0.04);
+        kit.object(sack);
+      }
+      kit.add(M.awning, new THREE.CylinderGeometry(0.12, 0.13, 0.16, 12, 1, true), m4(along(1, 4) + 0.1, top + 0.08, cz));
+      kit.add(M.wheat, new THREE.SphereGeometry(0.12, 12, 6, 0, Math.PI * 2, 0, Math.PI / 2), m4(along(1, 4) + 0.1, top + 0.14, cz, 0, 0, 0, 1, 0.45, 1));
+      kit.add(M.wood, new THREE.CylinderGeometry(0.075, 0.07, 0.1, 10), m4(along(3, 4), top + 0.05, cz + 0.08));
+      for (let k = 0; k < 3; k++) {
+        const sack = buildSack(M);
+        sack.scale.setScalar(0.46);
+        sack.position.set(-1.0 + k * 0.42, 0, -0.62);
+        kit.object(sack);
+      }
+      break;
+    }
+    case 'wood': {
+      // 木碗、木勺、一只小凳（放在柜台后面的地上，矮）、挂着两把木勺
+      for (let k = 0; k < 3; k++) bowl(M.wood, 0.09 + 0.02 * (k % 2), along(k, 4), cz + (k % 2 ? 0.08 : -0.06));
+      for (let k = 0; k < 3; k++) kit.box(M.darkWood, 0.03, 0.012, 0.22, along(3, 4) - 0.05 + k * 0.05, top + 0.006, cz, 0.15 * (k - 1));
+      kit.box(M.wood, 0.36, 0.04, 0.28, -0.85, 0.3, -0.55);
+      for (const sx of [-1, 1]) for (const sz of [-1, 1]) kit.box(M.darkWood, 0.035, 0.28, 0.035, -0.85 + sx * 0.14, 0.14, -0.55 + sz * 0.1);
+      for (let k = 0; k < 2; k++) hang(M.wood, 0.05, 0.28, 0.3 + k * 0.25, -0.95);
+      break;
+    }
+    case 'produce': {
+      // 一筐卷心菜、一筐葡萄、一堆石榴；篷下挂两串葡萄
+      const basket = (x, z, fill, n, rad) => {
+        kit.add(M.wood, new THREE.CylinderGeometry(0.17, 0.14, 0.1, 14, 1, true), m4(x, top + 0.05, z));
+        kit.cylinder(M.wood, 0.14, 0.14, 0.01, x, top + 0.005, z, 12);
+        for (let k = 0; k < n; k++) {
+          const a = (k / n) * Math.PI * 2 + r(k);
+          const d = k === 0 ? 0 : 0.085;
+          kit.add(fill, new THREE.SphereGeometry(rad, 9, 7), m4(x + Math.cos(a) * d, top + 0.1 + (k === 0 ? 0.04 : 0), z + Math.sin(a) * d));
+        }
+      };
+      basket(along(0, 3), cz, M.greens, 5, 0.065);
+      basket(along(1, 3), cz, M.grape, 9, 0.032);
+      for (let k = 0; k < 5; k++) kit.add(M.terracotta, new THREE.SphereGeometry(0.045, 9, 7), m4(along(2, 3) + (k % 3 - 1) * 0.08, top + 0.045 + (k >= 3 ? 0.06 : 0), cz + (k >= 3 ? 0 : (k % 2) * 0.06 - 0.03)));
+      for (let k = 0; k < 2; k++) {
+        for (let j = 0; j < 7; j++) kit.add(M.grape, new THREE.SphereGeometry(0.025, 7, 5), m4(-0.6 + k * 0.7 + (j % 2) * 0.03, 1.9 - j * 0.03, -0.95 + (j % 3) * 0.02));
+      }
+      break;
+    }
+    case 'oil': {
+      // 一排小油瓶、两只酒壶，柜台后面地上一只大瓶（矮于 0.35）
+      for (let k = 0; k < 4; k++) kit.add(k % 2 ? M.terracotta : M.marble, new THREE.LatheGeometry([[0, 0], [0.04, 0], [0.05, 0.08], [0.045, 0.16], [0.018, 0.2], [0.02, 0.24], [0, 0.24]].map(([a, b]) => new THREE.Vector2(a, b)), 12), m4(along(k, 5), top, cz - 0.05));
+      kit.add(M.glaze, new THREE.LatheGeometry([[0, 0], [0.06, 0], [0.09, 0.08], [0.08, 0.17], [0.04, 0.22], [0.045, 0.26], [0, 0.26]].map(([a, b]) => new THREE.Vector2(a, b)), 14), m4(along(4, 5), top, cz + 0.05));
+      bowl(M.glaze, 0.085, along(2, 5) + 0.1, cz + 0.13);
+      kit.add(M.terracotta, amphoraBody(), m4(-0.95, 0, -0.6, 0.6, 0, 0, 0.4));
+      break;
+    }
+    case 'fish': {
+      // 一块铺着叶子的木板上摆着鱼；一篮小鱼；篷下挂着一串鱼干
+      kit.box(M.darkWood, c.x1 - c.x0 - 0.2, 0.03, c.z1 - c.z0 - 0.08, cx, top + 0.015, cz);
+      kit.box(M.greens, c.x1 - c.x0 - 0.3, 0.008, c.z1 - c.z0 - 0.14, cx, top + 0.034, cz);
+      for (let k = 0; k < 5; k++) {
+        const x = along(k, 5), z = cz + (k % 2 ? 0.06 : -0.06);
+        kit.add(M.fish, new THREE.SphereGeometry(0.1, 10, 6), m4(x, top + 0.06, z, 0.25 * (k % 2 ? 1 : -1), 0, 0, 0.32, 0.26, 1));
+        kit.add(M.fish, new THREE.ConeGeometry(0.035, 0.07, 4), m4(x + 0.025 * (k % 2 ? 1 : -1), top + 0.06, z - 0.12, 0, Math.PI / 2, 0, 1, 1, 0.3));
+      }
+      kit.add(M.wood, new THREE.CylinderGeometry(0.2, 0.16, 0.14, 14, 1, true), m4(-0.85, 0.07, -0.55));
+      for (let k = 0; k < 6; k++) kit.add(M.fish, new THREE.SphereGeometry(0.05, 8, 5), m4(-0.85 + Math.cos(k) * 0.08, 0.13, -0.55 + Math.sin(k) * 0.08, k, 0, 0, 0.4, 0.4, 1));
+      for (let j = 0; j < 4; j++) kit.add(M.hide, new THREE.SphereGeometry(0.06, 8, 5), m4(0.35, 1.88 - j * 0.07, -0.95, 0, 0, 0, 0.35, 1, 0.2));
+      break;
+    }
+    default: {
+      // 杂货：油灯、小篮子、一卷绳子、几只小木盒
+      for (let k = 0; k < 3; k++) {
+        const lamp = buildLamp(M);
+        lamp.position.set(along(k, 5), top + 0.02, cz - 0.06);
+        lamp.rotation.y = k * 0.7;
+        kit.object(lamp);
+      }
+      kit.add(M.hide, new THREE.TorusGeometry(0.07, 0.03, 8, 16), m4(along(3, 5), top + 0.03, cz + 0.05, 0, Math.PI / 2));
+      kit.box(M.darkWood, 0.14, 0.09, 0.1, along(4, 5), top + 0.045, cz - 0.04, 0.3);
+      kit.box(M.wood, 0.12, 0.07, 0.09, along(4, 5) - 0.04, top + 0.035, cz + 0.11, -0.2);
+      kit.add(M.wood, new THREE.CylinderGeometry(0.12, 0.1, 0.1, 12, 1, true), m4(along(2, 5) + 0.12, top + 0.05, cz + 0.1));
+      for (let k = 0; k < 2; k++) hang(M.clothShades[(k + index) % 5], 0.3, 0.25, -0.6 + k * 0.5, -0.95);
+      break;
+    }
+  }
 }
 
 /** 城门：一座小门楼（propylon）横跨街口：两根方柱、过梁、三角楣。 */

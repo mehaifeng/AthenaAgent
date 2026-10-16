@@ -30,7 +30,7 @@ function stubMaterials() {
       if (typeof key !== 'string') return undefined;
       if (!cache.has(key)) {
         cache.set(key, key.endsWith('Shades')
-          ? [0, 1, 2, 3, 4].map((i) => new THREE.MeshStandardMaterial({ name: `${key}${i}` }))
+          ? Array.from({ length: 12 }, (_, i) => new THREE.MeshStandardMaterial({ name: `${key}${i}` }))
           : new THREE.MeshStandardMaterial({ name: key }));
       }
       return cache.get(key);
@@ -204,6 +204,24 @@ test('crafts: on the real rig the hands meet the work — dough, clay, the stone
     const low = lowest(f.props.get('hoe'));
     assert.ok(low.y > -0.03 && low.y < 0.06, `锄刃到地（${low.y.toFixed(3)}）`);
     assert.ok(low.z > 0.7 && low.z < 1.0, `落在身前（${low.z.toFixed(2)}）`);
+  }
+  // 锄刃装死在柄上（2026-10-15，用户：落下时刃口朝下，举起来却朝天）：一整个来回刃口（杆的 −z）都不朝天，且一直在柄的同一侧
+  // （刃口对柄朝前那一端的转向，绕身体左右轴的符号不变）。之前杆的 z 取"朝前"，柄过了竖直刃口就翻到另一边
+  {
+    const { f, sample } = worker('farmer');
+    const hoe = f.props.get('hoe');
+    let sign = 0, worstUp = -Infinity;
+    for (let t = 0; t < 1600; t += 40) {
+      sample(t);
+      const e = hoe.matrix.elements;
+      const head = new THREE.Vector3(-e[4], -e[5], -e[6]).normalize();     // 柄朝刃那一端（杆的 −y）
+      const blade = new THREE.Vector3(-e[8], -e[9], -e[10]).normalize();   // 刃口（杆的 −z）
+      worstUp = Math.max(worstUp, blade.y);
+      const turn = Math.sign(new THREE.Vector3().crossVectors(head, blade).x);
+      if (sign === 0) sign = turn;
+      assert.equal(turn, sign, `t=${t}：刃口还在柄的同一侧`);
+    }
+    assert.ok(worstUp < 0.2, `刃口从不朝天（最朝上的一刻 y = ${worstUp.toFixed(2)}）`);
   }
 });
 
@@ -383,7 +401,7 @@ test('crafts: several people behind one door — stations never cover anyone\'s 
 
 test('crafts: away from home — the fisher fishes only from a spot the world gives him, the musician plays facing the agora (citizens rule 7)', () => {
   const { world, layout } = buildCity();
-  // 离港口（乐师：离广场）最近的一座建筑——一程最多走 30 秒，远处的人去不了
+  // 离港口（乐师：离广场）最近的一座建筑
   const nearestTo = (q) => [...layout.plots.keys()].filter((k) => k.startsWith('b:'))
     .sort((a, b) => Math.hypot(layout.sitePoint(a).x - q.x, layout.sitePoint(a).z - q.z) - Math.hypot(layout.sitePoint(b).x - q.x, layout.sitePoint(b).z - q.z))[0];
   const pierSpot = { x: layout.harborPoint.x - 1.05, z: layout.quayZ + 6.8, yaw: -Math.PI / 2, via: [{ x: layout.harborPoint.x, z: layout.quayZ + 6.8 }] };
@@ -429,11 +447,14 @@ test('crafts: away from home — the fisher fishes only from a spot the world gi
 
 test('crafts: a public place out of reach — the musician and the merchant work at their own door; the fisher and the farmer never fish or hoe on the paving; at a public home only crafts without a station (citizens rule 7)', () => {
   const { world, layout } = buildCity();
-  const far = 'b:杂物';   // 城的东北角：广场、橄榄林、港口都在一程（30 秒）以外
+  const far = 'b:杂物';
+  // 2026-10-15 起路多远都去（citizens 规则 1），"走不到"只剩没有路：这里把干活的那处的路断掉
   const planFor = (trade, seed, home) => {
     const craft = craftFor(trade, seed);
-    return planCitizen({ id: `${trade}-${seed}`, seed, home, craft: { ...craft, site: craftSite(craft, seed), scale: 1 } }, {
-      sitePoint: layout.sitePoint, route: layout.route, walkable: layout.walkable, hasSite: has(layout), neighbours: [], doorFor: (s, sd) => world.doorFor(s, sd),
+    const site = craftSite(craft, seed);
+    const route = (a, b) => (b === site || (site === 'fields' && b.startsWith('fields')) ? [] : layout.route(a, b));
+    return planCitizen({ id: `${trade}-${seed}`, seed, home, craft: { ...craft, site, scale: 1 } }, {
+      sitePoint: layout.sitePoint, route, walkable: layout.walkable, hasSite: has(layout), neighbours: [], doorFor: (s, sd) => world.doorFor(s, sd),
     });
   };
   for (const trade of ['musician', 'merchant']) {
@@ -570,4 +591,46 @@ test('countryside (fourth round, need 5): the fields and the pasture sit on the 
   assert.ok(walking > 50 && grazing > 50, `有走有吃草（走 ${walking}、吃草 ${grazing}）`);
   world.stepSheep(1234);
   assert.ok(world.sheep.every((s) => Math.hypot(s.root.position.x - pen.cx, s.root.position.z - pen.cz) < 6), 'stepSheep 把羊摆进圈里');
+});
+
+test('countryside (2026-10-15): every farmer and herder of the synthetic city walks out to the fields or the pen and works there — however far his home — and his whole day stays continuous, never jumping home mid-road (citizens rules 1 and 7)', () => {
+  // 之前一程最多 30 秒（约 39 米），城外的田离最近的家也有 60 米：这座城里的农夫、牧人一个也没去过（0 / 96）
+  const { world, layout } = buildCity();
+  const hasSite = (q) => q === 'agora' || q.startsWith('agora:') || q === 'harbor' || q === 'gate' || (q === 'fields' && layout.plots.has('fields:0')) || layout.plots.has(q);
+  const homes = [...layout.plots.keys()].filter((k) => k.startsWith('b:'));
+  let longest = 0;
+  for (const trade of ['farmer', 'herder']) {
+    for (const home of homes) {
+      for (const seed of [7919, 15838, 23757]) {
+        const craft = craftFor(trade, seed);
+        const site = craftSite(craft, seed);
+        const p = planCitizen({ id: `${trade}-${seed}`, seed, home, craft: { ...craft, site, scale: 1 } }, {
+          sitePoint: layout.sitePoint, route: layout.route, walkable: layout.walkable, hasSite, neighbours: homes,
+          doorFor: (q, sd) => world.doorFor(q, sd), workSpot: (q, sd) => countrySpot(layout, q, sd),
+        });
+        assert.equal(p.dest?.site, site, `${trade}@${home}：去 ${site}`);
+        assert.equal(p.craft?.atDest, true, `${trade}@${home}：在那儿干活`);
+        longest = Math.max(longest, p.walkMs);
+        const work = citizenAt(p, TOWN.homeMs + p.walkMs + p.stayMs / 2 - p.offset);
+        assert.equal(work.at, 'dest');
+        assert.equal(work.action, 'work');
+        assert.equal(work.work, craft.variant);
+        assert.ok(p.stayMs >= TOWN.stayMs && 2 * p.walkMs <= TOWN.walkShare * p.periodMs + 1e-6, `${trade}@${home}：路远的待得久，一来一回不超过周期的 ${TOWN.walkShare}`);
+        assert.ok(routeClear(p.out, layout.walkable, 0.1), `${trade}@${home}：一路每 0.1 米都能站`);
+        // 一整个周期（再跨过周期的接缝）每 250 毫秒取一下：露着的两刻之间挪不到 1 米（走路最快一步约 0.5 米，进出门那一段稍快；
+        // 旧的固定周期会在半路绕回周期开头，一下跳回家门几十米）。能不能站按 routeClear 的 0.1 米查（上一行）——逐帧查会撞上
+        // 门前那条路斜擦过墙角的几厘米（doors.planApproach，与这里无关）
+        const dt = 250, step = 1;
+        let prev = null;
+        for (let t = -p.offset - 5000; t < p.periodMs - p.offset + 5000; t += dt) {
+          const at = citizenAt(p, t);
+          if (!at.hidden) {
+            if (prev && !prev.hidden) assert.ok(Math.hypot(at.x - prev.x, at.z - prev.z) <= step, `${trade}@${home}：${t} 毫秒没有跳（${Math.hypot(at.x - prev.x, at.z - prev.z).toFixed(2)} 米）`);
+          }
+          prev = at;
+        }
+      }
+    }
+  }
+  assert.ok(longest > 30_000, `真有一程超过旧的 30 秒上限（最长 ${Math.round(longest)} 毫秒）——不然这条断言什么也没证明`);
 });

@@ -1640,6 +1640,25 @@
     <system:String x:Key="Polis.Citizen.Greet">Hello there.|Good day.|We meet again.|Fine weather today.|Out for a walk too?</system:String>
     <!-- 第三轮（人物关系）：喜欢你的人打招呼说热络的；冷淡、厌恶的人不说话 -->
     <system:String x:Key="Polis.Citizen.GreetWarm">Oh, it's you! You look well today.|Ah, there you are!|So good to see you.|Come, sit a while!|I was just thinking of you.</system:String>
+    <system:String x:Key="Polis.Citizen.Market.HawkBread">Bread fresh from the oven, still warm!|Barley cakes, wheat loaves, we have them all!|Sesame rings just baked, try one?</system:String>
+    <system:String x:Key="Polis.Citizen.Market.HawkPottery">Fine pots, hear them ring!|Oil flasks, water jars, wine cups, all from my own kiln!|Look at this glaze, you won't find its like in town!</system:String>
+    <system:String x:Key="Polis.Citizen.Market.HawkCloth">Fine wool cloth, soft and thick!|Look at this pattern, a whole month on the loom!|A new robe for the festival?</system:String>
+    <system:String x:Key="Polis.Citizen.Market.HawkSandals">Sturdy sandals, they'll last you to Sparta!|Made to your foot, a perfect fit!|Freshly tanned leather, smell that!</system:String>
+    <system:String x:Key="Polis.Citizen.Market.HawkGrain">Fresh flour, fine as snow!|Barley and wheat by the measure!|Straight from the mill, you can smell the grain!</system:String>
+    <system:String x:Key="Polis.Citizen.Market.HawkWood">Wooden bowls and spoons, light and tough!|A sturdy stool to last a lifetime!|Carved from olive wood, look at the grain!</system:String>
+    <system:String x:Key="Polis.Citizen.Market.HawkGoods">A bit of everything, come and look!|Lamps, baskets, needles and thread!|Goods from far away, only a few left!</system:String>
+    <system:String x:Key="Polis.Citizen.Market.HawkOil">First-press olive oil, smell it!|Good wine, just right with water!|Oil and wine, by the jar or by the ladle!</system:String>
+    <system:String x:Key="Polis.Citizen.Market.HawkProduce">Fresh figs, sweet as honey!|Grapes, olives, cabbages, picked this morning!|Ripe pomegranates, red as fire!</system:String>
+    <system:String x:Key="Polis.Citizen.Market.HawkFish">Fish landed this morning, fresh as can be!|Sardines and tuna, cheap today!|Buy fish early, it's gone by noon!</system:String>
+    <system:String x:Key="Polis.Citizen.Market.Pitch">Pick it up, have a look.|This is today's best batch.|You have a good eye, that one sells fastest.</system:String>
+    <system:String x:Key="Polis.Citizen.Market.Ask">How much is this?|What do you want for this?|How much for all of these?</system:String>
+    <system:String x:Key="Polis.Citizen.Market.Price">Two obols.|Three obols, no haggling.|One drachma and it's yours.|For you, one obol.</system:String>
+    <system:String x:Key="Polis.Citizen.Market.Haggle">Can you do a little less?|That's too much, come down a bit.|I'm a regular, give me a better price.</system:String>
+    <system:String x:Key="Polis.Citizen.Market.Concede">All right, all right, call it friendship.|Fine, you mean it, it's yours for less.</system:String>
+    <system:String x:Key="Polis.Citizen.Market.Refuse">That's already my lowest.|I can't go lower, it wouldn't cover my costs.</system:String>
+    <system:String x:Key="Polis.Citizen.Market.Thanks">There you go, take care!|Thank you, come again!|Come back when you need more!</system:String>
+    <system:String x:Key="Polis.Citizen.Market.Bought">Thanks!|Just what I wanted.|They'll love this at home.</system:String>
+    <system:String x:Key="Polis.Citizen.Market.Pass">I'll look around a bit more.|Maybe next time.|No, it's not quite right.</system:String>
     <system:String x:Key="Polis.Public.PaintedStoa">Painted Stoa</system:String>
     <system:String x:Key="Polis.Public.Archive">Archive</system:String>
     <system:String x:Key="Polis.Public.Vault">Vault</system:String>

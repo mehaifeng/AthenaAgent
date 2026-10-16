@@ -130,6 +130,8 @@ public static class PolisAccumulation
                 // 他的职业（第四轮需求 5）：页面按它挑他干的活、在哪儿干
                 trade = c.Trade,
                 tradeName = zh ? trade.Zh : trade.En,
+                // 农夫、牧人的工位号（PolisCitizens 规则 7）：页面按它分田、分垄、分圈里的位置，两人不站一处
+                workSlot = c.WorkSlot,
                 temper = PolisTalk.TemperamentName(c.Seed, language),
                 homeName = homeNames.TryGetValue(c.Dwelling, out var n) ? n : c.Dwelling,
                 stall = c.Home == "market",

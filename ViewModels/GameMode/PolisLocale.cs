@@ -255,6 +255,27 @@ public static class PolisLocale
         ("greet", "Polis.Citizen.Greet", "你好呀。|日安。|又见面了。|今天天气不错。|你也出来走走？"),
         // 第三轮（人物关系）：喜欢你的人打招呼说热络的；冷淡、厌恶的人不说话
         ("greetWarm", "Polis.Citizen.GreetWarm", "是你呀！今天气色真好。|哎，你来啦！|见到你真高兴。|快过来坐坐！|正想着你呢。"),
+        // 市集（2026-10-15，页面的 market.mjs）：摊主吆喝（每种摊一组）、招呼、报价、让价、不让、道谢；买主问价、讲价、买到了、走开。
+        // 摊前的买卖是本地台词；两位居民之间的闲聊仍然只用模型
+        ("marketHawkBread", "Polis.Citizen.Market.HawkBread", "刚出炉的面包，还热着呢！|大麦饼、小麦面包，都有！|新烤的芝麻饼，尝一个？"),
+        ("marketHawkPottery", "Polis.Citizen.Market.HawkPottery", "上好的陶罐，敲起来当当响！|油瓶、水罐、酒碗，都是自家窑里烧的！|看看这釉色，城里找不出第二家！"),
+        ("marketHawkCloth", "Polis.Citizen.Market.HawkCloth", "细羊毛织的布，又软又厚！|看看这花纹，织了整整一个月！|做件新袍子吧，过节穿正好！"),
+        ("marketHawkSandals", "Polis.Citizen.Market.HawkSandals", "结实的凉鞋，走到斯巴达都不坏！|量脚做鞋，包你合脚！|皮子是新鞣的，闻闻这味儿！"),
+        ("marketHawkGrain", "Polis.Citizen.Market.HawkGrain", "新磨的面粉，细得像雪！|大麦、小麦，论斗卖！|磨坊里刚磨的，还带着麦香！"),
+        ("marketHawkWood", "Polis.Citizen.Market.HawkWood", "木碗木勺，轻便又耐用！|结实的板凳，坐一辈子！|橄榄木雕的，纹路多漂亮！"),
+        ("marketHawkGoods", "Polis.Citizen.Market.HawkGoods", "什么都有，过来看看！|油灯、篮子、针线，样样齐全！|远道运来的货，就这几件！"),
+        ("marketHawkOil", "Polis.Citizen.Market.HawkOil", "头道橄榄油，香得很！|上好的葡萄酒，兑上水正好喝！|油和酒，论罐卖也论勺卖！"),
+        ("marketHawkProduce", "Polis.Citizen.Market.HawkProduce", "新摘的无花果，甜着呢！|葡萄、橄榄、卷心菜，都是今早地里的！|石榴熟了，红得跟火似的！"),
+        ("marketHawkFish", "Polis.Citizen.Market.HawkFish", "今早刚上岸的鱼，鲜着呢！|沙丁鱼、金枪鱼，便宜卖了！|鱼要趁早买，过了晌午可就没了！"),
+        ("marketPitch", "Polis.Citizen.Market.Pitch", "喜欢就拿起来看看。|这是今天最好的一批。|你眼光真好，这个卖得最快。"),
+        ("marketAsk", "Polis.Citizen.Market.Ask", "这个怎么卖？|这个多少钱？|这些一共要多少？"),
+        ("marketPrice", "Polis.Citizen.Market.Price", "两个奥波尔。|三个奥波尔，不还价。|一个德拉克马拿走。|给你算一个奥波尔吧。"),
+        ("marketHaggle", "Polis.Citizen.Market.Haggle", "便宜点吧？|太贵了，少算一点。|我是老主顾了，便宜些嘛。"),
+        ("marketConcede", "Polis.Citizen.Market.Concede", "好吧好吧，就当交个朋友。|行，看你诚心，便宜你了。"),
+        ("marketRefuse", "Polis.Citizen.Market.Refuse", "这已经是最低价了。|不能再少了，本钱都不够。"),
+        ("marketThanks", "Polis.Citizen.Market.Thanks", "拿好，慢走！|多谢惠顾，下回再来！|用得好再来啊！"),
+        ("marketBought", "Polis.Citizen.Market.Bought", "谢啦！|正是我想要的。|家里人准喜欢。"),
+        ("marketPass", "Polis.Citizen.Market.Pass", "我再转转。|下回再说吧。|算了，不太合适。"),
     };
 
     public static IReadOnlyList<(string JsKey, string Key, string Fallback)> Places { get; } = new[]

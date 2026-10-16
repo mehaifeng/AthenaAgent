@@ -20,7 +20,10 @@ import {
   VIEW, VIEW_MODES, RUN_FACTOR, MOVE_KEYS, nextView, moveDirection, slide, orbitAngles, deadZoneShift, turnToward, isTypingTarget,
 } from './controls.mjs';
 import { createAthena, stepProgress, ATHENA } from './athena.mjs';
-import { planCitizen, citizenAt, indoorsAt, doorTransit, newScheduleClock, scheduleClock, holdSchedule, resumeSchedule, separate, assignTiers, pickChat, nextChatAfter, greetLine, settleStations, TOWN } from './citizens.mjs';
+import { planCitizen, citizenAt, indoorsAt, doorTransit, newScheduleClock, scheduleClock, holdSchedule, resumeSchedule, separate, assignTiers, pickChat, nextChatAfter, greetLine, settleStations, seeded, TOWN } from './citizens.mjs';
+import {
+  MARKET, STALLS, marketGeometry, shopLeg, marketOpen, assignVendors, shopOutcome, shopScript, hawkCall, marketLine, hawkKey,
+} from './market.mjs';
 import { debateStage, assignAudience, supportersCount, DEBATE } from './debate.mjs';
 import { sillHeight, DOOR } from './doors.mjs';
 import {
@@ -322,11 +325,40 @@ export function citizenInfoLines(data, ui) {
   return lines;
 }
 
+/** 买到的那包货两手捧着（poses 的 carry 'both'）。 */
+const PARCEL_CARRY = Object.freeze({ side: 'R', grip: 'both', prop: 'parcel' });
+
+/** 市集上的本地台词（"|" 分隔几种说法；与 C# 的 PolisLocale.Citizen 同键、同一份中文）。 */
+export const MARKET_ZH = Object.freeze({
+  marketHawkBread: '刚出炉的面包，还热着呢！|大麦饼、小麦面包，都有！|新烤的芝麻饼，尝一个？',
+  marketHawkPottery: '上好的陶罐，敲起来当当响！|油瓶、水罐、酒碗，都是自家窑里烧的！|看看这釉色，城里找不出第二家！',
+  marketHawkCloth: '细羊毛织的布，又软又厚！|看看这花纹，织了整整一个月！|做件新袍子吧，过节穿正好！',
+  marketHawkSandals: '结实的凉鞋，走到斯巴达都不坏！|量脚做鞋，包你合脚！|皮子是新鞣的，闻闻这味儿！',
+  marketHawkGrain: '新磨的面粉，细得像雪！|大麦、小麦，论斗卖！|磨坊里刚磨的，还带着麦香！',
+  marketHawkWood: '木碗木勺，轻便又耐用！|结实的板凳，坐一辈子！|橄榄木雕的，纹路多漂亮！',
+  marketHawkGoods: '什么都有，过来看看！|油灯、篮子、针线，样样齐全！|远道运来的货，就这几件！',
+  marketHawkOil: '头道橄榄油，香得很！|上好的葡萄酒，兑上水正好喝！|油和酒，论罐卖也论勺卖！',
+  marketHawkProduce: '新摘的无花果，甜着呢！|葡萄、橄榄、卷心菜，都是今早地里的！|石榴熟了，红得跟火似的！',
+  marketHawkFish: '今早刚上岸的鱼，鲜着呢！|沙丁鱼、金枪鱼，便宜卖了！|鱼要趁早买，过了晌午可就没了！',
+  marketPitch: '喜欢就拿起来看看。|这是今天最好的一批。|你眼光真好，这个卖得最快。',
+  marketAsk: '这个怎么卖？|这个多少钱？|这些一共要多少？',
+  marketPrice: '两个奥波尔。|三个奥波尔，不还价。|一个德拉克马拿走。|给你算一个奥波尔吧。',
+  marketHaggle: '便宜点吧？|太贵了，少算一点。|我是老主顾了，便宜些嘛。',
+  marketConcede: '好吧好吧，就当交个朋友。|行，看你诚心，便宜你了。',
+  marketRefuse: '这已经是最低价了。|不能再少了，本钱都不够。',
+  marketThanks: '拿好，慢走！|多谢惠顾，下回再来！|用得好再来啊！',
+  marketBought: '谢啦！|正是我想要的。|家里人准喜欢。',
+  marketPass: '我再转转。|下回再说吧。|算了，不太合适。',
+});
+
 /** 居民对你打招呼的话（本地的；两位居民之间的闲聊 2026-10-13 起只用模型，没有本地台词）。 */
 export const CITIZEN_ZH = Object.freeze({
   greet: '你好呀。|日安。|又见面了。|今天天气不错。|你也出来走走？',
   // 第三轮（人物关系）：喜欢你的人打招呼说热络的；冷淡、厌恶的人不说话
   greetWarm: '是你呀！今天气色真好。|哎，你来啦！|见到你真高兴。|快过来坐坐！|正想着你呢。',
+  // 市集（2026-10-15，market.mjs）：摊主吆喝（每种摊一张）、招呼、报价、让价、不让、道谢；买主问价、讲价、买到了、走开。C# 的
+  // PolisLocale.Citizen 里有同样的键（实时模式推来的会盖掉这里）
+  ...MARKET_ZH,
 });
 
 /**
@@ -556,6 +588,9 @@ export function createGame({ params, status, send, onTalk = null, onUiBlocked = 
     world = buildWorld(R.scene, doc, layout, M, { names: publicNames, sanctuary, assets });
     for (const record of items.values()) { record.object = null; record.display = null; }   // 旧城的物件随旧城拆掉
     neighbourSites = null;
+    marketGeo = null;
+    marketRoster = null;
+    marketShown = null;
     player.y = null;
     athenaY = null;
     athenaYaw = null;
@@ -986,6 +1021,10 @@ export function createGame({ params, status, send, onTalk = null, onUiBlocked = 
   /** 老居民按家分组（一家一块碑）。 */
   const hasSite = (s) => s === 'agora' || s.startsWith('agora:') || s === 'harbor' || s === 'gate' || (s === 'fields' && !!layout?.plots.has('fields:0')) || !!layout?.plots.has(s);
   let neighbourSites = null;   // 城里各座建筑的站点（居民也去邻居家门口坐坐）；换城、城变了时清掉
+  // 市集（2026-10-15，market.mjs）：摊的点（世界坐标，换城时清掉）、谁看哪个摊（街上的名单变了就重排）、此刻开着的摊
+  let marketGeo = null;
+  let marketRoster = null;
+  let marketShown = null;
   const viewTmp = new THREE.Vector3();
   /** 这一点在不在画面里（用上一帧的镜头——差一帧没关系，画面外的人本来就不摆不画）。 */
   const inView = (x, z) => {
@@ -1220,7 +1259,7 @@ export function createGame({ params, status, send, onTalk = null, onUiBlocked = 
     const c = world?.citizens.get(id);
     if (c) return { name: c.data.name ?? '', bust: c.look.bust };
     const indoor = citizens.indoors.find((x) => x.id === id);
-    if (indoor) return { name: String(indoor.name ?? ''), bust: citizenLook(Number(indoor.seed) >>> 0, { age: indoor.age ?? 'adult' }).bust };
+    if (indoor) return { name: String(indoor.name ?? ''), bust: citizenLook(Number(indoor.seed) >>> 0, { age: indoor.age ?? 'adult', trade: indoor.trade ?? null }).bust };
     return { name: '', bust: 'athena' };
   }
 
@@ -1433,13 +1472,157 @@ export function createGame({ params, status, send, onTalk = null, onUiBlocked = 
    * 两根系船柱正中间（柱子每 3.2 米一对，第一对离岸 2 米），按种子挑一段，朝西，竿梢伸到水上；先走到栈桥中线再横过去
    * （斜着走会擦过系船柱）。那一点站不了就没有站位，他不钓。
    */
-  function workSpot(site, seed) {
-    // 农夫在城北的农田里、牧人在羊圈里（第四轮需求 5，countryside.countrySpot）
-    if (site === 'fields' || site === 'pasture') return countrySpot(layout, site, seed);
+  function workSpot(site, seed, slot = null) {
+    // 农夫在城北的农田里、牧人在羊圈里（第四轮需求 5，countryside.countrySpot）；slot 是 C# 给的工位号，两人不站一处
+    if (site === 'fields' || site === 'pasture') return countrySpot(layout, site, seed, slot);
     if (site !== 'harbor' || !layout.harborPoint) return null;
     const z = layout.quayZ + 3.6 + 3.2 * ((seed >>> 4) % 4);
     const p = { x: layout.harborPoint.x - PIER.halfWidth + 0.4, z };
     return layout.walkable(p) ? { ...p, yaw: -Math.PI / 2, via: [{ x: layout.harborPoint.x, z }] } : null;
+  }
+
+  /** 市集里各摊的点（世界坐标，market.marketGeometry）；城里没有市集为 null。 */
+  function marketGeoOf() {
+    if (marketGeo === null) {
+      const plot = layout?.plots.get('market');
+      marketGeo = plot ? marketGeometry(plot.cx, plot.cz, plot.yaw ?? 0) : false;
+    }
+    return marketGeo || null;
+  }
+
+  /**
+   * 谁看哪个摊（market 规则 2）：按街上的名单排（不算敲门请出来的客人），名单变了重排——换了摊的摊主、
+   * 逛市集的人重新排日程（他们挑的是有人的摊）。
+   */
+  function rosterNow() {
+    const key = citizens.street.map((c) => `${c.id}:${c.trade ?? ''}:${c.nightOwl ? 1 : 0}`).join('|') + '#' + (city?.market ?? []).join('|');
+    if (marketRoster?.key === key) return marketRoster;
+    const folders = city?.market ?? [];
+    const people = citizens.street.map((c) => {
+      const seed = Number(c.seed) >>> 0;
+      const folder = c.stall ? folders.indexOf(c.homeName) : -1;
+      return { id: c.id, trade: craftFor(c.trade, seed).trade, nightOwl: !!c.nightOwl, stallFolder: c.stall ? (folder >= 0 ? folder : folders.length + 1) : null };
+    });
+    const before = marketRoster;
+    marketRoster = { key, ...assignVendors(people) };
+    if (before && world?.citizens) {
+      for (const c of world.citizens.values()) {
+        if (!c.plan) continue;
+        if (before.byId.get(c.id) !== marketRoster.byId.get(c.id) || c.plan.dest?.tour) c.plan = null;
+      }
+    }
+    return marketRoster;
+  }
+
+  /** 摊主的那个摊（planCitizen 的 citizen.vendor）：柜台后面站的地方、朝向、从街上的站点走进去的路。 */
+  function vendorFor(id) {
+    const geo = marketGeoOf();
+    const stall = geo ? rosterNow().byId.get(id) : undefined;
+    if (stall == null) return null;
+    const g = geo[stall];
+    return { stall, x: g.vendor.x, z: g.vendor.z, yaw: g.vendor.yaw, via: g.via };
+  }
+
+  /**
+   * 逛市集（citizens 规则 9）：按种子挑一个有摊主的摊、站它前面两处里的一处，再按种子排上至多三个别的摊；六成多的人至少逛两个
+   * （wanted），路远、在市集待得久的逛得更多（planCitizen 按他能待多久留下前几个）。
+   * 返回 { stops: [{ stall, spot, point }], legs: [摊 k → 摊 k+1 的折线], via: 从街上的站点走到头一个摊前要经过的点, wanted }。
+   */
+  function marketVisit(citizen) {
+    const geo = marketGeoOf();
+    if (!geo) return null;
+    const staffed = [...rosterNow().byStall.keys()].sort((a, b) => a - b);
+    if (staffed.length === 0) return null;
+    const r = seeded((citizen.seed ^ 0x5bd1e995) >>> 0);
+    const first = staffed[Math.floor(r() * staffed.length)];
+    const stops = [{ stall: first, spot: Math.floor(r() * 2) }];
+    const wanted = staffed.length > 1 && r() < 0.65 ? 2 : 1;
+    // 最多四个摊（路远、在市集待得久的人多逛几个——planCitizen 按他能待多久留下前几个）
+    const rest = staffed.filter((k) => k !== first).map((k) => ({ k, u: r() })).sort((a, b) => a.u - b.u).slice(0, 3);
+    for (const { k } of rest) stops.push({ stall: k, spot: Math.floor(r() * 2) });
+    const plot = layout.plots.get('market');
+    const legs = stops.slice(1).map((st, k) => shopLeg(geo, stops[k], st, plot.cx, plot.cz, plot.yaw ?? 0));
+    const c0 = geo[first].customers[stops[0].spot];
+    return { stops: stops.map((st) => ({ ...st, point: geo[st.stall].customers[st.spot] })), legs, via: c0.via, wanted };
+  }
+
+  /** 这一次逛到第几回（日程钟上第几个周期）：同一回在同一个摊前的结局永远一样，下一回换一个。 */
+  const roundOf = (c, wall) => Math.floor((scheduleClock(c.schedule, wall) + c.plan.offset) / c.plan.periodMs);
+
+  /** 摊主此刻能不能招呼人：卡片开着、你在和他说话、他在和别人闲聊时不能。 */
+  const freeToServe = (id) => !(panel?.type === 'citizen' && panel.id === id) && convo?.id !== id && !(chatTalk && (chatTalk.a === id || chatTalk.b === id));
+
+  /**
+   * 市集这一帧（market 规则 3、4）：开不开市、哪些摊有人、谁在招呼谁、谁买到了东西、谁在吆喝。结果挂在每个人身上：
+   * c.market = { role: 'vendor'|'customer', script, other, stall, round }，c.carry（抱着买到的那包货）；返回要冒的字
+   * [{ id, key, seed, n, since }]（since：这句话开口后过了多久）。
+   */
+  function stepMarket(live, wall, posOf) {
+    const geo = marketGeoOf();
+    for (const c of live) { c.market = null; c.carry = false; }
+    if (!geo) { status.market = null; return []; }
+    const open = marketOpen(wall) && !sky.night;
+    const present = new Map();
+    for (const c of live) if (c.at.sell && !c.at.hidden && c.at.at === 'dest') present.set(c.at.sell.stall, c);
+    const shown = new Set([...present.keys()].filter(() => open));
+    const key = [...shown].sort((a, b) => a - b).join(',');
+    if (marketShown !== key) {
+      marketShown = key;
+      for (const st of STALLS) world.setStallOpen?.(st.index, shown.has(st.index));
+    }
+    const lines = [];
+    const byStall = new Map();
+    for (const c of live) {
+      if (!c.at.shop || c.at.hidden) continue;
+      if (!byStall.has(c.at.shop.stall)) byStall.set(c.at.shop.stall, []);
+      byStall.get(c.at.shop.stall).push(c);
+    }
+    let trades = 0, served = 0;
+    for (const [stall, list] of byStall) {
+      // 先到的先招呼（他在这个摊前待得最久）；后到的在旁边看货
+      list.sort((a, b) => b.at.shop.t - a.at.shop.t || (a.id < b.id ? -1 : 1));
+      const v = present.get(stall);
+      let busy = !v || !open || !freeToServe(v.id);
+      for (const c of list) {
+        const round = roundOf(c, wall) * 4 + c.at.shop.k;
+        c.market = { role: 'customer', script: null, other: v ?? null, stall, round };
+        if (busy || c.at.shop.t >= MARKET.stopMs) continue;
+        const script = shopScript(c.at.shop.t, shopOutcome(c.data.seed >>> 0, round));
+        c.market.script = script;
+        busy = true;
+        served++;
+        if (script.step === 'trade') trades++;
+        if (script.bought) c.boughtRound = roundOf(c, wall);
+        if (script.engaged) v.market = { role: 'vendor', script, other: c, stall, round };
+        for (const [who, step] of [[c, script.customer], [v, script.vendor]]) {
+          if (step?.line && step.lineAt != null) lines.push({ id: who.id, key: step.line, seed: who.data.seed >>> 0, n: round, since: c.at.shop.t - step.lineAt });
+        }
+      }
+    }
+    // 抱着买到的那包货：这一回买到了、还在市集上或者正走回家
+    for (const c of live) {
+      if (c.boughtRound == null || !c.plan?.dest?.tour) continue;
+      const here = c.at.at === 'dest' || c.at.at === 'road';
+      c.carry = here && c.boughtRound === roundOf(c, wall) && !(c.at.at === 'dest' && c.at.shop && c.market?.script?.step === 'trade');
+    }
+    // 没人招呼时，摊主隔一阵吆喝一声（离你近的、看得见的那几位，同时最多 hawkMax 位）
+    const hawkers = [];
+    for (const [stall, v] of present) {
+      if (!open || v.market || !freeToServe(v.id)) continue;
+      const call = hawkCall(wall, v.data.seed >>> 0);
+      if (!call.calling) continue;
+      const p = posOf(v);
+      const d = Math.hypot(p.x - player.pos.x, p.z - player.pos.z);
+      if (d <= MARKET.hawkRadius) hawkers.push({ id: v.id, key: hawkKey(geo[stall].kind), seed: v.data.seed >>> 0, n: call.n, since: call.since, d });
+    }
+    hawkers.sort((a, b) => a.d - b.d);
+    lines.push(...hawkers.slice(0, MARKET.hawkMax));
+    status.market = {
+      open, stalls: [...shown].sort((a, b) => a - b), vendors: present.size, assigned: rosterNow().byStall.size,
+      shoppers: [...byStall.values()].reduce((n, l) => n + l.length, 0), served, trades,
+      carrying: live.filter((c) => c.carry).length, hawking: hawkers.slice(0, MARKET.hawkMax).map((h) => h.id),
+    };
+    return lines;
   }
 
   /**
@@ -1452,16 +1635,19 @@ export function createGame({ params, status, send, onTalk = null, onUiBlocked = 
     if (world.citizens.size === 0) { tierPeople([]); status.citizenTiers = null; status.chat = null; return []; }
     for (let k = 0; k < 2 && world.buildNextCitizen(); k++);
     const live = [];
+    if (marketGeoOf()) rosterNow();   // 名单变了先重排摊主（换了摊的人下面重新排日程）
     for (const c of world.citizens.values()) {
       if (!c.figure) continue;
       if (!c.plan) {
         neighbourSites ??= [...layout.plots.keys()].filter((k) => k.startsWith('b:'));
-        c.plan = planCitizen({ id: c.id, seed: c.data.seed, home: c.data.home, craft: craftPlanOf(c) }, {
+        c.plan = planCitizen({ id: c.id, seed: c.data.seed, home: c.data.home, slot: c.data.workSlot ?? null, craft: craftPlanOf(c), vendor: vendorFor(c.id) }, {
           sitePoint: layout.sitePoint, route: layout.route, walkable: layout.walkable, hasSite, neighbours: neighbourSites,
           // 家有门的（第三轮需求 2）：在屋里待一阵、开门出来、进门（citizens 规则 6）
           doorFor: (site, seed) => world.doorFor(site, seed),
           // 手艺（第三轮需求 4）：渔夫站在栈桥的西沿上、朝着海（船泊在东边）
           workSpot,
+          // 市集（citizens 规则 9）：逛市集的人挑一两个有摊主的摊
+          ...(marketGeoOf() ? { marketVisit } : {}),
         });
         // 门前干活的工位（陶轮、揉面台、石料、锯木架）跟着日程摆：这一帧排完了再按整份名单收（settleStations）
         stationsDirty = true;
@@ -1516,6 +1702,8 @@ export function createGame({ params, status, send, onTalk = null, onUiBlocked = 
       return { x, z };
     };
     tierPeople(live.filter((c) => !c.at.hidden).map((c) => [c.id, posOf(c)]));
+    // 市集（market 规则 3、4）：开市、摊主、谁在招呼谁、谁在吆喝——下面摆姿势时按它
+    const marketLines = stepMarket(live, wall, posOf);
 
     // 闲聊：半秒挑一次，全城同时只有一组；挑中了就请 C# 让他们说（ambient-chat）——先开口的那位头顶马上是一串点。
     // 聊着的时候两人站定（日程钟停着，见上面）；C# 说结束了（ambient-end）或者聊得太久（卡住了）就散
@@ -1560,6 +1748,16 @@ export function createGame({ params, status, send, onTalk = null, onUiBlocked = 
 
     const bubbles = [];
     const counts = { A: 0, B: 0, C: 0, inside: 0, working: 0 };
+    // 市集上说的话（本地台词）：离你 talkRadius 以内、看得见的才冒字；先冒，下面说话的（模型那一路）会顶掉同一个人的
+    for (const ln of marketLines) {
+      const who = world.citizens.get(ln.id);
+      if (!who?.at || who.at.hidden || citizenTiers.get(ln.id) === 'C') continue;
+      const p = posOf(who);
+      if (Math.hypot(p.x - player.pos.x, p.z - player.pos.z) > MARKET.talkRadius) continue;
+      const text = marketLine(citizenWords, ln.key, ln.seed, ln.n);
+      const alpha = Math.max(0, Math.min(1, ln.since / 150, (MARKET.lineMs - ln.since) / 300));
+      if (text && alpha > 0) bubbles.push({ id: ln.id, text, alpha });
+    }
     const doorOpen = new Map();   // 门 → 开几分（此刻在门里进出的人里最大的那个）
     for (const c of live) {
       const root = c.figure.root;
@@ -1658,6 +1856,20 @@ export function createGame({ params, status, send, onTalk = null, onUiBlocked = 
         t = wall - chatTalk.start;
         const saying = sayings.get(c.id);
         style.speaker = !!saying && !saying.typing && (saying.doneAt == null || wall - saying.doneAt < 2500);
+      } else if (c.market?.script && (c.market.role === 'vendor' ? c.market.script.vendor : c.market.script.customer)) {
+        // 市集（market 规则 4）：在摊前看货、问价、讲价、手递手、道谢——两人隔着柜台面对面
+        const m = c.market;
+        const step = m.role === 'vendor' ? m.script.vendor : m.script.customer;
+        const o = m.other?.at ? posOf(m.other) : null;
+        if (o && (step.action === 'talk' || m.role === 'vendor')) yaw = Math.atan2(o.x - x, o.z - z);
+        action = step.action;
+        t = step.t;
+        if (step.action === 'work') style.variant = step.variant;
+        if (step.action === 'talk') {
+          style.speaker = step.speaker;
+          if (o) style.lookAt = playerHead.set(o.x, 1.5, o.z);
+        }
+        c.cardAt = null;
       } else {
         c.cardAt = null;
         if (action === 'idle' && Math.hypot(player.pos.x - x, player.pos.z - z) < 4) style.lookAt = playerHead.set(player.pos.x, 1.5, player.pos.z);
@@ -1667,7 +1879,9 @@ export function createGame({ params, status, send, onTalk = null, onUiBlocked = 
         }
       }
       // 手艺（第三轮需求 4）：上面没有别的事把他叫住，他就干他那门活
-      if (action === 'work') { style.variant = c.at.work; counts.working++; }
+      if (action === 'work') { style.variant ??= c.at.work; counts.working++; }
+      // 市集上买到的那包货：捧着它站着、走回家（market 规则 4）
+      if (c.carry && (action === 'walk' || action === 'idle' || action === 'talk')) style.carry = PARCEL_CARRY;
       // 他头顶的话（你和他聊天时他说的）：在想时是一串循环的点，流式的字边到边换，说完留一阵再淡出；你还在和他聊就一直留着
       const saying = sayings.get(c.id);
       if (saying) {
@@ -2634,6 +2848,9 @@ export function createGame({ params, status, send, onTalk = null, onUiBlocked = 
         : ['market', 'harbor', 'temple', 'library', 'fields', 'pasture'].includes(site) ? site : 'road';
     }
     let doing = at.action === 'work' ? 'work' : at.action === 'walk' ? 'walk' : 'idle';
+    // 市集（market 规则 5）：摊主在摆摊、买主在逛——提示词里写着，模型说的话才对得上
+    if (at.at === 'dest' && at.sell) doing = 'sell';
+    else if (at.at === 'dest' && (at.shop || at.shopping) && at.action !== 'walk') doing = 'shop';
     if (audienceOf.has(id)) { where = 'bema'; doing = 'audience'; }
     else if (chatTalk && (chatTalk.a === id || chatTalk.b === id)) doing = 'chat';
     else if (sky.night && where !== 'inside' && doing !== 'work') doing = 'stroll';
@@ -3050,7 +3267,7 @@ export function createGame({ params, status, send, onTalk = null, onUiBlocked = 
       for (const c of world?.citizens.values() ?? []) out.push({ id: c.id, name: c.data.name ?? '', kind: 'citizen', indoors: false, bust: c.look.bust });
       for (const c of citizens.indoors) {
         if (world?.citizens.has(c.id)) continue;
-        out.push({ id: c.id, name: String(c.name ?? ''), kind: 'citizen', indoors: true, bust: citizenLook(Number(c.seed) >>> 0, { age: c.age ?? 'adult' }).bust });
+        out.push({ id: c.id, name: String(c.name ?? ''), kind: 'citizen', indoors: true, bust: citizenLook(Number(c.seed) >>> 0, { age: c.age ?? 'adult', trade: c.trade ?? null }).bust });
       }
       for (const r of residents) out.push({ id: `resident:${r.kind}`, name: r.name ?? r.kind, kind: 'resident', indoors: false, bust: r.kind });
       return out;

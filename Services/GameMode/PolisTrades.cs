@@ -40,6 +40,12 @@ public static class PolisTrades
         new PolisTrade(Idle, "无业的人", "person without work", "没有正经营生，打打零工、四处闲逛", "has no steady work, takes odd jobs and wanders about", 9),
     };
 
+    /// <summary>
+    /// 一座城里这一行最多几位（2026-10-15，用户：放牧的最多 2 人、种田的最多 3 人，站位不同）。城北只有一块羊圈、至多三块田，
+    /// 人多了只能挤在同一个站位上。没写的职业不限。超出的由 <see cref="PolisCitizens.CapTrades"/> 改抽别的行当。
+    /// </summary>
+    public static IReadOnlyDictionary<string, int> Caps { get; } = new Dictionary<string, int>(StringComparer.Ordinal) { ["farmer"] = 3, ["herder"] = 2 };
+
     private static readonly Dictionary<string, PolisTrade> ByKeyMap = All.ToDictionary(t => t.Key, StringComparer.Ordinal);
 
     public static IReadOnlyList<string> Keys { get; } = All.Select(t => t.Key).ToList();
@@ -63,12 +69,15 @@ public static class PolisTrades
         };
     }
 
-    /// <summary>按种子与住所挑一门职业（市集的摊主一律是商贩）。同一个种子、同一处住所永远是同一门。</summary>
-    public static string Pick(uint seed, PolisDwelling dwelling)
+    /// <summary>
+    /// 按种子与住所挑一门职业（市集的摊主一律是商贩）。同一个种子、同一处住所永远是同一门。<paramref name="exclude"/> 里的职业不挑
+    /// （<see cref="PolisCitizens.CapTrades"/> 给满了额的人改行用）。
+    /// </summary>
+    public static string Pick(uint seed, PolisDwelling dwelling, IReadOnlySet<string>? exclude = null)
     {
         ArgumentNullException.ThrowIfNull(dwelling);
         if (dwelling.Stall) return Merchant;
-        var weights = All.Select(t => t.Weight * Bias(dwelling, t.Key)).ToList();
+        var weights = All.Select(t => exclude?.Contains(t.Key) == true ? 0 : t.Weight * Bias(dwelling, t.Key)).ToList();
         var total = weights.Sum();
         // 用种子的高几位，与男女（最低位）、年纪（>> 12）不相关
         var x = ((seed >> 20) ^ (seed * 2654435761u >> 9)) % 100_000 / 100_000.0 * total;

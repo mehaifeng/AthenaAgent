@@ -88,6 +88,9 @@ export function buildCharacter(M, id, overrides = {}) {
 export function buildCitizen(M, lookSpec) {
   const spec = { ...lookSpec };
   spec.cloth = typeof spec.cloth === 'number' ? M.clothShades[spec.cloth] : M[spec.cloth];
+  // 第二种颜色（外衣、腰带、头带）与发色（2026-10-16）：档位换成材质；老人的灰白、花白（hairMat 的名字）压过发色
+  if (typeof spec.trim === 'number') spec.trim = M.clothShades[spec.trim];
+  if (typeof spec.hairTone === 'number' && !spec.hairMat) spec.hairMat = M.hairShades[spec.hairTone];
   if (typeof spec.hairMat === 'string') spec.hairMat = M[spec.hairMat];
   if (spec.beard && !spec.beardMat && spec.hairMat) spec.beardMat = spec.hairMat;
   return buildFigure(M, spec);

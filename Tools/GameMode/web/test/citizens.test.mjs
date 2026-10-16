@@ -4,13 +4,13 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import * as THREE from '../../../../Assets/Polis/vendor/three.bundle.mjs';
-import { citizenLook, isFemale, lookSignature, CITIZEN_VOCAB, RESIDENT_SIGNATURES } from '../../../../Assets/Polis/src/art/citizens.mjs';
+import { citizenLook, isFemale, lookSignature, CITIZEN_VOCAB, RESIDENT_SIGNATURES, MARKET_PROPS, CLOTH_SHADES_RGB, WORK_TRADES } from '../../../../Assets/Polis/src/art/citizens.mjs';
 import { craftFor } from '../../../../Assets/Polis/src/art/crafts.mjs';
 import { buildCitizen, CHARACTER_SPECS } from '../../../../Assets/Polis/src/art/characters.mjs';
 import { HAIR_STYLES } from '../../../../Assets/Polis/src/art/rig.mjs';
 import { bust, CHARACTERS } from '../../../../Assets/Polis/src/art/busts.mjs';
 import {
-  TOWN, DESTINATIONS, planCitizen, routeClear, citizenAt, newScheduleClock, scheduleClock, holdSchedule, resumeSchedule, separate, assignTiers, pickChat, nextChatAfter, greetLine,
+  TOWN, DESTINATIONS, planCitizen, planTiming, routeClear, citizenAt, newScheduleClock, scheduleClock, holdSchedule, resumeSchedule, separate, assignTiers, pickChat, nextChatAfter, greetLine,
   retireTime, wakeTime, asleepAt, indoorsAt,
 } from '../../../../Assets/Polis/src/citizens.mjs';
 import { createLayout } from '../../../../Assets/Polis/src/layout.mjs';
@@ -32,7 +32,7 @@ function stubMaterials() {
   return new Proxy({}, {
     get: (_, key) => {
       if (typeof key !== 'string') return undefined;
-      if (!cache.has(key)) cache.set(key, key.endsWith('Shades') ? [0, 1, 2, 3, 4].map((i) => new THREE.MeshStandardMaterial({ name: `${key}${i}` })) : new THREE.MeshStandardMaterial({ name: key }));
+      if (!cache.has(key)) cache.set(key, key.endsWith('Shades') ? Array.from({ length: 12 }, (_, i) => new THREE.MeshStandardMaterial({ name: `${key}${i}` })) : new THREE.MeshStandardMaterial({ name: key }));
       return cache.get(key);
     },
   });
@@ -50,6 +50,12 @@ test('look: the sex is the seed\'s lowest bit, the same seed is always the same 
     const vocab = spec.face.female ? CITIZEN_VOCAB.female : CITIZEN_VOCAB.male;
     assert.ok(vocab.garments.includes(spec.garment), `${seed}: 衣式 ${spec.garment}`);
     assert.ok(CITIZEN_VOCAB.cloth.includes(spec.cloth));
+    // 2026-10-16：第二种颜色和衣色不同；披外衣的人一定有；发色在五档里；短衣长只给希顿
+    if (spec.trim != null) assert.ok(CITIZEN_VOCAB.cloth.includes(spec.trim) && spec.trim !== spec.cloth, `${seed}: 第二色 ${spec.trim} 不同于衣色 ${spec.cloth}`);
+    if (spec.garment === 'himation') assert.ok(spec.trim != null, `${seed}: 外衣换一种颜色`);
+    assert.ok(CITIZEN_VOCAB.hairTones.includes(spec.hairTone), `${seed}: 发色 ${spec.hairTone}`);
+    if (spec.hem != null) assert.ok(spec.garment === 'chiton' && Object.values(CITIZEN_VOCAB.hems).includes(spec.hem), `${seed}: 衣长 ${spec.hem} 只给希顿`);
+    if (age === 'young') assert.ok(!spec.belly, `${seed}: 年轻人没有肚腩`);
     assert.ok([null, undefined, ...vocab.headgear].includes(spec.headgear), `${seed}: 头饰 ${spec.headgear}`);
     assert.ok(spec.hair in HAIR_STYLES && spec.hair.startsWith('plain'), `${seed}: 发式 ${spec.hair} 是居民的通用发式`);
     if (spec.face.female) assert.ok(!spec.beard, '女子没有胡子');
@@ -57,8 +63,10 @@ test('look: the sex is the seed\'s lowest bit, the same seed is always the same 
     assert.ok(!RESIDENT_SIGNATURES.headgear.includes(spec.headgear), `${seed}: 不戴居民的帽子 / 头冠 / 面纱`);
     assert.ok(!RESIDENT_SIGNATURES.garments.includes(spec.garment), `${seed}: 不穿传令官的斗篷`);
     const craftProps = craftFor(null, seed).props;
-    for (const p of spec.props) assert.ok((p === 'scroll' || craftProps.includes(p)) && !RESIDENT_SIGNATURES.props.includes(p), `${seed}: 手里只有素卷轴或他那门手艺的家什：${p}`);
-    assert.deepEqual(spec.props.filter((p) => p !== 'scroll'), [...craftProps], `${seed}: 他那门手艺的家什都在`);
+    // 市集（2026-10-15）：人人还带着一枚钱和一包货（买卖时才拿出来）
+    for (const p of spec.props) assert.ok((p === 'scroll' || craftProps.includes(p) || MARKET_PROPS.includes(p)) && !RESIDENT_SIGNATURES.props.includes(p), `${seed}: 手里只有素卷轴、他那门手艺的家什、买卖用的钱和货：${p}`);
+    assert.deepEqual(spec.props.filter((p) => p !== 'scroll' && !MARKET_PROPS.includes(p)), [...craftProps], `${seed}: 他那门手艺的家什都在`);
+    assert.deepEqual(spec.props.filter((p) => MARKET_PROPS.includes(p)), [...MARKET_PROPS], `${seed}: 买卖用的钱和货都在`);
     assert.ok(!spec.carry || spec.carry.prop === 'scroll', `${seed}: 走路时夹着的只有卷轴`);
     assert.ok(!spec.glow && !spec.gold && !spec.accentGift, '没有雅典娜的光、侍女的金、红色的成果');
     // 半身像的参数是 busts.mjs 认得的那几种
@@ -68,11 +76,11 @@ test('look: the sex is the seed\'s lowest bit, the same seed is always the same 
   }
 });
 
-test('look: any 32 consecutive seeds give at least 24 different looks — nobody in a city shares a face', () => {
+test('look: any 32 consecutive seeds give at least 30 different looks — nobody in a city shares a face', () => {
   const sigs = Array.from({ length: 400 }, (_, i) => lookSignature(citizenLook(seedOf(i) >>> 0)));
   let worst = Infinity;
   for (let i = 0; i + 32 <= sigs.length; i++) worst = Math.min(worst, new Set(sigs.slice(i, i + 32)).size);
-  assert.ok(worst >= 24, `最差的一段 32 位里有 ${worst} 种长相`);
+  assert.ok(worst >= 30, `最差的一段 32 位里有 ${worst} 种长相`);
 });
 
 test('look: a citizen builds on the real rig and draws as a bust, and residents keep their own hairstyles', () => {
@@ -93,6 +101,147 @@ test('look: a citizen builds on the real rig and draws as a bust, and residents 
   }
   for (const id of Object.keys(CHARACTER_SPECS)) assert.ok(!CHARACTER_SPECS[id].hair.startsWith('plain'), `${id} 用自己的发式`);
   assert.ok(Object.keys(CHARACTERS).every((id) => !id.startsWith('citizen')));
+});
+
+test('look: clothes follow the trade, bodies vary, and every colour, hairstyle and hair colour turns up (2026-10-16)', () => {
+  // 用户：扩充服装多样性、发型多样性、身形多样性。第一版一排十六位里十位是灰蓝、六位是米色，人人一身长衣
+  const men = (trade) => Array.from({ length: 600 }, (_, i) => citizenLook((seedOf(i) & ~1) >>> 0, { age: ['young', 'adult', 'old'][i % 3], trade }).spec);
+  const share = (list, ok) => list.filter(ok).length / list.length;
+  const farmers = men('farmer'), merchants = men('merchant');
+  const shortCoat = (sp) => sp.garment === 'exomis' || sp.hem === CITIZEN_VOCAB.hems.short;
+  assert.ok(share(farmers, shortCoat) > 0.7, `下地的男子多穿短衣（${share(farmers, shortCoat).toFixed(2)}）`);
+  assert.ok(share(merchants, (sp) => !shortCoat(sp)) > 0.6, `商贩多穿长衣、披外衣（${share(merchants, (sp) => !shortCoat(sp)).toFixed(2)}）`);
+  assert.ok(share(merchants, (sp) => sp.garment === 'himation') > 0.3, '商贩里披外衣的多');
+  assert.ok(WORK_TRADES.includes('farmer') && !WORK_TRADES.includes('merchant'));
+  // 身高、体格、肚腩、仪态的范围（规则 6）
+  const all = Array.from({ length: 900 }, (_, i) => { const age = ['young', 'adult', 'old'][i % 3]; return { age, spec: citizenLook(seedOf(i), { age }).spec }; });
+  for (const { age, spec } of all) {
+    const f = spec.face.female;
+    assert.ok(spec.height >= (f ? 1.48 : 1.56) && spec.height <= (f ? 1.76 : 1.9), `身高 ${spec.height}`);
+    assert.ok(spec.build >= (f ? 0.86 : 0.88) && spec.build <= (f ? 1.06 : 1.16), `体格 ${spec.build}`);
+    if (spec.belly) assert.ok(spec.belly >= 0.35 && spec.belly <= 1 && age !== 'young');
+    if (age === 'old') assert.ok(spec.bearing.spine >= 0.04 && spec.bearing.head >= 0.1, '老人弯腰低头');
+    else assert.ok(Math.abs(spec.bearing.spine) <= 0.025, '别人站得直');
+  }
+  const heights = all.filter((x) => !x.spec.face.female).map((x) => x.spec.height);
+  assert.ok(Math.max(...heights) - Math.min(...heights) > 0.22, `男子最高和最矮差 ${(Math.max(...heights) - Math.min(...heights)).toFixed(2)} 米`);
+  const grown = all.filter((x) => x.age !== 'young');
+  const bellied = share(grown, (x) => !!x.spec.belly);
+  assert.ok(bellied > 0.18 && bellied < 0.45, `成年人和老人里有肚腩的 ${bellied.toFixed(2)}`);
+  // 词汇里的每一样都用得上
+  const seen = (key) => new Set(all.map((x) => x.spec[key]));
+  for (const c of CITIZEN_VOCAB.cloth) assert.ok(seen('cloth').has(c), `衣色 ${c} 有人穿`);
+  for (const h of [...CITIZEN_VOCAB.female.hair, ...CITIZEN_VOCAB.male.hair, CITIZEN_VOCAB.oldMaleHair]) assert.ok(seen('hair').has(h), `发式 ${h} 有人留`);
+  for (const t of new Set(CITIZEN_VOCAB.hairTones)) assert.ok(seen('hairTone').has(t), `发色 ${t}`);
+  for (const g of ['headband', 'wreath']) assert.ok(seen('headgear').has(g), `头饰 ${g}`);
+  assert.ok(seen('hairMat').has('pepperHair') && seen('hairMat').has('greyHair'), '老人有花白的也有灰白的');
+  assert.ok(seen('hem').has(CITIZEN_VOCAB.hems.calf) && seen('hem').has(CITIZEN_VOCAB.hems.short), '短希顿与到小腿的希顿都有人穿');
+  // 衣色都不是红（红只属于雅典娜）：栗色、赭色这些褐色可以，红分量比绿、蓝都高出 0.2 的不行
+  for (const [r, g, b] of CLOTH_SHADES_RGB) assert.ok(r - Math.max(g, b) < 0.2, `衣色 ${[r, g, b]} 不是红（红比绿、蓝都高出 0.2 以上）`);
+  // 最亮的一档仍比雅典娜的白衣暗（明度不过 0.76）
+  for (const [r, g, b] of CLOTH_SHADES_RGB) assert.ok(0.2126 * r + 0.7152 * g + 0.0722 * b <= 0.76, `衣色 ${[r, g, b]} 比雅典娜暗`);
+  // 半身像与城里的人物同一身衣服：职业传进来，衣式一样；发色有墨色
+  for (let i = 0; i < 60; i++) {
+    const look = citizenLook(seedOf(i), { age: 'adult', trade: i % 2 ? 'farmer' : 'merchant' });
+    assert.equal(look.bust.garment, look.spec.garment);
+    assert.ok(/^#[0-9a-f]{6}$/.test(look.bust.hairInk), '半身像的发色');
+    assert.ok(bust(look.bust, 'speak').paths.length > 20);
+  }
+  assert.ok(bust({ ...citizenLook(seedOf(3), { age: 'adult' }).bust, headgear: 'wreath' }, 'speak').paths.length > 30, '半身像画得出花环');
+});
+
+test('look: a carried scroll hangs at the hip, angled down, not held up in front like a torch (2026-10-16)', () => {
+  // 第一版前臂端在胸前、卷轴竖着立在拳上：顶到肩高、离身子 0.44 米，远看像举着一支火把
+  const M = stubMaterials();
+  const people = [];
+  for (let i = 0; people.length < 6 && i < 200; i++) {
+    const spec = citizenLook(seedOf(i), { age: ['young', 'adult', 'old'][i % 3] }).spec;
+    if (spec.carry) people.push(spec);
+  }
+  people.push(CHARACTER_SPECS.librarian);
+  assert.ok(people.length >= 5);
+  const w = (o) => o.getWorldPosition(new THREE.Vector3());
+  for (const spec of people) {
+    const f = buildCitizen(M, spec);
+    for (const action of ['idle', 'walk']) {
+      for (let c = 0; c < 30; c++) f.pose(action, 1200 + c * 16, { clock: 1e6 + c * 16 });
+      f.root.updateMatrixWorld(true);
+      const pts = [];
+      f.props.get('scroll').traverse((o) => {
+        if (!o.isMesh) return;
+        const a = o.geometry.attributes.position;
+        for (let k = 0; k < a.count; k++) pts.push(new THREE.Vector3().fromBufferAttribute(a, k).applyMatrix4(o.matrixWorld));
+      });
+      let ends = [pts[0], pts[0]], far = 0;
+      for (const a of pts) for (const b of pts) { const d = a.distanceToSquared(b); if (d > far) { far = d; ends = [a, b]; } }
+      const top = Math.max(...pts.map((q) => q.y)), front = Math.max(...pts.map((q) => q.z));
+      const hips = w(f.joints.hips).y, hand = w(f.joints.handR);
+      const axis = ends[1].clone().sub(ends[0]).normalize();
+      const who = `${spec.id ?? spec.hair} ${action}`;
+      assert.ok(hand.y < hips + 0.1, `${who}: the arm hangs — the fist is at the hip (${hand.y.toFixed(2)} vs hips ${hips.toFixed(2)})`);
+      assert.ok(top < hips + 0.15, `${who}: no part of the scroll rises toward the chest (${top.toFixed(2)})`);
+      assert.ok(front < 0.3, `${who}: it is not thrust out in front (${front.toFixed(2)})`);
+      assert.ok(Math.abs(axis.y) < 0.8, `${who}: the scroll is not stood upright in the fist (|y| ${Math.abs(axis.y).toFixed(2)})`);
+      assert.ok(hand.x < -0.15, `${who}: the fist is beside the body, not in front of it (${hand.x.toFixed(2)})`);
+    }
+  }
+});
+
+test('look: on the real rig the belly bulges forward over the belt, not into the arms; the second colour is the mantle and the belt; the stoop straightens for work', () => {
+  const M = stubMaterials();
+  const base = { ...citizenLook((seedOf(5) & ~1) >>> 0, { age: 'adult', trade: 'merchant' }).spec, garment: 'himation', trim: 7, build: 1, height: 1.75 };
+  const extent = (spec) => {
+    const f = buildCitizen(M, spec);
+    f.root.updateMatrixWorld(true);
+    const g = f.joints.spine.getObjectByName('upperGarment');
+    const p = g.geometry.attributes.position, v = new THREE.Vector3();
+    let front = 0, side = 0;
+    for (let i = 0; i < p.count; i++) {
+      v.fromBufferAttribute(p, i);   // 脊柱的局部坐标（腰带在 1.095 − 0.98）
+      if (Math.abs(v.y - (1.095 - 0.98)) > 0.06) continue;
+      front = Math.max(front, v.z);
+      if (Math.abs(v.z) < 0.03) side = Math.max(side, Math.abs(v.x));
+    }
+    const beltBox = new THREE.Box3().setFromBufferAttribute(f.joints.spine.getObjectByName('belt').geometry.attributes.position);
+    return { f, front, side, beltFront: beltBox.max.z };
+  };
+  const flat = extent({ ...base, belly: undefined }), round = extent({ ...base, belly: 1 });
+  assert.ok(round.front - flat.front > 0.035, `肚腩往前鼓 ${(round.front - flat.front).toFixed(3)} 米`);
+  assert.ok(round.side - flat.side < 0.014, `两侧只多 ${(round.side - flat.side).toFixed(3)} 米（胳膊垂在那里）`);
+  assert.ok(round.beltFront > round.front - 0.02 && round.beltFront - flat.beltFront > 0.03, '腰带跟着肚腩往前绕，不埋进衣服里');
+  const sash = round.f.joints.spine.getObjectByName('sash');
+  assert.equal(sash.material, M.clothShades[7], '外衣是第二种颜色');
+  assert.equal(round.f.joints.spine.getObjectByName('belt').material, M.clothShades[7], '腰带也是');
+  assert.notEqual(round.f.joints.spine.getObjectByName('upperGarment').material, M.clothShades[7]);
+  // 外衣跟着肚腩往外让：埋进上衣 2.5 厘米以上的点（管子半粗 4.2 厘米，里侧本来就贴着衣服）不比没有肚腩时多
+  const buried = (f) => {
+    const sp = f.joints.spine.getObjectByName('sash').geometry.attributes.position, up = f.joints.spine.getObjectByName('upperGarment').geometry.attributes.position;
+    const v = new THREE.Vector3(), w = new THREE.Vector3();
+    let n = 0;
+    for (let i = 0; i < sp.count; i += 3) {
+      v.fromBufferAttribute(sp, i);
+      if (v.z < 0.05) continue;
+      let r = 0;
+      for (let k = 0; k < up.count; k += 2) {
+        w.fromBufferAttribute(up, k);
+        if (Math.abs(w.y - v.y) < 0.012 && Math.abs(Math.atan2(w.x, w.z) - Math.atan2(v.x, v.z)) < 0.08) r = Math.max(r, Math.hypot(w.x, w.z));
+      }
+      if (r > 0 && Math.hypot(v.x, v.z) < r - 0.025) n++;
+    }
+    return n;
+  };
+  assert.ok(buried(round.f) <= buried(flat.f), `外衣埋进肚腩里的点 ${buried(round.f)}（没有肚腩时 ${buried(flat.f)}）`);
+  // 弯腰（仪态）只在走和站时有：干活时上身是挺直的参照人（家什、柜台的接触点按它解）
+  const old = { ...citizenLook((seedOf(5) & ~1) >>> 0, { age: 'old', trade: 'miller' }).spec, height: 1.75, build: 1 };
+  const spineX = (spec, action, variant) => {
+    const f = buildCitizen(M, spec);
+    let clock = 0;
+    for (let k = 0; k < 40; k++) { clock += 16; f.pose(action, clock, { variant, clock }); }
+    return f.joints.spine.rotation.x;
+  };
+  const straight = { ...old, bearing: { head: old.bearing.head, spine: 0 } };
+  assert.ok(spineX(old, 'idle') - spineX(straight, 'idle') > 0.035, '站着时老人上身往前倾');
+  assert.ok(Math.abs(spineX(old, 'work', 'grind') - spineX(straight, 'work', 'grind')) < 0.002, '干活时直起来（杵头落在钵底）');
 });
 
 test('look: a citizen first posed far from where it was built wears its skirt on its own hips — the cloth is resettled, not dragged in from the origin', () => {
@@ -139,7 +288,7 @@ function buildCity() {
   return { world, layout, hasSite };
 }
 
-test('day: every citizen of the synthetic city stands and walks only where you can stand (the whole route, not just its ends), never walks farther than a 30 s leg, and fewer than half are on the road at once', () => {
+test('day: every citizen of the synthetic city stands and walks only where you can stand (the whole route, not just its ends), fits each trip in his own period (no distance cap since 2026-10-15), and fewer than half are on the road at once', () => {
   const { layout, hasSite } = buildCity();
   const { street } = demoCitizens(fixture, 32);
   const neighbours = [...layout.plots.keys()].filter((k) => k.startsWith('b:'));
@@ -151,12 +300,16 @@ test('day: every citizen of the synthetic city stands and walks only where you c
       assert.ok(DESTINATIONS.includes(p.dest.site) || neighbours.includes(p.dest.site), p.dest.site);
       assert.notEqual(p.dest.site, p.home.site, '不去自己家');
       assert.ok(layout.walkable(p.dest.point), `${p.id} 的去处能站`);
-      assert.ok(p.walkMs <= TOWN.maxWalkMs, `${p.id} 一程 ${Math.round(p.walkMs)} 毫秒`);
+      // 规则 1：路多远都去，周期跟着这一趟定——一趟装得进他自己的周期，一来一回不超过 walkShare
+      assert.deepEqual({ periodMs: p.periodMs, stayMs: p.stayMs }, planTiming(p.walkMs), `${p.id}：周期按这一程定`);
+      assert.ok(TOWN.homeMs + 2 * p.walkMs + p.stayMs + TOWN.tailMs <= p.periodMs + 1e-6, `${p.id}：一趟装得进周期（${Math.round(p.walkMs)} 毫秒一程，周期 ${p.periodMs}）`);
+      assert.ok(2 * p.walkMs <= TOWN.walkShare * p.periodMs + 1e-6, `${p.id}：一来一回不超过周期的 ${TOWN.walkShare}`);
       assert.ok(routeClear(p.out, layout.walkable, 0.1), `${p.id} 去 ${p.dest.site} 的整条路每 0.1 米都能站`);
     }
   }
   let worstRoad = 0, blocked = 0, samples = 0;
-  for (let wall = 0; wall < TOWN.periodMs * 2; wall += 997) {
+  const longest = Math.max(...plans.map((p) => p.periodMs));
+  for (let wall = 0; wall < longest * 2; wall += 997) {
     let road = 0;
     for (const p of plans) {
       const s = citizenAt(p, wall);
@@ -310,7 +463,8 @@ test('small talk (2026-10-13: model only, no preset lines): one pair at a time, 
   // 打招呼仍是本地的
   assert.ok(CITIZEN_ZH.greet.split('|').includes(greetLine(42, CITIZEN_ZH.greet, 0)), '打招呼的话来自表里');
   // 第三轮（人物关系）：喜欢你的人打招呼说热络的那一组；仍然只有打招呼的话，没有闲聊的本地台词
-  assert.deepEqual(Object.keys(CITIZEN_ZH).sort(), ['greet', 'greetWarm'], '没有闲聊的本地台词了');
+  // 市集（2026-10-15）：摊前的买卖是本地台词（market 规则 5）——只有 market 开头的那些，两位居民之间的闲聊仍然只用模型
+  assert.deepEqual(Object.keys(CITIZEN_ZH).filter((k) => !k.startsWith('market')).sort(), ['greet', 'greetWarm'], '没有闲聊的本地台词了');
 });
 
 test('card (fourth round, 2026-10-15): the citizen\'s card says who he is — trade, age, temper, where he lives and whether he goes out at night; nothing of any conversation', () => {
@@ -335,7 +489,7 @@ test('night (fourth round, need 4): after dusk everyone but the night owls goes 
   for (const { c, plan } of plans) {
     const retire = retireTime(plan, dusk);
     if (!plan.door && !plan.dest) { assert.equal(retire, Number.POSITIVE_INFINITY, `${c.id}：没门、又哪儿都去不了的人整夜站在家门前（不当场消失）`); continue; }
-    assert.ok(retire >= dusk && retire <= dusk + (plan.door ? 1 : 2) * TOWN.periodMs, `${c.id}：有门的最多一个周期、没门的最多两个周期就回了家（${retire - dusk} 毫秒）`);
+    assert.ok(retire >= dusk && retire <= dusk + (plan.door ? 1 : 2) * plan.periodMs, `${c.id}：有门的最多一个周期、没门的最多两个周期就回了家（${retire - dusk} 毫秒）`);
     if (!plan.door && plan.dest) assert.ok(retire > dusk, `${c.id}：没门的人入夜那一刻不当场消失，走回家门前才回屋`);
     if (retire > dusk) {
       goingHome++;
@@ -345,7 +499,7 @@ test('night (fourth round, need 4): after dusk everyone but the night owls goes 
     const s = citizenAt(plan, retire + 1, night(false));
     assert.equal(s.hidden, true, `${c.id}：回家之后在屋里，不画`);
     assert.equal(s.at, 'inside');
-    assert.equal(citizenAt(plan, dusk + 5 * TOWN.periodMs, night(false)).hidden, true, '整夜都在屋里');
+    assert.equal(citizenAt(plan, dusk + 5 * plan.periodMs, night(false)).hidden, true, '整夜都在屋里');
     if (!plan.door && plan.dest) assert.deepEqual(citizenAt(plan, retire - 1, night(false)).at, 'road', `${c.id}：回屋前的那一刻正走在回家的路上`);
     // 夜游的人照常
     assert.deepEqual(citizenAt(plan, dusk + 77_777, night(true)), citizenAt(plan, dusk + 77_777));
@@ -357,13 +511,13 @@ test('night (fourth round, need 4): after dusk everyone but the night owls goes 
   // 打开页面时就是夜里：不是夜游的人一开始就在屋里
   for (const { plan } of plans) if (plan.door || plan.dest) assert.equal(citizenAt(plan, 123, { night: true, since: null, owl: false }).hidden, true);
   // 天亮：入夜时回了屋的人，等到自己下一次出门的时刻
-  const dawn = dusk + 3 * TOWN.periodMs;
+  const dawn = dusk + 3 * Math.max(...plans.map(({ plan }) => plan.periodMs));
   const sky = (owl) => ({ night: false, since: dawn, after: dusk, owl });
   const wakes = [];
   for (const { c, plan } of plans) {
     const wake = wakeTime(plan, dawn);
     wakes.push(wake - dawn);
-    assert.ok(wake >= dawn && wake < dawn + TOWN.periodMs, `${c.id}：一个周期内出门`);
+    assert.ok(wake >= dawn && wake < dawn + plan.periodMs, `${c.id}：一个周期内出门`);
     const retired = dawn >= retireTime(plan, dusk);
     if (retired && wake > dawn) assert.equal(citizenAt(plan, wake - 1, sky(false)).hidden, true, `${c.id}：没到出门的时候还在屋里`);
     if (!retired) assert.equal(asleepAt(plan, dawn + 1, sky(false)), false, `${c.id}：入夜后没回屋的人，天亮照常`);

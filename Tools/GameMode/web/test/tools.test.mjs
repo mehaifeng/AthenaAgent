@@ -11,7 +11,8 @@ import { createLayout } from '../../../../Assets/Polis/src/layout.mjs';
 import { createAssetLibrary } from '../../../../Assets/Polis/src/art/assets.mjs';
 import { buildWorld } from '../../../../Assets/Polis/src/world.mjs';
 import { demoAccumulation } from '../../../../Assets/Polis/src/demo.mjs';
-import { buildCharacter, CHARACTER_IDS } from '../../../../Assets/Polis/src/art/characters.mjs';
+import { buildCharacter, buildCitizen, CHARACTER_IDS } from '../../../../Assets/Polis/src/art/characters.mjs';
+import { citizenLook, CITIZEN_VOCAB } from '../../../../Assets/Polis/src/art/citizens.mjs';
 import { GRIP, HAIR_STYLES, hairMask, HEAD_RADII } from '../../../../Assets/Polis/src/art/rig.mjs';
 import { restPose } from '../../../../Assets/Polis/src/art/poses.mjs';
 
@@ -24,7 +25,7 @@ function stubMaterials() {
       if (typeof key !== 'string') return undefined;
       if (!cache.has(key)) {
         cache.set(key, key.endsWith('Shades')
-          ? [0, 1, 2, 3, 4].map((i) => new THREE.MeshStandardMaterial({ name: `${key}${i}` }))
+          ? Array.from({ length: 12 }, (_, i) => new THREE.MeshStandardMaterial({ name: `${key}${i}` }))
           : new THREE.MeshStandardMaterial({ name: key }));
       }
       return cache.get(key);
@@ -374,14 +375,13 @@ test('hair: every character has a hairstyle of its own, and wherever there is ha
   // 第一版的头发是另套的一个球，头是雕过的（后脑放大、额头压平）——两样形状对不上，头皮从头发里钻出来。
   // 从头的中心朝发区里的头皮顶点打一条射线：穿出头发的那一点至少高出头皮 2.5 毫米
   const styles = new Set();
-  for (const id of CHARACTER_IDS) {
-    const f = buildCharacter(M, id);
+  const check = (f, id) => {
     const style = HAIR_STYLES[f.spec.hair];
     assert.ok(style, `${id}: has a hairstyle`);
     styles.add(JSON.stringify(style));
     const hair = f.joints.head.getObjectByName('hair');
     assert.ok(hair, `${id}: the hair is on the head`);
-    if (f.spec.faceless) continue;   // 金色侍女的头是一个椭球，同一套外推；五官的头才有接缝和起伏要查
+    if (f.spec.faceless) return;   // 金色侍女的头是一个椭球，同一套外推；五官的头才有接缝和起伏要查
     const head = f.joints.head.getObjectByName('head');
     const hp = head.geometry.attributes.position;
     f.root.updateMatrixWorld(true);
@@ -411,8 +411,17 @@ test('hair: every character has a hairstyle of its own, and wherever there is ha
     assert.ok(checked > 40, `${id}: the scalp under the hair is checked (${checked} rays)`);
     // 头发沿椭球法线至少推出 HAIR_MIN（4 毫米）；射线从头的中心斜着穿过去，量到的比法线方向短一些（铁匠的平头最薄处 2.9）
     assert.ok(worst >= 0.0025, `${id}: the hair stands at least 2.5 mm off the scalp everywhere it grows (worst ${(worst * 1000).toFixed(1)} mm)`);
-  }
+  };
+  for (const id of CHARACTER_IDS) check(buildCharacter(M, id), id);
   assert.equal(styles.size, CHARACTER_IDS.length, 'no two characters share a hairstyle');
+  // 居民的通用发式（2026-10-16 加到十一款）：每一款都在真骨架上查一遍，女子的发式用女子的头（头关节缩过）
+  const female = new Set(CITIZEN_VOCAB.female.hair);
+  for (const hair of Object.keys(HAIR_STYLES).filter((h) => h.startsWith('plain'))) {
+    const seed = female.has(hair) ? 12347 : 12346;
+    const f = buildCitizen(M, { ...citizenLook(seed, { age: 'adult' }).spec, hair, headgear: undefined });
+    check(f, `citizen ${hair}`);
+    if (HAIR_STYLES[hair].crown) assert.ok(f.joints.head.getObjectByName('hairCrown'), `citizen ${hair}: the braid goes round the head`);
+  }
 });
 
 test('hair: your long hair hangs at rest, trails a little when you walk and more when you run — it never streams flat behind you', () => {

@@ -6,7 +6,7 @@
 //   index.html?gallery=bust:athena
 //   index.html?gallery=citizen:12345&age=old&action=walk&frames=8   （一位居民，长相由种子定：art/citizens.mjs）
 //   index.html?gallery=citizen:12345&trade=potter&action=work&frames=8 （他那门手艺：家什按职业、要工位的摆在他面前，art/crafts.mjs）
-//   index.html?gallery=citizens&n=10&from=0&age=mixed&view=mid      （一排居民，种子与 demo.mjs 的编出来的居民相同）
+//   index.html?gallery=citizens&n=10&from=0&age=mixed&view=mid      （一排居民，种子与 demo.mjs 的编出来的居民相同；turn=-1.2 看侧影）
 //   index.html?gallery=citizen-busts&n=12&from=0&age=mixed           （居民的半身像，对话面板里的实际大小）
 //   index.html?gallery=figure.athena&action=walk&frames=8&manifest={"figure.athena":{"model":"athena.glb","scale":1.62,"rig":"procedural"}}
 // 建筑、器物、植物旁边站一个灰色的你（玩家），用来看比例。渲染完 document.title = 'gallery-ready'。
@@ -341,7 +341,7 @@ function citizenLineup({ R, M, params, status, place, center, view, azimuth }) {
     // 排成一横排（垂直于视线），人人朝着镜头偏一点（四分之三侧）；facing=side 看侧面
     const offset = (k - (n - 1) / 2) * gap;
     figure.root.position.set(Math.cos(theta) * offset, 0, -Math.sin(theta) * offset);
-    figure.root.rotation.y = theta + (params.get('facing') === 'side' ? Math.PI / 2 : 0.35);
+    figure.root.rotation.y = theta + (params.get('facing') === 'side' ? Math.PI / 2 : Number(params.get('turn') ?? 0.35));
     figure.pose(params.get('pose') ?? 'idle', 1200 + k * 777, { duration: 1800, clock: 1_000_000 + k * 777 });
     R.scene.add(figure.root);
     box.union(visibleBox(figure.root));
