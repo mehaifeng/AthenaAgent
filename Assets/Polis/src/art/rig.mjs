@@ -694,6 +694,19 @@ export const HAIR_STYLES = Object.freeze({
   plainLong: { front: 0.5, temple: 0.24, side: -0.36, back: -0.72, thick: 0.008, volume: 0.004, backVolume: 0.006, part: 0.004, strands: 22, strandAmp: 0.002, waves: 4, waveAmp: 0.0022 },
   // 女子挽髻：头发往后梳，脑后一个髻（比雅典娜的低髻小、高一点）
   plainBun: { front: 0.54, temple: 0.3, side: 0.02, back: -0.42, thick: 0.0065, volume: 0.003, backVolume: 0.003, part: 0.003, strands: 18, strandAmp: 0.0018, bun: { at: [0, -0.02, -0.112], size: [0.042, 0.036, 0.038] } },
+  // —— 2026-10-16（用户：扩充发型多样性）再加六款 ——
+  // 男子平头：剃得很短，贴着头型（铁匠那一款没有帽子的样子）
+  plainCrop: { front: 0.52, temple: 0.34, side: 0.18, back: -0.28, thick: 0.0045, volume: 0, backVolume: 0.001, strands: 34, strandAmp: 0.0008 },
+  // 男子长一点的波浪发：从额前往后梳，盖到后颈，鬓角到耳上
+  plainWavy: { front: 0.44, temple: 0.2, side: -0.1, back: -0.62, thick: 0.0075, volume: 0.004, backVolume: 0.005, part: 0.003, partX: 0.25, strands: 16, strandAmp: 0.002, waves: 5, waveAmp: 0.003 },
+  // 男子发际线后移：额角高、头顶还在（比老人的秃顶轻）
+  plainReceding: { front: 0.6, temple: 0.56, side: 0.08, back: -0.38, thick: 0.0055, volume: 0.001, backVolume: 0.002, strands: 24, strandAmp: 0.0012 },
+  // 女子高髻：头发往上梳，头顶偏后一个髻
+  plainHighBun: { front: 0.54, temple: 0.3, side: 0.04, back: -0.38, thick: 0.0065, volume: 0.003, backVolume: 0.003, part: 0.003, strands: 20, strandAmp: 0.0018, bun: { at: [0, 0.088, -0.064], size: [0.04, 0.034, 0.038] } },
+  // 女子低髻：中分的波浪往后拢，后颈一个大一点的髻（像雅典娜的，没有发带）
+  plainLowBun: { front: 0.52, temple: 0.26, side: -0.02, back: -0.5, thick: 0.007, volume: 0.003, backVolume: 0.004, part: 0.004, strands: 18, strandAmp: 0.002, waves: 4, waveAmp: 0.0024, bun: { at: [0, -0.056, -0.108], size: [0.05, 0.038, 0.042] } },
+  // 女子盘辫：头发往后梳，一条辫子绕头盘一圈，压在发际线后面（crown：贴着头发的一圈，bandOnHead）
+  plainBraidCrown: { front: 0.54, temple: 0.3, side: 0.02, back: -0.42, thick: 0.0062, volume: 0.002, backVolume: 0.003, part: 0.003, strands: 22, strandAmp: 0.0015, crown: { center: [0, 0.035, -0.02], tilt: 0.62, tube: 0.0115 } },
 });
 
 /** 方向 u（单位球）在发区里有多少（0 不在、1 在）。 */
@@ -787,6 +800,13 @@ function buildHair(spec, headGeometry, hairMat, head, strips, scale) {
     bun.scale.set(...style.bun.size); bun.position.set(...style.bun.at);
     head.add(bun);
   }
+  if (style.crown) {
+    // 盘辫（居民的 plainBraidCrown）：一条辫子绕头一圈，压在头发上。第一版是一根光滑的粗管，近看读成一圈帽檐——
+    // 现在是一节节辫股（拉长的小椭球顺着那一圈排，一左一右交替斜着），编过的样子才读得出来
+    const c = style.crown;
+    const path = bandOnHead(shell.geometry, { center: c.center, tilt: c.tilt, tube: 0.0005, lift: 0, segments: 40 });
+    head.add(Object.assign(mesh(braidAlong(path, c.tube), hairMat), { name: 'hairCrown' }));
+  }
   if (style.braids) {
     // 两条辫子：各挂在一节弹簧骨上，走起来甩、停下来晃（M3）
     for (const sx of [-1, 1]) {
@@ -848,6 +868,40 @@ export function bandOnHead(surface, { center = [0, 0, 0], tilt = 0, tube = 0.004
   return g;
 }
 
+/**
+ * 一条辫子：沿一圈闭合的带子（bandOnHead 的管子，取它的中心线）排一节节辫股，每节一个拉长的小椭球，左右交替斜 0.5 弧度。
+ * tube 是辫子的半粗（米）。
+ */
+function braidAlong(band, tube) {
+  const pos = band.attributes.position;
+  // 管子的顶点一圈一圈排（每圈 radial+1 个）；一圈的平均就是中心线上的一点
+  // 闭合的管子最后一圈和第一圈重合，不要它（重合的两点让曲线的切线成 NaN）
+  const ring = 7, rings = Math.floor(pos.count / ring) - 1;
+  const centers = [];
+  for (let k = 0; k < rings; k++) {
+    const c = new THREE.Vector3();
+    for (let j = 0; j < ring; j++) c.add(new THREE.Vector3().fromBufferAttribute(pos, k * ring + j));
+    centers.push(c.multiplyScalar(1 / ring));
+  }
+  const curve = new THREE.CatmullRomCurve3(centers, true, 'centripetal');
+  const n = Math.max(12, Math.round(curve.getLength() / (tube * 1.5)));
+  const parts = [];
+  const q = new THREE.Quaternion(), tilt = new THREE.Quaternion(), out = new THREE.Vector3();
+  for (let k = 0; k < n; k++) {
+    const u = k / n;
+    const p = curve.getPointAt(u), t = curve.getTangentAt(u);
+    q.setFromUnitVectors(new THREE.Vector3(0, 0, 1), t);
+    out.set(p.x, 0, p.z).normalize();
+    tilt.setFromAxisAngle(out, k % 2 ? 0.5 : -0.5);
+    const g = new THREE.SphereGeometry(1, 10, 8);
+    g.scale(tube * 0.95, tube * 0.8, tube * 1.45);
+    g.applyQuaternion(q.clone().premultiply(tilt));
+    g.translate(p.x + out.x * (k % 2 ? 0.002 : -0.001), p.y, p.z + out.z * (k % 2 ? 0.002 : -0.001));
+    parts.push(g);
+  }
+  return merge(parts);
+}
+
 /** surface 上满足 keep 的顶点离 center 最远多少（面纱的顶盖按它定半径，盖住头发）。 */
 function farthest(surface, center, keep) {
   const pos = surface.attributes.position, v = new THREE.Vector3(), c = new THREE.Vector3(...center);
@@ -859,9 +913,11 @@ function farthest(surface, center, keep) {
 // ———————————————————————— 衣着 ————————————————————————
 
 /** 下身的衣料（挂在髋上，坐标已减去髋高）。长衣到脚踝，短衣到膝上。返回几何与上下沿（弹簧骨要知道从哪挂到哪）。 */
+/** 长衣（下摆到小腿以下）：短衣式样（露一肩的短衣、斗篷）不算，下摆提到膝上的希顿（居民的短希顿，spec.hem ≥ 0.4）也不算。 */
+const isLongGarment = (spec) => !['exomis', 'chlamys'].includes(spec.garment) && !(spec.hem >= 0.4);
 function lowerGarment(spec) {
   const hipY = 0.95;
-  const long = !['exomis', 'chlamys'].includes(spec.garment);
+  const long = isLongGarment(spec);
   // spec.hem：下摆离地多高（身体单位）。雅典娜的裙子曾短到小腿中段（hem 0.27，露出缠到小腿的凉鞋），同一天按用户的要求恢复成长裙
   const y0 = spec.hem ?? (long ? 0.03 : 0.5);
   const flare = spec.garment === 'peplos' ? 0.29 : spec.garment === 'himation' ? 0.27 : long ? 0.25 : 0.24;
@@ -942,20 +998,29 @@ function upperGarment(spec) {
   const sideCut = keyed([[0.42, 0], [0.72, UPPER_SIDE_CUT * b]]);
   const wrap = (a) => Math.atan2(Math.sin(a), Math.cos(a));
   const bust = (t, th) => (fem ? 0.032 * b * Math.exp(-(((t - 0.7) / 0.085) ** 2)) * (Math.exp(-((wrap(th - 0.42) / 0.32) ** 2)) + Math.exp(-((wrap(th + 0.42) / 0.32) ** 2))) : 0);
+  // 肚腩（居民的 spec.belly 0–1，2026-10-16 身形多样性）：腰带那一圈往前鼓，前面半径最多加 8 厘米（压扁后往前 5 厘米），两侧只有一成半——
+  // 两侧鼓出去会顶到垂着的胳膊（肩关节在 0.172，胳膊垂下来贴着上衣的两侧）
+  const belly = (t, th) => (spec.belly ? spec.belly * 0.08 * b * Math.exp(-(((t - 0.38) / 0.17) ** 2)) * (0.15 + 0.85 * Math.max(0, Math.cos(th)) ** 2) : 0);
   // 翻折的下摆到哪：女子的佩普洛斯短到胯上（0.93；第一版 0.86 垂到大腿中段，把人在胯下横切一刀，腿显得短，2026-10-12）。
   // 轮廓仍按原来 0.86 → 1.47 的位置取（u），只是从 y0 开始
   const y0 = fem && spec.garment === 'peplos' ? 0.93 : 0.86;
   const u = (t) => (lerp(y0, 1.47, t) - 0.86) / 0.61;
   parts.push(drape({
     y0, y1: 1.47, rings: 24, segs: 64, ez: 0.62,
-    radius: (t, th) => overR(u(t)) - sideCut(u(t)) * Math.pow(Math.abs(Math.sin(th)), 3) + bust(u(t), th),
+    radius: (t, th) => overR(u(t)) - sideCut(u(t)) * Math.pow(Math.abs(Math.sin(th)), 3) + bust(u(t), th) + belly(u(t), th),
     folds: [{ n: 9, amp: 0.012, ph: 0.9, wobble: 0.3, wf: 2.0 }],
     growth: (t) => (1 - t) * 1.2 + 0.15,
     hem: { amp: spec.garment === 'peplos' ? 0.024 : 0.01, n: 5, ph: 1.2 },
   }));
-  const belt = new THREE.TorusGeometry((fem ? 0.16 : 0.173) * b, 0.012, 6, 40);
-  belt.rotateX(Math.PI / 2); belt.scale(1, 1, 0.63); belt.translate(0, 1.095, 0);
-  parts.push(belt);
+  // 腰带：一圈管子绕着腰，有肚腩的人跟着肚腩往前绕（第一版是一只压扁的圆环，肚腩一鼓就埋进衣服里）。单独一个网格——
+  // 居民的腰带可以是第二种颜色（spec.trim）
+  const beltU = (1.095 - 0.86) / 0.61;
+  const beltPath = Array.from({ length: 40 }, (_, k) => {
+    const th = (k / 40) * Math.PI * 2;
+    const r = (fem ? 0.16 : 0.173) * b + belly(beltU, th);
+    return new THREE.Vector3(r * Math.sin(th), 1.095 - spineY, r * Math.cos(th) * 0.63);
+  });
+  const belt = new THREE.TubeGeometry(new THREE.CatmullRomCurve3(beltPath, true, 'centripetal'), 40, 0.012, 6, true);
   // 领口到肩的那一块（盖住斜方肌）只到胳膊内侧：肩头归袖子（挂在肩关节上，袖顶的圆顶就是肩头）。
   // 第一版宽 0.165，盖过了肩关节（0.172）的大半——垂着手时叠在袖顶上，像套了两层袖子；胳膊一抬，它是留在原地的两块肩垫
   parts.push(blobGeometry([0, 1.455, 0], [SHOULDER_YOKE * b, 0.07, 0.1]));
@@ -967,11 +1032,15 @@ function upperGarment(spec) {
     // 第一版是一个比身子还宽的圆环（半径 0.21）斜着套上去，左肩那一段伸到 0.24、整个搭在左上臂外侧，
     // 垂着手时读成一只袖子，胳膊一抬它留在原地（2026-10-12，用户：真假袖子同时存在）
     const path = [[0.072, 1.478, 0], [0.05, 1.41, 0.125], [-0.04, 1.27, 0.14], [-0.13, 1.14, 0.118], [-0.188, 1.1, 0], [-0.13, 1.14, -0.112], [-0.04, 1.27, -0.13], [0.05, 1.41, -0.112]]
-      .map(([x, y, z]) => new THREE.Vector3(x * b, y, z * b));
+      .map(([x, y, z]) => {
+        // 有肚腩的人：外衣跟着上衣一起往外鼓（同一个 belly，按这一点在上衣上的高度和方位）
+        const th = Math.atan2(x, z / 0.62), d = belly((y - 0.86) / 0.61, th);
+        return new THREE.Vector3(x * b + d * Math.sin(th), y, z * b + d * Math.cos(th) * 0.62);
+      });
     sash = new THREE.TubeGeometry(new THREE.CatmullRomCurve3(path, true, 'centripetal'), 64, 0.042, 8, true);
     sash.translate(0, -spineY, 0);
   }
-  return { torso: g, sash };
+  return { torso: g, sash, belt };
 }
 
 /**
@@ -1028,7 +1097,41 @@ function headgear(spec, M, strips, scale, surface) {
     }
     case 'headband': {
       // M2 美术审查：第一版的环比那个高度的头宽出一圈、管径 1.2 厘米，近看像一圈浮着的帽檐。改成细带、贴着头发
-      out.push(mesh(bandOnHead(surface, { center: [0, 0.045, -0.004], tilt: 0.25, tube: 0.006 }), M.clothShades[1]));
+      // 居民的头带用他的第二种颜色（spec.trim，2026-10-16）
+      out.push(mesh(bandOnHead(surface, { center: [0, 0.045, -0.004], tilt: 0.25, tube: 0.006 }), spec.trim ?? M.clothShades[1]));
+      break;
+    }
+    case 'wreath': {
+      // 橄榄枝花环（居民，2026-10-16）：一圈细枝，上面一片片叶子斜着贴在头发上，两两成对、朝外顺着枝子。
+      // 第一版叶子 1.3 厘米长、用浅的 olive 色，近看只剩一道发白的细圈（和头带分不开）；现在 2 厘米、深的月桂绿
+      const center = [0, 0.04, -0.006];
+      const ring = bandOnHead(surface, { center, tilt: 0.3, tube: 0.003, lift: 0.5, segments: 40 });
+      const curvePts = [];
+      const rp = ring.attributes.position;
+      for (let k = 0; k < Math.floor(rp.count / 7) - 1; k++) {
+        const c = new THREE.Vector3();
+        for (let j = 0; j < 7; j++) c.add(new THREE.Vector3().fromBufferAttribute(rp, k * 7 + j));
+        curvePts.push(c.multiplyScalar(1 / 7));
+      }
+      const curve = new THREE.CatmullRomCurve3(curvePts, true, 'centripetal');
+      const leaves = [];
+      const q = new THREE.Quaternion(), out2 = new THREE.Vector3();
+      const n = 26;
+      for (let k = 0; k < n; k++) {
+        const u = k / n;
+        const p = curve.getPointAt(u), t = curve.getTangentAt(u);
+        out2.set(p.x - center[0], 0, p.z - center[2]).normalize();
+        // 前额正中留一道空（两头在额前碰头）
+        if (out2.z > 0.97) continue;
+        const leaf = new THREE.SphereGeometry(1, 8, 6);
+        leaf.scale(0.0055, 0.0018, 0.011);
+        leaf.rotateX(k % 2 ? 0.45 : -0.45);
+        q.setFromUnitVectors(new THREE.Vector3(0, 0, 1), t);
+        leaf.applyQuaternion(q);
+        leaf.translate(p.x + out2.x * 0.004, p.y + (k % 2 ? 0.004 : -0.002), p.z + out2.z * 0.004);
+        leaves.push(leaf);
+      }
+      out.push(mesh(merge([ring, ...leaves]), M.laurel));
       break;
     }
     case 'pilos':
@@ -1095,7 +1198,7 @@ export const LEFT_HAND_PROPS = Object.freeze(['tablet', 'palette', 'abacus', 'ch
  * 交付的卷轴横在两只手上、等审批的石板两手捧在胸前、祭碗托在两只掌心上、缆绳穿过两只拳头。
  * 第一版都挂在右手上：另一只手悬在空中，祭碗整个藏在手里看不见，缆绳是两根从右手伸出去的直杆。
  */
-export const TWO_HANDED_PROPS = Object.freeze(['scrollOpen', 'gift', 'sealed', 'phiale', 'rope', 'fishingRod', 'hoe', 'stoneAxe']);
+export const TWO_HANDED_PROPS = Object.freeze(['scrollOpen', 'gift', 'sealed', 'phiale', 'rope', 'fishingRod', 'hoe', 'stoneAxe', 'parcel']);
 
 /**
  * 手里的几个点（手的坐标系，见 buildHand；按 1.75 米的身体）：
@@ -1113,10 +1216,12 @@ export const PROP_CURL = Object.freeze({
   distaff: 0.85, spindle: 0.55, fishingRod: 0.9, hoe: 0.92, stoneAxe: 0.92, mortar: 0.3, pestle: 0.92, sandal: 0.45, awl: 0.6, saw: 0.92, lyre: 0.5,
   // 第四轮（需求 5）：牧人的牧杖
   crook: 0.9,
+  // 市集（2026-10-15）：捏在指尖递过去的一枚钱、两只掌心托着的一包货
+  coin: 0.55, parcel: 0.3,
 });
 
 /** 两手一起拿的东西，每只手拿着它的哪个点。 */
-const TWO_HANDED_GRIP = Object.freeze({ scrollOpen: 'fist', rope: 'fist', gift: 'palm', sealed: 'palm', phiale: 'palm', fishingRod: 'fist', hoe: 'fist', stoneAxe: 'fist' });
+const TWO_HANDED_GRIP = Object.freeze({ scrollOpen: 'fist', rope: 'fist', gift: 'palm', sealed: 'palm', phiale: 'palm', fishingRod: 'fist', hoe: 'fist', stoneAxe: 'fist', parcel: 'palm' });
 
 /** a → b 的一根圆杆（r0 在 a 端、r1 在 b 端）。 */
 function rodBetween(a, b, r0, r1, radial = 8) {
@@ -1264,6 +1369,12 @@ function buildProp(name, M, accentGift, sx = -1) {
       for (const dy of [-0.03, -0.12]) add(new THREE.BoxGeometry(0.1, 0.014, 0.03), M.wood, [0, P[1] + dy, P[2] + 0.022]);
       break;
     }
+    case 'coin': {
+      // 一枚铜钱（市集）：捏在拇指与食指的指尖之间，竖着
+      const G = GRIP.pinch;
+      add(new THREE.CylinderGeometry(0.014, 0.014, 0.004, 12), M.bronze, [sx * G[0], G[1] - 0.012, G[2] + 0.004], [0, 0, Math.PI / 2]);
+      break;
+    }
     case 'awl':
       // 锥子：捏在指尖，锥尖在前下方（缝鞋时扎进鞋底）
       pen(0.11, 0.0015, 0.004, M.bronze);
@@ -1300,21 +1411,30 @@ function buildProp(name, M, accentGift, sx = -1) {
  * headFrom：干活的那一头在哪只手那边（锄头、石斧在右手——下面那只；钓竿的竿梢在左手——前面那只）；headLen：那一头伸出那只手多远；
  * buttLen：另一头伸出另一只手多远。head(g)：在杆的局部坐标里（杆沿 +y，y = 0 是干活的那一头）加上头部。
  */
-function straightTool(M, { headFrom, headLen, buttLen, radius, mat, head, after = null }) {
+function straightTool(M, { headFrom, headLen, buttLen, radius, mat, head, after = null, roll = 'forward' }) {
   const g = new THREE.Group();
   const shaft = mesh(new THREE.CylinderGeometry(radius, radius * 1.15, 1, 8).translate(0, 0.5, 0), mat);
   g.add(shaft);
   head(g);
-  const fwd = new THREE.Vector3(0, 0, 1);
+  const fwd = new THREE.Vector3(0, 0, 1), side = new THREE.Vector3(1, 0, 0);
   g.userData.update = (L, R) => {
     const near = headFrom === 'R' ? R : L, far = headFrom === 'R' ? L : R;
     _tY.subVectors(far, near);
     const span = Math.max(0.05, _tY.length());
     _tY.normalize();
-    _tZ.copy(fwd).addScaledVector(_tY, -fwd.dot(_tY));
-    if (_tZ.lengthSq() < 1e-6) _tZ.set(1, 0, 0);
-    _tZ.normalize();
-    _tX.crossVectors(_tY, _tZ).normalize();
+    if (roll === 'lateral') {
+      // 头装死在柄上的（锄刃）：杆的 x 取身体的左右轴（与柄正交化），z = x × y——头跟着柄在身前那个竖面里一起转。
+      // 按"朝前"取 z（下面那一支）时，z 永远朝前：柄朝前下时刃口朝下，举到前上方时刃口就翻成朝后上（2026-10-15，用户：举起来刃口朝天）
+      _tX.copy(side).addScaledVector(_tY, -side.dot(_tY));
+      if (_tX.lengthSq() < 1e-6) _tX.set(0, 0, 1).addScaledVector(_tY, -_tY.z);
+      _tX.normalize();
+      _tZ.crossVectors(_tX, _tY).normalize();
+    } else {
+      _tZ.copy(fwd).addScaledVector(_tY, -fwd.dot(_tY));
+      if (_tZ.lengthSq() < 1e-6) _tZ.set(1, 0, 0);
+      _tZ.normalize();
+      _tX.crossVectors(_tY, _tZ).normalize();
+    }
     _tC.copy(near).addScaledVector(_tY, -headLen);
     placeBasis(g, _tC, _tX, _tY, _tZ);
     shaft.scale.y = headLen + span + buttLen;
@@ -1445,6 +1565,22 @@ function buildTwoHanded(name, M, accentGift) {
       };
       break;
     }
+    case 'parcel': {
+      // 市集上买卖的那包货（2026-10-15）：一块本色的布包着、十字捆着麻绳，托在两只掌心上（不是红色——红只给"轮到你了"）
+      const body = mesh(new THREE.BoxGeometry(0.22, 0.12, 0.16), M.awning);
+      g.add(body);
+      for (const [w, d] of [[0.226, 0.02], [0.02, 0.166]]) g.add(mesh(new THREE.BoxGeometry(w, 0.126, d), M.hide));
+      const knot = mesh(new THREE.SphereGeometry(0.018, 8, 6), M.hide);
+      knot.position.y = 0.065;
+      g.add(knot);
+      g.userData.update = (L, R) => {
+        _tC.addVectors(L, R).multiplyScalar(0.5);
+        handBasis(L, R, fwd);
+        _tC.addScaledVector(_tY, 0.065);   // 底面搁在掌面上
+        placeBasis(g, _tC, _tX, _tY, _tZ);
+      };
+      break;
+    }
     case 'sealed': {
       // 等审批：两手捧在胸前的石板，捆着一道红绳、压着一枚红封印——"轮到你了"。板面朝外（红色看得见），
       // 红绳与封印两面都有：从背后看也认得出
@@ -1514,7 +1650,8 @@ function buildTwoHanded(name, M, accentGift) {
     }
     case 'hoe':
       // 锄头：柄从右手（下面那只）往前伸 0.9 米，铁刃在柄端、和柄垂直，朝人这一边勾下去（杆的 −z：柄朝前下时刃口朝下）
-      return Object.assign(straightTool(M, { headFrom: 'R', headLen: 0.9, buttLen: 0.08, radius: 0.016, mat: M.wood, head: (h) => {
+      // 刃装死在柄上，跟着柄转（roll: 'lateral'）：举起来时刃口朝前下，不翻成朝天
+      return Object.assign(straightTool(M, { headFrom: 'R', headLen: 0.9, buttLen: 0.08, radius: 0.016, mat: M.wood, roll: 'lateral', head: (h) => {
         h.add(mesh(new THREE.BoxGeometry(0.15, 0.03, 0.2).translate(0, 0, -0.09), M.bronze));
       } }), { visible: false });
     case 'stoneAxe':
@@ -1578,7 +1715,7 @@ export function buildFigure(M, spec) {
   J.kneeL = joint(J.legL, 0, -0.44, 0);
   J.kneeR = joint(J.legR, 0, -0.44, 0);
   const legMat = spec.gold ? M.maiden : M.skin;
-  const longGarment = !['exomis', 'chlamys'].includes(spec.garment);
+  const longGarment = isLongGarment(spec);
   // 腿：M2 给长衣的人去掉了腿（走路时屈膝的小腿从衣摆前面戳出来一截肉色）；M3 衣摆是会动的布，走起来向后甩，
   // 没有腿就只剩两只鞋浮在衣摆前面——腿建回来，长衣的步子仍摆得小（legSwing 0.24），布料碰撞把裙摆挡在腿外（cloth.mjs）。
   // 雅典娜也走路了（M3，用户实测：滑行像女鬼在飘），所以人人有腿
@@ -1626,7 +1763,11 @@ export function buildFigure(M, spec) {
   const upperMesh = mesh(upper.torso, cloth);
   upperMesh.name = 'upperGarment';
   J.spine.add(upperMesh);
-  if (upper.sash) { const sashMesh = mesh(upper.sash, cloth); sashMesh.name = 'sash'; J.spine.add(sashMesh); }
+  // 第二种颜色（spec.trim，居民，2026-10-16）：斜披的外衣和腰带用它——衣服和外衣一个颜色，远看是一整块
+  const beltMesh = mesh(upper.belt, spec.trim ?? cloth);
+  beltMesh.name = 'belt';
+  J.spine.add(beltMesh);
+  if (upper.sash) { const sashMesh = mesh(upper.sash, spec.trim ?? cloth); sashMesh.name = 'sash'; J.spine.add(sashMesh); }
   if (spec.garment === 'chlamys') {
     // 传令官的斗篷：挂在肩上、垂到大腿后面，三条弹簧骨——跑起来、风里会扬起来（M3）
     const c = cape(spec);
@@ -1665,6 +1806,10 @@ export function buildFigure(M, spec) {
   // 仪态（spec.bearing）：头的基础俯角与上身的后仰，叠在每个姿势上。人人默认微微低头（0.06）；
   // 雅典娜抬着下巴、挺着胸（2026-10-12，用户：整体没有一点飒爽的气质）
   const headTilt = spec.bearing?.head ?? 0.06, spineTilt = spec.bearing?.spine ?? 0;
+  // 上身的前倾（老人弯腰，居民 2026-10-16）只在走、站、说话时有：干活、买卖、交付的姿势是拿挺直的参照人解的，
+  // 手要落在家什、柜台、对方手里——上身一弯，手就差出几厘米（研钵的杵头差 4.6 厘米）。换动作时跟着过渡慢慢直起来
+  const FREE_ACTIONS = ['idle', 'walk', 'run', 'talk', 'wave'];
+  let stoop = 1;
   J.head.rotation.x = headTilt;
   // 女子的头窄一些、小一些（2026-10-12：同一颗 16.4 厘米宽的圆头放在雅典娜身上显得头大脸圆）。缩放挂在头关节上，
   // 头发、发带、五官贴图跟着一起缩
@@ -1746,7 +1891,7 @@ export function buildFigure(M, spec) {
     const base = J.hips.userData.base;
     J.hips.position.set(base.x + p.hips.x, base.y + p.hips.y, base.z + p.hips.z);
     J.hips.rotation.set(p.hips.rx, p.hips.ry, p.hips.rz);
-    J.spine.rotation.set(spineTilt + p.spine.rx, p.spine.ry, p.spine.rz);
+    J.spine.rotation.set(spineTilt * stoop + p.spine.rx, p.spine.ry, p.spine.rz);
     J.head.rotation.set(headTilt + p.head.rx, p.head.ry, p.head.rz);
     J.shoulderL.rotation.set(p.shoulderL.rx, p.shoulderL.ry, p.shoulderL.rz);
     J.shoulderR.rotation.set(p.shoulderR.rx, p.shoulderR.ry, p.shoulderR.rz);
@@ -1965,7 +2110,8 @@ export function buildFigure(M, spec) {
         stride: style.stride ?? spec.stride,
       };
       let target = poseAt(action, t, full);
-      const key = `${action}:${full.variant ?? ''}:${full.speaker === false ? 'listen' : 'speak'}`;
+      // 手里换了拿的东西（市集上买的那包货捧起来、到家放下）也过渡一下，不一帧跳过去
+      const key = `${action}:${full.variant ?? ''}:${full.speaker === false ? 'listen' : 'speak'}:${full.carry?.prop ?? ''}`;
       if (state.key !== null && state.key !== key && state.applied) {
         state.from = clone(state.applied);
         state.blendStart = now;
@@ -1985,6 +2131,9 @@ export function buildFigure(M, spec) {
         target.head.ry += state.look.yaw;
         target.head.rx += state.look.pitch;
       }
+      // 前倾跟着动作慢慢变（BLEND_MS 的量级），不一帧弹直
+      const wantStoop = FREE_ACTIONS.includes(action) ? 1 : 0;
+      stoop += (wantStoop - stoop) * (1 - Math.exp(-(dt * 1000) / (BLEND_MS / 3)));
       apply(target);
       state.applied = target;
       // style.cloth === false：远处的人（M-B 的分档）布料与弹簧骨不推进，衣摆停在上一次的样子——一位的布料约 1.6 毫秒一帧，

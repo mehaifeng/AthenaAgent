@@ -7,6 +7,7 @@ import { valueNoise, fbm, field, textureFrom, tone, smooth, rng, normalFrom } fr
 import { makeWaterMaterial } from './water.mjs';
 import { FACE_LOOKS, faceMaterialKey, faceTexture } from './face.mjs';
 import { installPatch, patchLampGlass, patchLampLit, setLampNight } from './lamps.mjs';
+import { CLOTH_SHADES_RGB } from './citizens.mjs';
 
 export function makeMaterials() {
   const n1 = valueNoise(11), n2 = valueNoise(23), n3 = valueNoise(37), n4 = valueNoise(41), n5 = valueNoise(53);
@@ -161,6 +162,9 @@ export function makeMaterials() {
     })])),
     // 头发：M2 美术审查时近乎纯黑、还带高光，近看像一顶漆皮帽；提一档、去掉光泽
     hair: new THREE.MeshStandardMaterial({ color: 0x4a3426, roughness: 0.86 }),
+    // 居民的发色（2026-10-16，发型多样性）：乌黑、深褐、褐（上面那一种）、栗色、浅褐。老人另有花白（pepperHair）与灰白（greyHair）
+    hairShades: [0x221b17, 0x352619, 0x4a3426, 0x684128, 0x8a6a46].map((color) => new THREE.MeshStandardMaterial({ color, roughness: 0.86 })),
+    pepperHair: new THREE.MeshStandardMaterial({ color: 0x77706a, roughness: 0.78 }),
     gold: new THREE.MeshStandardMaterial({ color: 0xd8c08a, roughness: 0.34, metalness: 0.4 }),
     maiden: new THREE.MeshStandardMaterial({ color: 0xe0c27a, roughness: 0.28, metalness: 0.85, emissive: new THREE.Color(0.25, 0.2, 0.08), emissiveIntensity: 0.4 }),
     cypress: new THREE.MeshStandardMaterial({ color: 0x34502f, roughness: 0.95 }),
@@ -181,7 +185,9 @@ export function makeMaterials() {
     // 居民衣料的五档：植物染的颜色（本色羊毛的赭、菘蓝的灰蓝、胡桃的褐、橄榄绿、靛蓝），明度仍是黑白时代那五档
     // （0.76 → 0.37）：雅典娜最亮，人和人去了色也分得开。都不用红——红只给"轮到你了"。
     // M2 美术审查：第一版最浅的两档（0.95、0.8）在正午的高调光下和雅典娜的白衣分不开——光属于她，最浅一档也得比她暗一截
-    clothShades: [[0.86, 0.74, 0.55], [0.55, 0.66, 0.74], [0.62, 0.5, 0.4], [0.44, 0.5, 0.33], [0.3, 0.36, 0.52]].map(([r, g, b]) => {
+    // 2026-10-16，用户：扩充服装多样性——一排居民几乎全是灰蓝和米色。后面加七档（藏红花的黄、灰绿、石板灰、骨螺的暗紫、
+    // 栗褐、青绿、本色麻），前五档的下标不动（发带、面纱、发网、十一位居民按下标用它们）。仍然都不用红；本色麻（0.78）不比第一档亮
+    clothShades: CLOTH_SHADES_RGB.map(([r, g, b]) => {
       const m = woven(new THREE.MeshStandardMaterial({ map: clothMap, roughness: 0.88, side: THREE.DoubleSide }));
       m.color.setRGB(r, g, b);
       return m;
@@ -197,6 +203,10 @@ export function makeMaterials() {
     greens: new THREE.MeshStandardMaterial({ color: 0x6f8f45, roughness: 0.9, side: THREE.DoubleSide }),
     wool: new THREE.MeshStandardMaterial({ color: 0xd8d0bd, roughness: 1 }),
     muzzle: new THREE.MeshStandardMaterial({ color: 0x4a4038, roughness: 0.85 }),
+    // 市集（2026-10-15）：烤得焦黄的面包皮、鱼身的银灰（带一点金属感，摊上一眼认得出是鱼）、深紫的葡萄。都不用红
+    crust: new THREE.MeshStandardMaterial({ color: 0xb98a52, roughness: 0.78 }),
+    fish: new THREE.MeshStandardMaterial({ color: 0x9aa5ab, roughness: 0.4, metalness: 0.3 }),
+    grape: new THREE.MeshStandardMaterial({ color: 0x5b4163, roughness: 0.55 }),
   };
   // 夜里街上的灯照到的一切（lamps.mjs 的 patchLampLit）：除了灯火本身和水（水有自己的着色器），每一份受光材质都读光照图
   for (const value of Object.values(M)) {

@@ -266,6 +266,16 @@ export function buildWorld(scene, city, layout, M, options) {
     const local = new THREE.Vector3(spot[0], 3.0, spot[1]).applyAxisAngle(new THREE.Vector3(0, 1, 0), pub('market').yaw);
     world.labels.push({ text: key, kind: 'stall', key: `stall:${key}`, anchor: new THREE.Vector3(pub('market').cx + local.x, local.y, pub('market').cz + local.z) });
   });
+  // 市集的摊（2026-10-15）：开市、摊主在时摆货，否则柜台上盖着布（market.mjs 规则 3）。开着的那几个记在 world.stallsOpen
+  world.market = market;
+  world.stallsOpen = new Set();
+  world.setStallOpen = (index, open) => {
+    const st = market.userData.stalls?.[index];
+    if (!st) return;
+    st.wares.visible = !!open;
+    st.cover.visible = !open;
+    if (open) world.stallsOpen.add(index); else world.stallsOpen.delete(index);
+  };
   const agora = placeAt(assets.object('civic.agora'), pub('agora'));
   agora.rotation.y = 0;
   labelAt(names.agora, { cx: 0, cz: -4.2 }, 3.4, 'public', 'agora');

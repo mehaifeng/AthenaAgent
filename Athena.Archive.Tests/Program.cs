@@ -11211,7 +11211,8 @@ static Task TestPolisCitizensAsync()
             var town2 = PolisCitizens.Derive("guard-" + k, PolisCitizens.Dwellings(doc));
             var street2 = town2.Where(c => c.OnStreet).ToList();
             string Raw(PolisCitizen c) => PolisTrades.Pick(c.Seed, dwell[c.Dwelling]);
-            var moved = town2.Where(c => c.Trade != Raw(c)).ToList();
+            // 规则 7 的上限也会改人的职业（改成不设上限的那几行）；这里只看规则 6 改进田和牧场的
+            var moved = town2.Where(c => c.Trade != Raw(c) && PolisCitizens.GuaranteedTrades.Contains(c.Trade)).ToList();
             total++;
             if (moved.Count > 0) needed++;
             if (street2.Count(c => !dwell[c.Dwelling].Stall) >= 2)
@@ -11228,6 +11229,40 @@ static Task TestPolisCitizensAsync()
             AssertTrue(town2.SequenceEqual(PolisCitizens.Derive("guard-" + k, PolisCitizens.Dwellings(doc))), "同一座城每次进来都是同一批人、同一份职业");
         }
         AssertTrue(needed > total / 10, $"小城常常要靠保底（{needed}/{total}）——否则这一段没测到改行");
+    }
+
+    // —— 规则 7（上限）：全城农夫至多 3、牧人至多 2，站位不同——工位号 0…n−1 各不相同；街上的先留，保底照样成立；超出的改抽不设上限的一行 ——
+    {
+        var (bitten, cities) = (0, 0);
+        var capped = PolisTrades.Caps.Keys.ToHashSet(StringComparer.Ordinal);
+        for (var k = 0; k < 60; k++)
+        {
+            var n = 3 + k % 25;
+            var blocks = Enumerable.Range(0, n).Select(i => Building($"q{i:D2}", i % 3 == 0 ? PolisBuildingKind.Workshop : PolisBuildingKind.House, 1 + (i + k) % 4, i % 7 - 3, -(i / 7) - 1, i, (i * 7 + k) % 30)).ToList();
+            var doc = City(blocks, k % 3 == 0 ? new[] { "摊" } : null);
+            var dwell = PolisCitizens.Dwellings(doc).ToDictionary(d => d.Key, StringComparer.Ordinal);
+            var people = PolisCitizens.Derive("cap-" + k, PolisCitizens.Dwellings(doc));
+            cities++;
+            string Raw(PolisCitizen c) => PolisTrades.Pick(c.Seed, dwell[c.Dwelling]);
+            if (PolisTrades.Caps.Any(t => people.Count(c => Raw(c) == t.Key) > t.Value)) bitten++;
+            foreach (var (trade, cap) in PolisTrades.Caps)
+            {
+                var holders = people.Where(c => c.Trade == trade).ToList();
+                AssertTrue(holders.Count <= cap, $"cap-{k}：{trade} {holders.Count} 位，不超过 {cap}");
+                CollectionAssert(Enumerable.Range(0, holders.Count).Select(i => i.ToString()), holders.OrderBy(c => c.Id, StringComparer.Ordinal).Select(c => c.WorkSlot?.ToString() ?? "null"), $"cap-{k}：{trade} 的工位号按 Id 是 0…{holders.Count - 1}");
+                // 街上的先留：被挤掉的这一行的人里没有一位在街上，除非街上本身就超了
+                var dropped = people.Where(c => Raw(c) == trade && c.Trade != trade).ToList();
+                if (dropped.Any(c => c.OnStreet)) AssertTrue(holders.All(c => c.OnStreet), $"cap-{k}：{trade} 街上的先留");
+                foreach (var c in dropped)
+                    AssertEqual(PolisTrades.Pick(c.Seed, dwell[c.Dwelling], capped), c.Trade, $"cap-{k}：被挤掉的 {trade} 改抽一门不设上限的职业");
+            }
+            AssertTrue(people.Where(c => !capped.Contains(c.Trade)).All(c => c.WorkSlot == null), $"cap-{k}：别的职业没有工位号");
+            var street = people.Where(c => c.OnStreet && !dwell[c.Dwelling].Stall).ToList();
+            if (street.Count >= 2)
+                AssertTrue(street.Any(c => c.Trade == "farmer") && street.Any(c => c.Trade == "herder"), $"cap-{k}：上限之后街上仍至少一位农夫、一位牧人");
+            AssertTrue(people.SequenceEqual(PolisCitizens.Derive("cap-" + k, PolisCitizens.Dwellings(doc))), $"cap-{k}：同一座城每次一样");
+        }
+        AssertTrue(bitten > cities / 3, $"上限真的起作用（{bitten}/{cities} 座城超过了）——否则这一段什么也没测");
     }
 
     // —— 规则 3：名字——完整的希腊名、同城不重、男女有别；新盖一座楼不改老住户的名字 ——
@@ -11453,6 +11488,12 @@ static async Task TestPolisTalkAsync()
         AssertTrue(en.System.Contains(part, StringComparison.Ordinal), $"英文提示含「{part}」");
     foreach (var where in PolisTalk.WhereKeys) AssertFalse(PolisTalk.MomentText(new PolisMoment(now, false, where, null), null, "zh-CN").Contains("在城里", StringComparison.Ordinal), $"{where} 有它自己的说法");
     foreach (var doing in PolisTalk.DoingKeys) AssertTrue(PolisTalk.MomentText(new PolisMoment(now, false, "home", doing), "potter", "en-US").All(c => c < 128), $"{doing} 有英文");
+    // 市集（2026-10-15）：摊主在摆摊卖他自己做的东西、商贩在叫卖，买主在摊前挑东西——模型拿到的此刻对得上页面上那一幕
+    var selling = PolisTalk.MomentText(new PolisMoment(now, false, "market", "sell"), "potter", "zh-CN");
+    AssertTrue(selling.Contains("市集上", StringComparison.Ordinal) && selling.Contains("摊子", StringComparison.Ordinal) && selling.Contains("陶工", StringComparison.Ordinal), $"摊主：在市集上守着摊子、卖他那门手艺的东西（{selling}）");
+    AssertTrue(PolisTalk.MomentText(new PolisMoment(now, false, "market", "sell"), "merchant", "zh-CN").Contains("叫卖", StringComparison.Ordinal), "商贩：守着摊子叫卖");
+    AssertTrue(PolisTalk.MomentText(new PolisMoment(now, false, "market", "shop"), "weaver", "zh-CN").Contains("挑东西", StringComparison.Ordinal), "买主：在摊子前挑东西");
+    AssertTrue(PolisTalk.MomentText(new PolisMoment(now, false, "market", "shop"), "weaver", "en-US").Contains("market stall", StringComparison.Ordinal), "买主：英文");
     // 规则 4：最多记 6 轮，旧的先忘
     IReadOnlyList<PolisTalkTurn> remembered = Array.Empty<PolisTalkTurn>();
     for (var i = 0; i < 9; i++) remembered = PolisTalk.Remember(remembered, $"问{i}", $"答{i}");

@@ -201,8 +201,8 @@ public static class PolisTalk
         "home", "inside", "agora", "market", "harbor", "temple", "library", "grove", "fields", "pasture", "neighbour", "bema", "road",
     };
 
-    /// <summary>他在干什么：干活、走路、闲站、和人聊、围观辩论、夜里出来走走。</summary>
-    public static IReadOnlyList<string> DoingKeys { get; } = new[] { "work", "walk", "idle", "chat", "audience", "stroll" };
+    /// <summary>他在干什么：干活、走路、闲站、和人聊、围观辩论、夜里出来走走、在市集上守着自己的摊子、在市集的摊子前挑东西（2026-10-15）。</summary>
+    public static IReadOnlyList<string> DoingKeys { get; } = new[] { "work", "walk", "idle", "chat", "audience", "stroll", "sell", "shop" };
 
     private static string WherePhrase(string? where, bool zh) => where switch
     {
@@ -232,6 +232,11 @@ public static class PolisTalk
             "chat" => zh ? "，正和人说着话" : ", in the middle of a chat",
             "audience" => zh ? "，挤在人群里看辩论" : ", in the crowd watching a debate",
             "stroll" => zh ? "，夜里睡不着出来走走" : ", out for a walk because you cannot sleep",
+            // 市集（2026-10-15）：摊主守着摊子叫卖（卖的是他那门手艺的东西，商贩卖杂货鱼菜油酒），买主在摊前挑、问价、讲价
+            "sell" => t == null || t.Key is PolisTrades.Merchant or PolisTrades.Idle
+                ? (zh ? "，正守着市集上自己的摊子叫卖" : ", minding your own stall at the market and calling out your wares")
+                : (zh ? $"，正守着市集上自己的摊子，卖自己做的东西（{t.Zh}的手艺）" : $", minding your own stall at the market, selling what you make ({t.En}'s goods)"),
+            "shop" => zh ? "，正在市集的摊子前挑东西、问价" : ", at a market stall, looking over the goods and asking prices",
             _ => zh ? "，闲站着" : ", standing about",
         };
     }

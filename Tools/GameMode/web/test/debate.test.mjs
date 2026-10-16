@@ -20,7 +20,7 @@ function stubMaterials() {
   return new Proxy({}, {
     get: (_, key) => {
       if (typeof key !== 'string') return undefined;
-      if (!cache.has(key)) cache.set(key, key.endsWith('Shades') ? [0, 1, 2, 3, 4].map(() => new THREE.MeshStandardMaterial()) : new THREE.MeshStandardMaterial());
+      if (!cache.has(key)) cache.set(key, key.endsWith('Shades') ? Array.from({ length: 12 }, () => new THREE.MeshStandardMaterial()) : new THREE.MeshStandardMaterial());
       return cache.get(key);
     },
   });

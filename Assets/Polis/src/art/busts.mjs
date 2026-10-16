@@ -154,7 +154,8 @@ export function bust(character, expression = 'neutral') {
   const speak = expression === 'speak';
   const smile = expression === 'smile';
   const browLift = speak ? 1.4 : 0;
-  const hairColor = c.hair === 'sakkos' ? null : old ? GREY_HAIR : HAIR;
+  // 居民的发色（2026-10-16）：hairInk 是那一种发色的墨色；没给的照旧（老人灰白）
+  const hairColor = c.hair === 'sakkos' ? null : c.hairInk ?? (old ? GREY_HAIR : HAIR);
   const chinX = 82 + jaw * 2.5;
 
   // —— 纸上的一团淡影：头后面暗一点，人从纸里站出来 ——
@@ -432,6 +433,17 @@ export function bust(character, expression = 'neutral') {
       ink(path('M', 71.6, 44, 'C', 64, 38, 50, 38, 40, 48), 1.8, { stroke: garmentTone(0.3), opacity: 0.95 });
       ink(path('M', 71.6, 43.4, 'C', 64, 37.4, 50, 37.4, 40, 47.4), 0.5, { stroke: HIGHLIGHT, opacity: 0.5 });
       break;
+    case 'wreath': {
+      // 橄榄枝花环（居民，2026-10-16）：沿头带那一道弧排一串叶子，每片一个尖椭圆、一道叶脉
+      ink(path('M', 71.6, 44, 'C', 64, 38, 50, 38, 40, 48), 0.9, { stroke: '#5f6650', opacity: 0.9 });
+      for (let k = 0; k < 9; k++) {
+        const t = k / 8, x = 71 - t * 30, y = 43.6 - Math.sin(t * Math.PI) * 5.6 + t * 4;
+        const a = -0.9 + t * 1.6 + (k % 2 ? 0.7 : -0.5);
+        fill(ell(x, y, 3.2, 1.2, a), '#7f8a6a', 0.95);
+        ink(path('M', x - Math.cos(a) * 2.6, y - Math.sin(a) * 2.6, 'L', x + Math.cos(a) * 2.6, y + Math.sin(a) * 2.6), 0.35, { stroke: SHADOW, opacity: 0.5 });
+      }
+      break;
+    }
     case 'petasos':
       // 宽檐旅人帽：帽冠有体积、帽檐在额上投一道影
       fill(path('M', 36, 40, 'C', 44, 22, 66, 22, 74, 38, 'Z'), '#8a847b', 0.96);

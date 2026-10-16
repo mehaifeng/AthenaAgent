@@ -2,9 +2,12 @@
 // 一位居民是一场会话（C# 的 PolisCitizens）；长相在 art/citizens.mjs，这里只管他在哪儿、在干什么、跟谁说话。
 //
 // 规则（每一条都有断言）：
-//   1. 日程按墙钟、按种子错开：每 periodMs 一个周期——先在家门口待着，走去一处（广场一圈、市集、港口、神庙、图书馆、橄榄林，
-//      或者邻居家门口），在那儿待一会儿，再走回来。一程最多走 maxWalkMs（远过它的去处不去，宁可待在家），一来一回最多占
-//      周期的 40 %，所以任何时候走着的人不到一半——满街的人都在走，城就成了车站。同一刻永远是同一个位置（截图与断言可复现）。
+//   1. 日程按墙钟、按种子错开：每人一个周期（plan.periodMs）——先在家门口待着，走去一处（广场一圈、市集、港口、神庙、图书馆、
+//      橄榄林、城北的田和羊圈，或者邻居家门口），在那儿待一会儿，再走回来。路多远都去（2026-10-15，用户：不设移动距离上限——
+//      以后去哪由模型定；之前一程最多 39 米，城外的田最近也要 60 米，农夫牧人一个也没去过）：周期跟着这一趟定（planTiming）——
+//      一程不长于 30 秒（约 39 米）的周期就是 periodMs、待 stayMs；更远的在去处多待（stay = 3 × 一程 − 65 秒），周期正好让一来一回占
+//      walkShare（40 %），所以任何时候走着的人仍不到一半——满街的人都在走，城就成了车站。一趟永远装得进他自己的周期（不在半路
+//      绕回周期开头、瞬移回家）。同一刻永远是同一个位置（截图与断言可复现）。
 //   2. 避让：两人靠得比 separation 近，互相让一让（每帧最多挪 pushPerFrame，累计的偏移有上限、没人挤就慢慢回到原路），
 //      让开的位置必须能站——绝不把人推进房子里。你不被挡：你是一块推不动的石头，挡在你面前的人侧身让开。
 //   3. 分档：离你最近的 tierA 位全套（布料、弹簧骨），画面里其余的只摆姿势、布料停着，画面外的不摆也不画。
@@ -22,8 +25,8 @@
 //      在家门前的那几段时间就在干：沿着墙侧身站、背对着门（工位在他面前 STATION_GAPS 米，按他的身高缩放），工位的四角都要能站、不碰门阶和门前
 //      那条路，站不下就不在门前干；一扇门住着几口人时工位不互相压着、不压在别人站的地方（settleStations，按 id 的次序收，
 //      压着的那件不摆、那位在门前闲着——只看整份名单，和谁先排日程无关）；在公共地方干的（渔夫在栈桥西沿、葡萄农与养蜂人在橄榄林、乐师在广场、香料商在市集）——去处先试那里
-//      （走得到的话），在那儿待着的 25 秒就是干活；渔夫要一个世界给的站位（layout.workSpot：水边、朝着水），没有就不钓。
-//      那处走不到的（一程超过 maxWalkMs），拿在手里就能干的活（portable）就在家门前干（乐师在门前弹琴、香料商在门前研磨）；
+//      （走得到的话），在那儿待着的那一段（路远的待得久，规则 1）就是干活；渔夫要一个世界给的站位（layout.workSpot：水边、朝着水），没有就不钓。
+//      那处走不到的（没有路、或者路上有挡着的），拿在手里就能干的活（portable）就在家门前干（乐师在门前弹琴、香料商在门前研磨）；
 //      钓鱼要水、锄地要土（门前是街面的铺石），走不到就不干。拿在手里就能干的活，住在公共地方的人也在住处干（广场上纺线的、
 //      市集上缝鞋的）——要工位的只在有门的家门前（工位靠着墙；
 //      没有门的家门前那一点在街上，工位摆在街当中，过路的人会从它中间穿过去）。
@@ -34,16 +37,31 @@
 //      没门的最多两个周期，街上就只剩夜游的人。打开页面时就是夜里
 //      （sky.since 为 null）：不是夜游的人一开始就在屋里。天亮（sky.night 为假、sky.after 是入夜的那一刻）：入夜时回了屋的人，
 //      等到自己日程里下一次出门的时刻（retireTime / wakeTime）才出来，不会一齐涌上街。夜游的人照常过日子。
+//   9. 市集（2026-10-15，market.mjs）：摊主（citizen.vendor：game 按 market.assignVendors 给的那个摊）的去处只有市集、终点是柜台后面，
+//      周期就是市集的钟（market.vendorTiming：开市时到、收市时走），在摊前那一段是吆喝（action 'work'、work 'hawk'、带着 sell）；
+//      其余时间照旧在家门前干他自己的活。逛市集的人（闲逛挑到市集、layout.marketVisit 给了一两个有人的摊）在市集里走一圈（dest.tour）：
+//      每个摊前待 MARKET.stopMs（action 'work'、work 'browse'、带着 shop：摊号、第几处、在这个摊前过了多久），摊之间走过去，
+//      最后回到第一个摊前站一会儿——终点就是 out 的终点，往回走不跳；这一圈有多长，在去处就至少待多长（planTiming 的 minStayMs）。
+//  10. 天黑收市（2026-10-15）：去市集的人（摊主和买主）入夜那一刻正在去市集的路上、在市集里、或者正往回走，就从他那一刻在的地方
+//      直接走回家（duskHome：先沿着来时的路回到市集里头一个摊前、再沿 out 倒着走），到家进门（有门的）或者走到家门前那一点就回屋；
+//      那一刻站在有门的家门前的，直接进门。不用等他那个十分钟的市集钟走完一圈——第一版天黑后五个摊主、买主还在街上站了五分钟。
+//      没门的家、那一刻站在家门前的，照规则 8。
+//      市集活着（layout.marketVisit 给了）时，三成的人（market.isShopper，按种子）闲逛就是去市集买东西：市集排第一、多远都去
+//      （和去干活一样不受 strollMs 的偏好）；其余的人照旧，挑到市集也逛。
 
 import { DOOR, transitAt } from './doors.mjs';
 import { STATION_GAPS, STATION_EXTENT } from './art/crafts.mjs';
+import { MARKET, vendorTiming, isShopper } from './market.mjs';
 
 export const TOWN = Object.freeze({
   streetCap: 32,         // 街上同时最多几位（用户定的 32；C# 的 PolisCitizens.StreetCap 先截，页面再守一道——帧率门槛按 32 位量）
-  periodMs: 150_000,     // 一个周期
+  periodMs: 150_000,     // 最短的周期（一程不长于 30 秒的人都是它；更远的按 planTiming 拉长）
   homeMs: 45_000,        // 每个周期开头在家门口待着
-  stayMs: 25_000,        // 在去处待着
-  maxWalkMs: 30_000,     // 一程最多走这么久（1.3 米 / 秒，约 39 米：两个街区）；一来一回最多占周期的 40 %
+  stayMs: 25_000,        // 在去处最少待这么久（路远的待得更久，planTiming）
+  tailMs: 20_000,        // 走回来之后、周期结束之前在家门口（有门的这段里含进门和屋里的 insideMs + transitMs，所以不能小于它们）
+  strollMs: 30_000,      // 闲逛（不是去干活）先挑一程这么久以内的去处（1.3 米 / 秒约 39 米）——不是上限：近处一处也去不了就去远的。
+                         // 没有它，人人随手挑全城最远的地方，同一刻走着的从至多一半涨到 19 / 32（2026-10-15 量的，citizens.test 的 day）
+  walkShare: 0.4,        // 一来一回最多占他自己周期的这么多（periodMs − homeMs − stayMs − tailMs = 2 × 30 秒 = 40 % × 150 秒，两头接得上）
   speed: 1.3,            // 米 / 秒（雅典娜 3.2，你 6）
   homeRing: [0.8, 2.4],  // 家门口站在离门前那一点多远的一圈上（几个人住一处，不叠在一个点上）
   destRing: [0.9, 2.6],  // 去处同理
@@ -132,7 +150,8 @@ export function routeClear(pts, walkable, step = 0.25) {
 
 /**
  * 一位居民的日程（换城、城变了时重算）。
- * @param {{ id: string, seed: number, home: string, craft?: { variant: string, site: string, station: string|null, needsSpot?: boolean, portable?: boolean, scale?: number }|null }} citizen
+ * @param {{ id: string, seed: number, home: string, slot?: number|null, craft?: { variant: string, site: string, station: string|null, needsSpot?: boolean, portable?: boolean, scale?: number }|null }} citizen
+ *   slot：农夫、牧人的工位号（C# PolisCitizens 规则 7），原样交给 layout.workSpot，两人不站一处
  *   craft（规则 7）：art/crafts.mjs 的 craftFor，site 已经由 craftSite 换成站点名（'home' 是自家门前）；scale 是他的身高 / 1.75（工位跟着缩放）
  * @param {{ sitePoint: (site: string) => {x:number,z:number}, route: (a: string, b: string) => Array<{x:number,z:number}>, walkable: (p) => boolean, hasSite?: (site: string) => boolean, neighbours?: string[], workSpot?: (site: string, seed: number) => {x:number,z:number,yaw:number}|null }} layout
  *   neighbours：城里各座建筑的站点（b:&lt;文件夹&gt;）——居民也去邻居家门口坐坐；workSpot：干活的那处要专门的站位时（渔夫）世界给的那一点
@@ -147,44 +166,168 @@ export function planCitizen(citizen, layout) {
   const door = layout.doorFor?.(homeSite, citizen.seed) ?? null;
   let homePoint = door ? doorSpot(door, r, layout.walkable) : standNear(homeStand, r, TOWN.homeRing, layout.walkable);
   const homeYaw = r() * Math.PI * 2;
-  const offset = Math.floor(r() * TOWN.periodMs);
+  const offsetFrac = r();   // 错开周期的那一下：周期长短要等去处定了才知道，所以先取这一个数（种子的次序不变）
   // 规则 7：门前干活的，站在哪、朝哪、工位摆在哪（要工位的往外让，直到工位摆得下）
   const craft = citizen.craft ?? null;
   const home = homeWork(craft, { homeSite, door, homePoint, planYaw: homeYaw, walkable: layout.walkable });
   if (home) homePoint = home.point;
-  // 去处按种子排个顺序，取第一个走得到（一程不超过 maxWalkMs）的
+  // 去处按种子排个顺序，取第一个有路、路上不挡的（多远都去，规则 1）；闲逛的先挑一程 strollMs 以内的，近处一处也去不了才去最近的那处远的
+  const marketAlive = typeof layout.marketVisit === 'function';
   let order = [...DESTINATIONS, ...(layout.neighbours ?? [])].filter((d) => d !== homeSite && has(d))
     .map((d) => ({ d, k: r() }))
     .sort((a, b) => a.k - b.k)
     .map((x) => x.d);
+  // 规则 9：摊主只去市集（他的摊在那儿；家在市集上的摊主也一样）
+  const vendor = citizen.vendor ?? null;
   // 规则 7：在公共地方干活的，去处先试那里
-  const workSite = craft && craft.site !== 'home' && craft.site !== homeSite && has(craft.site) ? craft.site : null;
-  if (workSite) order = [workSite, ...order.filter((d) => d !== workSite)];
+  const workSite = vendor ? 'market' : craft && craft.site !== 'home' && craft.site !== homeSite && has(craft.site) ? craft.site : null;
+  // 规则 9：去买东西的人（按种子三成）市集排第一，多远都去
+  const errand = !vendor && !workSite && marketAlive && homeSite !== 'market' && has('market') && isShopper(citizen.seed >>> 0) ? 'market' : null;
+  if (vendor) order = has('market') ? ['market'] : [];
+  else if (workSite) order = [workSite, ...order.filter((d) => d !== workSite)];
+  else if (errand) order = [errand, ...order.filter((d) => d !== errand)];
   const place = { home, centre: siteOr(layout, 'agora') };
   // 规则 7：去处那处走不到时，拿在手里就能干的活在家门前干（门前的站位不挪，所以放在找去处之后算）
   const fallback = (dest) => (!home && craft && craft.site !== 'home' && craft.portable && dest?.site !== craft.site
     ? homeWork({ ...craft, site: 'home' }, { homeSite, door, homePoint, planYaw: homeYaw, walkable: layout.walkable })
     : home);
+  let far = null;   // 闲逛时一程超过 strollMs 的里最近的那一处（近处都去不了时用它）
+  const planned = ({ site, out, walkMs, destPoint, spot, visit }) => {
+    const dest = { site, point: destPoint, yaw: r() * Math.PI * 2 };
+    let timing;
+    let sell = null;
+    if (vendor && site === 'market') {
+      // 规则 9：摊主——周期是市集的钟，开市时到柜台后面，收市时走
+      timing = vendorTiming(walkMs, citizen.seed, { homeMs: TOWN.homeMs, tailMs: TOWN.tailMs });
+      dest.yaw = spot.yaw;
+      sell = { stall: vendor.stall };
+    } else if (visit) {
+      // 规则 9：逛市集——这一圈走完才回。路远的本来就要在去处待得久（planTiming）：那段时间多逛几个摊（最多给的那几个），
+      // 而不是在头一个摊前干站着；最少逛 visit.wanted 个
+      const natural = planTiming(walkMs).stayMs;
+      let n = Math.min(visit.stops.length, Math.max(1, visit.wanted ?? 1));
+      while (n < visit.stops.length && tourOf(trimVisit(visit, n + 1)).ms <= natural) n++;
+      visit = trimVisit(visit, n);
+      dest.tour = tourOf(visit);
+      dest.yaw = visit.stops[0].point.yaw;
+      const t = planTiming(walkMs, dest.tour.ms);
+      timing = { ...t, offset: Math.floor(offsetFrac * t.periodMs) };
+    } else {
+      const t = planTiming(walkMs);
+      timing = { ...t, offset: Math.floor(offsetFrac * t.periodMs) };
+    }
+    const { periodMs, stayMs, offset } = timing;
+    const plan = { id: citizen.id, home: { site: homeSite, point: homePoint, yaw: homeYaw }, dest, out, walkMs, stayMs, periodMs, offset, door: doorOf(door), craft: craftOf(craft, { ...place, home: fallback(dest), dest, spot }) };
+    if (sell) plan.sell = sell;
+    return plan;
+  };
   for (const site of order) {
     let path;
-    try { path = layout.route(homeSite, site); } catch { continue; }
+    try { path = site === homeSite ? [layout.sitePoint(site)] : layout.route(homeSite, site); } catch { continue; }
     if (!path || path.length === 0) continue;
-    // 规则 7：干活的那处有它自己的站位（渔夫：栈桥的西沿上，朝着海）就站那儿
-    const spot = site === workSite ? layout.workSpot?.(site, citizen.seed) ?? null : null;
+    // 规则 7：干活的那处有它自己的站位（渔夫：栈桥的西沿上，朝着海）就站那儿；规则 9：摊主站在柜台后面，逛市集的站在头一个摊前
+    let visit = null;
+    let spot = null;
+    if (vendor && site === 'market') spot = { x: vendor.x, z: vendor.z, yaw: vendor.yaw, via: vendor.via ?? [] };
+    else if (site === workSite) spot = layout.workSpot?.(site, citizen.seed, citizen.slot ?? null) ?? null;
+    else if (site === 'market' && marketAlive) {
+      visit = layout.marketVisit(citizen);
+      if (visit?.stops?.length) spot = { ...visit.stops[0].point, via: visit.via ?? [] };
+      else visit = null;
+    }
     const destPoint = spot ? { x: spot.x, z: spot.z } : standNear(layout.sitePoint(site), r, TOWN.destRing, layout.walkable);
     const via = spot?.via ?? [];   // 站位前要先走到的点（栈桥中线：斜着走会擦过系船柱）
     // 有门的家：门前 → 门阶 → 门阶到街上的那条路（最后一点就是街上的站点）→ 去处
     const out = door ? [homePoint, door.step, ...door.approach.slice(1), ...path.slice(1), ...via, destPoint] : [homePoint, ...path, ...via, destPoint];
     const walkMs = (polyLength(out) / TOWN.speed) * 1000;
-    if (walkMs > TOWN.maxWalkMs) continue;
+    if (site !== workSite && site !== errand && walkMs > TOWN.strollMs) {   // 闲逛去远处：先记着，接着找近的
+      if (!far || walkMs < far.walkMs) far = { site, out, walkMs, destPoint, spot, visit, clear: null };
+      continue;
+    }
     if (!routeClear(out, layout.walkable, 0.1)) continue;   // 0.1 米一查（0.25 米会漏过斜着擦过墙角的那一小段）
-    const dest = { site, point: destPoint, yaw: r() * Math.PI * 2 };
-    return { id: citizen.id, home: { site: homeSite, point: homePoint, yaw: homeYaw }, dest, out, walkMs, offset, door: doorOf(door), craft: craftOf(craft, { ...place, home: fallback(dest), dest, spot }) };
+    return planned({ site, out, walkMs, destPoint, spot, visit: clearVisit(visit, layout.walkable) });
   }
-  return { id: citizen.id, home: { site: homeSite, point: homePoint, yaw: homeYaw }, dest: null, out: null, walkMs: 0, offset, door: doorOf(door), craft: craftOf(craft, { ...place, home: fallback(null), dest: null, spot: null }) };
+  if (far && routeClear(far.out, layout.walkable, 0.1)) return planned({ ...far, visit: clearVisit(far.visit, layout.walkable) });
+  return { id: citizen.id, home: { site: homeSite, point: homePoint, yaw: homeYaw }, dest: null, out: null, walkMs: 0, stayMs: TOWN.stayMs, periodMs: TOWN.periodMs, offset: Math.floor(offsetFrac * TOWN.periodMs), door: doorOf(door), craft: craftOf(craft, { ...place, home: fallback(null), dest: null, spot: null }) };
 }
 
+/**
+ * 规则 1：一程走 walkMs 的人，周期多长、在去处待多久。一来一回不超过周期的 walkShare：近的（一程 ≤ 30 秒）周期就是 periodMs、
+ * 待 stayMs，和没取消上限之前一样；远的把多出来的时间放在去处（干活的人在田里、羊圈里干一长段，而不是走一个来回只锄 25 秒），
+ * 周期 = homeMs + 2 × 一程 + 待着 + tailMs = 2 × 一程 / walkShare。minStayMs：在去处至少要待多久（规则 9：逛市集的那一圈）。
+ */
+export function planTiming(walkMs, minStayMs = TOWN.stayMs) {
+  const stayMs = Math.max(TOWN.stayMs, minStayMs, (2 * walkMs) / TOWN.walkShare - TOWN.homeMs - 2 * walkMs - TOWN.tailMs);
+  return { stayMs, periodMs: Math.max(TOWN.periodMs, TOWN.homeMs + 2 * walkMs + stayMs + TOWN.tailMs) };
+}
+
+const dedupePts = (pts) => pts.filter((p, k) => k === 0 || Math.hypot(p.x - pts[k - 1].x, p.z - pts[k - 1].z) > 1e-6);
+
 const siteOr = (layout, site) => { try { return layout.sitePoint(site); } catch { return null; } };
+
+/** 规则 9：只逛前 n 个摊。 */
+const trimVisit = (visit, n) => ({ ...visit, stops: visit.stops.slice(0, n), legs: (visit.legs ?? []).slice(0, Math.max(0, n - 1)) });
+
+/** 规则 9：摊之间的路有一段不通，就只看头一个摊（不在两个摊之间穿过柜台）。 */
+function clearVisit(visit, walkable) {
+  if (!visit?.stops?.length) return null;
+  const legs = visit.legs ?? [];
+  if (visit.stops.length > 1 && legs.length >= visit.stops.length - 1 && legs.every((leg) => routeClear(leg, walkable, 0.1))) return visit;
+  return { ...visit, stops: visit.stops.slice(0, 1), legs: [], wanted: 1 };
+}
+
+/**
+ * 规则 9：逛市集的那一圈的时间表（从走到头一个摊前的那一刻算起）：摊 0 → 走到摊 1 → 摊 1 → 走回摊 0 → 在摊 0 前站到走。
+ * visit：{ stops: [{ stall, spot, point: { x, z, yaw } }], legs: [摊 k → 摊 k+1 的折线] }。返回 { stops, legs, ms }。
+ * 最后一程从最后一个摊走回摊 0：沿着来时的各段倒着走回去。
+ */
+function tourOf(visit) {
+  const stops = [], legs = [];
+  let at = 0;
+  visit.stops.forEach((st, k) => {
+    if (k > 0) {
+      const pts = visit.legs[k - 1];
+      const ms = (polyLength(pts) / TOWN.speed) * 1000;
+      legs.push({ pts, at, ms });
+      at += ms;
+    }
+    stops.push({ stall: st.stall, spot: st.spot, x: st.point.x, z: st.point.z, yaw: st.point.yaw, at, ms: MARKET.stopMs });
+    at += MARKET.stopMs;
+  });
+  if (stops.length > 1) {
+    const pts = dedupePts(visit.legs.slice(0, stops.length - 1).flatMap((leg) => leg).reverse());
+    const ms = (polyLength(pts) / TOWN.speed) * 1000;
+    legs.push({ pts, at, ms, back: true });
+    at += ms;
+  }
+  return { stops, legs, ms: at };
+}
+
+/**
+ * 在去处待着的那一段（s：到了之后过了多久，left：这一段还剩多久）。规则 9：摊主在吆喝；逛市集的按那一圈的时间表——
+ * 在摊前看货（shop），摊之间走着，最后在头一个摊前站着（after）。其余的照规则 7 干活或者闲着。
+ */
+function destAt(plan, s, left) {
+  const base = { x: plan.dest.point.x, z: plan.dest.point.z, yaw: plan.dest.yaw, action: 'idle', walkT: 0, idleLeft: left, at: 'dest' };
+  if (plan.sell) return { ...base, action: 'work', work: 'hawk', sell: plan.sell };
+  const tour = plan.dest.tour;
+  if (!tour) return craftState(plan, 'dest', base);
+  for (let k = 0; k < tour.stops.length; k++) {
+    const st = tour.stops[k];
+    if (s >= st.at && s < st.at + st.ms) {
+      return { ...base, x: st.x, z: st.z, yaw: st.yaw, action: 'work', work: 'browse', idleLeft: Math.min(left, st.at + st.ms - s), shop: { stall: st.stall, spot: st.spot, t: s - st.at, k } };
+    }
+  }
+  for (const leg of tour.legs) {
+    if (s >= leg.at && s < leg.at + leg.ms) {
+      const f = (s - leg.at) / leg.ms;
+      const q = pointAlong(leg.pts, f);
+      return { ...base, x: q.x, z: q.z, yaw: q.dir, action: 'walk', walkT: ((polyLength(leg.pts) * f) / TOWN.speed) * 1000, idleLeft: 0, shopping: true };
+    }
+  }
+  const first = tour.stops[0];
+  return { ...base, x: first.x, z: first.z, yaw: first.yaw, shopping: true };
+}
 
 /**
  * 规则 7：工位摆在 at、朝 yaw（人站在它的 −z 那一边）、缩放 scale 时，四个角（各往里收 0.15 米）和正中都要能站——能站的点离挡路的
@@ -322,7 +465,7 @@ export function doorSpot(door, r, walkable) {
 
 const ease = (f) => f * f * (3 - 2 * f);
 
-const phaseOf = (plan, wall) => ((wall + plan.offset) % TOWN.periodMs + TOWN.periodMs) % TOWN.periodMs;
+const phaseOf = (plan, wall) => ((wall + plan.offset) % plan.periodMs + plan.periodMs) % plan.periodMs;
 
 /**
  * 规则 8：从 from 起，他按日程第一次回到屋里的时刻——有门的走完进门那一段（周期里的 P − insideMs；那一刻本来就在屋里的就是 from），
@@ -332,7 +475,10 @@ export function retireTime(plan, from) {
   // 没门的家、又没有一处走得到的去处：他整天站在家门前——夜里也站着（当场不见就是凭空消失），和夜游的人一样
   if (!plan.door && !plan.dest) return Number.POSITIVE_INFINITY;
   if (from == null) return Number.NEGATIVE_INFINITY;
-  const P = TOWN.periodMs;
+  // 规则 10：去市集的人天黑就往家走，到家（进门）就回屋
+  const dusk = duskHome(plan, from);
+  if (dusk) return from + dusk.ms + (plan.door ? DOOR.transitMs : 0);
+  const P = plan.periodMs;
   const p0 = phaseOf(plan, from);
   if (plan.door) {
     const enterDone = P - TOWN.insideMs;
@@ -341,15 +487,90 @@ export function retireTime(plan, from) {
   }
   // 没门的家：门前那一点在街上，站在那儿的人当场不见就是凭空消失——等他下一次走回家门前（走回来的那一程走完）才回屋，
   // 看上去是走到楼前进去了。此刻正站在家门前的，要等下一个周期走一圈回来（最多两个周期）
-  const back = TOWN.homeMs + 2 * plan.walkMs + TOWN.stayMs;
+  const back = TOWN.homeMs + 2 * plan.walkMs + plan.stayMs;
   return from + (p0 < back ? back - p0 : P - p0 + back);
 }
 
 /** 规则 8：天亮之后（from 起）他下一次出门的时刻——有门的是开门出来那一段的开头，没门的是下一个周期的开头。 */
 export function wakeTime(plan, from) {
-  const P = TOWN.periodMs;
+  const P = plan.periodMs;
   const p0 = phaseOf(plan, from);
   return from + (plan.door ? ((TOWN.insideMs - p0) % P + P) % P : (P - p0) % P);
+}
+
+/**
+ * 规则 10：天黑收市——去市集的人从入夜那一刻在的地方走回家的那条路（世界坐标的折线，起点是他那一刻站的地方）和要走多久。
+ * null：他不去市集、那一刻已经在门里或正进出门、或者没门的家站在家门前（这几种照规则 8）。按 since 缓存在计划上。
+ */
+export function duskHome(plan, since) {
+  if (plan.dest?.site !== 'market' || since == null || !plan.out) return null;
+  if (plan.dusk?.since === since) return plan.dusk.value;
+  const value = duskPath(plan, since);
+  plan.dusk = { since, value };
+  return value;
+}
+
+function duskPath(plan, since) {
+  const P = plan.periodMs, p0 = phaseOf(plan, since);
+  if (plan.door && (p0 < TOWN.insideMs + DOOR.transitMs || p0 >= P - TOWN.insideMs - DOOR.transitMs)) return null;
+  const t1 = TOWN.homeMs, t2 = t1 + plan.walkMs, t3 = t2 + plan.stayMs, t4 = t3 + plan.walkMs;
+  const back = [...plan.out].reverse();
+  let pts;
+  if (p0 >= t1 && p0 < t2) pts = cutFrom(back, 1 - ease((p0 - t1) / plan.walkMs));
+  else if (p0 >= t2 && p0 < t3) pts = [...tourBack(plan, p0 - t2), ...back.slice(1)];
+  else if (p0 >= t3 && p0 < t4) pts = cutFrom(back, ease((p0 - t3) / plan.walkMs));
+  else if (plan.door) pts = [plan.home.point];
+  else return null;
+  pts = dedupePts(pts);
+  return { pts, ms: (polyLength(pts) / TOWN.speed) * 1000 };
+}
+
+/** 折线从比例 f（0..1）处到终点的那一段（起点是那一点）。 */
+function cutFrom(pts, f) {
+  const total = polyLength(pts);
+  let want = Math.min(1, Math.max(0, f)) * total;
+  for (let k = 1; k < pts.length; k++) {
+    const a = pts[k - 1], b = pts[k];
+    const seg = Math.hypot(b.x - a.x, b.z - a.z);
+    if (want <= seg) {
+      const u = seg > 0 ? want / seg : 1;
+      return [{ x: a.x + (b.x - a.x) * u, z: a.z + (b.z - a.z) * u }, ...pts.slice(k)];
+    }
+    want -= seg;
+  }
+  return [pts[pts.length - 1]];
+}
+
+/** 规则 10：在市集里（到了之后过了 s 毫秒）从他站的地方回到 out 的终点（摊主就在终点；逛市集的沿着走过的各段倒回头一个摊前）。 */
+function tourBack(plan, s) {
+  const tour = plan.dest.tour;
+  const end = plan.out[plan.out.length - 1];
+  if (!tour) return [end];
+  const legs = tour.legs.filter((l) => !l.back);
+  const reversed = (k) => legs.slice(0, k).flatMap((l) => l.pts).reverse();
+  for (let k = 0; k < tour.stops.length; k++) {
+    const st = tour.stops[k];
+    if (s >= st.at && s < st.at + st.ms) return [{ x: st.x, z: st.z }, ...reversed(k)];
+  }
+  for (let j = 0; j < tour.legs.length; j++) {
+    const leg = tour.legs[j];
+    if (s < leg.at || s >= leg.at + leg.ms) continue;
+    const f = (s - leg.at) / leg.ms;
+    if (leg.back) return cutFrom(leg.pts, f);
+    return [...cutFrom([...leg.pts].reverse(), 1 - f), ...reversed(j)];
+  }
+  return [end];
+}
+
+/** 规则 10：入夜后 t 毫秒，正往家走（action walk）、在进门、或者已经回屋。 */
+function duskAt(plan, dusk, t) {
+  if (t < dusk.ms) {
+    const f = dusk.ms > 0 ? t / dusk.ms : 1;
+    const q = pointAlong(dusk.pts, f);
+    return { x: q.x, z: q.z, yaw: q.dir, action: 'walk', walkT: (polyLength(dusk.pts) * f / TOWN.speed) * 1000, idleLeft: 0, at: 'road' };
+  }
+  if (plan.door && t - dusk.ms < DOOR.transitMs) return doorTransit(plan, 'enter', t - dusk.ms, dusk.pts[dusk.pts.length - 1]);
+  return indoorsAt(plan);
 }
 
 /** 规则 8：在屋里（入夜回了家、天亮还没出门、或者被客人顶回去的）：有门的在门里，没门的在家门前那一点，都不画。 */
@@ -398,11 +619,16 @@ export function resumeSchedule(clock, wall) {
  */
 export function citizenAt(plan, wall, sky = null) {
   if (asleepAt(plan, wall, sky)) return indoorsAt(plan);
+  // 规则 10：天黑收市，去市集的人从那一刻在的地方往家走
+  if (sky?.night && !sky.owl && sky.since != null && wall >= sky.since) {
+    const dusk = duskHome(plan, sky.since);
+    if (dusk) return duskAt(plan, dusk, wall - sky.since);
+  }
   const p = phaseOf(plan, wall);
   const atHome = (left) => craftState(plan, 'home', { x: plan.home.point.x, z: plan.home.point.z, yaw: plan.home.yaw, action: 'idle', walkT: 0, idleLeft: left, at: 'home' });
   if (plan.door) return doorDay(plan, p, atHome);
   if (!plan.dest) return atHome(Number.POSITIVE_INFINITY);
-  const t1 = TOWN.homeMs, t2 = t1 + plan.walkMs, t3 = t2 + TOWN.stayMs, t4 = t3 + plan.walkMs;
+  const t1 = TOWN.homeMs, t2 = t1 + plan.walkMs, t3 = t2 + plan.stayMs, t4 = t3 + plan.walkMs;
   const length = polyLength(plan.out);
   if (p < t1) return atHome(t1 - p);
   if (p < t2) {
@@ -410,18 +636,18 @@ export function citizenAt(plan, wall, sky = null) {
     const q = pointAlong(plan.out, f);
     return { x: q.x, z: q.z, yaw: q.dir, action: 'walk', walkT: ((length * f) / TOWN.speed) * 1000, idleLeft: 0, at: 'road' };
   }
-  if (p < t3) return craftState(plan, 'dest', { x: plan.dest.point.x, z: plan.dest.point.z, yaw: plan.dest.yaw, action: 'idle', walkT: 0, idleLeft: t3 - p, at: 'dest' });
+  if (p < t3) return destAt(plan, p - t2, t3 - p);
   if (p < t4) {
     const f = ease((p - t3) / plan.walkMs);
     const q = pointAlong(plan.out, 1 - f);
     return { x: q.x, z: q.z, yaw: q.dir + Math.PI, action: 'walk', walkT: ((length * f) / TOWN.speed) * 1000, idleLeft: 0, at: 'road' };
   }
-  return atHome(TOWN.periodMs - p + TOWN.homeMs);
+  return atHome(plan.periodMs - p + TOWN.homeMs);
 }
 
 /** 规则 6：有门的家的一天（p：周期里的第几毫秒）。 */
 function doorDay(plan, p, atHome) {
-  const IN = TOWN.insideMs, T = DOOR.transitMs, P = TOWN.periodMs;
+  const IN = TOWN.insideMs, T = DOOR.transitMs, P = plan.periodMs;
   const enterAt = P - IN - T;
   const inside = (left) => ({ x: plan.door.inside.x, z: plan.door.inside.z, yaw: Math.atan2(plan.door.nx, plan.door.nz), action: 'idle', walkT: 0, idleLeft: left, at: 'inside', hidden: true, door: { id: plan.door.id, open: 0, kind: null, phase: null } });
   if (p < IN) return inside(IN - p);
@@ -429,7 +655,7 @@ function doorDay(plan, p, atHome) {
   if (p >= enterAt + T) return inside(P - p + IN);
   if (p >= enterAt) return doorTransit(plan, 'enter', p - enterAt);
   if (!plan.dest) return atHome(enterAt - p);
-  const t1 = TOWN.homeMs, t2 = t1 + plan.walkMs, t3 = t2 + TOWN.stayMs, t4 = t3 + plan.walkMs;
+  const t1 = TOWN.homeMs, t2 = t1 + plan.walkMs, t3 = t2 + plan.stayMs, t4 = t3 + plan.walkMs;
   const length = polyLength(plan.out);
   if (p < t1) return atHome(t1 - p);
   if (p < t2) {
@@ -437,7 +663,7 @@ function doorDay(plan, p, atHome) {
     const q = pointAlong(plan.out, f);
     return { x: q.x, z: q.z, yaw: q.dir, action: 'walk', walkT: ((length * f) / TOWN.speed) * 1000, idleLeft: 0, at: 'road' };
   }
-  if (p < t3) return craftState(plan, 'dest', { x: plan.dest.point.x, z: plan.dest.point.z, yaw: plan.dest.yaw, action: 'idle', walkT: 0, idleLeft: t3 - p, at: 'dest' });
+  if (p < t3) return destAt(plan, p - t2, t3 - p);
   if (p < t4) {
     const f = ease((p - t3) / plan.walkMs);
     const q = pointAlong(plan.out, 1 - f);

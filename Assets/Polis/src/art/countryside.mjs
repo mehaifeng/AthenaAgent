@@ -197,14 +197,18 @@ export function buildSheep(M, seed = 1) {
  * 规则 3：干活的站位（citizens 规则 7 的 workSpot）。fields——按种子挑一块农田、一条垄沟、沟里的一段，面朝垄的方向（沿 x）锄，
  * 锄刃落在身前 0.85 米的沟里；先走到田南沿那一点、再笔直走进那条沟（田不挡路）。pasture——从南边的圈门进羊圈，站在门里一侧，
  * 面朝圈里（北）看羊。那一点站不了就没有站位（他不在那儿干）。layout 要有 country（layout.mjs 的城郊）和 walkable。
+ * slot（C# PolisCitizens 规则 7 的工位号，0 起；农夫至多 3 位、牧人至多 2 位）：给了就按它分，两人永远不站一处——农夫第 k 位在第
+ * k % 田数 块田、第 1 + 2·⌊k / 田数⌋ 条垄沟（田少于三块时同一块田里隔一条垄），牧人第 k 位站圈门里的西侧、东侧、正中。
+ * 没给（夹具）照旧按种子挑。
  */
-export function countrySpot(layout, site, seed) {
+export function countrySpot(layout, site, seed, slot = null) {
   const s = seed >>> 0;
+  const k = Number.isInteger(slot) && slot >= 0 ? slot : null;
   if (site === 'fields') {
     const fields = (layout.country ?? []).filter((c) => c.country === 'field');
     if (fields.length === 0) return null;
-    const f = fields[(s >>> 3) % fields.length];
-    const row = 1 + ((s >>> 7) % (FIELD.rows - 1));
+    const f = fields[k == null ? (s >>> 3) % fields.length : k % fields.length];
+    const row = k == null ? 1 + ((s >>> 7) % (FIELD.rows - 1)) : 1 + ((2 * Math.floor(k / fields.length)) % (FIELD.rows - 1));
     const dir = (s >>> 11) % 2 ? 1 : -1;
     const x = f.cx + (((s >>> 13) % 9) - 4) * 0.85;
     const z = f.cz + furrowZ(row);
@@ -215,7 +219,7 @@ export function countrySpot(layout, site, seed) {
     const pen = (layout.country ?? []).find((c) => c.country === 'pasture');
     if (!pen) return null;
     const gateZ = pen.cz + PEN.hd;
-    const p = { x: pen.cx + (((s >>> 5) % 3) - 1) * 1.2, z: gateZ - 1.4 };
+    const p = { x: pen.cx + (k == null ? ((s >>> 5) % 3) - 1 : [-1, 1, 0][k % 3]) * 1.2, z: gateZ - 1.4 };
     return layout.walkable(p) ? { ...p, yaw: Math.PI, via: [{ x: pen.cx, z: gateZ + 0.9 }, { x: pen.cx, z: gateZ - 0.9 }] } : null;
   }
   return null;

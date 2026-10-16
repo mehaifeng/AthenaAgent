@@ -58,7 +58,8 @@ public sealed record PolisCitizen(
     bool OnStreet,
     bool NightOwl,
     int NameIndex = 0,
-    int NameRound = 0);
+    int NameRound = 0,
+    int? WorkSlot = null);
 
 /// <summary>这座城的人口：一共几位，白天街上几位，屋里几位（街上满了）。</summary>
 public sealed record PolisCensus(int Total, int OnStreet, int Indoors);
@@ -80,6 +81,10 @@ public sealed record PolisCensus(int Total, int OnStreet, int Indoors);
 ///    一个牧人都没有。所以街上没有农夫（或牧人）时，从街上挑一位改行（<see cref="GuaranteedTrades"/>，<see cref="GuaranteeTrades"/>）：
 ///    先挑无业的，没有就挑街上人数最多的那一行；同一行里按 Id 的序数取第一位，同一座城每次进来都是同一个人。市集的摊主不动（摊主一律是商贩），
 ///    已经是农夫或牧人的不动。城变了（多盖一座楼、上街的人换了），改行的那位可能跟着换。
+/// 7. <b>田和牧场的人数有上限</b>（2026-10-15，用户：放牧的最多 2 人、种田的最多 3 人，站位不同）：全城（不只街上）每一行不超过
+///    <see cref="PolisTrades.Caps"/>（<see cref="CapTrades"/>）。留下谁：街上的先留（按上街的次序），再按 Id 的序数——所以规则 6 改行上街的那位
+///    一定留得下；超出的按自己的种子与住所改抽一门不设上限的职业。留下的每位按 Id 的序数拿一个工位号 <see cref="PolisCitizen.WorkSlot"/>
+///    （0 起），页面按它分田、分垄、分圈里的位置（countryside.countrySpot），两个人永远不站在同一个地方。
 /// </summary>
 public static class PolisCitizens
 {
@@ -210,6 +215,8 @@ public static class PolisCitizens
         // 规则 6：街上没有农夫或牧人，就从街上挑一位改行
         var stallDwellings = ordered.Where(d => d.Stall).Select(d => d.Key).ToHashSet(StringComparer.Ordinal);
         all = GuaranteeTrades(all, street, stallDwellings).ToList();
+        // 规则 7：农夫最多三位、牧人最多两位，留下的各拿一个工位号
+        all = CapTrades(all, street, ordered.ToDictionary(d => d.Key, StringComparer.Ordinal)).ToList();
         // 规则 5：夜游的人（街上的里按种子挑、按上街的次序取最多四位）
         var byId = all.ToDictionary(c => c.Id, StringComparer.Ordinal);
         var owls = street.Where(id => (byId[id].Seed >> 17) % NightOwlOneIn == 0).Take(MaxNightOwls).ToHashSet(StringComparer.Ordinal);
@@ -242,6 +249,35 @@ public static class PolisCitizens
             changed[candidates.OrderBy(id => id, StringComparer.Ordinal).First()] = trade;
         }
         return changed.Count == 0 ? citizens : citizens.Select(c => changed.TryGetValue(c.Id, out var t) ? c with { Trade = t } : c).ToList();
+    }
+
+    /// <summary>
+    /// 规则 7：每一行不超过 <see cref="PolisTrades.Caps"/>。街上的先留（按 <paramref name="street"/> 的次序），再按 Id 的序数；超出的按自己的种子
+    /// 与住所改抽一门不设上限的职业。设了上限的行当里留下的人按 Id 的序数拿工位号（0 起），其余人的 <see cref="PolisCitizen.WorkSlot"/> 为 null。
+    /// </summary>
+    public static IReadOnlyList<PolisCitizen> CapTrades(IReadOnlyList<PolisCitizen> citizens, IReadOnlyList<string> street, IReadOnlyDictionary<string, PolisDwelling> dwellings)
+    {
+        ArgumentNullException.ThrowIfNull(citizens);
+        ArgumentNullException.ThrowIfNull(street);
+        ArgumentNullException.ThrowIfNull(dwellings);
+        var streetRank = new Dictionary<string, int>(StringComparer.Ordinal);
+        for (var i = 0; i < street.Count; i++) streetRank.TryAdd(street[i], i);
+        var capped = PolisTrades.Caps.Keys.ToHashSet(StringComparer.Ordinal);
+        var trade = citizens.ToDictionary(c => c.Id, c => c.Trade, StringComparer.Ordinal);
+        foreach (var (key, cap) in PolisTrades.Caps)
+        {
+            var holders = citizens.Where(c => c.Trade == key)
+                .OrderBy(c => streetRank.TryGetValue(c.Id, out var r) ? r : int.MaxValue)
+                .ThenBy(c => c.Id, StringComparer.Ordinal);
+            foreach (var c in holders.Skip(cap)) trade[c.Id] = PolisTrades.Pick(c.Seed, dwellings[c.Dwelling], capped);
+        }
+        var slot = new Dictionary<string, int>(StringComparer.Ordinal);
+        foreach (var key in PolisTrades.Caps.Keys)
+        {
+            var k = 0;
+            foreach (var c in citizens.Where(c => trade[c.Id] == key).OrderBy(c => c.Id, StringComparer.Ordinal)) slot[c.Id] = k++;
+        }
+        return citizens.Select(c => c with { Trade = trade[c.Id], WorkSlot = slot.TryGetValue(c.Id, out var w) ? w : null }).ToList();
     }
 
     /// <summary>

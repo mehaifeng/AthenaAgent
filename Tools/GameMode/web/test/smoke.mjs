@@ -1206,7 +1206,9 @@ async function chatCheck(name, browser) {
     await page.keyboard.press('Escape');
     await page.waitForTimeout(200);
     const cancelled = await page.evaluate(() => ({ talk: window.__polisTalk.state, value: window.__polisTalk.value, athenaDraft: window.__polisTalk.athenaDraft, chatting: window.__polisGame.chatting }));
-    const afterCancel = (await inbox()).slice(n2);
+    // 街头闲聊（ambient-chat）是城自己挑人发的，和 Esc 无关：谁正好站在一起、几时开口跟着日程变（2026-10-15 去掉移动距离上限后，
+    // 这 200 毫秒里正好有一对开了口，Esc 什么也没发也判了失败）。这里只看对话栏会发的
+    const afterCancel = (await inbox()).slice(n2).filter((m) => m.type !== 'ambient-chat');
     // 两位居民街头闲聊（只用模型）：发 ambient-chat；先开口的那位头顶一串点，C# 流式推他的话，说完另一位头顶一串点再接一句；
     // ambient-end 散场。没配模型（nomodel）：头顶的点收起，这座城里不再挑
     const pairIds = street.map((c) => c.id).filter((id) => id !== target?.id).slice(0, 2);

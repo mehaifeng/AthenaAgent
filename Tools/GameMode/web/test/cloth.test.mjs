@@ -14,7 +14,7 @@ function stubMaterials() {
       if (typeof key !== 'string') return undefined;
       if (!cache.has(key)) {
         cache.set(key, key.endsWith('Shades')
-          ? [0, 1, 2, 3, 4].map((i) => new THREE.MeshStandardMaterial({ name: `${key}${i}` }))
+          ? Array.from({ length: 12 }, (_, i) => new THREE.MeshStandardMaterial({ name: `${key}${i}` }))
           : new THREE.MeshStandardMaterial({ name: key }));
       }
       return cache.get(key);
