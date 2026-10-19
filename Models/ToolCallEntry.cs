@@ -52,10 +52,22 @@ public partial class ToolCallEntry : ObservableObject
     [NotifyPropertyChangedFor(nameof(ExpandedDetails))]
     private bool _isExpanded;
 
+    /// <summary>
+    /// 用户是否亲手点过这一行。过程段的滑动窗口不会把这样的行挤出视野：
+    /// 用户正在读的详情不能因为又来了一个工具调用就从眼前消失。不参与持久化。
+    /// </summary>
+    [ObservableProperty]
+    [property: JsonIgnore]
+    private bool _userToggled;
+
     // 见 ChatMessageSegment：生成的 ICommand 属性不挡住就会进归档。
     [RelayCommand]
     [property: JsonIgnore]
-    private void ToggleExpanded() => IsExpanded = !IsExpanded;
+    private void ToggleExpanded()
+    {
+        UserToggled = true;
+        IsExpanded = !IsExpanded;
+    }
 
     [JsonIgnore]
     public bool IsRunning => Status == ToolCallStatus.Running;

@@ -14,16 +14,20 @@ public class ChatSegmentTemplateSelector : IDataTemplate
 {
     public IDataTemplate? MarkdownTemplate { get; set; }
 
-    public IDataTemplate? ReasoningTemplate { get; set; }
-
-    public IDataTemplate? ToolCallTemplate { get; set; }
-
     public IDataTemplate? GeneratedImageTemplate { get; set; }
 
-    public bool Match(object? data) => data is ChatMessageSegment;
+    /// <summary>过程段（连续的思考与工具行，见 <see cref="ProcessRun"/>）。思考段与工具组只经由它渲染。</summary>
+    public IDataTemplate? ProcessRunTemplate { get; set; }
+
+    public bool Match(object? data) => data is ChatMessageSegment or ProcessRun;
 
     public Control? Build(object? param)
     {
+        if (param is ProcessRun run)
+        {
+            return ProcessRunTemplate?.Build(run);
+        }
+
         if (param is not ChatMessageSegment segment)
         {
             return null;
@@ -32,8 +36,6 @@ public class ChatSegmentTemplateSelector : IDataTemplate
         var template = segment.Kind switch
         {
             ChatMessageSegmentKind.Markdown => MarkdownTemplate,
-            ChatMessageSegmentKind.Reasoning => ReasoningTemplate,
-            ChatMessageSegmentKind.ToolCallGroup => ToolCallTemplate,
             ChatMessageSegmentKind.GeneratedImage => GeneratedImageTemplate,
             _ => null
         };

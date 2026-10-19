@@ -429,6 +429,9 @@ public partial class MainConversationViewModel : ViewModelBase, IDisposable
     [ObservableProperty]
     private string _currentModelName = string.Empty;
 
+    /// <summary>模型名旁边的推理强度选择；只在 OpenRouter 目录列出了档位时可见。</summary>
+    public ReasoningEffortPickerViewModel ReasoningEffortPicker { get; }
+
     public string InputPlaceholder => GetString("Chat.InputPlaceholder", "Type a message…");
 
     private ConversationContext _currentContext = new();
@@ -934,6 +937,7 @@ public partial class MainConversationViewModel : ViewModelBase, IDisposable
         }
         _chatService = chatService;
         _configService = configService;
+        ReasoningEffortPicker = new ReasoningEffortPickerViewModel(configService, GetString);
         _promptService = promptService;
         _functionRegistry = functionRegistry;
         _tokenService = tokenService;
@@ -1000,6 +1004,7 @@ public partial class MainConversationViewModel : ViewModelBase, IDisposable
     {
         Pet.RefreshLocalization();
         RefreshToolCallSummaries();
+        ReasoningEffortPicker.Refresh(_effectiveContextPolicy?.Metadata);
         OnPropertyChanged(nameof(ContextTokensInfo));
         RefreshContextInspectorProperties();
     }
@@ -1042,6 +1047,8 @@ public partial class MainConversationViewModel : ViewModelBase, IDisposable
             Pet.ApplySettings(config);
             InvalidateCompressionPreview();
             CurrentModelName = config.AiModels.MainConversation.Model;
+            // 回合进行中策略刷新会推迟，档位这一行不能跟着等：刚点的选择得马上显示出来。
+            ReasoningEffortPicker.Refresh(_effectiveContextPolicy?.Metadata);
             UpdateBubbleButtonVisibility();
             OnPropertyChanged(nameof(ContextTokensInfo));
             RefreshContextInspectorProperties();
@@ -1084,6 +1091,7 @@ public partial class MainConversationViewModel : ViewModelBase, IDisposable
                     int.MaxValue));
                 _tokenService.CompressionThresholdTokens = _effectiveContextPolicy.Policy.CompressionThresholdTokens;
             }
+            ReasoningEffortPicker.Refresh(_effectiveContextPolicy?.Metadata);
             OnPropertyChanged(nameof(ContextTokensInfo));
             InvalidateCompressionPreview();
             RefreshContextInspectorProperties();

@@ -1,0 +1,72 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:models="using:Athena.UI.Models"
+             xmlns:controls="using:Athena.UI.Controls"
+             xmlns:loc="using:Athena.UI.Markup"
+             x:Class="Athena.UI.Controls.ProcessRunView"
+             x:DataType="models:ProcessRun">
+    <StackPanel Margin="0,0,0,2">
+        <!-- 不可折叠时 Header 为 null，摘要行不被实例化：短过程段和以前一模一样 -->
+        <ContentControl Content="{Binding Header}">
+            <ContentControl.ContentTemplate>
+                <DataTemplate x:DataType="models:ProcessRun">
+                    <Button Classes="process-row process-run-header"
+                            Theme="{StaticResource ProcessRowTheme}"
+                            Command="{Binding ToggleExpandedCommand}"
+                            ToolTip.Tip="{loc:Loc Chat.ProcessRun.Tip}"
+                            AutomationProperties.Name="{Binding Stats, Converter={StaticResource ProcessRunSummaryConverter}}">
+                        <Grid ColumnDefinitions="Auto,*,Auto,Auto">
+                            <PathIcon Grid.Column="0"
+                                      Classes="tool-status"
+                                      Classes.SlowSpin="{Binding IsRunning}"
+                                      Classes.success="{Binding IsSucceeded}"
+                                      Classes.failed="{Binding HasFailures}"
+                                      Margin="0,0,6,0"
+                                      Data="{Binding StatusIconKey, Converter={StaticResource ToolIconKeyToGeometryConverter}}"/>
+
+                            <TextBlock Grid.Column="1"
+                                       Name="ProcessRunSummaryText"
+                                       Text="{Binding Stats, Converter={StaticResource ProcessRunSummaryConverter}}"
+                                       FontSize="{DynamicResource App.FontSize.Body}"
+                                       MaxLines="1"
+                                       TextWrapping="NoWrap"
+                                       TextTrimming="CharacterEllipsis"
+                                       VerticalAlignment="Center"/>
+
+                            <!-- 失败绝不能藏进折叠里：单独一个 TextBlock 上失败色 -->
+                            <TextBlock Grid.Column="2"
+                                       Name="ProcessRunFailureText"
+                                       Classes="process-run-failures"
+                                       IsVisible="{Binding HasFailures}"
+                                       Text="{Binding Stats, Converter={StaticResource ProcessRunSummaryConverter}, ConverterParameter=Failures}"
+                                       Margin="6,0,6,0"
+                                       VerticalAlignment="Center"/>
+
+                            <PathIcon Grid.Column="3"
+                                      Classes="process-chevron"
+                                      Data="{Binding ChevronIconKey, Converter={StaticResource ToolIconKeyToGeometryConverter}}"/>
+                        </Grid>
+                    </Button>
+                </DataTemplate>
+            </ContentControl.ContentTemplate>
+        </ContentControl>
+
+        <!-- 只有 VisibleRows 里的行被实例化：被窗口挤出去、或已折叠的行不占任何控件 -->
+        <ItemsControl ItemsSource="{Binding VisibleRows}">
+            <ItemsControl.ItemTemplate>
+                <controls:ProcessRowTemplateSelector>
+                    <controls:ProcessRowTemplateSelector.ReasoningTemplate>
+                        <DataTemplate x:DataType="models:ChatMessageSegment">
+                            <controls:ReasoningRowView HorizontalAlignment="Stretch"/>
+                        </DataTemplate>
+                    </controls:ProcessRowTemplateSelector.ReasoningTemplate>
+                    <controls:ProcessRowTemplateSelector.ToolCallTemplate>
+                        <DataTemplate x:DataType="models:ToolCallEntry">
+                            <controls:ToolCallRowView HorizontalAlignment="Stretch"/>
+                        </DataTemplate>
+                    </controls:ProcessRowTemplateSelector.ToolCallTemplate>
+                </controls:ProcessRowTemplateSelector>
+            </ItemsControl.ItemTemplate>
+        </ItemsControl>
+    </StackPanel>
+</UserControl>

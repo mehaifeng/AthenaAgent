@@ -111,7 +111,17 @@ public sealed record ResolvedModelMetadata(
     IReadOnlyList<string> Warnings,
     string? TokenizerHint = null,
     ResolvedMetadataValue<CapabilitySupport>? SupportsResponses = null,
-    ResolvedMetadataValue<ReasoningEffort>? ReasoningEffort = null);
+    ResolvedMetadataValue<ReasoningEffort>? ReasoningEffort = null,
+    OpenRouterReasoningEfforts? ReasoningEfforts = null);
+
+/// <summary>
+/// OpenRouter 目录里一个模型声明的推理档位（<c>reasoning.supported_efforts</c> / <c>default_effort</c>）。
+/// 只有 OpenRouter 层能回答它：供应商自报的 <c>/v1/models</c> 没有任何能力字段。
+/// </summary>
+public sealed record OpenRouterReasoningEfforts(
+    string OpenRouterModelId,
+    IReadOnlyList<ReasoningEffort> Supported,
+    ReasoningEffort? Default);
 
 public enum ModelCatalogRefreshStatus
 {

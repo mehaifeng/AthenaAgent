@@ -466,11 +466,13 @@
                                                         </DataTemplate>
                                                     </controls:ChatSegmentTemplateSelector.MarkdownTemplate>
 
-                                                    <controls:ChatSegmentTemplateSelector.ReasoningTemplate>
-                                                        <DataTemplate x:DataType="models:ChatMessageSegment">
-                                                            <controls:ReasoningRowView HorizontalAlignment="Stretch"/>
+                                                    <!-- 连续的思考与工具行是一个过程段：可折叠时只剩一行摘要（进行中再加最近几行）。
+                                                         思考段与工具组不再单独进这个选择器，见 ProcessRun。 -->
+                                                    <controls:ChatSegmentTemplateSelector.ProcessRunTemplate>
+                                                        <DataTemplate x:DataType="models:ProcessRun">
+                                                            <controls:ProcessRunView HorizontalAlignment="Stretch"/>
                                                         </DataTemplate>
-                                                    </controls:ChatSegmentTemplateSelector.ReasoningTemplate>
+                                                    </controls:ChatSegmentTemplateSelector.ProcessRunTemplate>
 
                                                     <controls:ChatSegmentTemplateSelector.GeneratedImageTemplate>
                                                         <DataTemplate x:DataType="models:ChatMessageSegment">
@@ -490,19 +492,6 @@
                                                             </Button>
                                                         </DataTemplate>
                                                     </controls:ChatSegmentTemplateSelector.GeneratedImageTemplate>
-
-                                                    <controls:ChatSegmentTemplateSelector.ToolCallTemplate>
-                                                        <DataTemplate x:DataType="models:ChatMessageSegment">
-                                                            <!-- 本轮的工具调用：并行调用只是相邻的几行，没有可展开/收起的「组」 -->
-                                                            <ItemsControl ItemsSource="{Binding ToolCalls}" Margin="0,0,0,2">
-                                                                <ItemsControl.ItemTemplate>
-                                                                    <DataTemplate x:DataType="models:ToolCallEntry">
-                                                                        <controls:ToolCallRowView HorizontalAlignment="Stretch"/>
-                                                                    </DataTemplate>
-                                                                </ItemsControl.ItemTemplate>
-                                                            </ItemsControl>
-                                                        </DataTemplate>
-                                                    </controls:ChatSegmentTemplateSelector.ToolCallTemplate>
                                                 </controls:ChatSegmentTemplateSelector>
                                             </ItemsControl.ItemTemplate>
                                         </ItemsControl>
@@ -682,6 +671,18 @@
                                             ToolTip.Tip="{loc:Loc Chat.BtnFork}"
                                             AutomationProperties.Name="{loc:Loc Chat.BtnFork}">
                                         <PathIcon Data="{StaticResource AthenaIconBranch}" Width="14" Height="14"/>
+                                    </Button>
+
+                                    <!-- 一键展开/收起本气泡的全部过程段。同样住在这块统一翻转透明度的子树里，
+                                         只在确实有可折叠的过程段时出现；图标一个 PathIcon 按 key 换几何。 -->
+                                    <Button Name="ToggleProcessRunsButton"
+                                            Command="{Binding ToggleProcessRunsCommand}"
+                                            IsVisible="{Binding HasFoldableProcessRuns}"
+                                            FontSize="{DynamicResource App.FontSize.Body}"
+                                            ToolTip.Tip="{loc:Loc Chat.BtnToggleProcess}"
+                                            AutomationProperties.Name="{loc:Loc Chat.BtnToggleProcess}">
+                                        <PathIcon Data="{Binding ProcessRunsToggleIconKey, Converter={StaticResource ToolIconKeyToGeometryConverter}}"
+                                                  Width="14" Height="14"/>
                                     </Button>
 
                                     <!-- 本轮总用时。刻意住在这块已经由父面板统一翻转透明度的子树里：
@@ -1088,15 +1089,59 @@
                         </StackPanel>
                     </Border>
 
-                    <TextBlock Grid.Column="2"
-                               Text="{Binding CurrentModelName}"
-                               MaxWidth="100"
-                               HorizontalAlignment="Left"
-                               VerticalAlignment="Center"
-                               Foreground="{DynamicResource Chat.TimestampFg}"
-                               FontSize="{DynamicResource App.FontSize.Body}"
-                               TextTrimming="CharacterEllipsis"
-                               ToolTip.Tip="{Binding CurrentModelName}"/>
+                    <StackPanel Grid.Column="2"
+                                Orientation="Horizontal"
+                                Spacing="4"
+                                VerticalAlignment="Center">
+                        <TextBlock Text="{Binding CurrentModelName}"
+                                   MaxWidth="100"
+                                   HorizontalAlignment="Left"
+                                   VerticalAlignment="Center"
+                                   Foreground="{DynamicResource Chat.TimestampFg}"
+                                   FontSize="{DynamicResource App.FontSize.Body}"
+                                   TextTrimming="CharacterEllipsis"
+                                   ToolTip.Tip="{Binding CurrentModelName}"/>
+                        <!-- 推理强度：只在 OpenRouter 目录列出了这个模型的档位时出现（见 ReasoningEffortPickerViewModel）。
+                             菜单项在弹出时才实例化。 -->
+                        <Button x:Name="ReasoningEffortButton"
+                                IsVisible="{Binding ReasoningEffortPicker.IsAvailable}"
+                                Classes="icon-plain"
+                                Padding="4,2"
+                                BorderThickness="0"
+                                VerticalAlignment="Center"
+                                ToolTip.Tip="{Binding ReasoningEffortPicker.Tip}"
+                                AutomationProperties.Name="{Binding ReasoningEffortPicker.Tip}">
+                            <StackPanel Orientation="Horizontal" Spacing="3">
+                                <PathIcon Data="{StaticResource AthenaIconReasoning}"
+                                          Width="12"
+                                          Height="12"
+                                          Foreground="{DynamicResource Chat.TimestampFg}"/>
+                                <TextBlock x:Name="ReasoningEffortLabel"
+                                           Text="{Binding ReasoningEffortPicker.Label}"
+                                           MaxWidth="110"
+                                           VerticalAlignment="Center"
+                                           Foreground="{DynamicResource Chat.TimestampFg}"
+                                           FontSize="{DynamicResource App.FontSize.Body}"
+                                           TextTrimming="CharacterEllipsis"/>
+                            </StackPanel>
+                            <Button.Flyout>
+                                <MenuFlyout Placement="TopEdgeAlignedRight"
+                                            ItemsSource="{Binding ReasoningEffortPicker.Choices}">
+                                    <MenuFlyout.ItemContainerTheme>
+                                        <ControlTheme TargetType="MenuItem"
+                                                      BasedOn="{StaticResource {x:Type MenuItem}}"
+                                                      x:DataType="vm:ReasoningEffortChoice">
+                                            <Setter Property="Header" Value="{Binding Label}"/>
+                                            <Setter Property="ToggleType" Value="Radio"/>
+                                            <Setter Property="IsChecked" Value="{Binding IsSelected, Mode=OneWay}"/>
+                                            <Setter Property="Command" Value="{Binding Command}"/>
+                                            <Setter Property="CommandParameter" Value="{Binding Value}"/>
+                                        </ControlTheme>
+                                    </MenuFlyout.ItemContainerTheme>
+                                </MenuFlyout>
+                            </Button.Flyout>
+                        </Button>
+                    </StackPanel>
 
                     <Button Grid.Column="3"
                             HorizontalAlignment="Stretch"

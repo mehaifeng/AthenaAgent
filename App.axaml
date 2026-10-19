@@ -312,6 +312,7 @@
             <conv:RoleToTitleConverter x:Key="RoleToTitleConverter"/>
             <conv:LocConverter x:Key="LocConverter"/>
             <conv:DurationToTextConverter x:Key="DurationToTextConverter"/>
+            <conv:ProcessRunSummaryConverter x:Key="ProcessRunSummaryConverter"/>
             <conv:OpacityConverter x:Key="OpacityConverter"/>
             <conv:ThemeTagToVisibilityConverter x:Key="ThemeTagToVisibilityConverter"/>
             <conv:ToolIconKeyToGeometryConverter x:Key="ToolIconKeyToGeometryConverter"/>
@@ -481,6 +482,11 @@
         <Style Selector="PathIcon.tool-status.failed">
             <Setter Property="Foreground" Value="{DynamicResource SemiRed6}"/>
             <Setter Property="Opacity" Value="1"/>
+        </Style>
+
+        <Style Selector="TextBlock.process-run-failures">
+            <Setter Property="Foreground" Value="{DynamicResource SemiRed6}"/>
+            <Setter Property="FontSize" Value="{DynamicResource App.FontSize.Body}"/>
         </Style>
 
         <!-- 推理增量追加期间，灯泡只在默认前景色与纯白之间呼吸闪烁。

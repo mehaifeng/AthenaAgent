@@ -68,6 +68,30 @@ public static class ToolCallDisplay
     };
 
     /// <summary>
+    /// 过程段摘要（「读取 8 · 搜索 5 · 写入 3」）里的工具类别。只分用户一眼认得出的几类，
+    /// 其余一律算「其他」：分得越细，摘要越长，折叠省下的那一行就又被它自己吃回去了。
+    /// </summary>
+    public static ToolCallCategory Category(string functionName) => functionName switch
+    {
+        "read_system_file" or "get_file_info" or "list_system_directory"
+            or "get_document_outline" or "parse_office_document"
+            or "inspect_document" or "inspect_spreadsheet" or "inspect_presentation"
+            or "read_skill_resource" or "view_self_configuration" or "list_tasks" => ToolCallCategory.Read,
+
+        "web_search" or "recall_from_memory" or "search_in_file" or "search_in_directory" => ToolCallCategory.Search,
+
+        "write_system_file" or "modify_system_file" or "create_directory" or "move_system_file"
+            or "copy_system_file" or "delete_system_file" or "create_new_memory"
+            or "create_document" or "edit_document" or "convert_document"
+            or "create_spreadsheet" or "edit_spreadsheet" or "modify_spreadsheet_structure" or "convert_spreadsheet"
+            or "create_presentation" or "edit_presentation" or "fetch_url_to_file" => ToolCallCategory.Write,
+
+        "execute_terminal_command" => ToolCallCategory.Command,
+
+        _ => ToolCallCategory.Other
+    };
+
+    /// <summary>
     /// 生成人类可读的一行摘要。<paramref name="argumentsJson"/> 为模型给出的参数 JSON。
     /// </summary>
     public static string Summarize(string functionName, string? argumentsJson, ILocalizationService? localizationService = null)

@@ -116,7 +116,7 @@ One line per directory. Where a directory has rules of its own, they live in a `
 
 - `Assets/Locales/`: localized resource dictionaries (`Locale.en-US.axaml`, `Locale.zh-CN.axaml`).
 - `Assets/Polis/`: the game mode's page (three.js, served at `/polis/`). Rules and code map: `Assets/Polis/CLAUDE.md`.
-- `Controls/`: custom controls — process rows (`ToolCallRowView`, `ReasoningRowView`), `ChatSegmentTemplateSelector`, `OwlFrameLibrary`, `PolisPage`.
+- `Controls/`: custom controls — process rows (`ToolCallRowView`, `ReasoningRowView`), the folding process run (`ProcessRunView`, `ProcessRowTemplateSelector`), `ChatSegmentTemplateSelector`, `OwlFrameLibrary`, `PolisPage`.
 - `Converters/`: XAML value converters.
 - `Models/`: data transfer objects, tool schemas, and prompt templates.
 - `Services/`: business logic, AI integration, and core infrastructure.

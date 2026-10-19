@@ -536,6 +536,9 @@
     <system:String x:Key="ProviderModels.ReasoningEffort.High">高（high）</system:String>
     <system:String x:Key="ProviderModels.ReasoningEffort.XHigh">超高（xhigh）</system:String>
     <system:String x:Key="ProviderModels.ReasoningEffort.Max">最高（max）</system:String>
+    <system:String x:Key="Chat.ReasoningEffort.Default">默认（{0}）</system:String>
+    <system:String x:Key="Chat.ReasoningEffort.DefaultUnknown">默认</system:String>
+    <system:String x:Key="Chat.ReasoningEffort.Tip">推理强度。可选档位来自 OpenRouter 模型目录（{0}），对使用该模型的所有会话生效，下一轮起作用。</system:String>
     <system:String x:Key="ProviderModels.Metadata.Input">输入模态：</system:String>
     <system:String x:Key="ProviderModels.Metadata.Output">输出模态：</system:String>
     <system:String x:Key="ProviderModels.Metadata.InputPlaceholder">输入模态：text, image</system:String>
@@ -1020,6 +1023,17 @@
     <system:String x:Key="Chat.Reasoning.Header">思考过程</system:String>
     <system:String x:Key="Chat.Reasoning.ShowAll">显示全部</system:String>
     <system:String x:Key="Chat.Reasoning.ShowLess">收起长文</system:String>
+    <system:String x:Key="Chat.ProcessRun.Reasoning">思考 {0} 次</system:String>
+    <system:String x:Key="Chat.ProcessRun.Tools">调用 {0} 个工具</system:String>
+    <system:String x:Key="Chat.ProcessRun.Breakdown">（{0}）</system:String>
+    <system:String x:Key="Chat.ProcessRun.Read">读取 {0}</system:String>
+    <system:String x:Key="Chat.ProcessRun.Search">搜索 {0}</system:String>
+    <system:String x:Key="Chat.ProcessRun.Write">写入 {0}</system:String>
+    <system:String x:Key="Chat.ProcessRun.Command">终端 {0}</system:String>
+    <system:String x:Key="Chat.ProcessRun.Other">其他 {0}</system:String>
+    <system:String x:Key="Chat.ProcessRun.Failed">{0} 个失败</system:String>
+    <system:String x:Key="Chat.ProcessRun.Tip">展开或收起这段过程</system:String>
+    <system:String x:Key="Chat.BtnToggleProcess">展开或收起全部过程</system:String>
     <system:String x:Key="Dialog.DontAskAgain">下次不再提示</system:String>
     <system:String x:Key="Knowledge.SelectFile">选择文件以查看</system:String>
     <system:String x:Key="Knowledge.LoadFailed">加载失败：{0}</system:String>
