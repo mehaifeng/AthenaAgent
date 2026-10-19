@@ -60,7 +60,11 @@ public sealed class ModelMetadataResolver(ModelIdentityMatcher matcher) : IModel
             if (matched != null) warnings.Add(ModelWarnings.OpenRouterFieldMissing);
         }
 
-        long? referencedMax = matched?.TopProvider?.MaxCompletionTokens;
+        // top_provider 描述的是 OpenRouter 自己路由到的那家部署，和上面的窗口一样，只对 OpenRouter 端点算数。
+        // 拿它当别家的输出上限会被拒：TokenHub 的 deepseek-v4.1-flash 被许了 OpenRouter 的 943718，
+        // 而它的后端只收到 39 万左右——超过时按分到的机器间歇性 400（2026-10-19 实测：≤393216 全过，
+        // 524288 六次四次 400、943718 六次四次 400，都是 invalid_request_error 400001）。
+        long? referencedMax = IsOpenRouterProvider(provider) ? matched?.TopProvider?.MaxCompletionTokens : null;
         if (referencedMax <= 0 || referencedMax > context.Value) referencedMax = null;
         long? reportedMax = reported?.MaxCompletionTokens;
         if (reportedMax <= 0 || reportedMax > context.Value) reportedMax = null;

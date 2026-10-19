@@ -1986,6 +1986,19 @@ static Task TestProviderReportedMetadataLayerAsync()
         snapshot);
     AssertEqual(MetadataValueSource.AutomaticOpenRouter, untouched.ContextWindowTokens.Source,
         "with nothing reported the OpenRouter layer must still answer exactly as it did before this layer existed");
+    // top_provider.max_completion_tokens 是 OpenRouter 自己那条线路的上限：拿给别家当请求上限，
+    // TokenHub 会对超过它后端上限的值间歇性 400（2026-10-19，deepseek-v4.1-flash 被许了 943718）。
+    AssertTrue(untouched.MaxCompletionTokens.Value is null,
+        "OpenRouter's top_provider output cap must not become another endpoint's max_output_tokens");
+    AssertEqual(MetadataValueSource.ApplicationDefault, untouched.MaxCompletionTokens.Source,
+        "without an OpenRouter endpoint the output cap is unknown, not borrowed");
+    var throughOpenRouter = resolver.Resolve(
+        new OpenAiProviderConfiguration { Id = "or", ProviderPreset = "OpenRouter", BaseUrl = "https://openrouter.ai/api/v1" },
+        new ProviderModelDescriptor { Id = "MiniMax-M3", DisplayName = "MiniMax-M3" },
+        null,
+        snapshot);
+    AssertEqual(16_384L, throughOpenRouter.MaxCompletionTokens.Value ?? 0,
+        "on OpenRouter itself top_provider's output cap is the real one and must still apply");
 
     var oversized = resolver.Resolve(
         provider,
