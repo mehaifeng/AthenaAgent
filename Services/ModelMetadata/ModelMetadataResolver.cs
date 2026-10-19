@@ -3,6 +3,7 @@ using Athena.UI.Services.Interfaces;
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Text.Json;
 
 namespace Athena.UI.Services.ModelMetadata;
 
@@ -93,8 +94,55 @@ public sealed class ModelMetadataResolver(ModelIdentityMatcher matcher) : IModel
         ResolvedMetadataValue<ReasoningEffort>? effort = effortOverride != ReasoningEffort.Auto
             ? new ResolvedMetadataValue<ReasoningEffort>(effortOverride, MetadataValueSource.UserOverride)
             : null;
-        return new ResolvedModelMetadata(provider.Id, model.Id, match, context, maxCompletion, tools, reasoning, structured, inputs, outputs, warnings, matched?.Architecture.Tokenizer, responses, effort);
+        return new ResolvedModelMetadata(provider.Id, model.Id, match, context, maxCompletion, tools, reasoning, structured, inputs, outputs, warnings, matched?.Architecture.Tokenizer, responses, effort, ReadReasoningEfforts(matched));
     }
+
+    /// <summary>
+    /// 读 OpenRouter 记录里的 <c>reasoning</c> 对象（2026-10-19 实测：471 个模型里 337 个带它，
+    /// 其中 204 个列出 <c>supported_efforts</c>）。只有列出了档位才算有佐证：<c>supported_parameters</c>
+    /// 里的 <c>reasoning_effort</c> 只说「收这个参数」，不说收哪几档，而发一个模型不认的档位会被直接拒掉。
+    /// 不认识的档位名跳过，不猜。字段在 <see cref="OpenRouterModelMetadata.Raw"/> 里，快照已经落盘，不需要改快照结构。
+    /// </summary>
+    internal static OpenRouterReasoningEfforts? ReadReasoningEfforts(OpenRouterModelMetadata? matched)
+    {
+        if (matched?.Raw is not { ValueKind: JsonValueKind.Object } raw
+            || !raw.TryGetProperty("reasoning", out var reasoning)
+            || reasoning.ValueKind != JsonValueKind.Object
+            || !reasoning.TryGetProperty("supported_efforts", out var efforts)
+            || efforts.ValueKind != JsonValueKind.Array)
+        {
+            return null;
+        }
+
+        var supported = new HashSet<ReasoningEffort>();
+        foreach (var item in efforts.EnumerateArray())
+        {
+            if (item.ValueKind == JsonValueKind.String && ParseEffort(item.GetString()) is { } effort)
+                supported.Add(effort);
+        }
+
+        if (supported.Count == 0) return null;
+        var defaultEffort = reasoning.TryGetProperty("default_effort", out var defaultElement)
+                            && defaultElement.ValueKind == JsonValueKind.String
+            ? ParseEffort(defaultElement.GetString())
+            : null;
+        return new OpenRouterReasoningEfforts(
+            matched.Id,
+            supported.OrderByDescending(effort => effort).ToList(),
+            defaultEffort);
+    }
+
+    private static ReasoningEffort? ParseEffort(string? value) => value?.Trim().ToLowerInvariant() switch
+    {
+        "none" => ReasoningEffort.None,
+        "minimal" => ReasoningEffort.Minimal,
+        "low" => ReasoningEffort.Low,
+        "medium" => ReasoningEffort.Medium,
+        "high" => ReasoningEffort.High,
+        "xhigh" => ReasoningEffort.XHigh,
+        "max" => ReasoningEffort.Max,
+        _ => null
+    };
 
     /// <summary>
     /// Responses 协议支持度。比其它三项多一个来源：供应商的 <c>supported_endpoint_types</c>

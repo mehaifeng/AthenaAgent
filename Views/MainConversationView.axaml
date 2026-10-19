@@ -1089,15 +1089,59 @@
                         </StackPanel>
                     </Border>
 
-                    <TextBlock Grid.Column="2"
-                               Text="{Binding CurrentModelName}"
-                               MaxWidth="100"
-                               HorizontalAlignment="Left"
-                               VerticalAlignment="Center"
-                               Foreground="{DynamicResource Chat.TimestampFg}"
-                               FontSize="{DynamicResource App.FontSize.Body}"
-                               TextTrimming="CharacterEllipsis"
-                               ToolTip.Tip="{Binding CurrentModelName}"/>
+                    <StackPanel Grid.Column="2"
+                                Orientation="Horizontal"
+                                Spacing="4"
+                                VerticalAlignment="Center">
+                        <TextBlock Text="{Binding CurrentModelName}"
+                                   MaxWidth="100"
+                                   HorizontalAlignment="Left"
+                                   VerticalAlignment="Center"
+                                   Foreground="{DynamicResource Chat.TimestampFg}"
+                                   FontSize="{DynamicResource App.FontSize.Body}"
+                                   TextTrimming="CharacterEllipsis"
+                                   ToolTip.Tip="{Binding CurrentModelName}"/>
+                        <!-- 推理强度：只在 OpenRouter 目录列出了这个模型的档位时出现（见 ReasoningEffortPickerViewModel）。
+                             菜单项在弹出时才实例化。 -->
+                        <Button x:Name="ReasoningEffortButton"
+                                IsVisible="{Binding ReasoningEffortPicker.IsAvailable}"
+                                Classes="icon-plain"
+                                Padding="4,2"
+                                BorderThickness="0"
+                                VerticalAlignment="Center"
+                                ToolTip.Tip="{Binding ReasoningEffortPicker.Tip}"
+                                AutomationProperties.Name="{Binding ReasoningEffortPicker.Tip}">
+                            <StackPanel Orientation="Horizontal" Spacing="3">
+                                <PathIcon Data="{StaticResource AthenaIconReasoning}"
+                                          Width="12"
+                                          Height="12"
+                                          Foreground="{DynamicResource Chat.TimestampFg}"/>
+                                <TextBlock x:Name="ReasoningEffortLabel"
+                                           Text="{Binding ReasoningEffortPicker.Label}"
+                                           MaxWidth="110"
+                                           VerticalAlignment="Center"
+                                           Foreground="{DynamicResource Chat.TimestampFg}"
+                                           FontSize="{DynamicResource App.FontSize.Body}"
+                                           TextTrimming="CharacterEllipsis"/>
+                            </StackPanel>
+                            <Button.Flyout>
+                                <MenuFlyout Placement="TopEdgeAlignedRight"
+                                            ItemsSource="{Binding ReasoningEffortPicker.Choices}">
+                                    <MenuFlyout.ItemContainerTheme>
+                                        <ControlTheme TargetType="MenuItem"
+                                                      BasedOn="{StaticResource {x:Type MenuItem}}"
+                                                      x:DataType="vm:ReasoningEffortChoice">
+                                            <Setter Property="Header" Value="{Binding Label}"/>
+                                            <Setter Property="ToggleType" Value="Radio"/>
+                                            <Setter Property="IsChecked" Value="{Binding IsSelected, Mode=OneWay}"/>
+                                            <Setter Property="Command" Value="{Binding Command}"/>
+                                            <Setter Property="CommandParameter" Value="{Binding Value}"/>
+                                        </ControlTheme>
+                                    </MenuFlyout.ItemContainerTheme>
+                                </MenuFlyout>
+                            </Button.Flyout>
+                        </Button>
+                    </StackPanel>
 
                     <Button Grid.Column="3"
                             HorizontalAlignment="Stretch"

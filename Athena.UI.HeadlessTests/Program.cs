@@ -137,6 +137,7 @@ TestReasoningBubbleState();
 TestReasoningBulbVisualState();
 TestAssistantBubbleLayoutVisual(outputPath);
 TestProcessRunFolding(outputPath);
+TestComposerReasoningEffortPicker(outputPath);
 Task.Run(TestReasoningStreamingInBubbleAsync).GetAwaiter().GetResult();
 TestInterleavedReasoningSegmentOrder();
 Task.Run(TestResponsesEndpointUnsupportedFallbackAsync).GetAwaiter().GetResult();
@@ -9876,6 +9877,146 @@ static void TestAssistantBubbleLayoutVisual(string outputPath)
 // 进行中只留摘要 + 最近几行、窗口滑动只增删不重建、亲手点过的行不被挤走、
 // 正文出现或整轮结束时折成一行、短段不折、失败不藏、点开即全量且结束时不折回、
 // 气泡级按钮一次展开/收起全部，以及折叠后的过程段确实不实例化任何行。
+static void TestComposerReasoningEffortPicker(string outputPath)
+{
+    // OpenRouter 目录的 reasoning 对象原样取自 2026-10-19 的线上目录：有档位、只有 mandatory、档位全不认识三种形状。
+    using var catalogJson = JsonDocument.Parse("""
+        {"data":[
+          {"id":"deepseek/deepseek-v4.1-flash","name":"DeepSeek","context_length":1000000,
+           "architecture":{"input_modalities":["text"],"output_modalities":["text"]},
+           "supported_parameters":["tools","reasoning","include_reasoning","reasoning_effort"],
+           "reasoning":{"mandatory":false,"default_enabled":true,"supported_efforts":["max","high","low","none"],"default_effort":"high"}},
+          {"id":"elorian/glimpse","name":"Glimpse","context_length":128000,
+           "architecture":{"input_modalities":["text"],"output_modalities":["text"]},
+           "supported_parameters":["reasoning","reasoning_effort"],
+           "reasoning":{"mandatory":false}},
+          {"id":"vendor/odd","name":"Odd","context_length":128000,
+           "architecture":{"input_modalities":["text"],"output_modalities":["text"]},
+           "supported_parameters":["reasoning"],
+           "reasoning":{"supported_efforts":["turbo"]}}
+        ]}
+        """);
+    var models = OpenRouterModelMetadataCatalog.ParsePage(catalogJson.RootElement, out _, out _);
+    var withEfforts = ModelMetadataResolver.ReadReasoningEfforts(models[0])
+                      ?? throw new InvalidOperationException("supported_efforts 存在时必须读出推理档位。");
+    if (!withEfforts.Supported.SequenceEqual([ReasoningEffort.Max, ReasoningEffort.High, ReasoningEffort.Low, ReasoningEffort.None])
+        || withEfforts.Default != ReasoningEffort.High
+        || withEfforts.OpenRouterModelId != "deepseek/deepseek-v4.1-flash")
+        throw new InvalidOperationException($"推理档位解析错误：{string.Join(",", withEfforts.Supported)} / {withEfforts.Default}");
+    // supported_parameters 里的 reasoning_effort 只说收这个参数，不说收哪几档：不算佐证。
+    if (ModelMetadataResolver.ReadReasoningEfforts(models[1]) != null
+        || ModelMetadataResolver.ReadReasoningEfforts(models[2]) != null
+        || ModelMetadataResolver.ReadReasoningEfforts(null) != null)
+        throw new InvalidOperationException("没有可识别的 supported_efforts 时不能给出推理档位。");
+
+    var provider = new OpenAiProviderConfiguration
+    {
+        Id = "or",
+        DisplayName = "OpenRouter",
+        ProviderPreset = "OpenRouter",
+        BaseUrl = "https://openrouter.ai/api/v1",
+        ApiKey = "sk-fixture"
+    };
+    foreach (var model in models)
+        provider.Models.Add(new ProviderModelDescriptor { Id = model.Id, DisplayName = model.Name, Capability = ModelCapability.Text });
+    var config = new AppConfig();
+    config.AiModels.Providers.Add(provider);
+    config.AiModels.MainConversation.ProviderId = "or";
+    config.AiModels.MainConversation.Model = "deepseek/deepseek-v4.1-flash";
+    var configService = new HeadlessConfigService(config);
+    var catalog = new HeadlessMetadataCatalog(new OpenRouterCatalogSnapshot(
+        1, "effort-fixture", DateTimeOffset.UtcNow, "fixture", "fixture", null, models));
+    using var policyProvider = new ContextPolicyProvider(
+        configService, catalog, new ModelMetadataResolver(new ModelIdentityMatcher()), new ModelContextPolicyResolver());
+    var localization = new LocalizationService();
+    localization.SwitchLanguage("zh-CN");
+    var viewModel = new MainConversationViewModel(
+        null, configService, null, null, null, localization, contextPolicyProvider: policyProvider);
+    var picker = viewModel.ReasoningEffortPicker;
+
+    if (!picker.IsAvailable
+        || picker.Label != "默认（high）"
+        || !picker.Choices.Select(choice => choice.Value).SequenceEqual(
+            [ReasoningEffort.Auto, ReasoningEffort.Max, ReasoningEffort.High, ReasoningEffort.Low, ReasoningEffort.None])
+        || picker.Choices.Single(choice => choice.IsSelected).Value != ReasoningEffort.Auto
+        || !picker.Tip.Contains("deepseek/deepseek-v4.1-flash", StringComparison.Ordinal))
+        throw new InvalidOperationException($"有 OpenRouter 档位时选择器必须可用并列出默认 + 目录档位：{picker.Label} / {string.Join(",", picker.Choices.Select(c => c.Value))}");
+    if (config.AiModels.ModelMetadataProfiles.Count != 0)
+        throw new InvalidOperationException("只是显示选择器不能写配置。");
+
+    var window = new Window { Width = 900, Height = 700, Content = new MainConversationView { DataContext = viewModel } };
+    window.Show();
+    Dispatcher.UIThread.RunJobs();
+    var button = window.GetVisualDescendants().OfType<Button>().FirstOrDefault(b => b.Name == "ReasoningEffortButton")
+                 ?? throw new InvalidOperationException("模型名旁边没有推理强度按钮。");
+    var modelName = window.GetVisualDescendants().OfType<TextBlock>()
+        .First(text => text.Text == "deepseek/deepseek-v4.1-flash");
+    if (!button.IsEffectivelyVisible || !ReferenceEquals(button.Parent, modelName.Parent))
+        throw new InvalidOperationException("推理强度按钮必须和模型名并排且可见。");
+    if (button.Flyout is not MenuFlyout flyout)
+        throw new InvalidOperationException("推理强度按钮必须用菜单弹出档位。");
+    var effortShotPath = Path.Combine(Path.GetDirectoryName(outputPath)!, "athena-reasoning-effort.png");
+    SaveWindowFrame(window, effortShotPath);
+    flyout.ShowAt(button);
+    Dispatcher.UIThread.RunJobs();
+    // 弹出菜单在自己的 PopupRoot 里，不在窗口的视觉树下；从 flyout 的 Popup 往下找实际生成的菜单项。
+    var popup = (Avalonia.Controls.Primitives.Popup)typeof(Avalonia.Controls.Primitives.PopupFlyoutBase)
+        .GetProperty("Popup", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic)!
+        .GetValue(flyout)!;
+    var menuItems = popup.Child?.GetVisualDescendants().OfType<MenuItem>().ToList() ?? [];
+    var high = menuItems.FirstOrDefault(item => item.Header as string == "高（high）")
+               ?? throw new InvalidOperationException($"弹出菜单里没有「高（high）」：{string.Join(",", menuItems.Select(i => i.Header))}");
+    if (menuItems.Count != 5 || menuItems.Single(item => item.IsChecked).Header as string != "默认（high）")
+        throw new InvalidOperationException($"弹出菜单必须是 5 项且勾选当前档位：{menuItems.Count}");
+    if (high.Command == null || !high.Command.CanExecute(high.CommandParameter))
+        throw new InvalidOperationException("菜单项没有绑上选择命令。");
+    high.Command.Execute(high.CommandParameter);
+    PumpUntil(() => configService.SaveCount > 0, 3000, "选择档位后必须写入配置。");
+    Dispatcher.UIThread.RunJobs();
+    flyout.Hide();
+
+    var profile = configService.Load().AiModels.ModelMetadataProfiles.SingleOrDefault(p =>
+        p.ProviderId == "or" && p.ExternalModelId == "deepseek/deepseek-v4.1-flash");
+    if (profile?.Overrides.ReasoningEffort != ReasoningEffort.High)
+        throw new InvalidOperationException("档位必须写进主对话模型的元数据覆盖（和设置页同一个字段）。");
+    if (picker.Label != "高（high）" || picker.Choices.Single(choice => choice.IsSelected).Value != ReasoningEffort.High)
+        throw new InvalidOperationException($"选择后按钮文字必须立即更新：{picker.Label}");
+    if (OpenAiModelRuntimeFactory.Resolve(configService.Load(), AiModelRole.MainConversation).Effort != ReasoningEffort.High)
+        throw new InvalidOperationException("请求侧没有读到新的推理强度。");
+
+    // 设置页里选了一个目录没列的档位：照实显示，不能藏掉。
+    profile.Overrides.ReasoningEffort = ReasoningEffort.Medium;
+    configService.PublishExternal(configService.Load());
+    PumpUntil(() => picker.Label == "中（medium）", 3000, "外部改动档位后选择器必须跟上。");
+    if (!picker.Choices.Select(choice => choice.Value).SequenceEqual(
+            [ReasoningEffort.Auto, ReasoningEffort.Max, ReasoningEffort.High, ReasoningEffort.Medium, ReasoningEffort.Low, ReasoningEffort.None]))
+        throw new InvalidOperationException("当前档位不在目录里时也必须列出来。");
+
+    // 选回默认。
+    picker.SelectCommand.Execute(ReasoningEffort.Auto);
+    PumpUntil(() => picker.Label == "默认（high）", 3000, "选回默认后按钮文字没有恢复。");
+
+    // 没有档位佐证的模型：按钮消失。
+    config = configService.Load();
+    config.AiModels.MainConversation.Model = "elorian/glimpse";
+    configService.PublishExternal(config);
+    PumpUntil(() => !picker.IsAvailable, 3000, "没有 supported_efforts 的模型不能显示推理强度选择。");
+    Dispatcher.UIThread.RunJobs();
+    if (button.IsEffectivelyVisible)
+        throw new InvalidOperationException("没有佐证时推理强度按钮必须隐藏。");
+    var before = configService.SaveCount;
+    picker.SelectCommand.Execute(ReasoningEffort.High);
+    Dispatcher.UIThread.RunJobs();
+    if (configService.SaveCount != before)
+        throw new InvalidOperationException("没有佐证时选择命令不能写配置。");
+
+    window.Close();
+    viewModel.Dispose();
+    // 下一个用例从线程池调 RunJobs：留在队列里的作业（关窗、配置变更的 Post）会在那里因线程归属炸掉。
+    Dispatcher.UIThread.RunJobs();
+    Console.WriteLine($"[PASS] composer reasoning effort picker appears only with OpenRouter supported_efforts, lists catalog levels, and writes the model's effort override: {effortShotPath}");
+}
+
 static void TestProcessRunFolding(string outputPath)
 {
     ToolCallEntry Tool(string id, string name, ToolCallStatus status = ToolCallStatus.Success) => new()

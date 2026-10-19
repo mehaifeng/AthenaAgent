@@ -536,6 +536,9 @@
     <system:String x:Key="ProviderModels.ReasoningEffort.High">High</system:String>
     <system:String x:Key="ProviderModels.ReasoningEffort.XHigh">X-High</system:String>
     <system:String x:Key="ProviderModels.ReasoningEffort.Max">Max</system:String>
+    <system:String x:Key="Chat.ReasoningEffort.Default">Default ({0})</system:String>
+    <system:String x:Key="Chat.ReasoningEffort.DefaultUnknown">Default</system:String>
+    <system:String x:Key="Chat.ReasoningEffort.Tip">Reasoning effort. Levels come from the OpenRouter catalog ({0}); applies to every conversation using this model, from the next turn.</system:String>
     <system:String x:Key="ProviderModels.Metadata.Input">Input modalities:</system:String>
     <system:String x:Key="ProviderModels.Metadata.Output">Output modalities:</system:String>
     <system:String x:Key="ProviderModels.Metadata.InputPlaceholder">input modalities: text, image</system:String>

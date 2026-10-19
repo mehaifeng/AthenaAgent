@@ -536,6 +536,9 @@
     <system:String x:Key="ProviderModels.ReasoningEffort.High">高（high）</system:String>
     <system:String x:Key="ProviderModels.ReasoningEffort.XHigh">超高（xhigh）</system:String>
     <system:String x:Key="ProviderModels.ReasoningEffort.Max">最高（max）</system:String>
+    <system:String x:Key="Chat.ReasoningEffort.Default">默认（{0}）</system:String>
+    <system:String x:Key="Chat.ReasoningEffort.DefaultUnknown">默认</system:String>
+    <system:String x:Key="Chat.ReasoningEffort.Tip">推理强度。可选档位来自 OpenRouter 模型目录（{0}），对使用该模型的所有会话生效，下一轮起作用。</system:String>
     <system:String x:Key="ProviderModels.Metadata.Input">输入模态：</system:String>
     <system:String x:Key="ProviderModels.Metadata.Output">输出模态：</system:String>
     <system:String x:Key="ProviderModels.Metadata.InputPlaceholder">输入模态：text, image</system:String>
