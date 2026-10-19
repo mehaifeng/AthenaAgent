@@ -1020,6 +1020,17 @@
     <system:String x:Key="Chat.Reasoning.Header">Reasoning</system:String>
     <system:String x:Key="Chat.Reasoning.ShowAll">Show all</system:String>
     <system:String x:Key="Chat.Reasoning.ShowLess">Show less</system:String>
+    <system:String x:Key="Chat.ProcessRun.Reasoning">Thought {0}×</system:String>
+    <system:String x:Key="Chat.ProcessRun.Tools">{0} tool calls</system:String>
+    <system:String x:Key="Chat.ProcessRun.Breakdown"> ({0})</system:String>
+    <system:String x:Key="Chat.ProcessRun.Read">read {0}</system:String>
+    <system:String x:Key="Chat.ProcessRun.Search">search {0}</system:String>
+    <system:String x:Key="Chat.ProcessRun.Write">write {0}</system:String>
+    <system:String x:Key="Chat.ProcessRun.Command">command {0}</system:String>
+    <system:String x:Key="Chat.ProcessRun.Other">other {0}</system:String>
+    <system:String x:Key="Chat.ProcessRun.Failed">{0} failed</system:String>
+    <system:String x:Key="Chat.ProcessRun.Tip">Expand or collapse these steps</system:String>
+    <system:String x:Key="Chat.BtnToggleProcess">Expand or collapse all steps</system:String>
     <system:String x:Key="Dialog.DontAskAgain">Don't ask again</system:String>
     <system:String x:Key="Knowledge.SelectFile">Select a file to view</system:String>
     <system:String x:Key="Knowledge.LoadFailed">Failed to load: {0}</system:String>

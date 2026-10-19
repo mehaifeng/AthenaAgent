@@ -15,6 +15,16 @@ public enum ChatMessageSegmentKind
     Reasoning = 3
 }
 
+/// <summary>过程段摘要用的工具类别，见 <see cref="ToolCallDisplay.Category"/>。</summary>
+public enum ToolCallCategory
+{
+    Read,
+    Search,
+    Write,
+    Command,
+    Other
+}
+
 /// <summary>
 /// 工具调用项的执行状态
 /// </summary>

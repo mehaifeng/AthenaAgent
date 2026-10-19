@@ -3,8 +3,10 @@ using Avalonia.Data.Converters;
 using Avalonia.Layout;
 using Avalonia.Media;
 using Avalonia.Media.Immutable;
+using Athena.UI.Models;
 using Athena.UI.Services.Interfaces;
 using System;
+using System.Collections.Generic;
 using System.Globalization;
 
 namespace Athena.UI.Converters;
@@ -236,6 +238,67 @@ public class DurationToTextConverter : IValueConverter
             Text("Chat.Duration.HoursMinutes", "Took {0}h {1:00}m"),
             totalMinutes / 60,
             totalMinutes % 60);
+    }
+
+    public object? ConvertBack(object? value, Type targetType, object? parameter, CultureInfo culture) => throw new NotImplementedException();
+}
+
+/// <summary>
+/// 过程段摘要行的文字：「思考 4 次 · 调用 17 个工具（读取 8 · 搜索 5 · 写入 3 · 终端 1）」。
+/// ConverterParameter="Failures" 时只出失败数（「1 个失败」），它单独一个 TextBlock 好上失败色。
+/// 计数为 0 的部分不出现：「其他 0」只是噪声。
+/// </summary>
+public class ProcessRunSummaryConverter : IValueConverter
+{
+    private const string Separator = " · ";
+
+    public object? Convert(object? value, Type targetType, object? parameter, CultureInfo culture)
+    {
+        if (value is not ProcessRunStats stats)
+        {
+            return string.Empty;
+        }
+
+        var localizationService = App.Services?.GetService(typeof(ILocalizationService)) as ILocalizationService;
+        string Format(string key, string fallback, int count) => string.Format(
+            CultureInfo.InvariantCulture,
+            localizationService?.GetString(key, fallback) ?? fallback,
+            count);
+
+        if (parameter is "Failures")
+        {
+            return stats.Failed > 0 ? Format("Chat.ProcessRun.Failed", "{0} failed", stats.Failed) : string.Empty;
+        }
+
+        var parts = new List<string>(2);
+        if (stats.Reasoning > 0)
+        {
+            parts.Add(Format("Chat.ProcessRun.Reasoning", "Thought {0}×", stats.Reasoning));
+        }
+
+        if (stats.Tools > 0)
+        {
+            var breakdown = new List<string>(5);
+            void Add(int count, string key, string fallback)
+            {
+                if (count > 0)
+                {
+                    breakdown.Add(Format(key, fallback, count));
+                }
+            }
+
+            Add(stats.Read, "Chat.ProcessRun.Read", "read {0}");
+            Add(stats.Search, "Chat.ProcessRun.Search", "search {0}");
+            Add(stats.Write, "Chat.ProcessRun.Write", "write {0}");
+            Add(stats.Command, "Chat.ProcessRun.Command", "command {0}");
+            Add(stats.Other, "Chat.ProcessRun.Other", "other {0}");
+
+            var breakdownFormat = localizationService?.GetString("Chat.ProcessRun.Breakdown", " ({0})") ?? " ({0})";
+            parts.Add(Format("Chat.ProcessRun.Tools", "{0} tool calls", stats.Tools)
+                + string.Format(CultureInfo.InvariantCulture, breakdownFormat, string.Join(Separator, breakdown)));
+        }
+
+        return string.Join(Separator, parts);
     }
 
     public object? ConvertBack(object? value, Type targetType, object? parameter, CultureInfo culture) => throw new NotImplementedException();

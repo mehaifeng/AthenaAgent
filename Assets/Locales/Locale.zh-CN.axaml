@@ -1020,6 +1020,17 @@
     <system:String x:Key="Chat.Reasoning.Header">思考过程</system:String>
     <system:String x:Key="Chat.Reasoning.ShowAll">显示全部</system:String>
     <system:String x:Key="Chat.Reasoning.ShowLess">收起长文</system:String>
+    <system:String x:Key="Chat.ProcessRun.Reasoning">思考 {0} 次</system:String>
+    <system:String x:Key="Chat.ProcessRun.Tools">调用 {0} 个工具</system:String>
+    <system:String x:Key="Chat.ProcessRun.Breakdown">（{0}）</system:String>
+    <system:String x:Key="Chat.ProcessRun.Read">读取 {0}</system:String>
+    <system:String x:Key="Chat.ProcessRun.Search">搜索 {0}</system:String>
+    <system:String x:Key="Chat.ProcessRun.Write">写入 {0}</system:String>
+    <system:String x:Key="Chat.ProcessRun.Command">终端 {0}</system:String>
+    <system:String x:Key="Chat.ProcessRun.Other">其他 {0}</system:String>
+    <system:String x:Key="Chat.ProcessRun.Failed">{0} 个失败</system:String>
+    <system:String x:Key="Chat.ProcessRun.Tip">展开或收起这段过程</system:String>
+    <system:String x:Key="Chat.BtnToggleProcess">展开或收起全部过程</system:String>
     <system:String x:Key="Dialog.DontAskAgain">下次不再提示</system:String>
     <system:String x:Key="Knowledge.SelectFile">选择文件以查看</system:String>
     <system:String x:Key="Knowledge.LoadFailed">加载失败：{0}</system:String>

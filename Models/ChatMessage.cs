@@ -1,5 +1,8 @@
 using CommunityToolkit.Mvvm.ComponentModel;
+using CommunityToolkit.Mvvm.Input;
 using System;
+using System.Collections.Specialized;
+using System.ComponentModel;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Linq;
@@ -19,7 +22,38 @@ public partial class ChatMessage : ObservableObject
 
     public ObservableCollection<ChatAttachment> Attachments { get; set; } = new();
 
-    public ObservableCollection<ChatMessageSegment> Segments { get; set; } = new();
+    private ObservableCollection<ChatMessageSegment> _segments = new();
+
+    /// <summary>
+    /// 过程段投影（见 <see cref="ProcessRun"/>）：正文/生成图段原样，连续的思考段与工具组归入一个过程段。
+    /// 懒建——从没渲染过的消息（隐藏的工具轮、tool 角色）不付这笔账。不落盘。
+    /// </summary>
+    private ObservableCollection<object>? _displaySegments;
+
+    public ChatMessage()
+    {
+        _segments.CollectionChanged += OnSegmentsCollectionChanged;
+    }
+
+    public ObservableCollection<ChatMessageSegment> Segments
+    {
+        get => _segments;
+        set
+        {
+            if (ReferenceEquals(_segments, value))
+            {
+                return;
+            }
+
+            _segments.CollectionChanged -= OnSegmentsCollectionChanged;
+            _segments = value ?? new ObservableCollection<ChatMessageSegment>();
+            _segments.CollectionChanged += OnSegmentsCollectionChanged;
+            if (_displaySegments != null)
+            {
+                RebuildDisplaySegments();
+            }
+        }
+    }
 
     /// <summary>
     /// 消息角色: user, assistant, system
@@ -102,6 +136,15 @@ public partial class ChatMessage : ObservableObject
     [NotifyPropertyChangedFor(nameof(IsBubbleVisible))]
     [NotifyPropertyChangedFor(nameof(CanGenerateAudio))]
     private bool _isStreaming;
+
+    // 只有最后一个过程段可能「进行中」：它之后一旦出现正文段就已经结束了。
+    partial void OnIsStreamingChanged(bool value)
+    {
+        if (_displaySegments is { Count: > 0 } display && display[^1] is ProcessRun run)
+        {
+            run.IsOpen = value;
+        }
+    }
 
     /// <summary>
     /// 工具调用 ID (仅用于 tool 角色消息)
@@ -230,9 +273,153 @@ public partial class ChatMessage : ObservableObject
     [JsonIgnore]
     public ChatMessage? LegacyMarkdownContent => ShouldShowLegacyMarkdown ? this : null;
 
-    /// <summary>Segment 布局未启用时不创建无效子项。</summary>
+    /// <summary>Segment 布局未启用时不创建无效子项。渲染的是过程段投影，不是原始段列表。</summary>
     [JsonIgnore]
-    public IEnumerable<ChatMessageSegment>? SegmentContent => UsesSegmentLayout ? Segments : null;
+    public IEnumerable<object>? SegmentContent => UsesSegmentLayout ? DisplaySegments : null;
+
+    [JsonIgnore]
+    public ObservableCollection<object> DisplaySegments
+    {
+        get
+        {
+            if (_displaySegments == null)
+            {
+                _displaySegments = new ObservableCollection<object>();
+                foreach (var segment in _segments)
+                {
+                    AppendDisplaySegment(segment);
+                }
+
+                CloseProcessRunsExceptLive();
+            }
+
+            return _displaySegments;
+        }
+    }
+
+    [JsonIgnore]
+    public IEnumerable<ProcessRun> ProcessRuns => DisplaySegments.OfType<ProcessRun>();
+
+    /// <summary>气泡级「展开全部过程」只在有东西可折时出现。</summary>
+    [JsonIgnore]
+    public bool HasFoldableProcessRuns => ProcessRuns.Any(run => run.IsFoldable);
+
+    [JsonIgnore]
+    public bool AreProcessRunsExpanded => ProcessRuns.Where(run => run.IsFoldable || run.IsExpanded).Any()
+        && ProcessRuns.Where(run => run.IsFoldable || run.IsExpanded).All(run => run.IsExpanded);
+
+    [JsonIgnore]
+    public string ProcessRunsToggleIconKey => AreProcessRunsExpanded ? "AthenaIconChevronUp" : "AthenaIconChevronDown";
+
+    // 生成的 ICommand 属性不挡住就会进归档（见 ChatMessageSegment）。
+    [RelayCommand]
+    [property: JsonIgnore]
+    private void ToggleProcessRuns()
+    {
+        var expand = !AreProcessRunsExpanded;
+        foreach (var run in ProcessRuns.Where(run => run.IsFoldable || run.IsExpanded).ToList())
+        {
+            run.SetExpanded(expand);
+        }
+    }
+
+    private void OnSegmentsCollectionChanged(object? sender, NotifyCollectionChangedEventArgs e)
+    {
+        if (_displaySegments == null)
+        {
+            return;
+        }
+
+        // 流式期间段只会追加在末尾：增量接进投影，已渲染的正文段一个都不重建。
+        // 其余变化（归档迁移的 Insert(0)、整体替换）罕见，整体重建即可。
+        if (e.Action == NotifyCollectionChangedAction.Add
+            && e.NewItems != null
+            && e.NewStartingIndex == _segments.Count - e.NewItems.Count)
+        {
+            foreach (ChatMessageSegment segment in e.NewItems)
+            {
+                AppendDisplaySegment(segment);
+            }
+
+            RaiseProcessRunsChanged();
+            return;
+        }
+
+        RebuildDisplaySegments();
+    }
+
+    private void RebuildDisplaySegments()
+    {
+        var display = _displaySegments!;
+        foreach (var run in display.OfType<ProcessRun>())
+        {
+            run.PropertyChanged -= OnProcessRunPropertyChanged;
+            run.Detach();
+        }
+
+        display.Clear();
+        foreach (var segment in _segments)
+        {
+            AppendDisplaySegment(segment);
+        }
+
+        CloseProcessRunsExceptLive();
+        RaiseProcessRunsChanged();
+    }
+
+    private void AppendDisplaySegment(ChatMessageSegment segment)
+    {
+        var display = _displaySegments!;
+        var lastRun = display.Count > 0 ? display[^1] as ProcessRun : null;
+
+        if (segment.IsReasoning || segment.IsToolCallGroup)
+        {
+            if (lastRun == null)
+            {
+                lastRun = new ProcessRun { IsOpen = IsStreaming };
+                lastRun.PropertyChanged += OnProcessRunPropertyChanged;
+                display.Add(lastRun);
+            }
+
+            lastRun.Add(segment);
+            return;
+        }
+
+        // 正文（或生成图）落地：它前面那个过程段到此结束。
+        if (lastRun != null)
+        {
+            lastRun.IsOpen = false;
+        }
+
+        display.Add(segment);
+    }
+
+    private void CloseProcessRunsExceptLive()
+    {
+        var display = _displaySegments!;
+        for (var index = 0; index < display.Count; index++)
+        {
+            if (display[index] is ProcessRun run)
+            {
+                run.IsOpen = IsStreaming && index == display.Count - 1;
+            }
+        }
+    }
+
+    private void OnProcessRunPropertyChanged(object? sender, PropertyChangedEventArgs e)
+    {
+        if (e.PropertyName is nameof(ProcessRun.IsFoldable) or nameof(ProcessRun.IsExpanded))
+        {
+            RaiseProcessRunsChanged();
+        }
+    }
+
+    private void RaiseProcessRunsChanged()
+    {
+        OnPropertyChanged(nameof(HasFoldableProcessRuns));
+        OnPropertyChanged(nameof(AreProcessRunsExpanded));
+        OnPropertyChanged(nameof(ProcessRunsToggleIconKey));
+    }
 
     [JsonIgnore]
     public IEnumerable<ChatAttachment> AttachmentPanelItems =>

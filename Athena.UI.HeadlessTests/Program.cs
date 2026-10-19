@@ -136,6 +136,7 @@ if (Environment.GetEnvironmentVariable("ATHENA_SWAP_PERF") == "1")
 TestReasoningBubbleState();
 TestReasoningBulbVisualState();
 TestAssistantBubbleLayoutVisual(outputPath);
+TestProcessRunFolding(outputPath);
 Task.Run(TestReasoningStreamingInBubbleAsync).GetAwaiter().GetResult();
 TestInterleavedReasoningSegmentOrder();
 Task.Run(TestResponsesEndpointUnsupportedFallbackAsync).GetAwaiter().GetResult();
@@ -9862,6 +9863,238 @@ static void TestAssistantBubbleLayoutVisual(string outputPath)
         var bubblePath = Path.Combine(Path.GetDirectoryName(outputPath)!, "athena-assistant-bubble.png");
         SaveWindowFrame(window, bubblePath);
         Console.WriteLine($"[PASS] assistant bubble interleaves reasoning, tool rows and text in segment order: {bubblePath}");
+    }
+    finally
+    {
+        window.Close();
+        Dispatcher.UIThread.RunJobs();
+    }
+}
+
+// 过程段折叠：工具轮次远多于正文时，过程行不能把气泡撑到几屏高，但每一行都必须点得开。
+// 规则都是常量（ProcessRun.LiveWindowRows / FoldThresholdRows），这里逐条钉住：
+// 进行中只留摘要 + 最近几行、窗口滑动只增删不重建、亲手点过的行不被挤走、
+// 正文出现或整轮结束时折成一行、短段不折、失败不藏、点开即全量且结束时不折回、
+// 气泡级按钮一次展开/收起全部，以及折叠后的过程段确实不实例化任何行。
+static void TestProcessRunFolding(string outputPath)
+{
+    ToolCallEntry Tool(string id, string name, ToolCallStatus status = ToolCallStatus.Success) => new()
+    {
+        ToolCallId = id,
+        Name = name,
+        Summary = $"{name} · {id}",
+        Arguments = "{\n  \"path\": \"x\"\n}",
+        Result = "ok",
+        Status = status
+    };
+
+    ChatMessageSegment Group(params ToolCallEntry[] entries)
+    {
+        var group = new ChatMessageSegment { Kind = ChatMessageSegmentKind.ToolCallGroup };
+        foreach (var entry in entries) group.ToolCalls.Add(entry);
+        return group;
+    }
+
+    // ---- 模型层：进行中的滑动窗口 ----
+    var live = new ChatMessage { Role = "assistant", IsStreaming = true };
+    var display = live.DisplaySegments;
+    live.Segments.Add(new ChatMessageSegment { Kind = ChatMessageSegmentKind.Reasoning, Text = "先看看结构" });
+    // 先入段、后加调用项：和 AppendToolCallGroup 的真实顺序一致。
+    var round = new ChatMessageSegment { Kind = ChatMessageSegmentKind.ToolCallGroup };
+    live.Segments.Add(round);
+    round.ToolCalls.Add(Tool("t1", "read_system_file"));
+    round.ToolCalls.Add(Tool("t2", "search_in_directory"));
+    if (display.Count != 1 || display[0] is not ProcessRun run)
+        throw new InvalidOperationException($"连续的思考与工具组必须归入同一个过程段，投影里有 {display.Count} 项");
+    if (!run.IsOpen)
+        throw new InvalidOperationException("流式中的最后一个过程段必须是进行中");
+    if (run.Header != null || run.VisibleRows.Count != 3)
+        throw new InvalidOperationException($"不超过窗口的进行中过程段不该出摘要行，且三行都要在：header={run.Header != null} rows={run.VisibleRows.Count}");
+
+    round.ToolCalls.Add(Tool("t3", "execute_terminal_command", ToolCallStatus.Running));
+    if (run.Header == null)
+        throw new InvalidOperationException("进行中的过程段超出窗口后必须出现摘要行");
+    if (run.VisibleRows.Count != ProcessRun.LiveWindowRows
+        || !ReferenceEquals(run.VisibleRows[^1], round.ToolCalls[^1])
+        || run.VisibleRows.Contains(live.Segments[0]))
+        throw new InvalidOperationException("进行中的过程段只保留最近几行，当前这一步必须在最后一行");
+    if (!run.IsRunning || run.StatusIconKey != "AthenaIconLoading")
+        throw new InvalidOperationException("有调用还在执行时摘要行必须显示执行中");
+
+    // 亲手点开的行不被挤走。
+    var pinned = round.ToolCalls[0];
+    pinned.ToggleExpandedCommand.Execute(null);
+    for (var i = 4; i <= 12; i++)
+    {
+        live.Segments.Add(Group(Tool($"t{i}", i % 3 == 0 ? "write_system_file" : "read_system_file")));
+    }
+    if (!run.VisibleRows.Contains(pinned) || run.VisibleRows.Count != ProcessRun.LiveWindowRows + 1)
+        throw new InvalidOperationException($"用户点开过的行被窗口挤走了（可见 {run.VisibleRows.Count} 行）");
+    if (run.RowCount != 13)
+        throw new InvalidOperationException($"过程段应有 13 行（1 思考 + 12 调用），实为 {run.RowCount}");
+
+    // ---- 正文出现：过程段结束并折叠 ----
+    round.ToolCalls[2].Status = ToolCallStatus.Failed;
+    live.Segments.Add(new ChatMessageSegment { Kind = ChatMessageSegmentKind.Markdown, Text = "最终回复" });
+    if (run.IsOpen)
+        throw new InvalidOperationException("正文段开始输出时，它前面的过程段必须结束");
+    if (run.Header == null || run.VisibleRows.Count != 1 || !ReferenceEquals(run.VisibleRows[0], pinned))
+        throw new InvalidOperationException($"结束的过程段只剩摘要行（外加用户亲手点开的行），实为 {run.VisibleRows.Count} 行");
+    if (run.Stats != new ProcessRunStats(1, 12, 7, 1, 3, 1, 0, 1, 0))
+        throw new InvalidOperationException($"过程段计数不对：{run.Stats}");
+    if (!run.HasFailures || run.StatusIconKey != "AthenaIconFailure")
+        throw new InvalidOperationException("有失败的过程段，摘要行必须显示失败");
+    var summaryConverter = new ProcessRunSummaryConverter();
+    var summary = (string)summaryConverter.Convert(run.Stats, typeof(string), null, CultureInfo.InvariantCulture)!;
+    if (summary != "思考 1 次 · 调用 12 个工具（读取 7 · 搜索 1 · 写入 3 · 终端 1）")
+        throw new InvalidOperationException($"摘要文字不对：「{summary}」");
+    var failures = (string)summaryConverter.Convert(run.Stats, typeof(string), "Failures", CultureInfo.InvariantCulture)!;
+    if (failures != "1 个失败")
+        throw new InvalidOperationException($"失败数文字不对：「{failures}」");
+
+    // 收起整段时连钉住的行一起收；再展开是全量。
+    run.ToggleExpandedCommand.Execute(null);
+    if (run.VisibleRows.Count != 13)
+        throw new InvalidOperationException("点开摘要行必须显示全部过程行");
+    run.ToggleExpandedCommand.Execute(null);
+    if (run.VisibleRows.Count != 0)
+        throw new InvalidOperationException("收起整段后不该还剩钉住的行露在外面");
+
+    // 正文之后的新一轮是新的过程段；整轮结束时它也结束。
+    live.Segments.Add(Group(Tool("u1", "read_system_file"), Tool("u2", "read_system_file")));
+    if (display.Count != 3 || display[^1] is not ProcessRun tail || !tail.IsOpen)
+        throw new InvalidOperationException("正文之后的工具轮必须另起一个进行中的过程段");
+    if (run.IsOpen)
+        throw new InvalidOperationException("只有最后一个过程段可能是进行中");
+    // 点开进行中的整段：结束时不折回去。
+    tail.SetExpanded(true);
+    live.Segments[^1].ToolCalls.Add(Tool("u3", "read_system_file"));
+    live.IsStreaming = false;
+    if (tail.IsOpen || !tail.IsExpanded || tail.VisibleRows.Count != 3)
+        throw new InvalidOperationException("用户点开的过程段在回合结束时必须保持全量显示");
+
+    // 短段不折：两行折成一行几乎不省空间，反而多一次点击。
+    var shortRun = new ChatMessage { Role = "assistant" };
+    shortRun.Segments.Add(new ChatMessageSegment { Kind = ChatMessageSegmentKind.Reasoning, Text = "想一下" });
+    shortRun.Segments.Add(Group(Tool("s1", "web_search")));
+    shortRun.Segments.Add(new ChatMessageSegment { Kind = ChatMessageSegmentKind.Markdown, Text = "好了" });
+    var shortProcess = shortRun.DisplaySegments.OfType<ProcessRun>().Single();
+    if (shortProcess.IsFoldable || shortProcess.Header != null || shortProcess.VisibleRows.Count != 2 || shortRun.HasFoldableProcessRuns)
+        throw new InvalidOperationException("两行的过程段不该折叠，也不该让气泡出现「展开全部过程」");
+
+    // 整体替换段集合（归档反序列化走 setter）必须重建投影，而不是留着旧的。
+    var restored = new ChatMessage { Role = "assistant" };
+    _ = restored.DisplaySegments;
+    restored.Segments = new System.Collections.ObjectModel.ObservableCollection<ChatMessageSegment>(
+        Enumerable.Range(0, 5).Select(i => Group(Tool($"r{i}", "read_system_file"))));
+    var restoredRun = restored.DisplaySegments.OfType<ProcessRun>().SingleOrDefault()
+        ?? throw new InvalidOperationException("替换段集合后投影没有重建");
+    if (restoredRun.IsOpen || restoredRun.VisibleRows.Count != 0 || !restored.HasFoldableProcessRuns)
+        throw new InvalidOperationException("恢复的历史过程段必须是已结束、已折叠的");
+
+    // 投影不落盘：它是渲染状态，不是归档字段。
+    var json = System.Text.Json.JsonSerializer.Serialize(restored);
+    foreach (var forbidden in new[] { "DisplaySegments", "ProcessRuns", "HasFoldableProcessRuns", "ToggleProcessRunsCommand", "VisibleRows", "UserToggled" })
+    {
+        if (json.Contains(forbidden, StringComparison.OrdinalIgnoreCase))
+            throw new InvalidOperationException($"过程段投影的 {forbidden} 被写进了归档");
+    }
+
+    // ---- 视觉层：40 行的已结束过程段只渲染一行摘要 ----
+    using var chat = new MainConversationViewModel();
+    chat.Messages.Add(new ChatMessage { Role = "user", Content = "把整个目录重构一遍" });
+    var heavy = new ChatMessage { Role = "assistant", DurationMs = 48_000 };
+    for (var r = 0; r < 10; r++)
+    {
+        heavy.Segments.Add(new ChatMessageSegment { Kind = ChatMessageSegmentKind.Reasoning, Text = $"第 {r} 轮思考" });
+        heavy.Segments.Add(Group(
+            Tool($"h{r}-1", "read_system_file"),
+            Tool($"h{r}-2", "search_in_directory"),
+            Tool($"h{r}-3", "modify_system_file", r == 4 ? ToolCallStatus.Failed : ToolCallStatus.Success)));
+    }
+    heavy.Segments.Add(new ChatMessageSegment { Kind = ChatMessageSegmentKind.Markdown, Text = "全部改完了。" });
+    heavy.NotifySegmentsChanged();
+    chat.Messages.Add(heavy);
+
+    var streaming = new ChatMessage { Role = "assistant", IsStreaming = true, IsLoading = true };
+    chat.Messages.Add(streaming);
+
+    var view = new MainConversationView { DataContext = chat };
+    var window = new Window { Width = 900, Height = 760, Content = view };
+    try
+    {
+        window.Show();
+        Dispatcher.UIThread.RunJobs();
+
+        var heavyRow = window.GetVisualDescendants().OfType<Grid>()
+            .First(grid => grid.Classes.Contains("message-row") && ReferenceEquals(grid.DataContext, heavy));
+        if (heavyRow.GetVisualDescendants().OfType<ToolCallRowView>().Any()
+            || heavyRow.GetVisualDescendants().OfType<ReasoningRowView>().Any())
+            throw new InvalidOperationException("已折叠的过程段不能实例化任何过程行");
+        var headers = heavyRow.GetVisualDescendants().OfType<Button>()
+            .Where(button => button.Classes.Contains("process-run-header")).ToList();
+        if (headers.Count != 1)
+            throw new InvalidOperationException($"40 行的过程段应只剩一行摘要，渲染出 {headers.Count} 个摘要行");
+        var summaryText = heavyRow.GetVisualDescendants().OfType<TextBlock>().First(text => text.Name == "ProcessRunSummaryText");
+        if (summaryText.Text != "思考 10 次 · 调用 30 个工具（读取 10 · 搜索 10 · 写入 10）")
+            throw new InvalidOperationException($"摘要行文字不对：「{summaryText.Text}」");
+        var failureText = heavyRow.GetVisualDescendants().OfType<TextBlock>().First(text => text.Name == "ProcessRunFailureText");
+        if (!failureText.IsVisible || failureText.Text != "1 个失败")
+            throw new InvalidOperationException("摘要行必须把失败数单独亮出来");
+        // 预算：整个气泡（摘要行 + 正文 + 操作按钮）的控件数和 40 行无关。
+        var heavyVisuals = heavyRow.GetVisualDescendants().Count();
+        if (heavyVisuals > 200)
+            throw new InvalidOperationException($"折叠后的重气泡仍有 {heavyVisuals} 个视觉元素");
+
+        using (var settle = window.CaptureRenderedFrame()) { }
+        Dispatcher.UIThread.RunJobs();
+        var header = headers[0];
+        var headerCenter = header.TranslatePoint(new Point(header.Bounds.Width / 2, header.Bounds.Height / 2), window)
+            ?? throw new InvalidOperationException("找不到摘要行");
+        window.MouseDown(headerCenter, MouseButton.Left);
+        window.MouseUp(headerCenter, MouseButton.Left);
+        Dispatcher.UIThread.RunJobs();
+        if (heavyRow.GetVisualDescendants().OfType<ToolCallRowView>().Count() != 30
+            || heavyRow.GetVisualDescendants().OfType<ReasoningRowView>().Count() != 10)
+            throw new InvalidOperationException("点击摘要行必须展开全部 40 行");
+
+        // 气泡级按钮：一次收起全部，再一次展开全部。
+        var toggleAll = heavyRow.GetVisualDescendants().OfType<Button>().First(button => button.Name == "ToggleProcessRunsButton");
+        if (!toggleAll.IsVisible)
+            throw new InvalidOperationException("有可折叠过程段的气泡必须提供「展开全部过程」");
+        toggleAll.Command!.Execute(null);
+        Dispatcher.UIThread.RunJobs();
+        if (heavyRow.GetVisualDescendants().OfType<ToolCallRowView>().Any())
+            throw new InvalidOperationException("气泡级按钮在全部展开时必须一次收起全部");
+        toggleAll.Command!.Execute(null);
+        Dispatcher.UIThread.RunJobs();
+        if (heavyRow.GetVisualDescendants().OfType<ToolCallRowView>().Count() != 30)
+            throw new InvalidOperationException("气泡级按钮必须一次展开全部过程");
+        heavy.ToggleProcessRunsCommand.Execute(null);
+        Dispatcher.UIThread.RunJobs();
+
+        // 进行中：窗口滑动只增删，留在窗口里的行不重建（否则每来一个调用都重建三行、打断展开的详情）。
+        var liveGroup = new ChatMessageSegment { Kind = ChatMessageSegmentKind.ToolCallGroup };
+        streaming.Segments.Add(liveGroup);
+        streaming.NotifySegmentsChanged();
+        for (var i = 0; i < 5; i++) liveGroup.ToolCalls.Add(Tool($"l{i}", "read_system_file"));
+        Dispatcher.UIThread.RunJobs();
+        var streamingRow = window.GetVisualDescendants().OfType<Grid>()
+            .First(grid => grid.Classes.Contains("message-row") && ReferenceEquals(grid.DataContext, streaming));
+        var liveRows = streamingRow.GetVisualDescendants().OfType<ToolCallRowView>().ToList();
+        if (liveRows.Count != ProcessRun.LiveWindowRows)
+            throw new InvalidOperationException($"进行中的过程段应渲染 {ProcessRun.LiveWindowRows} 行，实为 {liveRows.Count}");
+        var survivor = liveRows[^1];
+        liveGroup.ToolCalls.Add(Tool("l5", "read_system_file"));
+        Dispatcher.UIThread.RunJobs();
+        var slid = streamingRow.GetVisualDescendants().OfType<ToolCallRowView>().ToList();
+        if (slid.Count != ProcessRun.LiveWindowRows || !slid.Contains(survivor)
+            || (slid[^1].DataContext as ToolCallEntry)?.ToolCallId != "l5")
+            throw new InvalidOperationException("窗口滑动时留在窗口里的行被重建了，或最新一行不在最后");
+
+        var bubblePath = Path.Combine(Path.GetDirectoryName(outputPath)!, "athena-process-run.png");
+        SaveWindowFrame(window, bubblePath);
+        Console.WriteLine($"[PASS] process runs fold to one summary row, keep a live window while streaming, and never hide failures: {bubblePath}");
     }
     finally
     {
