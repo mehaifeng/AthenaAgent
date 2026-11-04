@@ -2553,6 +2553,14 @@ public partial class MainConversationViewModel : ViewModelBase, IDisposable
                     RefreshContextInspectorProperties();
                     MarkPersistenceStateChanged();
                 },
+                onPtcProgress: progress =>
+                {
+                    if (!IsCurrentConversationEpoch(epoch)) return;
+                    Dispatcher.UIThread.Post(() =>
+                    {
+                        if (IsCurrentConversationEpoch(epoch)) PtcProgressProjection.Apply(assistantMsg, progress);
+                    });
+                },
                 onProviderRetry: notice =>
                 {
                     if (!IsCurrentConversationEpoch(epoch)) return;

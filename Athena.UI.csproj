@@ -64,6 +64,11 @@
 
   <ItemGroup>
     <Content Include="Assets/Athena.ico" />
+    <!-- NuGet notices also accompany the desktop binary distribution, not only the nupkg. -->
+    <None Update="Libraries/Ptc/LICENSE" Link="PTC-LICENSE.txt"
+          CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+    <None Update="Libraries/Ptc/ThirdPartyNotices.md" Link="PTC-ThirdPartyNotices.md"
+          CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
   </ItemGroup>
 
   <!-- 编译时将 AthenaSoul.md 复制到输出目录的 AthenaData/KnowledgeBase -->

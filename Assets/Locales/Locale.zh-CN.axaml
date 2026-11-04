@@ -1827,4 +1827,6 @@
     <system:String x:Key="Polis.Public.Market">市集</system:String>
     <system:String x:Key="Polis.Public.Gate">城门</system:String>
     <system:String x:Key="Polis.Public.Sanctuary">雅典娜的神殿</system:String>
+    <x:String x:Key="Config.Ptc.Enabled">启用程序化工具调用（PTC 原型）</x:String>
+    <x:String x:Key="Config.Ptc.Hint">默认关闭。在进程内执行有预算限制的 JavaScript（非强沙箱），仅开放五个只读文件工具；逐项审批、文件保护和配额仍生效。完整记录保存在 AthenaData/PtcRuns，总额 256 MiB，不自动删除；存储满时请先备份历史记录再处理容量。模型不能修改此开关。</x:String>
 </ResourceDictionary>

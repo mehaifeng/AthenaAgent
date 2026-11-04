@@ -239,6 +239,11 @@ public partial class AppConfig : ObservableObject
     [ObservableProperty]
     private bool _approvalShadowEnabled = false;
 
+    // User-only opt-in. Deliberately absent from the model-writable ConfigFieldCatalog.
+    // V0 permits five read-only filesystem tools through the ordinary approval gate.
+    [ObservableProperty]
+    private bool _ptcEnabled;
+
     // MCP 扩展（Model Context Protocol）—— 外部工具服务器接入
     // EnableMcp 关闭时，FunctionRegistry 隐藏三个 meta-tool，配置项亦不参与生命周期。
     [ObservableProperty]

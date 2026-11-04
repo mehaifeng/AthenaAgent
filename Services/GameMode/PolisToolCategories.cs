@@ -83,6 +83,7 @@ public static class PolisToolCategories
 
         // 工坊：配置、定时任务、图像、技能、MCP 管理与调用
         ["view_self_configuration"] = PolisActionCategory.Workshop,
+        ["execute_program"] = PolisActionCategory.Workshop,
         ["modify_self_configuration"] = PolisActionCategory.Workshop,
         ["create_task"] = PolisActionCategory.Workshop,
         ["update_task"] = PolisActionCategory.Workshop,

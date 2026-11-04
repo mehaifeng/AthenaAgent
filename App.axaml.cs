@@ -1245,6 +1245,16 @@ public partial class App : Application, IAsyncDisposable
                 sp.GetRequiredService<Athena.UI.Services.Presentations.PptxPackageService>(),
                 Log.ForContext<PresentationFunctions>()));
 
+        services.AddSingleton<global::Ptc.Core.IPtcScriptRuntime, global::Ptc.JavaScript.JintScriptRuntime>();
+        services.AddSingleton<global::Ptc.Core.IPtcExecutor, global::Ptc.Core.PtcExecutor>();
+        services.AddSingleton<Services.Ptc.AthenaPtcRunStore>(sp =>
+            new Services.Ptc.AthenaPtcRunStore(sp.GetRequiredService<IPlatformPathService>(), Log.Logger));
+        services.AddSingleton<PtcFunctions>(sp => new PtcFunctions(
+            sp.GetRequiredService<global::Ptc.Core.IPtcExecutor>(), sp.GetRequiredService<IConfigService>(),
+            () => sp.GetRequiredService<IFunctionRegistry>(), // Lazy: Registry -> functions -> host -> Registry.
+            sp.GetRequiredService<IConversationSessionAccessor>(), sp.GetRequiredService<IFileSystemService>(),
+            sp.GetRequiredService<IPlatformPathService>(), sp.GetRequiredService<Services.Ptc.AthenaPtcRunStore>(), Log.Logger));
+
         // Function Registry（单例）
         // 工具审批弹窗展示器（UI 层）。服务层只依赖接口。
         services.AddSingleton<ApprovalQueueViewModel>(sp =>
@@ -1346,7 +1356,7 @@ public partial class App : Application, IAsyncDisposable
             var skillFunctions = sp.GetService<SkillFunctions>();
             var logger = Log.ForContext<FunctionRegistry>();
 
-            return new FunctionRegistry(cronTaskFunctions, knowledgeFunctions, configFunctions, fileSystemFunctions, cliFunctions, webSearchFunctions, webFetchFunctions, imageGenerationFunctions, browserTaskFunctions, subAgentFunctions, documentParserFunctions, spreadsheetFunctions, documentFunctions, presentationFunctions, configService, logger, approvalService, mcpDiscoveryFunctions, mcpManagementFunctions, skillFunctions);
+            return new FunctionRegistry(cronTaskFunctions, knowledgeFunctions, configFunctions, fileSystemFunctions, cliFunctions, webSearchFunctions, webFetchFunctions, imageGenerationFunctions, browserTaskFunctions, subAgentFunctions, documentParserFunctions, spreadsheetFunctions, documentFunctions, presentationFunctions, sp.GetRequiredService<PtcFunctions>(), configService, logger, approvalService, mcpDiscoveryFunctions, mcpManagementFunctions, skillFunctions);
         });
 
         // 知识库整理 headless Agent 运行器（惰性解析 IFunctionRegistry 以断开构造环）

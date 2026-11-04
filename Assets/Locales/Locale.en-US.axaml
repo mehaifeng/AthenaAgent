@@ -1827,4 +1827,6 @@
     <system:String x:Key="Polis.Public.Market">Market</system:String>
     <system:String x:Key="Polis.Public.Gate">Gate</system:String>
     <system:String x:Key="Polis.Public.Sanctuary">Athena's sanctuary</system:String>
+    <x:String x:Key="Config.Ptc.Enabled">Enable programmatic tool calling (PTC prototype)</x:String>
+    <x:String x:Key="Config.Ptc.Hint">Off by default. Executes bounded JavaScript in-process (not a strong sandbox) using five read-only file tools. Each call retains normal approval and file safety checks. Complete records are kept in AthenaData/PtcRuns (256 MiB total, no automatic deletion); if full, back up records before further execution. The model cannot change this switch.</x:String>
 </ResourceDictionary>

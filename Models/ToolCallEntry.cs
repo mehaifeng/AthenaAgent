@@ -1,4 +1,5 @@
 using System.Text.Json.Serialization;
+using System.Collections.ObjectModel;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 
@@ -86,7 +87,37 @@ public partial class ToolCallEntry : ObservableObject
 
     /// <summary>没有参数也没有结果时不给展开箭头：点开一片空白只会让人以为坏了。</summary>
     [JsonIgnore]
-    public bool HasDetails => HasArguments || HasResult;
+    public bool HasDetails => HasArguments || HasResult || _programCalls?.Count > 0;
+
+    private ObservableCollection<ToolCallEntry>? _programCalls;
+
+    /// <summary>Transient PTC children. The archive keeps only the outer result's immutable traceRef.</summary>
+    [JsonIgnore]
+    public ObservableCollection<ToolCallEntry>? ProgramCalls => _programCalls;
+
+    [JsonIgnore]
+    public string? ProgramRunId { get; private set; }
+
+    internal long ProgramSequence { get; set; }
+
+    internal ObservableCollection<ToolCallEntry> EnsureProgramCalls(string runId)
+    {
+        if (ProgramRunId != runId)
+        {
+            ProgramRunId = runId;
+            ProgramSequence = 0;
+            _programCalls = new ObservableCollection<ToolCallEntry>();
+            OnPropertyChanged(nameof(ProgramCalls));
+            OnPropertyChanged(nameof(ProgramRunId));
+        }
+        return _programCalls!;
+    }
+
+    internal void NotifyProgramCallsChanged()
+    {
+        OnPropertyChanged(nameof(HasDetails));
+        OnPropertyChanged(nameof(ExpandedDetails));
+    }
 
     /// <summary>
     /// 状态图标用一个 PathIcon 按 key 切换，而不是三个图标各自 IsVisible。

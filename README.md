@@ -9,7 +9,8 @@ Athena is a sophisticated, highly autonomous desktop AI assistant built with **.
 ## ✨ Key Features
 
 - **🧠 Unified Provider and Model Roles**: One OpenAI SDK-compatible provider owns shared connection details; main chat, titles, compression, automatic approval, embeddings, browser work, and sub-agents select independent models. TTS and image generation keep their own Extension connections.
-- **🛠️ Isolated Tool Agent**: The main conversation delegates through one controlled execution agent, which invokes built-in and MCP tools and returns evidence; every real call remains visible in grouped, expandable cards.
+- **🛠️ Direct Tool Calling**: The main conversation invokes built-in and MCP tools through one schema-validation, approval and result-budget gate; real calls remain visible in grouped, expandable cards.
+- **🧩 Optional PTC Prototype**: Default-off, bounded in-process JavaScript orchestration of five read-only file tools, with per-call approval, child progress, immutable audit records and small model projections. Not a strong sandbox. See [PTC usage and limitations](Docs/PTC_Prototype_Usage_CN.md) and [implementation evidence](Libraries/Ptc/IMPLEMENTATION.md).
 - **🦉 Parallel Sub-Agents**: Fans out batches of isolated sub-agents for concurrent work, visualized as an animated "owl village" overview.
 - **🌐 Browser Automation**: Runs vision-guided, isolated browser sessions (Playwright + Set-of-Marks) to inspect web pages, click visible controls, fill simple forms, upload local files, and extract page evidence.
 - **📚 Local Knowledge Base**: A vector-powered semantic memory stored locally in Markdown files with hybrid retrieval (vectors + BM25/FTS) and background self-maintenance, ensuring privacy and instant retrieval.
@@ -44,6 +45,7 @@ Athena is a sophisticated, highly autonomous desktop AI assistant built with **.
 
 2. **Restore dependencies**:
    ```bash
+   bash Libraries/Ptc/scripts/build-local-feed.sh
    dotnet restore
    ```
 

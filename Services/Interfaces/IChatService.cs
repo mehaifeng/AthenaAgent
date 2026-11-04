@@ -73,7 +73,8 @@ public interface IChatService
         CancellationToken skipCompressionToken = default,
         Action<ChatTurnFailure>? onProviderError = null,
         Action<ProviderRetryNotice>? onProviderRetry = null,
-        Action<IReadOnlyList<string>>? onToolResultsCleared = null);
+        Action<IReadOnlyList<string>>? onToolResultsCleared = null,
+        Action<PtcProgress>? onPtcProgress = null);
 
     /// <summary>
     /// 测试 API 连接
