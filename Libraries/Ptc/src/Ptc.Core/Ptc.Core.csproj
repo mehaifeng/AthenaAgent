@@ -1,0 +1,11 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <PackageId>AthenaAgent.Ptc.Core</PackageId>
+    <Description>Bounded, host-authorized programmatic tool orchestration and model result projection.</Description>
+  </PropertyGroup>
+  <ItemGroup>
+    <None Include="../../README.md" Pack="true" PackagePath="/" />
+    <None Include="../../LICENSE" Pack="true" PackagePath="/" />
+    <None Include="../../ThirdPartyNotices.md" Pack="true" PackagePath="/" />
+  </ItemGroup>
+</Project>

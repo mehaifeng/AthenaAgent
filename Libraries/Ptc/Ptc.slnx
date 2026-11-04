@@ -1,0 +1,10 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/Ptc.Core/Ptc.Core.csproj" />
+    <Project Path="src/Ptc.JavaScript/Ptc.JavaScript.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/Ptc.Core.Tests/Ptc.Core.Tests.csproj" />
+    <Project Path="tests/Ptc.JavaScript.Tests/Ptc.JavaScript.Tests.csproj" />
+  </Folder>
+</Solution>

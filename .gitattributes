@@ -1,1 +1,2 @@
 *.cs whitespace=cr-at-eol
+/Libraries/Ptc/** text eol=lf

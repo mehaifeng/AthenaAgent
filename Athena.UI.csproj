@@ -43,6 +43,8 @@
     <Compile Remove="Output/**/*.cs" />
     <!-- Tools/ holds dev-time tooling (the game-mode prototype and its exporter), never app code. -->
     <Compile Remove="Tools/**/*.cs" />
+    <!-- Reusable PTC packages, samples and tests build in their own solution. -->
+    <Compile Remove="Libraries/**/*.cs" />
     <Compile Remove="**/obj/**/*.cs" />
   </ItemGroup>
 
