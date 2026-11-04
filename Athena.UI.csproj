@@ -131,6 +131,9 @@
     <PackageReference Include="Irihi.Ursa.Themes.Semi" Version="2.1.0" />
 
     <!-- OpenAI SDK -->
+    <!-- Consume the packed prototype, never the component's source project. -->
+    <PackageReference Include="AthenaAgent.Ptc.Core" Version="[0.1.0-preview.1]" />
+    <PackageReference Include="AthenaAgent.Ptc.JavaScript" Version="[0.1.0-preview.1]" />
     <PackageReference Include="OpenAI" Version="2.12.0" />
     <PackageReference Include="Microsoft.Playwright" Version="1.61.0" />
     <PackageReference Include="SkiaSharp" Version="4.150.1" />

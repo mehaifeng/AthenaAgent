@@ -1,0 +1,13 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="AthenaAgent.Ptc.Core" Version="[0.1.0-preview.1]" />
+    <PackageReference Include="AthenaAgent.Ptc.JavaScript" Version="[0.1.0-preview.1]" />
+  </ItemGroup>
+</Project>

@@ -153,6 +153,12 @@ jobs:
             echo "tag=${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
           fi
 
+      - name: Build local PTC packages
+        # The same local nupkg references are used by development and packaged Athena.
+        # Building them does not publish anything to NuGet.
+        shell: bash
+        run: bash Libraries/Ptc/scripts/build-local-feed.sh
+
       - name: Publish win-x64
         shell: pwsh
         run: |
