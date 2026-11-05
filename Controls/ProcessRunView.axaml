@@ -16,8 +16,9 @@
                             ToolTip.Tip="{loc:Loc Chat.ProcessRun.Tip}"
                             AutomationProperties.Name="{Binding Stats, Converter={StaticResource ProcessRunSummaryConverter}}">
                         <Grid ColumnDefinitions="Auto,*,Auto,Auto">
+                            <!-- summary 类把这段摘要的失败色和明细行区分开：这里只是「有几次调用报错」 -->
                             <PathIcon Grid.Column="0"
-                                      Classes="tool-status"
+                                      Classes="tool-status summary"
                                       Classes.SlowSpin="{Binding IsRunning}"
                                       Classes.success="{Binding IsSucceeded}"
                                       Classes.failed="{Binding HasFailures}"
@@ -33,7 +34,8 @@
                                        TextTrimming="CharacterEllipsis"
                                        VerticalAlignment="Center"/>
 
-                            <!-- 失败绝不能藏进折叠里：单独一个 TextBlock 上失败色 -->
+                            <!-- 失败绝不能藏进折叠里，但这里是提示而不是警报：单纯陈述有几次调用报错，
+                                 颜色与图标都比明细行弱一档。 -->
                             <TextBlock Grid.Column="2"
                                        Name="ProcessRunFailureText"
                                        Classes="process-run-failures"

@@ -245,7 +245,8 @@ public class DurationToTextConverter : IValueConverter
 
 /// <summary>
 /// 过程段摘要行的文字：「思考 4 次 · 调用 17 个工具（读取 8 · 搜索 5 · 写入 3 · 终端 1）」。
-/// ConverterParameter="Failures" 时只出失败数（「1 个失败」），它单独一个 TextBlock 好上失败色。
+/// ConverterParameter="Failures" 时只出失败数（「其中 1 次调用报错」），它单独一个 TextBlock 好上提示色：
+/// 这是「有一次调用没成」的陈述，不是整段的判决——后面常常还有一次成功的重试。
 /// 计数为 0 的部分不出现：「其他 0」只是噪声。
 /// </summary>
 public class ProcessRunSummaryConverter : IValueConverter

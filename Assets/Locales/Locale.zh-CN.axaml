@@ -1031,7 +1031,7 @@
     <system:String x:Key="Chat.ProcessRun.Write">写入 {0}</system:String>
     <system:String x:Key="Chat.ProcessRun.Command">终端 {0}</system:String>
     <system:String x:Key="Chat.ProcessRun.Other">其他 {0}</system:String>
-    <system:String x:Key="Chat.ProcessRun.Failed">{0} 个失败</system:String>
+    <system:String x:Key="Chat.ProcessRun.Failed">其中 {0} 次调用报错</system:String>
     <system:String x:Key="Chat.ProcessRun.Tip">展开或收起这段过程</system:String>
     <system:String x:Key="Chat.BtnToggleProcess">展开或收起全部过程</system:String>
     <system:String x:Key="Dialog.DontAskAgain">下次不再提示</system:String>
