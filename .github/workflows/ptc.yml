@@ -1,0 +1,49 @@
+name: PTC packages
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  components:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: 10.0.x
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - name: Restore locked component dependencies
+        run: dotnet restore Libraries/Ptc/Ptc.slnx --locked-mode
+      - name: Test independent components
+        run: dotnet test Libraries/Ptc/Ptc.slnx -c Release --no-restore --logger trx --results-directory artifacts/ptc/test-results
+      - name: Confirm a failing assertion is not reported as success
+        shell: bash
+        run: |
+          set +e
+          PTC_ASSERTION_PROBE=1 dotnet test Libraries/Ptc/tests/Ptc.Core.Tests/Ptc.Core.Tests.csproj -c Release --no-build --no-restore --filter FullyQualifiedName~TestHarnessFailureProbe
+          result=$?
+          test "$result" -ne 0
+      - name: Build local packages only
+        shell: bash
+        run: bash Libraries/Ptc/scripts/build-local-feed.sh
+      - name: Verify external empty-cache consumer twice
+        run: python Libraries/Ptc/scripts/verify_package_consumer.py
+      - name: Retain actual platform evidence and local packages
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ptc-${{ matrix.os }}
+          path: artifacts/ptc/

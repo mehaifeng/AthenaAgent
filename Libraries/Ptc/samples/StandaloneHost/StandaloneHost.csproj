@@ -1,0 +1,12 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+  <ItemGroup>
+    <!-- Development convenience only; not package-consumption evidence. -->
+    <ProjectReference Include="../../src/Ptc.Core/Ptc.Core.csproj" />
+    <ProjectReference Include="../../src/Ptc.JavaScript/Ptc.JavaScript.csproj" />
+    <Compile Include="../PackageConsumer/Program.cs" Link="Program.cs" />
+  </ItemGroup>
+</Project>

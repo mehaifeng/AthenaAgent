@@ -5,6 +5,8 @@ using Athena.UI.Services.ModelMetadata;
 using Athena.UI.Services.Mcp;
 using Athena.UI.Services.SubAgents;
 using Athena.UI.Services.Protocol;
+using Athena.UI.Services.Ptc;
+using Athena.UI.Services.ExecutionTimeline;
 using OpenAI;
 using OpenAI.Audio;
 using OpenAI.Chat;
@@ -208,8 +210,11 @@ public class OpenAIChatService : IChatService
         CancellationToken skipCompressionToken = default,
         Action<ChatTurnFailure>? onProviderError = null,
         Action<ProviderRetryNotice>? onProviderRetry = null,
-        Action<IReadOnlyList<string>>? onToolResultsCleared = null)
+        Action<IReadOnlyList<string>>? onToolResultsCleared = null,
+        Action<PtcProgress>? onPtcProgress = null,
+        ExecutionTimelineCollector? executionTimeline = null)
     {
+        var preparationSpan = executionTimeline?.Begin(ExecutionTimelineLane.System, ExecutionTimelineKind.Preparation, "preparation") ?? 0;
         EffectiveRequestRuntimeSnapshot? runtime = null;
         Exception? runtimeFailure = null;
         try
@@ -222,6 +227,7 @@ public class OpenAIChatService : IChatService
         }
         if (runtimeFailure != null || runtime == null)
         {
+            executionTimeline?.End(preparationSpan, cancellationToken.IsCancellationRequested ? ExecutionTimelineState.Cancelled : ExecutionTimelineState.Failed);
             Log.Error(runtimeFailure, "Failed to create main-conversation request runtime snapshot");
             var snapshotMessage = runtimeFailure?.Message ?? "主对话运行时不可用";
             // 请求根本没发出去，谈不上供应商归类；但这一轮确实什么都没做成。
@@ -254,6 +260,7 @@ public class OpenAIChatService : IChatService
         // BuildMessages 会重建整个消息列表并对图片附件做 base64 编码，属于 CPU/内存密集的同步工作。
         // 放到后台线程执行，避免阻塞 UI 线程（context 是本次请求的独立克隆，无并发访问问题）。
         var messages = await Task.Run(() => BuildMessages(context, runtime, imageProjection, cancellationToken), cancellationToken);
+        executionTimeline?.End(preparationSpan, ExecutionTimelineState.Succeeded);
         if (imageProjection.TransientInstruction != null) messages.Add(imageProjection.TransientInstruction);
         Log.Information("Message list built, count: {Count}", messages.Count);
 
@@ -263,7 +270,7 @@ public class OpenAIChatService : IChatService
         // 外层 async 迭代器设置的 AsyncLocal 不能可靠穿过嵌套迭代器边界流入工具执行。
 
         Exception? streamFailure = null;
-        await using (var enumerator = ProcessStreamAsync(runtime, messages, contentBuilder, context, imageProjection, cancellationToken, onMessageAdded, onUsageReported, onToolCallArgumentsStreaming, onReasoningDelta, onCompressionTransition: onCompressionTransition, onContextWarning: onContextWarning, onAnchorObserved: onAnchorObserved, onCompressionProgress: onCompressionProgress, skipCompressionToken: skipCompressionToken, onProviderError: onProviderError, onProviderRetry: onProviderRetry, onToolResultsCleared: onToolResultsCleared)
+        await using (var enumerator = ProcessStreamAsync(runtime, messages, contentBuilder, context, imageProjection, cancellationToken, onMessageAdded, onUsageReported, onToolCallArgumentsStreaming, onReasoningDelta, onCompressionTransition: onCompressionTransition, onContextWarning: onContextWarning, onAnchorObserved: onAnchorObserved, onCompressionProgress: onCompressionProgress, skipCompressionToken: skipCompressionToken, onProviderError: onProviderError, onProviderRetry: onProviderRetry, onToolResultsCleared: onToolResultsCleared, onPtcProgress: onPtcProgress, executionTimeline: executionTimeline)
                          .GetAsyncEnumerator(cancellationToken))
         {
             while (true)
@@ -359,7 +366,7 @@ public class OpenAIChatService : IChatService
                                                    // 自己把错误报掉再正常收尾（这个回调），要么抛出去（那个分支）。
                                                    onProviderError: onProviderError,
                                                    onProviderRetry: onProviderRetry,
-                                                   onToolResultsCleared: onToolResultsCleared)
+                                                   onToolResultsCleared: onToolResultsCleared, onPtcProgress: onPtcProgress, executionTimeline: executionTimeline)
                                                .GetAsyncEnumerator(cancellationToken))
             {
                 while (true)
@@ -668,7 +675,9 @@ public class OpenAIChatService : IChatService
         CancellationToken skipCompressionToken = default,
         Action<ChatTurnFailure>? onProviderError = null,
         Action<ProviderRetryNotice>? onProviderRetry = null,
-        Action<IReadOnlyList<string>>? onToolResultsCleared = null)
+        Action<IReadOnlyList<string>>? onToolResultsCleared = null,
+        Action<PtcProgress>? onPtcProgress = null,
+        ExecutionTimelineCollector? executionTimeline = null)
     {
         using var conversationLogScope = LogContext.PushProperty("ConversationId", context.ConversationId ?? string.Empty);
         using var workspaceLogScope = LogContext.PushProperty("WorkspaceId", context.WorkspaceId ?? string.Empty);
@@ -1033,9 +1042,12 @@ public class OpenAIChatService : IChatService
             (long Input, long Cached, long Output, long Total)? lastReportedUsage = null;
             var retryCount = 0;
             var retryWaited = TimeSpan.Zero;
+            long completedModelSpan = 0;
 
             while (true)
             {
+                var modelSpan = executionTimeline?.Begin(ExecutionTimelineLane.Model, ExecutionTimelineKind.ModelRequest,
+                    "model", round: iteration, attempt: retryCount + 1) ?? 0;
                 toolCallBuilders.Clear();
                 finishReason = null;
                 assistantContent.Clear();
@@ -1083,6 +1095,7 @@ public class OpenAIChatService : IChatService
                         }
                         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
                         {
+                            executionTimeline?.End(modelSpan, ExecutionTimelineState.Cancelled);
                             // 用户点了"停止"：这不是供应商故障，更不该重试。
                             // 必须看调用方的令牌：SDK 的 NetworkTimeout（上游静默超过超时）抛的 TaskCanceledException
                             // 也是 OperationCanceledException，它是流中断，要走下面的轮内重试，而不是被当成停止原样抛出。
@@ -1099,6 +1112,7 @@ public class OpenAIChatService : IChatService
                         // responses：随 response.completed 事件到达）。
                         if (update.Usage is { } snapshotUsage)
                         {
+                            executionTimeline?.Usage(modelSpan, snapshotUsage.InputTokens, snapshotUsage.OutputTokens, snapshotUsage.CachedInputTokens);
                             usage = snapshotUsage;
                             reasoningTokens = update.ReasoningTokenCount ?? 0;
                             inputModalityUsage = update.InputModalityUsage;
@@ -1126,6 +1140,7 @@ public class OpenAIChatService : IChatService
 
                         if (!string.IsNullOrEmpty(update.Text))
                         {
+                            executionTimeline?.FirstText(modelSpan);
                             var text = update.Text;
                             visibleOutputEmitted = true;
                             contentBuilder.Append(text);
@@ -1176,7 +1191,15 @@ public class OpenAIChatService : IChatService
                     }
                 }
 
-                if (attemptFailure == null) break;
+                executionTimeline?.End(modelSpan, attemptFailure != null ? ExecutionTimelineState.Failed
+                    : finishReason == TransportFinishReason.Error ? ExecutionTimelineState.Failed
+                    : finishReason is null or TransportFinishReason.Incomplete or TransportFinishReason.Length ? ExecutionTimelineState.Incomplete
+                    : ExecutionTimelineState.Succeeded);
+                if (attemptFailure == null)
+                {
+                    completedModelSpan = modelSpan;
+                    break;
+                }
 
                 var classification = _providerErrorClassifier.Classify(attemptFailure);
                 if (classification.Category == ProviderErrorCategory.ContextOverflow
@@ -1221,7 +1244,10 @@ public class OpenAIChatService : IChatService
                 onProviderRetry?.Invoke(new ProviderRetryNotice(
                     retryCount, _config.ProviderRetry.EffectiveMaxAttempts, delay, classification.Category));
                 // 退避期间照样听取消：点"停止"不该先等退避走完。
-                await Task.Delay(delay, cancellationToken);
+                var retrySpan = executionTimeline?.Begin(ExecutionTimelineLane.System, ExecutionTimelineKind.RetryWait,
+                    "retry_wait", modelSpan) ?? 0;
+                try { await Task.Delay(delay, cancellationToken); }
+                finally { executionTimeline?.End(retrySpan, cancellationToken.IsCancellationRequested ? ExecutionTimelineState.Cancelled : ExecutionTimelineState.Succeeded); }
             }
 
             if (overflowRecoveryRequested)
@@ -1445,6 +1471,12 @@ public class OpenAIChatService : IChatService
                 return new ToolCallInfo(id, b.FunctionName, b.Arguments.ToString());
             }).ToList();
 
+            // Capture the queue boundary when the model round completes, before UI callbacks or
+            // message projection can delay the scheduler. Arguments never enter the recorder.
+            var timelineTools = toolCalls.Select(call => executionTimeline?.QueueOuterTool(call.Id, call.FunctionName,
+                runtime.ToolDefinitions.Any(tool => string.Equals(tool.FunctionName, call.FunctionName, StringComparison.Ordinal)), iteration,
+                parentId: completedModelSpan == 0 ? null : completedModelSpan) ?? 0).ToArray();
+
             Log.Information("Detected {Count} tool call(s)", toolCalls.Count);
 
             // 保存带工具调用的助手消息到上下文
@@ -1471,6 +1503,8 @@ public class OpenAIChatService : IChatService
             runtime.Transport!.AppendAssistantWithTools(messages, assistantContent.ToString(), toolCalls, reasoningContent);
 
             var completedToolCallIds = new HashSet<string>(StringComparer.Ordinal);
+            var finishedPrograms = new System.Collections.Concurrent.ConcurrentDictionary<string, FunctionResult>(StringComparer.Ordinal);
+            var attachmentNotifications = new HashSet<string>(StringComparer.Ordinal);
             // 审批时让裁决者知道用户要的是什么。一轮算一次即可：工具回填只追加 tool 消息，用户消息在回合内不变。
             var delegatedTask = ToolApprovalContext.DescribeTask(context.Messages
                 .Where(message => string.Equals(message.Role, "user", StringComparison.OrdinalIgnoreCase))
@@ -1478,8 +1512,12 @@ public class OpenAIChatService : IChatService
             try
             {
                 // 一次执行一个工具，携带工具执行所需的全部 AsyncLocal 作用域。
-                async Task<FunctionResult> RunOneAsync(ToolCallInfo call)
+                async Task<FunctionResult> RunOneAsync(ToolCallInfo call, int index)
                 {
+                    var timelineTool = timelineTools[index];
+                    using var timelineScope = ExecutionTimelineScope.Enter(executionTimeline, timelineTool);
+                    try
+                    {
                     // —— 重复失败熔断 ——
                     // 模型拿到一个它读不懂的失败时，最常见的反应是原样重发。参数一字未改，
                     // 结果必然一模一样，于是一轮轮空转直到撞上迭代上限。这里在同一调用
@@ -1487,6 +1525,7 @@ public class OpenAIChatService : IChatService
                     // 请换路子」明确写进结果——沉默地放行只会让模型继续撞墙。
                     if (repeatedToolFailures.ShouldBlock(call.FunctionName, call.Arguments))
                     {
+                        executionTimeline?.RejectQueuedOuterTool(timelineTool);
                         Log.Warning(
                             "Tool {Name} blocked after {Count} identical consecutive failures | args: {Args}",
                             call.FunctionName,
@@ -1496,6 +1535,7 @@ public class OpenAIChatService : IChatService
                             repeatedToolFailures.BuildBlockedMessage(call.FunctionName, call.Arguments));
                     }
 
+                    executionTimeline?.StartOuterTool(timelineTool);
                     Log.Information("Executing tool: {Name} | args: {Args}", call.FunctionName, call.Arguments);
                     using var toolConversationScope = _conversationSessionAccessor?.Enter(context.ConversationId ?? string.Empty);
                     using var toolWorkspaceScope = _conversationSessionAccessor?.EnterWorkspace(context.WorkspaceId);
@@ -1505,13 +1545,46 @@ public class OpenAIChatService : IChatService
                     // 中间无 yield return）进入交互作用域——在外层 async 迭代器里设置的 AsyncLocal 不能可靠
                     // 穿过嵌套迭代器边界流入工具执行，会被闸门误判为无人值守而直接拒绝。委托任务随同一个作用域进入，理由相同。
                     using var toolApprovalScope = ToolApprovalContext.EnterInteractive(delegatedTask);
+                    void OnPtcEvent(PtcProgress item)
+                    {
+                        try { executionTimeline?.ObservePtc(item); }
+                        catch (Exception ex)
+                        {
+                            executionTimeline?.MarkCaptureFault();
+                            Log.Warning(ex, "Execution timeline rejected a PTC metadata event; tool execution continues");
+                        }
+                        // The existing child-card projection does not use script lifecycle events;
+                        // do not add extra UI dispatches when analysis is off.
+                        if (item.Kind is not ("ScriptStarted" or "ScriptFinished")) onPtcProgress?.Invoke(item);
+                    }
+                    using var ptcScope = call.FunctionName == "execute_program"
+                        ? AthenaPtcInvocationScope.Enter(call.Id, runtime.ToolDefinitions, context.ConversationId,
+                            context.WorkspaceId, delegatedTask, OnPtcEvent)
+                        : null;
                     var toolResult = _functionRegistry == null
                         ? FunctionResult.FailureResult("Function registry is not available.")
                         : await _functionRegistry.ExecuteAsync(call.FunctionName, call.Arguments);
 
                     repeatedToolFailures.Record(call.FunctionName, call.Arguments, toolResult.Success);
 
+                    if (call.FunctionName == "execute_program") finishedPrograms[call.Id] = toolResult;
+
+                    executionTimeline?.End(timelineTool, cancellationToken.IsCancellationRequested ? ExecutionTimelineState.Cancelled
+                        : toolResult.Success ? ExecutionTimelineState.Succeeded
+                        : toolResult.ErrorCode == "tool_denied" ? ExecutionTimelineState.Denied : ExecutionTimelineState.Failed);
+
                     return toolResult;
+                    }
+                    catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+                    {
+                        executionTimeline?.End(timelineTool, ExecutionTimelineState.Cancelled);
+                        throw;
+                    }
+                    catch
+                    {
+                        executionTimeline?.End(timelineTool, ExecutionTimelineState.Failed);
+                        throw;
+                    }
                 }
 
                 // 模型一轮可以发多个工具调用，此前它们严格串行，「读三个文件」的延迟就是三倍。
@@ -1536,12 +1609,12 @@ public class OpenAIChatService : IChatService
                     if (count > 1)
                     {
                         var running = new List<Task<FunctionResult>>(count);
-                        for (int i = start; i < start + count; i++) running.Add(RunOneAsync(toolCalls[i]));
+                        for (int i = start; i < start + count; i++) running.Add(RunOneAsync(toolCalls[i], i));
                         batchResults = (await Task.WhenAll(running)).ToList();
                     }
                     else
                     {
-                        batchResults = new List<FunctionResult> { await RunOneAsync(toolCalls[start]) };
+                        batchResults = new List<FunctionResult> { await RunOneAsync(toolCalls[start], start) };
                     }
 
                     cancellationToken.ThrowIfCancellationRequested();
@@ -1556,7 +1629,7 @@ public class OpenAIChatService : IChatService
                             toolCall.FunctionName,
                             resultJson.Length > 500 ? resultJson.Substring(0, 500) + "..." : resultJson);
 
-                        if (result.GeneratedAttachments.Count > 0)
+                        if (result.GeneratedAttachments.Count > 0 && attachmentNotifications.Add(toolCall.Id))
                         {
                             onMessageAdded?.Invoke(new Models.ChatMessage
                             {
@@ -1599,8 +1672,22 @@ public class OpenAIChatService : IChatService
                     {
                         if (completedToolCallIds.Contains(toolCall.Id)) continue;
 
-                        var interruptedJson = FunctionResult.FailureResult(
-                            "Tool execution was interrupted (Stop requested by user).").ToJson();
+                        // PTC has already drained and saved an immutable terminal record, even on
+                        // Stop. Preserve that actual result/reference instead of replacing it with
+                        // generic interruption prose and orphaning the trace/completed attachments.
+                        var interruptedResult = finishedPrograms.TryGetValue(toolCall.Id, out var finishedProgram)
+                            ? finishedProgram
+                            : FunctionResult.FailureResult("Tool execution was interrupted (Stop requested by user).");
+                        var interruptedJson = interruptedResult.ToJson();
+                        if (interruptedResult.GeneratedAttachments.Count > 0 && attachmentNotifications.Add(toolCall.Id))
+                        {
+                            onMessageAdded?.Invoke(new Models.ChatMessage
+                            {
+                                Role = "assistant",
+                                Attachments = new System.Collections.ObjectModel.ObservableCollection<ChatAttachment>(interruptedResult.GeneratedAttachments),
+                                Timestamp = DateTime.Now
+                            });
+                        }
                         var toolResultId = Guid.NewGuid().ToString("N");
 
                         onMessageAdded?.Invoke(new Models.ChatMessage

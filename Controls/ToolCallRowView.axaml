@@ -2,6 +2,7 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:models="using:Athena.UI.Models"
              xmlns:loc="using:Athena.UI.Markup"
+             xmlns:controls="using:Athena.UI.Controls"
              x:Class="Athena.UI.Controls.ToolCallRowView"
              x:DataType="models:ToolCallEntry">
     <StackPanel>
@@ -47,6 +48,15 @@
                 <DataTemplate x:DataType="models:ToolCallEntry">
                     <Border Classes="process-detail">
                         <StackPanel Spacing="4">
+                            <!-- Built only when the parent row is expanded. Children are event DTO
+                                 projections, never extra provider calls or new archive fields. -->
+                            <ItemsControl ItemsSource="{Binding ProgramCalls}">
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate x:DataType="models:ToolCallEntry">
+                                        <controls:ToolCallRowView/>
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
                             <TextBlock Text="{loc:Loc Tool.ArgumentsLabel}"
                                        IsVisible="{Binding HasArguments}"
                                        FontSize="{DynamicResource App.FontSize.Caption}" FontWeight="SemiBold" Opacity="0.6"/>

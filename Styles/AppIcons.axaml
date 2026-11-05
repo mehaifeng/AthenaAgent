@@ -66,6 +66,7 @@
     <StaticResource x:Key="AthenaIconScreenshot" ResourceKey="CoreIconCamera"/>
     <StaticResource x:Key="AthenaIconArchive" ResourceKey="CoreIconInbox"/>
     <StaticResource x:Key="AthenaIconContextInspector" ResourceKey="CoreIconDescription"/>
+    <StaticResource x:Key="AthenaIconExecutionTimeline" ResourceKey="CoreIconHistory"/>
     <StaticResource x:Key="AthenaIconDocument" ResourceKey="CoreIconDescription"/>
 
     <!-- Status -->

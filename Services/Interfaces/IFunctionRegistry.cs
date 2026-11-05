@@ -15,6 +15,10 @@ public class FunctionResult
     public object? Data { get; set; }
     public IReadOnlyList<ChatAttachment> GeneratedAttachments { get; set; } = [];
 
+    /// <summary>Stable host diagnostic for adapters; the existing model JSON envelope is unchanged.</summary>
+    [System.Text.Json.Serialization.JsonIgnore]
+    public string? ErrorCode { get; set; }
+
     /// <summary>
     /// 由 <see cref="IFunctionRegistry.ExecuteAsync"/> 的体量闸门写入的、已压进预算的结果 JSON。
     /// 设值后 <see cref="ToJson"/> 直接返回它——所有调用方（主对话 / 子代理 / 知识库维护）

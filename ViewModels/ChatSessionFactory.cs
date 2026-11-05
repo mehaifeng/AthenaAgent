@@ -1,5 +1,6 @@
 using Athena.UI.Services;
 using Athena.UI.Services.Interfaces;
+using Athena.UI.Services.ExecutionTimeline;
 
 namespace Athena.UI.ViewModels;
 
@@ -35,6 +36,7 @@ public sealed class ChatSessionFactory
     private readonly IPetChatterService _petChatterService;
     private readonly ISystemNotificationService _notifications;
     private readonly IAppForegroundProbe _foregroundProbe;
+    private readonly ExecutionTimelineService _executionTimelines;
 
     public ChatSessionFactory(
         IChatService chatService,
@@ -59,7 +61,8 @@ public sealed class ChatSessionFactory
         IVirtualPetProgressionService petProgressionService,
         IPetChatterService petChatterService,
         ISystemNotificationService notifications,
-        IAppForegroundProbe foregroundProbe)
+        IAppForegroundProbe foregroundProbe,
+        ExecutionTimelineService executionTimelines)
     {
         _chatService = chatService;
         _configService = configService;
@@ -84,6 +87,7 @@ public sealed class ChatSessionFactory
         _petChatterService = petChatterService;
         _notifications = notifications;
         _foregroundProbe = foregroundProbe;
+        _executionTimelines = executionTimelines ?? throw new System.ArgumentNullException(nameof(executionTimelines));
     }
 
     public MainConversationViewModel Create()
@@ -113,6 +117,7 @@ public sealed class ChatSessionFactory
             _petProgressionService,
             _petChatterService,
             _notifications,
-            _foregroundProbe);
+            _foregroundProbe,
+            _executionTimelines);
     }
 }

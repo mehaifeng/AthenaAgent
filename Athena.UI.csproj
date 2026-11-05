@@ -43,6 +43,8 @@
     <Compile Remove="Output/**/*.cs" />
     <!-- Tools/ holds dev-time tooling (the game-mode prototype and its exporter), never app code. -->
     <Compile Remove="Tools/**/*.cs" />
+    <!-- Reusable PTC packages, samples and tests build in their own solution. -->
+    <Compile Remove="Libraries/**/*.cs" />
     <Compile Remove="**/obj/**/*.cs" />
   </ItemGroup>
 
@@ -62,6 +64,11 @@
 
   <ItemGroup>
     <Content Include="Assets/Athena.ico" />
+    <!-- NuGet notices also accompany the desktop binary distribution, not only the nupkg. -->
+    <None Update="Libraries/Ptc/LICENSE" Link="PTC-LICENSE.txt"
+          CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+    <None Update="Libraries/Ptc/ThirdPartyNotices.md" Link="PTC-ThirdPartyNotices.md"
+          CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
   </ItemGroup>
 
   <!-- 编译时将 AthenaSoul.md 复制到输出目录的 AthenaData/KnowledgeBase -->
@@ -129,6 +136,9 @@
     <PackageReference Include="Irihi.Ursa.Themes.Semi" Version="2.1.0" />
 
     <!-- OpenAI SDK -->
+    <!-- Consume the packed prototype, never the component's source project. -->
+    <PackageReference Include="AthenaAgent.Ptc.Core" Version="[0.1.0-preview.4]" />
+    <PackageReference Include="AthenaAgent.Ptc.JavaScript" Version="[0.1.0-preview.4]" />
     <PackageReference Include="OpenAI" Version="2.12.0" />
     <PackageReference Include="Microsoft.Playwright" Version="1.61.0" />
     <PackageReference Include="SkiaSharp" Version="4.150.1" />

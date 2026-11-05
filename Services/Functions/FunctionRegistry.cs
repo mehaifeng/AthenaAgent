@@ -2,6 +2,8 @@ using Athena.UI.Models;
 using Athena.UI.Services.Interfaces;
 using Athena.UI.Services.Mcp;
 using Athena.UI.Services.Skills;
+using Athena.UI.Services.Ptc;
+using Athena.UI.Services.ExecutionTimeline;
 using OpenAI.Chat;
 using Serilog;
 using System;
@@ -23,6 +25,7 @@ public class FunctionRegistry : IFunctionRegistry
     private readonly ILogger _logger;
     private readonly IConfigService? _configService;
     private readonly IToolApprovalService? _approvalService;
+    private readonly PtcFunctions _ptcFunctions;
 
     public bool HasFunctions => _tools.Count > 0;
 
@@ -41,6 +44,7 @@ public class FunctionRegistry : IFunctionRegistry
         SpreadsheetFunctions spreadsheetFunctions,
         DocumentFunctions documentFunctions,
         PresentationFunctions presentationFunctions,
+        PtcFunctions ptcFunctions,
         IConfigService? configService,
         ILogger logger,
         IToolApprovalService? approvalService = null,
@@ -51,6 +55,20 @@ public class FunctionRegistry : IFunctionRegistry
         _configService = configService;
         _approvalService = approvalService;
         _logger = logger.ForContext<FunctionRegistry>();
+        _ptcFunctions = ptcFunctions ?? throw new ArgumentNullException(nameof(ptcFunctions));
+
+        RegisterFunction("execute_program", ptcFunctions.ExecuteProgramAsync, PtcFunctions.Description,
+            new
+            {
+                type = "object",
+                properties = new
+                {
+                    code = new { type = "string", minLength = 1, maxLength = 32000, description = "JavaScript async function BODY. Await every tool call; emit useful output with text(value)." },
+                    inputs = new { type = "object", additionalProperties = true, description = "Optional JSON input object. Host permissions and execution context are not parameters." }
+                },
+                required = new[] { "code" },
+                additionalProperties = false
+            });
 
         // --- Spreadsheet OOXML operations ---
         RegisterFunction("inspect_spreadsheet", spreadsheetFunctions.InspectSpreadsheetAsync,
@@ -966,7 +984,7 @@ public class FunctionRegistry : IFunctionRegistry
     {
         var nameSet = new HashSet<string>(toolNames, StringComparer.OrdinalIgnoreCase);
         return FilterTools(
-            _tools.Where(t => t is ChatTool chatTool && nameSet.Contains(chatTool.FunctionName)),
+            _tools.Where(t => t is ChatTool chatTool && chatTool.FunctionName != "execute_program" && nameSet.Contains(chatTool.FunctionName)),
             includeOfficeTools: true);
     }
 
@@ -979,10 +997,19 @@ public class FunctionRegistry : IFunctionRegistry
             return FunctionResult.FailureResult($"Function not found: {functionName}");
         }
 
+        if (functionName == "execute_program" && _ptcFunctions.RejectUnavailable() is { } unavailable)
+            return unavailable;
+
         JsonElement arguments;
         try
         {
-            arguments = JsonSerializer.Deserialize<JsonElement>(argumentsJson);
+            arguments = functionName == "execute_program"
+                ? global::Ptc.Core.PtcJson.Parse(argumentsJson, 256 * 1024, 36, requireObject: true)
+                : JsonSerializer.Deserialize<JsonElement>(argumentsJson);
+        }
+        catch (global::Ptc.Core.PtcRuntimeException ex)
+        {
+            return new FunctionResult { Success = false, Message = ex.Message, ErrorCode = ex.Code };
         }
         catch (JsonException ex)
         {
@@ -1006,12 +1033,32 @@ public class FunctionRegistry : IFunctionRegistry
         if (_approvalService != null)
         {
             var approvalCt = Athena.UI.Services.SubAgents.ToolExecutionContext.CurrentCancellationToken;
-            var decision = await _approvalService.EvaluateAsync(functionName, argumentsJson, approvalCt);
+            ToolApprovalDecision decision;
+            var timeline = ExecutionTimelineScope.Current;
+            var approvalSpan = timeline?.Recorder.Begin(ExecutionTimelineLane.System, ExecutionTimelineKind.Approval,
+                "approval", timeline.ParentSpanId) ?? 0;
+            try
+            {
+                using (await AthenaPtcInvocationScope.AcquireChildApprovalAsync(approvalCt))
+                    decision = await _approvalService.EvaluateAsync(functionName, argumentsJson, approvalCt);
+                timeline?.Recorder.End(approvalSpan, approvalCt.IsCancellationRequested ? ExecutionTimelineState.Cancelled
+                    : decision.Approved ? ExecutionTimelineState.Succeeded : ExecutionTimelineState.Denied);
+            }
+            catch (OperationCanceledException) when (approvalCt.IsCancellationRequested)
+            {
+                timeline?.Recorder.End(approvalSpan, ExecutionTimelineState.Cancelled);
+                throw;
+            }
+            catch
+            {
+                timeline?.Recorder.End(approvalSpan, ExecutionTimelineState.Failed);
+                throw;
+            }
             if (!decision.Approved)
             {
                 _logger.Warning("Function {FunctionName} blocked by approval gate: {Reason}", functionName, decision.Reason);
                 // 说法按裁决来源分开：只有用户真的拒绝时才说「用户拒绝了」，见 ToolApprovalDenialMessage。
-                return FunctionResult.FailureResult(ToolApprovalDenialMessage.Build(functionName, decision));
+                return new FunctionResult { Success = false, Message = ToolApprovalDenialMessage.Build(functionName, decision), ErrorCode = "tool_denied" };
             }
         }
 
@@ -1039,6 +1086,16 @@ public class FunctionRegistry : IFunctionRegistry
         if (budget <= 0) return result;
 
         var raw = result.SerializeRaw();
+        if (functionName == "execute_program" && raw.Length > budget)
+        {
+            // The PTC projection is a protocol, not prose that can be water-filled or sliced.
+            // Re-read the live budget here as it can change while a program is running.
+            result.Success = false;
+            result.ErrorCode = "model_output_limit_exceeded";
+            result.BudgetedJson = "{\"success\":false,\"message\":\"model_output_limit_exceeded\"}";
+            _logger.Warning("PTC model projection exceeded the live context budget {Budget}; returning a complete JSON error", budget);
+            return result;
+        }
         var outcome = ToolResultTruncator.Apply(raw, budget);
         if (!outcome.Truncated) return result;
 
@@ -1067,6 +1124,9 @@ public class FunctionRegistry : IFunctionRegistry
                 yield return tool;
                 continue;
             }
+
+            if (chatTool.FunctionName == "execute_program" && config?.PtcEnabled != true)
+                continue;
 
             if (!officeVisible && OfficeToolNames.All.Contains(chatTool.FunctionName))
             {

@@ -3,6 +3,7 @@ using System;
 using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
+using Athena.UI.Services.ExecutionTimeline;
 
 namespace Athena.UI.Services.Interfaces;
 
@@ -73,7 +74,9 @@ public interface IChatService
         CancellationToken skipCompressionToken = default,
         Action<ChatTurnFailure>? onProviderError = null,
         Action<ProviderRetryNotice>? onProviderRetry = null,
-        Action<IReadOnlyList<string>>? onToolResultsCleared = null);
+        Action<IReadOnlyList<string>>? onToolResultsCleared = null,
+        Action<PtcProgress>? onPtcProgress = null,
+        ExecutionTimelineCollector? executionTimeline = null);
 
     /// <summary>
     /// 测试 API 连接

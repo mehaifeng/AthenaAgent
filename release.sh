@@ -439,6 +439,10 @@ for rid in "${PLATFORMS[@]}"; do
   validate_rid "$rid"
 done
 
+# The desktop app consumes the independently packed local PTC prototype.
+# Generate its feed before publish restores; this never publishes NuGet packages.
+bash "$REPO_ROOT/Libraries/Ptc/scripts/build-local-feed.sh"
+
 mkdir -p "$OUTPUT_DIR"
 
 MANIFEST_PACKAGES=""

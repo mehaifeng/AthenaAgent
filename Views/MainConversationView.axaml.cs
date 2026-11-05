@@ -29,6 +29,26 @@ namespace Athena.UI.Views;
 
 public partial class MainConversationView : UserControl
 {
+    private void OnExecutionTimelineClicked(object? sender, RoutedEventArgs e)
+    {
+        try
+        {
+            if (sender is not Button { DataContext: ChatMessage message } || _viewModel is null) return;
+#pragma warning disable CA2000 // A shown Window owns its lifetime; Closed calls Dispose. A failed Show disposes it below.
+            var window = new ExecutionTimelineWindow(_viewModel.ExecutionTimelines, message.Id, _viewModel.TimelineLocalization);
+#pragma warning restore CA2000
+            try
+            {
+                if (TopLevel.GetTopLevel(this) is Window owner) window.Show(owner);
+                else window.Show();
+            }
+            catch { window.Dispose(); throw; }
+        }
+        catch (Exception ex)
+        {
+            Serilog.Log.Error(ex, "Failed to open the execution timeline window");
+        }
+    }
     public static readonly StyledProperty<WorkspaceWorkbenchViewModel?> WorkbenchProperty =
         AvaloniaProperty.Register<MainConversationView, WorkspaceWorkbenchViewModel?>(nameof(Workbench));
 

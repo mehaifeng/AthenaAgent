@@ -1,0 +1,13 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <PackageId>AthenaAgent.Ptc.JavaScript</PackageId>
+    <Description>Per-run, in-process Jint JavaScript runtime for bounded PTC tool orchestration.</Description>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../Ptc.Core/Ptc.Core.csproj" />
+    <PackageReference Include="Jint" Version="[4.17.0]" />
+    <None Include="../../README.md" Pack="true" PackagePath="/" />
+    <None Include="../../LICENSE" Pack="true" PackagePath="/" />
+    <None Include="../../ThirdPartyNotices.md" Pack="true" PackagePath="/" />
+  </ItemGroup>
+</Project>

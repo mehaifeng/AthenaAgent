@@ -63,6 +63,9 @@ public partial class ChatMessage : ObservableObject
     [NotifyPropertyChangedFor(nameof(IsUser))]
     [NotifyPropertyChangedFor(nameof(IsVisibleToUser))]
     [NotifyPropertyChangedFor(nameof(IsBubbleVisible))]
+    [NotifyPropertyChangedFor(nameof(HasExecutionTimelineAction))]
+    [NotifyPropertyChangedFor(nameof(ShowBubbleActions))]
+    [NotifyPropertyChangedFor(nameof(ExecutionTimelineButtonContent))]
     [NotifyPropertyChangedFor(nameof(ShouldShowLegacyMarkdown))]
     [NotifyPropertyChangedFor(nameof(LegacyMarkdownContent))]
     private string _role = string.Empty;
@@ -116,6 +119,8 @@ public partial class ChatMessage : ObservableObject
     [NotifyPropertyChangedFor(nameof(IsBubbleVisible))]
     [NotifyPropertyChangedFor(nameof(ShowThinkingIndicator))]
     [NotifyPropertyChangedFor(nameof(CanGenerateAudio))]
+    [NotifyPropertyChangedFor(nameof(ShowBubbleActions))]
+    [NotifyPropertyChangedFor(nameof(CanShowProcessRunsToggle))]
     private bool _isLoading;
 
     /// <summary>
@@ -305,6 +310,9 @@ public partial class ChatMessage : ObservableObject
     public bool HasFoldableProcessRuns => ProcessRuns.Any(run => run.IsFoldable);
 
     [JsonIgnore]
+    public bool CanShowProcessRunsToggle => !IsLoading && HasFoldableProcessRuns;
+
+    [JsonIgnore]
     public bool AreProcessRunsExpanded => ProcessRuns.Where(run => run.IsFoldable || run.IsExpanded).Any()
         && ProcessRuns.Where(run => run.IsFoldable || run.IsExpanded).All(run => run.IsExpanded);
 
@@ -417,6 +425,7 @@ public partial class ChatMessage : ObservableObject
     private void RaiseProcessRunsChanged()
     {
         OnPropertyChanged(nameof(HasFoldableProcessRuns));
+        OnPropertyChanged(nameof(CanShowProcessRunsToggle));
         OnPropertyChanged(nameof(AreProcessRunsExpanded));
         OnPropertyChanged(nameof(ProcessRunsToggleIconKey));
     }
@@ -435,7 +444,29 @@ public partial class ChatMessage : ObservableObject
     /// </summary>
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(IsBubbleVisible))]
+    [NotifyPropertyChangedFor(nameof(HasExecutionTimelineAction))]
+    [NotifyPropertyChangedFor(nameof(ShowBubbleActions))]
+    [NotifyPropertyChangedFor(nameof(ExecutionTimelineButtonContent))]
     private bool _isHidden;
+
+    /// <summary>Runtime setting projection; never part of the conversation archive.</summary>
+    [ObservableProperty]
+    [property: JsonIgnore]
+    [NotifyPropertyChangedFor(nameof(HasExecutionTimelineAction))]
+    [NotifyPropertyChangedFor(nameof(ShowBubbleActions))]
+    [NotifyPropertyChangedFor(nameof(ExecutionTimelineButtonContent))]
+    private bool _executionAnalysisEnabled;
+
+    [JsonIgnore]
+    public bool HasExecutionTimelineAction => ExecutionAnalysisEnabled && Role == "assistant" && !IsHidden;
+
+    /// <summary>No button subtree is realized for disabled analysis or non-assistant messages.</summary>
+    [JsonIgnore]
+    public ChatMessage? ExecutionTimelineButtonContent => HasExecutionTimelineAction ? this : null;
+
+    // During a live reply only the timeline button is available. Other actions keep their old guards.
+    [JsonIgnore]
+    public bool ShowBubbleActions => !IsLoading || HasExecutionTimelineAction;
 
     /// <summary>
     /// 整体气泡是否可见（有内容、有工具执行提示，或正在加载）

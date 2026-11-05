@@ -44,6 +44,7 @@ Log.Logger = new LoggerConfiguration().MinimumLevel.Debug().CreateLogger();
 
 var tests = new (string Name, Func<Task> Run)[]
 {
+    ("execution timeline is monotonic, bounded, private, opt-in and survives restart", ExecutionTimelineTests.RunAsync),
     ("bulk collection replacement emits one reset", TestBulkCollectionReplaceAllAsync),
     ("snapshot filters empty loading assistant bubbles", TestSnapshotFilterAsync),
     ("workspace profiles persist and knowledge context honors its budget", TestWorkspaceProfileAndKnowledgeContextAsync),
