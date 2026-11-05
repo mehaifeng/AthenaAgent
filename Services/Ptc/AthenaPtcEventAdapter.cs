@@ -12,7 +12,12 @@ public sealed class AthenaPtcEventAdapter(AthenaPtcInvocation invocation) : IPtc
     {
         cancellationToken.ThrowIfCancellationRequested();
         invocation.Progress?.Invoke(new PtcProgress(item.RunId, item.ParentToolCallId, invocation.ConversationId,
-            item.Sequence, item.Kind, item.CallId, item.ToolName, item.ErrorCode));
+            item.Sequence, item.Kind, item.CallId, item.ToolName, item.ErrorCode)
+        {
+            OccurredTimestamp = item.OccurredTimestamp,
+            CallState = item.CallState?.ToString(),
+            RunStatus = item.RunStatus?.ToString()
+        });
         // A missing progress callback is intentional for service-only consumers; records still persist.
         return ValueTask.CompletedTask;
     }

@@ -3,6 +3,7 @@ using Athena.UI.Services.Interfaces;
 using Athena.UI.Services.Mcp;
 using Athena.UI.Services.Skills;
 using Athena.UI.Services.Ptc;
+using Athena.UI.Services.ExecutionTimeline;
 using OpenAI.Chat;
 using Serilog;
 using System;
@@ -1033,8 +1034,26 @@ public class FunctionRegistry : IFunctionRegistry
         {
             var approvalCt = Athena.UI.Services.SubAgents.ToolExecutionContext.CurrentCancellationToken;
             ToolApprovalDecision decision;
-            using (await AthenaPtcInvocationScope.AcquireChildApprovalAsync(approvalCt))
-                decision = await _approvalService.EvaluateAsync(functionName, argumentsJson, approvalCt);
+            var timeline = ExecutionTimelineScope.Current;
+            var approvalSpan = timeline?.Recorder.Begin(ExecutionTimelineLane.System, ExecutionTimelineKind.Approval,
+                "approval", timeline.ParentSpanId) ?? 0;
+            try
+            {
+                using (await AthenaPtcInvocationScope.AcquireChildApprovalAsync(approvalCt))
+                    decision = await _approvalService.EvaluateAsync(functionName, argumentsJson, approvalCt);
+                timeline?.Recorder.End(approvalSpan, approvalCt.IsCancellationRequested ? ExecutionTimelineState.Cancelled
+                    : decision.Approved ? ExecutionTimelineState.Succeeded : ExecutionTimelineState.Denied);
+            }
+            catch (OperationCanceledException) when (approvalCt.IsCancellationRequested)
+            {
+                timeline?.Recorder.End(approvalSpan, ExecutionTimelineState.Cancelled);
+                throw;
+            }
+            catch
+            {
+                timeline?.Recorder.End(approvalSpan, ExecutionTimelineState.Failed);
+                throw;
+            }
             if (!decision.Approved)
             {
                 _logger.Warning("Function {FunctionName} blocked by approval gate: {Reason}", functionName, decision.Reason);

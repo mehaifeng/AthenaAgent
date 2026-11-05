@@ -13,7 +13,7 @@ import zipfile
 
 ROOT = Path(__file__).resolve().parents[3]
 PTC = ROOT / "Libraries" / "Ptc"
-VERSION = "0.1.0-preview.1"
+VERSION = "0.1.0-preview.4"
 IDS = {"AthenaAgent.Ptc.Core": "Ptc.Core", "AthenaAgent.Ptc.JavaScript": "Ptc.JavaScript"}
 FEED = Path(sys.argv[1]).resolve() if len(sys.argv) > 1 else ROOT / "artifacts" / "ptc" / "feed"
 EVIDENCE = ROOT / "artifacts" / "ptc"

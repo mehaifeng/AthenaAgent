@@ -100,6 +100,11 @@
     <Compile Include="../Models/ChatAttachment.cs" Link="Source/Models/ChatAttachment.cs" />
     <Compile Include="../Models/BulkObservableCollection.cs" Link="Source/Models/BulkObservableCollection.cs" />
     <Compile Include="../Models/ChatMessage.cs" Link="Source/Models/ChatMessage.cs" />
+    <Compile Include="../Models/ExecutionTimeline.cs" Link="Source/Models/ExecutionTimeline.cs" />
+    <Compile Include="../Models/PtcProgress.cs" Link="Source/Models/PtcProgress.cs" />
+    <Compile Include="../Services/ExecutionTimeline/ExecutionTimelineCollector.cs" Link="Source/Services/ExecutionTimeline/ExecutionTimelineCollector.cs" />
+    <Compile Include="../Services/ExecutionTimeline/ExecutionTimelineScope.cs" Link="Source/Services/ExecutionTimeline/ExecutionTimelineScope.cs" />
+    <Compile Include="../Services/ExecutionTimeline/ExecutionTimelineService.cs" Link="Source/Services/ExecutionTimeline/ExecutionTimelineService.cs" />
     <Compile Include="../Models/ChatMessageSegment.cs" Link="Source/Models/ChatMessageSegment.cs" />
     <Compile Include="../Models/ProcessRun.cs" Link="Source/Models/ProcessRun.cs" />
     <Compile Include="../Models/ToolCallDisplay.cs" Link="Source/Models/ToolCallDisplay.cs" />

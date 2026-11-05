@@ -32,6 +32,7 @@ using Athena.UI.Services.Functions;
 using Athena.UI.Services.Preview;
 using Athena.UI.Services.Protocol;
 using Athena.UI.Services.SubAgents;
+using Athena.UI.Services.ExecutionTimeline;
 using Athena.UI.Services.VirtualPet;
 using Athena.UI.Services.GameMode;
 using Athena.UI.ViewModels;
@@ -93,6 +94,12 @@ if (Environment.GetEnvironmentVariable("ATHENA_HEADLESS_ONLY") == "ptc")
     PtcTests.VerifyUiProjection();
     Environment.Exit(0);
 }
+if (Environment.GetEnvironmentVariable("ATHENA_HEADLESS_ONLY") == "timeline")
+{
+    Task.Run(PtcTests.RunAsync).GetAwaiter().GetResult();
+    ExecutionTimelineHeadlessTests.Run();
+    Environment.Exit(0);
+}
 if (Environment.GetEnvironmentVariable("ATHENA_HEADLESS_ONLY") == "game-mode")
 {
     TestGameModeSwitchAndFailures();
@@ -124,6 +131,7 @@ Task.Run(TestResponsesStreamingTextAndUsageAsync).GetAwaiter().GetResult();
 Task.Run(TestResponsesToolLoopAsync).GetAwaiter().GetResult();
 Task.Run(PtcTests.RunAsync).GetAwaiter().GetResult();
 PtcTests.VerifyUiProjection();
+ExecutionTimelineHeadlessTests.Run();
 Task.Run(TestResponsesTruncatedToolCallRetryAsync).GetAwaiter().GetResult();
 Task.Run(TestResponsesReasoningTextAsync).GetAwaiter().GetResult();
 Task.Run(TestResponsesThirdPartyNoIncludeAsync).GetAwaiter().GetResult();
@@ -10915,11 +10923,13 @@ static async Task TestProviderRetryResumesInterruptedStreamAsync()
         var notices = new List<ProviderRetryNotice>();
         ChatTurnFailure? failure = null;
         var output = new StringBuilder();
+        var timeline = new ExecutionTimelineCollector(Guid.NewGuid().ToString("N"), Stopwatch.GetTimestamp(), DateTimeOffset.UtcNow);
         await foreach (var chunk in service.StreamMessageAsync(
                            "hi",
                            new ConversationContext { ConversationId = "retry-on" },
                            onProviderError: f => failure = f,
-                           onProviderRetry: notices.Add))
+                            onProviderRetry: notices.Add,
+                            executionTimeline: timeline))
         {
             output.Append(chunk);
         }
@@ -10935,6 +10945,12 @@ static async Task TestProviderRetryResumesInterruptedStreamAsync()
             throw new InvalidOperationException($"A recovered round is not a failed run: '{failure.Message}'");
         if (notices.Count != 1 || notices[0].Attempt != 1 || notices[0].Category != ProviderErrorCategory.StreamInterrupted)
             throw new InvalidOperationException("The retry must be announced once, as attempt 1 of a stream interruption.");
+        var trace = timeline.Complete(ExecutionTimelineState.Succeeded);
+        var attempts = trace.Spans.Where(item => item.Kind == ExecutionTimelineKind.ModelRequest).ToArray();
+        if (trace.ModelAttempts != 2 || attempts.Length != 2 || attempts[0].State != ExecutionTimelineState.Failed
+            || attempts[1].State != ExecutionTimelineState.Succeeded || attempts[1].Attempt != 2
+            || !trace.Spans.Any(item => item.Kind == ExecutionTimelineKind.RetryWait && item.EndUs > item.StartUs))
+            throw new InvalidOperationException("The timeline must distinguish both model attempts and the actual retry backoff.");
     }
 
     var offConfig = new AppConfig();
@@ -13312,7 +13328,8 @@ sealed class ReasoningStreamingChatService : HeadlessChatService
         Action<ChatTurnFailure>? onProviderError = null,
         Action<ProviderRetryNotice>? onProviderRetry = null,
         Action<IReadOnlyList<string>>? onToolResultsCleared = null,
-        Action<PtcProgress>? onPtcProgress = null)
+        Action<PtcProgress>? onPtcProgress = null,
+        ExecutionTimelineCollector? executionTimeline = null)
     {
         // 注意：迭代体保持全同步（不 Task.Yield）。夹具在池线程驱动，任何投递到 UI 同步
         // 上下文的续体都会在测试线程 RunJobs 泵执行时触发 Avalonia 线程所有权校验。
@@ -13371,7 +13388,8 @@ sealed class InterleavedReasoningChatService : HeadlessChatService
         Action<ChatTurnFailure>? onProviderError = null,
         Action<ProviderRetryNotice>? onProviderRetry = null,
         Action<IReadOnlyList<string>>? onToolResultsCleared = null,
-        Action<PtcProgress>? onPtcProgress = null)
+        Action<PtcProgress>? onPtcProgress = null,
+        ExecutionTimelineCollector? executionTimeline = null)
     {
         await Task.CompletedTask;
         onReasoningDelta?.Invoke(FirstThought);
@@ -14003,7 +14021,8 @@ sealed class GatedUsageChatService : HeadlessChatService
         Action<ChatTurnFailure>? onProviderError = null,
         Action<ProviderRetryNotice>? onProviderRetry = null,
         Action<IReadOnlyList<string>>? onToolResultsCleared = null,
-        Action<PtcProgress>? onPtcProgress = null)
+        Action<PtcProgress>? onPtcProgress = null,
+        ExecutionTimelineCollector? executionTimeline = null)
     {
         static TokenUsageSnapshot Usage(int input) => new(input, 0, 10, input + 10, "gated", "p", "m", DateTimeOffset.UtcNow);
         if (++_calls == 1)
@@ -14052,7 +14071,8 @@ sealed class UsageReportingChatService(IReadOnlyList<(int Input, int Output)> us
         Action<ChatTurnFailure>? onProviderError = null,
         Action<ProviderRetryNotice>? onProviderRetry = null,
         Action<IReadOnlyList<string>>? onToolResultsCleared = null,
-        Action<PtcProgress>? onPtcProgress = null)
+        Action<PtcProgress>? onPtcProgress = null,
+        ExecutionTimelineCollector? executionTimeline = null)
     {
         var usage = usages[Math.Min(_calls++, usages.Count - 1)];
         if (ClearedIdsToReport is { } cleared && _calls == 1) onToolResultsCleared?.Invoke(cleared);
@@ -14086,7 +14106,8 @@ class HeadlessChatService : IChatService
         Action<ChatTurnFailure>? onProviderError = null,
         Action<ProviderRetryNotice>? onProviderRetry = null,
         Action<IReadOnlyList<string>>? onToolResultsCleared = null,
-        Action<PtcProgress>? onPtcProgress = null)
+        Action<PtcProgress>? onPtcProgress = null,
+        ExecutionTimelineCollector? executionTimeline = null)
     {
         await Task.CompletedTask;
         yield break;
@@ -14414,7 +14435,8 @@ sealed class ProviderFailureChatService : HeadlessChatService
         Action<ChatTurnFailure>? onProviderError = null,
         Action<ProviderRetryNotice>? onProviderRetry = null,
         Action<IReadOnlyList<string>>? onToolResultsCleared = null,
-        Action<PtcProgress>? onPtcProgress = null)
+        Action<PtcProgress>? onPtcProgress = null,
+        ExecutionTimelineCollector? executionTimeline = null)
     {
         await Task.CompletedTask;
         onProviderError?.Invoke(new ChatTurnFailure(FailureMessage, ProviderErrorCategory.ProviderRawError));
@@ -14444,7 +14466,8 @@ sealed class PlainReplyChatService : HeadlessChatService
         Action<ChatTurnFailure>? onProviderError = null,
         Action<ProviderRetryNotice>? onProviderRetry = null,
         Action<IReadOnlyList<string>>? onToolResultsCleared = null,
-        Action<PtcProgress>? onPtcProgress = null)
+        Action<PtcProgress>? onPtcProgress = null,
+        ExecutionTimelineCollector? executionTimeline = null)
     {
         await Task.CompletedTask;
         yield return Reply;

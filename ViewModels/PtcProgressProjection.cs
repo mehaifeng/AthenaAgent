@@ -25,7 +25,9 @@ public static class PtcProgressProjection
             }
             child.Result = progress.ErrorCode ?? progress.Kind;
             if (progress.Kind == "CallFinished")
-                child.Status = progress.ErrorCode is null ? ToolCallStatus.Success : ToolCallStatus.Failed;
+                child.Status = progress.CallState is null
+                    ? progress.ErrorCode is null ? ToolCallStatus.Success : ToolCallStatus.Failed
+                    : progress.CallState == "Succeeded" ? ToolCallStatus.Success : ToolCallStatus.Failed;
         }
         if (progress.Kind == "RunFinished")
         {

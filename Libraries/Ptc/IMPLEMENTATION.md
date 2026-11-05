@@ -223,3 +223,42 @@ Commits are separated by boundary: d5810f2 (standalone Core/Jint), d98d213
 The supplied design baseline remains unchanged; its original root-doc links are
 preserved and augmented with actual implementation status. No unrelated audio,
 shell appearance or historical design was rewritten.
+
+## 2026-11-05: execution timeline event extension
+
+The earlier 0.1.0-preview.1 evidence above is historical; Athena now consumes the
+new **0.1.0-preview.4** packages. PtcEvent's existing constructor remains intact,
+with additive OccurredTimestamp, CallState and RunStatus metadata. The monotonic
+timestamp is taken at event production, before the bounded observer queue; it must
+be translated to a host-relative duration in the same process, never persisted as
+an absolute Stopwatch value. ScriptStarted/ScriptFinished bracket the interpreter
+lifetime separately from PTC reservation and draining, and include awaited I/O.
+Late interpreter completion after bounded drain cannot publish into a closed run.
+The bounded event queue also accounts for both new script lifecycle events.
+
+The independent component test suite and the external, initially empty-cache
+PackageReference consumer are rerun for this new version. The package-consumer
+files under artifacts/ptc now describe the latest preview rather than the earlier
+preview.1; the historical SHA-256 values above remain evidence of that build, not
+the current preview. Actual current hashes live in artifacts/ptc/SHA256SUMS.
+No NuGet publication or production model calls are implied by these tests.
+
+Verified on Fedora 44 Linux x64, SDK 10.0.113 / runtime 10.0.13:
+
+- Locked, forced component restore: exit 0. Component tests: **58 Core + 38
+  JavaScript = 96 passed**. The delayed-observer test asserts source timestamps,
+  not callback arrival times; the intentional authorization mutation still fails.
+- Both 0.1.0-preview.4 nupkg files were installed and executed twice from an empty
+  external package cache; nuspec, dependency graph and actual DLL hashes checked.
+  SHA-256: Core `d407ae41021f4499a4cb2bbb4e87f6e49f762d70213b87a13e7fcf3e6c62677d`,
+  JavaScript `643ad0c38157e80b41e5aa6ef093bae7c7f5627d4f011ef9fde2ab69f85da5d6`.
+- Archive suite: **210 PASS cases**. Full headless suite: **151 PASS cases**,
+  including 18 PTC/timeline integration groups / 205 assertions and actual
+  Chat Completions + Responses loopback with production Registry. The headless
+  timeline case exercises the real settings toggle, live non-modal window,
+  overlapping bars, zoom, keyboard selection, light/dark rendering, opt-out
+  and old-history empty state. No real model credentials or requests were used.
+- Logs and checksum summary: `artifacts/ptc/timeline-verification-20261105.json`
+  and its referenced local logs. Windows/macOS and real-model behaviour have not
+  been verified. SDK-internal retries, auxiliary role calls and subagent internals
+  are not counted as main-model attempts in the timeline.

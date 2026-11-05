@@ -106,7 +106,7 @@
       "AthenaAgent.Ptc.JavaScript": {
         "type": "Project",
         "dependencies": {
-          "AthenaAgent.Ptc.Core": "[0.1.0-preview.1, )",
+          "AthenaAgent.Ptc.Core": "[0.1.0-preview.4, )",
           "Jint": "[4.17.0, 4.17.0]"
         }
       }

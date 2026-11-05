@@ -807,6 +807,9 @@ public partial class App : Application, IAsyncDisposable
 
         // 配置服务（单例）
         services.AddSingleton<IConfigService, ConfigService>();
+        services.AddSingleton<Athena.UI.Services.ExecutionTimeline.ExecutionTimelineService>(sp =>
+            new Athena.UI.Services.ExecutionTimeline.ExecutionTimelineService(
+                sp.GetRequiredService<IConfigService>(), sp.GetRequiredService<IPlatformPathService>(), Log.Logger));
         services.AddSingleton<AppConfigurationSession>();
         services.AddSingleton<AppConfigurationApplier>();
         services.AddSingleton<IPetDexCatalogService>(sp =>

@@ -153,12 +153,47 @@ public sealed class CoordinatorTests
         Assert.Equal("RunStarted", sink.Items[0].Kind);
         Assert.Equal("RunFinished", sink.Items[^1].Kind);
         Assert.Equal(Enumerable.Range(1, sink.Items.Count).Select(i => (long)i), sink.Items.Select(item => item.Sequence));
+        Assert.All(sink.Items, item => Assert.True(item.OccurredTimestamp > 0));
+        Assert.Equal(PtcRunStatus.Completed, sink.Items[^1].RunStatus);
+        var scriptStart = Assert.Single(sink.Items, item => item.Kind == "ScriptStarted");
+        var scriptEnd = Assert.Single(sink.Items, item => item.Kind == "ScriptFinished");
+        Assert.True(scriptEnd.OccurredTimestamp >= scriptStart.OccurredTimestamp);
+        Assert.Equal(PtcRunStatus.Completed, scriptEnd.RunStatus);
         foreach (var call in result.ToolRecords)
         {
             Assert.Single(sink.Items, item => item.CallId == call.Call.CallId && item.Kind == "CallFinished");
+            Assert.Equal(call.State, sink.Items.Single(item => item.CallId == call.Call.CallId && item.Kind == "CallFinished").CallState);
             Assert.All(sink.Items.Where(item => item.CallId == call.Call.CallId), item => Assert.Equal("parent", item.ParentToolCallId));
         }
         Assert.DoesNotContain("arguments", JsonSerializer.Serialize(sink.Items, PtcJson.Options));
+    }
+
+    [Fact]
+    public async Task EventTimestampIsCapturedBeforeDelayedObserverDelivery()
+    {
+        var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var sink = new DelayedSink(release.Task);
+        var host = new Host { Handler = (_, _) => { entered.SetResult(); return ValueTask.FromResult(Ok()); } };
+        var execution = new PtcExecutor(new Runtime(async bridge => { await bridge.CallAsync("read", Json(), default); }))
+            .ExecuteAsync(Request(), host, sink);
+        await entered.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        var afterHostCall = System.Diagnostics.Stopwatch.GetTimestamp();
+        release.SetResult();
+        Assert.Equal(PtcRunStatus.Completed, (await execution).Status);
+        var start = Assert.Single(sink.Items, item => item.Event.Kind == "CallStarted");
+        Assert.True(start.Event.OccurredTimestamp <= afterHostCall && start.DeliveredAt >= afterHostCall);
+        Assert.Equal(PtcCallState.Running, start.Event.CallState);
+    }
+
+    private sealed class DelayedSink(Task release) : IPtcEventSink
+    {
+        public List<(PtcEvent Event, long DeliveredAt)> Items { get; } = [];
+        public async ValueTask OnEventAsync(PtcEvent item, CancellationToken cancellationToken)
+        {
+            if (item.Kind == "RunStarted") await release.WaitAsync(cancellationToken);
+            Items.Add((item, System.Diagnostics.Stopwatch.GetTimestamp()));
+        }
     }
 
     [Fact]

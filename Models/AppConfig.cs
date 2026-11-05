@@ -244,6 +244,10 @@ public partial class AppConfig : ObservableObject
     [ObservableProperty]
     private bool _ptcEnabled;
 
+    // User-only local execution diagnostics. The model-writable config catalog does not expose it.
+    [ObservableProperty]
+    private bool _executionAnalysisEnabled;
+
     // MCP 扩展（Model Context Protocol）—— 外部工具服务器接入
     // EnableMcp 关闭时，FunctionRegistry 隐藏三个 meta-tool，配置项亦不参与生命周期。
     [ObservableProperty]

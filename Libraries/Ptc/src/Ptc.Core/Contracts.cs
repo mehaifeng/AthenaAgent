@@ -86,7 +86,18 @@ public sealed record PtcExecutionResult(PtcRunContext Context, PtcRunStatus Stat
     IReadOnlyList<PtcArtifactReference> Artifacts, PtcRunMetrics Metrics, PtcFailure? Failure);
 /// <summary>Monotonic metadata event, deliberately excluding arguments, result bodies and secrets.</summary>
 public sealed record PtcEvent(string RunId, string ParentToolCallId, long Sequence,
-    string Kind, string? CallId, string? ToolName, string? ErrorCode);
+    string Kind, string? CallId, string? ToolName, string? ErrorCode)
+{
+    /// <summary>
+    /// Stopwatch timestamp captured where the event occurred, before bounded observer delivery.
+    /// It can be compared only to the same process's monotonic clock, never persisted as wall time.
+    /// </summary>
+    public long OccurredTimestamp { get; init; }
+    /// <summary>Actual child state at emission; null for run-level events.</summary>
+    public PtcCallState? CallState { get; init; }
+    /// <summary>The run's first-reason outcome at RunFinished; null for other events.</summary>
+    public PtcRunStatus? RunStatus { get; init; }
+}
 
 /// <summary>Business authorization, actual tool dispatch and resource ownership stay in the host.</summary>
 public interface IPtcToolHost

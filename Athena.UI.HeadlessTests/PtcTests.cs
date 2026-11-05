@@ -20,6 +20,7 @@ using Athena.UI.Services.Interfaces;
 using Athena.UI.Services.ModelMetadata;
 using Athena.UI.Services.Ptc;
 using Athena.UI.Services.SubAgents;
+using Athena.UI.Services.ExecutionTimeline;
 using Athena.UI.ViewModels;
 using Avalonia.Controls;
 using Avalonia.Threading;
@@ -47,6 +48,9 @@ internal static class PtcTests
         await CompleteRawDataAsync();
         await LoopbackAsync(ProviderProtocol.ChatCompletions);
         await LoopbackAsync(ProviderProtocol.Responses);
+        await DirectTimelineAsync();
+        await MessageTimelineAsync();
+        await ConcurrentMessageTimelinesAsync();
         await CancelledLoopbackAsync();
         await ArchiveAndTraceAsync();
         await FileSafetyAsync();
@@ -56,7 +60,7 @@ internal static class PtcTests
         await FailedTraceIsNeverReferencedAsync();
         VerifyPackedAssemblies();
         Check(Environment.GetEnvironmentVariable("ATHENA_PTC_ASSERTION_PROBE") != "1", "intentional failure probe");
-        Console.WriteLine($"[PASS] PTC A01-A14: 15 integration groups, {_assertions} assertions, both real HTTP loopbacks, production Registry and packed components");
+        Console.WriteLine($"[PASS] PTC A01-A14 plus execution timeline: 18 integration groups, {_assertions} assertions, both real HTTP loopbacks, production Registry and packed components");
     }
 
     public static void VerifyUiProjection()
@@ -95,6 +99,8 @@ internal static class PtcTests
         var off = new AppConfig();
         var on = new AppConfig { PtcEnabled = true };
         Check(!ConfigFieldCatalog.Fields.Any(field => JsonSerializer.Serialize(field.Get(off)) != JsonSerializer.Serialize(field.Get(on))), "switch is not model writable or readable through config catalog");
+        var analysisOn = new AppConfig { ExecutionAnalysisEnabled = true };
+        Check(!ConfigFieldCatalog.Fields.Any(field => JsonSerializer.Serialize(field.Get(off)) != JsonSerializer.Serialize(field.Get(analysisOn))), "the model cannot turn on local execution analysis");
         Check(!JsonSerializer.Deserialize<AppConfig>("{}")!.PtcEnabled, "old configs default PTC off");
         Check(JsonSerializer.Deserialize<AppConfig>(JsonSerializer.Serialize(on))!.PtcEnabled, "user toggle survives config serialization");
         fixture.Config.PtcEnabled = true;
@@ -213,8 +219,9 @@ internal static class PtcTests
         var context = new ConversationContext { ConversationId = "loop-" + protocol, WorkspaceId = "loop-workspace" };
         var observed = new List<ChatMessage>();
         var text = new StringBuilder();
+        var timeline = new ExecutionTimelineCollector(Guid.NewGuid().ToString("N"), System.Diagnostics.Stopwatch.GetTimestamp(), DateTimeOffset.UtcNow);
         await foreach (var delta in service.StreamMessageAsync("Read and aggregate the synthetic fixture.", context,
-            onMessageAdded: observed.Add, onPtcProgress: fixture.Progress.Enqueue)) text.Append(delta);
+            onMessageAdded: observed.Add, onPtcProgress: fixture.Progress.Enqueue, executionTimeline: timeline)) text.Append(delta);
         Check(text.ToString() == "done", "A02 production SDK/main loop completes on " + protocol + ": " + text);
         Check(model.Requests.Count == 2, "exactly one tool round and final round on " + protocol);
         Check(fixture.Files.Observations.Count == 1, "A02 real production Registry reached the file service once on " + protocol);
@@ -226,6 +233,21 @@ internal static class PtcTests
         Check(result.GetProperty("success").GetBoolean(), "outer program result successful on " + protocol);
         Check(result.GetProperty("data").GetProperty("metrics").GetProperty("callsStarted").GetInt32() == 1, "one child was executed, not hidden as another protocol call");
         Check(fixture.Progress.Any(item => item.Kind == "CallFinished") && fixture.Progress.All(item => item.ParentToolCallId == "call_program" && item.ConversationId == context.ConversationId), "A05 event/session/parent attribution on " + protocol);
+        var trace = timeline.Complete(ExecutionTimelineState.Succeeded);
+        var outer = trace.Spans.Single(item => item.Lane == ExecutionTimelineLane.Tools && item.Name == "execute_program");
+        var script = trace.Spans.Single(item => item.Lane == ExecutionTimelineLane.Script);
+        var child = trace.Spans.Single(item => item.Lane == ExecutionTimelineLane.PtcTools && item.Name == "read_system_file");
+        var requestingModel = trace.Spans.First(item => item.Kind == ExecutionTimelineKind.ModelRequest);
+        Check(trace.ModelAttempts == 2 && trace.OuterTools == 1 && trace.OuterToolsStarted == 1 && trace.PtcAttempts == 1 && trace.PtcStarted == 1, "timeline counts actual model, wrapper and child independently on " + protocol);
+        Check(script.ParentId == outer.Id && child.ParentId == script.Id && child.EndUs >= child.StartUs && script.State == ExecutionTimelineState.Succeeded, "PTC timing source, interpreter lifetime and hierarchy are intact on " + protocol);
+        Check(outer.ParentId == requestingModel.Id && requestingModel.EndUs <= outer.StartUs,
+            "outer tool is linked to the model attempt that requested it on " + protocol);
+        Check(outer.StartUs <= script.StartUs && script.EndUs <= outer.EndUs && script.StartUs <= child.StartUs && child.EndUs <= script.EndUs,
+            "real PTC child and script intervals fit their actual parents on " + protocol);
+        Check(trace.Spans.Any(item => item.Kind == ExecutionTimelineKind.Approval && item.ParentId == child.Id),
+            "child approval is attached to the right PTC call even when observer delivery is delayed");
+        Check(trace.Spans.Count(item => item.Kind == ExecutionTimelineKind.ModelRequest && item.InputTokens is not null) == 2, "timeline only records actual provider usage on " + protocol);
+        Check(!JsonSerializer.Serialize(trace).Contains(fixture.File, StringComparison.Ordinal), "timeline does not persist tool paths on " + protocol);
         var sent = model.Requests.ToArray();
         var tools = sent[0].GetProperty("tools").EnumerateArray().ToArray();
         Check(tools.Any(item => protocol == ProviderProtocol.Responses ? item.GetProperty("name").GetString() == "execute_program" : item.GetProperty("function").GetProperty("name").GetString() == "execute_program"), "A02 real outbound declaration contains execute_program");
@@ -243,6 +265,98 @@ internal static class PtcTests
         }
     }
 
+    private static async Task DirectTimelineAsync()
+    {
+        await using var fixture = new Fixture();
+        await using var model = new LoopbackModel("", fixture.File, "read_system_file");
+        var service = fixture.Chat(model.BaseUrl, ProviderProtocol.ChatCompletions);
+        var context = new ConversationContext { ConversationId = "dtc-timeline" };
+        var timeline = new ExecutionTimelineCollector(Guid.NewGuid().ToString("N"), System.Diagnostics.Stopwatch.GetTimestamp(), DateTimeOffset.UtcNow);
+        await foreach (var _ in service.StreamMessageAsync("Read the synthetic fixture.", context, executionTimeline: timeline)) { }
+        var trace = timeline.Complete(ExecutionTimelineState.Succeeded);
+        Check(trace.ModelAttempts == 2 && trace.OuterTools == 1 && trace.OuterToolsStarted == 1 && trace.PtcAttempts == 0, "DTC model/tool counts do not include PTC");
+        Check(trace.Spans.Any(item => item.Lane == ExecutionTimelineLane.Tools && item.Name == "read_system_file" && item.State == ExecutionTimelineState.Succeeded), "DTC real Registry tool gets an actual duration");
+        Check(trace.Spans.Single(item => item.Lane == ExecutionTimelineLane.Tools).ParentId
+            == trace.Spans.First(item => item.Kind == ExecutionTimelineKind.ModelRequest).Id,
+            "DTC tool is linked to its requesting model attempt");
+        Check(trace.Spans.Any(item => item.Kind == ExecutionTimelineKind.Approval && item.EndUs >= item.StartUs), "DTC approval gets its own system span");
+        Check(!trace.Spans.Any(item => item.Lane == ExecutionTimelineLane.Script), "DTC does not invent a script");
+        Check(fixture.Files.Observations.Count == 1 && model.Requests.Count == 2, "recording adds no model or tool calls");
+        Check(model.Requests.All(item => !item.GetRawText().Contains("executionTimeline", StringComparison.OrdinalIgnoreCase)), "trace metadata never enters model payload");
+    }
+
+    private static async Task MessageTimelineAsync()
+    {
+        await using var fixture = new Fixture();
+        fixture.Config.ExecutionAnalysisEnabled = true;
+        await using var model = new LoopbackModel("const r=await tools.call('read_system_file',{path:inputs.path}); text(r.success);", fixture.File);
+        using var timelines = new ExecutionTimelineService(fixture.ConfigService, fixture.Paths, Log.Logger);
+        using var chat = new MainConversationViewModel(fixture.Chat(model.BaseUrl, ProviderProtocol.ChatCompletions),
+            fixture.ConfigService, new HeadlessPromptService(), fixture.Registry, new TokenService(), null,
+            sessionAccessor: fixture.Sessions, executionTimelines: timelines);
+        chat.InputText = "Read the synthetic file.";
+        await chat.SendMessageCommand.ExecuteAsync(null);
+        var reply = chat.Messages.Last(item => item.Role == "assistant" && !item.IsHidden);
+        var saved = await timelines.LoadAsync(reply.Id);
+        Check(saved.Snapshot is { State: ExecutionTimelineState.Succeeded, ModelAttempts: 2, PtcAttempts: 1 }, "real message command records and saves its own complete timeline");
+        Check(reply.DurationMs.HasValue && Math.Abs(saved.Snapshot!.DurationUs / 1000 - reply.DurationMs.Value) <= 1,
+            "timeline total and bubble duration share the same monotonic start and end");
+        Check(!saved.IsLive && reply.HasExecutionTimelineAction, "completed assistant bubble keeps the clickable timeline action");
+        using var reopened = new ExecutionTimelineService(fixture.ConfigService, fixture.Paths, Log.Logger);
+        Check((await reopened.LoadAsync(reply.Id)).Snapshot?.MessageId == reply.Id, "a reopened service resolves the timeline by stable message ID");
+        Check(fixture.Files.Observations.Count == 1 && model.Requests.Count == 2, "the message recorder never re-executes tools or models");
+
+        await using var failingFixture = new Fixture();
+        failingFixture.Config.ExecutionAnalysisEnabled = true;
+        await File.WriteAllTextAsync(Path.Combine(failingFixture.Root, "ExecutionTimelines"), "synthetic storage failure");
+        await using var failingModel = new LoopbackModel("const r=await tools.call('read_system_file',{path:inputs.path}); text(r.success);", failingFixture.File);
+        using var failingStore = new ExecutionTimelineService(failingFixture.ConfigService, failingFixture.Paths, Log.Logger);
+        using var failingChat = new MainConversationViewModel(failingFixture.Chat(failingModel.BaseUrl, ProviderProtocol.ChatCompletions),
+            failingFixture.ConfigService, new HeadlessPromptService(), failingFixture.Registry, new TokenService(), null,
+            sessionAccessor: failingFixture.Sessions, executionTimelines: failingStore);
+        failingChat.InputText = "Read the synthetic file.";
+        await failingChat.SendMessageCommand.ExecuteAsync(null);
+        var unaffected = failingChat.Messages.Last(item => item.Role == "assistant" && !item.IsHidden);
+        Check(unaffected.Content == "done" && (await failingStore.LoadAsync(unaffected.Id)).Snapshot?.PersistenceFailed == true,
+            "timeline storage failure is visible but never replaces or fails the actual assistant reply");
+        using var failedView = new ExecutionTimelineViewModel(failingStore, unaffected.Id, null);
+        await failedView.RefreshAsync();
+        Check(failedView.Notice.Contains("could not be saved", StringComparison.Ordinal), "the timeline window explicitly explains an unsaved record");
+        Check(failingModel.Requests.Count == 2 && failingFixture.Files.Observations.Count == 1, "storage failure never replays the model or tool");
+    }
+
+    private static async Task ConcurrentMessageTimelinesAsync()
+    {
+        await using var fixture = new Fixture();
+        fixture.Config.ToolApprovalMode = ToolApprovalMode.Off;
+        var bothStarted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var started = 0;
+        fixture.Files.BeforeRead = async (_, token) =>
+        {
+            if (Interlocked.Increment(ref started) == 2) bothStarted.TrySetResult();
+            await bothStarted.Task.WaitAsync(token);
+        };
+        await using var firstModel = new LoopbackModel("const r=await tools.call('read_system_file',{path:inputs.path}); text(r.success);", fixture.File);
+        await using var secondModel = new LoopbackModel("const r=await tools.call('read_system_file',{path:inputs.path}); text(r.success);", fixture.File);
+        var firstService = fixture.Chat(firstModel.BaseUrl, ProviderProtocol.ChatCompletions);
+        var secondService = fixture.Chat(secondModel.BaseUrl, ProviderProtocol.ChatCompletions);
+        var first = new ExecutionTimelineCollector(Guid.NewGuid().ToString("N"), System.Diagnostics.Stopwatch.GetTimestamp(), DateTimeOffset.UtcNow);
+        var second = new ExecutionTimelineCollector(Guid.NewGuid().ToString("N"), System.Diagnostics.Stopwatch.GetTimestamp(), DateTimeOffset.UtcNow);
+        static async Task Drive(OpenAIChatService service, string session, ExecutionTimelineCollector recorder)
+        {
+            var context = new ConversationContext { ConversationId = session, WorkspaceId = "w-" + session };
+            await foreach (var _ in service.StreamMessageAsync("Read the synthetic file.", context, executionTimeline: recorder)) { }
+        }
+        await Task.WhenAll(Drive(firstService, "one", first), Drive(secondService, "two", second));
+        var traces = new[] { first.Complete(ExecutionTimelineState.Succeeded), second.Complete(ExecutionTimelineState.Succeeded) };
+        Check(traces[0].MessageId != traces[1].MessageId && traces.All(item => item.ModelAttempts == 2 && item.PtcAttempts == 1),
+            "concurrent sessions maintain separate per-message model and PTC timelines");
+        Check(traces.All(item => item.Spans.Count(span => span.Lane == ExecutionTimelineLane.PtcTools) == 1),
+            "parallel sessions do not cross-contaminate child events");
+        Check(fixture.Files.Observations.Count == 2 && firstModel.Requests.Count == 2 && secondModel.Requests.Count == 2,
+            "parallel trace collection adds no extra business operations");
+    }
+
     private static async Task CancelledLoopbackAsync()
     {
         await using var fixture = new Fixture();
@@ -257,12 +371,13 @@ internal static class PtcTests
         var context = new ConversationContext { ConversationId = "cancel-loop" };
         var observed = new List<ChatMessage>();
         var service = fixture.Chat(model.BaseUrl, ProviderProtocol.ChatCompletions);
+        var timeline = new ExecutionTimelineCollector(Guid.NewGuid().ToString("N"), System.Diagnostics.Stopwatch.GetTimestamp(), DateTimeOffset.UtcNow);
         var execution = Task.Run(async () =>
         {
             try
             {
                 await foreach (var _ in service.StreamMessageAsync("Read fixture then stop.", context, cancellationToken: stop.Token,
-                    onMessageAdded: observed.Add, onPtcProgress: fixture.Progress.Enqueue)) { }
+                    onMessageAdded: observed.Add, onPtcProgress: fixture.Progress.Enqueue, executionTimeline: timeline)) { }
             }
             catch (OperationCanceledException) when (stop.IsCancellationRequested) { }
         });
@@ -276,6 +391,10 @@ internal static class PtcTests
         Check((await fixture.Store.ReadAsync(data.GetProperty("traceRef").GetString()!))!.Execution.Status == PtcRunStatus.Cancelled, "cancelled run has an immutable terminal trace");
         Check(fixture.Progress.Last().Kind == "RunFinished" && fixture.Progress.Any(item => item.Kind == "CallFinished"), "cancellation ends process cards through independent cleanup events");
         Check(context.Messages.Count(item => item.Role == "tool") == 1 && tool.ToolCallId == "call_program", "Stop leaves valid outer protocol pairing");
+        var trace = timeline.Complete(ExecutionTimelineState.Cancelled);
+        Check(trace.State == ExecutionTimelineState.Cancelled && trace.Spans.All(item => item.EndUs is not null), "Stop finishes every timeline span without leaving running cards");
+        Check(trace.Spans.Any(item => item.Lane == ExecutionTimelineLane.Script && item.State is ExecutionTimelineState.Cancelled or ExecutionTimelineState.OutcomeUnknown),
+            "a stopped script is cancelled or honestly unknown, never a fabricated success");
     }
 
     private static async Task ArchiveAndTraceAsync()
@@ -435,17 +554,17 @@ internal static class PtcTests
         using var assets = JsonDocument.Parse(File.ReadAllText(Path.Combine(root.FullName, "obj", "project.assets.json")));
         foreach (var (id, assembly) in new[] { ("AthenaAgent.Ptc.Core", typeof(PtcExecutor).Assembly), ("AthenaAgent.Ptc.JavaScript", typeof(global::Ptc.JavaScript.JintScriptRuntime).Assembly) })
         {
-            var library = assets.RootElement.GetProperty("libraries").GetProperty(id + "/0.1.0-preview.1");
+            var library = assets.RootElement.GetProperty("libraries").GetProperty(id + "/0.1.0-preview.4");
             Check(library.GetProperty("type").GetString() == "package", "A14 actual dependency graph uses a package for " + id);
             var relative = library.GetProperty("path").GetString()!;
             var packageRoot = assets.RootElement.GetProperty("packageFolders").EnumerateObject()
                 .Select(item => Path.Combine(item.Name, relative)).Single(Directory.Exists);
             var dll = Path.Combine(packageRoot, "lib", "net10.0", assembly.GetName().Name + ".dll");
             Check(SHA256.HashData(File.ReadAllBytes(assembly.Location)).SequenceEqual(SHA256.HashData(File.ReadAllBytes(dll))), "loaded DLL equals installed package asset for " + id);
-            var archive = Path.Combine(root.FullName, "artifacts", "ptc", "feed", id + ".0.1.0-preview.1.nupkg");
-            var hash = File.ReadAllText(Path.Combine(packageRoot, id.ToLowerInvariant() + ".0.1.0-preview.1.nupkg.sha512")).Trim();
+            var archive = Path.Combine(root.FullName, "artifacts", "ptc", "feed", id + ".0.1.0-preview.4.nupkg");
+            var hash = File.ReadAllText(Path.Combine(packageRoot, id.ToLowerInvariant() + ".0.1.0-preview.4.nupkg.sha512")).Trim();
             Check(hash == Convert.ToBase64String(SHA512.HashData(File.ReadAllBytes(archive))), "installed nupkg is this local feed build for " + id);
-            Check(source.Descendants("PackageReference").Any(item => (string?)item.Attribute("Include") == id && (string?)item.Attribute("Version") == "[0.1.0-preview.1]"), "component version is exact in the application project");
+            Check(source.Descendants("PackageReference").Any(item => (string?)item.Attribute("Include") == id && (string?)item.Attribute("Version") == "[0.1.0-preview.4]"), "component version is exact in the application project");
         }
     }
 
@@ -608,17 +727,20 @@ internal static class PtcTests
         private readonly CancellationTokenSource _stop = new();
         private readonly Task _pump;
         private readonly string _arguments;
+        private readonly string _toolName;
         public string BaseUrl { get; }
         public ConcurrentQueue<JsonElement> Requests { get; } = new();
 
-        public LoopbackModel(string code, string path)
+        public LoopbackModel(string code, string path, string toolName = "execute_program")
         {
             using var probe = new TcpListener(IPAddress.Loopback, 0);
             probe.Start();
             var port = ((IPEndPoint)probe.LocalEndpoint).Port;
             probe.Stop();
             BaseUrl = $"http://127.0.0.1:{port}/v1";
-            _arguments = JsonSerializer.Serialize(new { code, inputs = new { path } });
+            _toolName = toolName;
+            _arguments = toolName == "execute_program" ? JsonSerializer.Serialize(new { code, inputs = new { path } })
+                : JsonSerializer.Serialize(new { path });
             _listener.Prefixes.Add($"http://127.0.0.1:{port}/");
             _listener.Start();
             _pump = Task.Run(PumpAsync);
@@ -651,7 +773,7 @@ internal static class PtcTests
         private static string Sse(object value) => "data: " + JsonSerializer.Serialize(value) + "\n\n";
         private string ChatBody(bool first)
         {
-            object delta = first ? new { role = "assistant", tool_calls = new[] { new { index = 0, id = "call_program", type = "function", function = new { name = "execute_program", arguments = _arguments } } } }
+            object delta = first ? new { role = "assistant", tool_calls = new[] { new { index = 0, id = "call_program", type = "function", function = new { name = _toolName, arguments = _arguments } } } }
                 : new { role = "assistant", content = "done" };
             return Sse(new { id = "chat_ptc", @object = "chat.completion.chunk", created = 1785580000, model = "ptc-test",
                 choices = new[] { new { index = 0, delta, finish_reason = first ? "tool_calls" : "stop" } },
@@ -660,8 +782,8 @@ internal static class PtcTests
         private string ResponsesBody(bool first)
         {
             if (!first) return ResponsesSseHandler.FinalRoundBody;
-            object item = new { id = "fc_ptc", type = "function_call", status = "in_progress", call_id = "call_program", name = "execute_program", arguments = "" };
-            object done = new { id = "fc_ptc", type = "function_call", status = "completed", call_id = "call_program", name = "execute_program", arguments = _arguments };
+            object item = new { id = "fc_ptc", type = "function_call", status = "in_progress", call_id = "call_program", name = _toolName, arguments = "" };
+            object done = new { id = "fc_ptc", type = "function_call", status = "completed", call_id = "call_program", name = _toolName, arguments = _arguments };
             return Sse(new { type = "response.created", sequence_number = 0, response = new { id = "resp_ptc", @object = "response", created_at = 1785580000, status = "in_progress", model = "ptc-test", output = Array.Empty<object>() } })
                 + Sse(new { type = "response.output_item.added", sequence_number = 1, output_index = 0, item })
                 + Sse(new { type = "response.function_call_arguments.delta", sequence_number = 2, item_id = "fc_ptc", output_index = 0, delta = _arguments })

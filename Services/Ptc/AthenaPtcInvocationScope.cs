@@ -7,6 +7,7 @@ using System.Threading.Tasks;
 using Athena.UI.Models;
 using OpenAI.Chat;
 using Ptc.Core;
+using Athena.UI.Services.ExecutionTimeline;
 
 namespace Athena.UI.Services.Ptc;
 
@@ -32,6 +33,7 @@ public sealed class AthenaPtcInvocation
     public string? DelegatedTask { get; }
     public ToolApprovalContext.ExecutionMode Mode { get; }
     public Action<PtcProgress>? Progress { get; }
+    internal ExecutionTimelineScope.Context? Timeline { get; init; }
     // Only approval, not read-only I/O, is serialized. A live switch to Strict cannot open
     // several child prompts at once even if those calls were initially judged parallel-safe.
     internal SemaphoreSlim ApprovalGate { get; } = new(1, 1);
@@ -54,7 +56,7 @@ public static class AthenaPtcInvocationScope
             .Select(tool => new PtcToolDefinition(tool.FunctionName, tool.FunctionDescription,
                 PtcJson.Parse(tool.FunctionParameters.ToString()))).ToArray();
         return Enter(new AthenaPtcInvocation(parentToolCallId, definitions, conversationId, workspaceId,
-            delegatedTask, ToolApprovalContext.CurrentMode, progress));
+            delegatedTask, ToolApprovalContext.CurrentMode, progress) { Timeline = ExecutionTimelineScope.Current });
     }
 
     public static IDisposable Enter(AthenaPtcInvocation invocation)

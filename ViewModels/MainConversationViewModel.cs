@@ -11,6 +11,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Athena.UI.Models;
 using Athena.UI.Services.Context;
+using Athena.UI.Services.ExecutionTimeline;
 using Athena.UI.Services.Interfaces;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
@@ -52,6 +53,11 @@ public partial class MainConversationViewModel : ViewModelBase, IDisposable
     private readonly ILocalizationService? _localizationService;
     private readonly ISystemNotificationService? _notifications;
     private readonly IAppForegroundProbe? _foregroundProbe;
+    private readonly ExecutionTimelineService? _executionTimelines;
+
+    /// <summary>Used only by the view's non-modal timeline window; the service contains no UI types.</summary>
+    public ExecutionTimelineService? ExecutionTimelines => _executionTimelines;
+    public ILocalizationService? TimelineLocalization => _localizationService;
     private readonly IAttachmentStoreService? _attachmentStoreService;
     private readonly ISystemAudioService? _systemAudioService;
     // Cancels in-flight system (afplay/aplay/powershell) playback so Stop can
@@ -917,10 +923,13 @@ public partial class MainConversationViewModel : ViewModelBase, IDisposable
         IVirtualPetProgressionService? petProgressionService = null,
         IPetChatterService? petChatterService = null,
         ISystemNotificationService? notifications = null,
-        IAppForegroundProbe? foregroundProbe = null)
+        IAppForegroundProbe? foregroundProbe = null,
+        ExecutionTimelineService? executionTimelines = null)
     {
         _notifications = notifications;
         _foregroundProbe = foregroundProbe;
+        _executionTimelines = executionTimelines;
+        if (_executionTimelines != null) _executionTimelines.EnabledChanged += OnExecutionTimelineEnabledChanged;
         // 宠物是装饰件，缺了它不该拖垮会话装配——但"缺"必须是显式选择的另一条路径，
         // 而不是一堆 null 条件调用（见 CLAUDE.md「Review Rules」第 1 条）。
         Pet = petProgressionService != null && petChatterService != null
@@ -1052,6 +1061,14 @@ public partial class MainConversationViewModel : ViewModelBase, IDisposable
             UpdateBubbleButtonVisibility();
             OnPropertyChanged(nameof(ContextTokensInfo));
             RefreshContextInspectorProperties();
+        });
+    }
+
+    private void OnExecutionTimelineEnabledChanged(object? sender, EventArgs e)
+    {
+        Dispatcher.UIThread.Post(() =>
+        {
+            if (!_disposed) UpdateBubbleButtonVisibility();
         });
     }
 
@@ -2278,6 +2295,17 @@ public partial class MainConversationViewModel : ViewModelBase, IDisposable
             IsLoading = true,
             IsStreaming = true
         };
+        ExecutionTimelineCollector? executionTimeline = null;
+        try
+        {
+            executionTimeline = _executionTimelines?.TryBegin(assistantMsg.Id, turnStartedAt, DateTimeOffset.UtcNow);
+            if (_executionTimelines is null && _configService?.Load().ExecutionAnalysisEnabled == true)
+                _logger.Warning("Execution analysis is enabled but no timeline service is wired; the reply continues without a trace");
+        }
+        catch (Exception ex)
+        {
+            _logger.Warning(ex, "Execution analysis could not start; the reply continues without a trace");
+        }
         Messages.Add(assistantMsg);
         requestContext.Revision = _revision;
 
@@ -2295,6 +2323,8 @@ public partial class MainConversationViewModel : ViewModelBase, IDisposable
         {
             if (_executionCoordinator != null)
             {
+                var queueSpan = executionTimeline?.Begin(ExecutionTimelineLane.System,
+                    ExecutionTimelineKind.ConversationQueue, "conversation_queue") ?? 0;
                 IsQueued = true;
                 try
                 {
@@ -2302,6 +2332,8 @@ public partial class MainConversationViewModel : ViewModelBase, IDisposable
                 }
                 finally
                 {
+                    executionTimeline?.End(queueSpan, cancellationToken.IsCancellationRequested
+                        ? ExecutionTimelineState.Cancelled : ExecutionTimelineState.Succeeded);
                     IsQueued = false;
                 }
             }
@@ -2527,7 +2559,11 @@ public partial class MainConversationViewModel : ViewModelBase, IDisposable
                 {
                     if (IsCurrentConversationEpoch(epoch)) CompressionStatusMessage = warning;
                 },
-                onCompressionProgress: progress => ApplyCompressionProgress(progress, assistantMsg, epoch),
+                onCompressionProgress: progress =>
+                {
+                    executionTimeline?.ObserveCompression(progress);
+                    ApplyCompressionProgress(progress, assistantMsg, epoch);
+                },
                 skipCompressionToken: compressionSkipCts.Token,
                 onAnchorObserved: anchor =>
                 {
@@ -2561,6 +2597,7 @@ public partial class MainConversationViewModel : ViewModelBase, IDisposable
                         if (IsCurrentConversationEpoch(epoch)) PtcProgressProjection.Apply(assistantMsg, progress);
                     });
                 },
+                executionTimeline: executionTimeline,
                 onProviderRetry: notice =>
                 {
                     if (!IsCurrentConversationEpoch(epoch)) return;
@@ -2650,6 +2687,7 @@ public partial class MainConversationViewModel : ViewModelBase, IDisposable
         }
         finally
         {
+            var turnEndedAt = Stopwatch.GetTimestamp();
             executionLease?.Dispose();
             if (ReferenceEquals(_responseCts, responseCts))
             {
@@ -2671,7 +2709,7 @@ public partial class MainConversationViewModel : ViewModelBase, IDisposable
             {
                 // 总用时在这里盖章而不是在成功分支里：成功、用户按停止、供应商报错都从这个 finally 过，
                 // 而「刚才等了多久」恰恰是被停止和报错的那两轮最想知道的事。
-                assistantMsg.DurationMs = (long)Stopwatch.GetElapsedTime(turnStartedAt).TotalMilliseconds;
+                assistantMsg.DurationMs = (long)Stopwatch.GetElapsedTime(turnStartedAt, turnEndedAt).TotalMilliseconds;
 
                 // 回复生命周期结束：先落内容态，最后统一撤下 loading/streaming 生命线，气泡去留由下方清理判定。
                 assistantMsg.IsLoading = false;
@@ -2726,6 +2764,20 @@ public partial class MainConversationViewModel : ViewModelBase, IDisposable
                 {
                     _ = RunAudioGenerationAsync(assistantMsg, epoch, forcePlay: false);
                 }
+            }
+            if (executionTimeline != null && _executionTimelines != null)
+            {
+                // Optional analysis must never change the reply's outcome. The snapshot is
+                // persisted asynchronously after UI state is released and errors stay visible.
+                try
+                {
+                    var state = cancellationToken.IsCancellationRequested || outcome.Outcome == TaskExecutionOutcome.Interrupted || !IsCurrentConversationEpoch(epoch)
+                        ? ExecutionTimelineState.Cancelled
+                        : outcome.Outcome == TaskExecutionOutcome.Failed || providerFailure != null
+                            ? ExecutionTimelineState.Failed : ExecutionTimelineState.Succeeded;
+                    await _executionTimelines.CompleteAsync(executionTimeline, state, turnEndedAt);
+                }
+                catch (Exception ex) { _logger.Warning(ex, "Execution timeline finalization failed; the reply is unaffected"); }
             }
         }
 
@@ -3066,10 +3118,12 @@ public partial class MainConversationViewModel : ViewModelBase, IDisposable
         // 语音功能开关回填到每条消息，驱动「生成语音」按钮显隐。
         // 放在早退之前：发送/压缩中也应保持该状态正确。
         var audioEnabled = _configService?.Load().ChatAudioEnabled == true;
+        var analysisEnabled = _configService?.Load().ExecutionAnalysisEnabled == true;
         foreach (var msg in Messages)
         {
             msg.CanRewind = false;
             msg.AudioFeatureEnabled = audioEnabled;
+            msg.ExecutionAnalysisEnabled = analysisEnabled;
         }
 
         // 发送中或压缩中，所有操作按钮不可用
@@ -4880,6 +4934,8 @@ public partial class MainConversationViewModel : ViewModelBase, IDisposable
             _localizationService.LanguageChanged -= OnLanguageChanged;
         if (_configService != null)
             _configService.ConfigChanged -= OnConfigChanged;
+        if (_executionTimelines != null)
+            _executionTimelines.EnabledChanged -= OnExecutionTimelineEnabledChanged;
         if (_contextPolicyProvider != null)
             _contextPolicyProvider.EffectivePolicyChanged -= OnEffectivePolicyChanged;
         if (_archiveService != null)

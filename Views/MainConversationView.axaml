@@ -646,9 +646,10 @@
                                 <StackPanel Classes="bubble-actions" Orientation="Horizontal" Spacing="8"
                                             Classes.hovered="{Binding $parent[Grid].IsPointerOver}"
                                             HorizontalAlignment="{Binding IsUser, Converter={StaticResource BoolToAlignmentConverter}}"
-                                            IsVisible="{Binding !IsLoading}">
+                                            IsVisible="{Binding ShowBubbleActions}">
                                     <Button Command="{Binding $parent[ItemsControl].((vm:MainConversationViewModel)DataContext).CopyMessageCommand}"
                                             CommandParameter="{Binding}"
+                                            IsVisible="{Binding !IsLoading}"
                                             FontSize="{DynamicResource App.FontSize.Body}"
                                             ToolTip.Tip="{loc:Loc Chat.BtnCopy}"
                                             AutomationProperties.Name="{loc:Loc Chat.BtnCopy}">
@@ -677,13 +678,28 @@
                                          只在确实有可折叠的过程段时出现；图标一个 PathIcon 按 key 换几何。 -->
                                     <Button Name="ToggleProcessRunsButton"
                                             Command="{Binding ToggleProcessRunsCommand}"
-                                            IsVisible="{Binding HasFoldableProcessRuns}"
+                                            IsVisible="{Binding CanShowProcessRunsToggle}"
                                             FontSize="{DynamicResource App.FontSize.Body}"
                                             ToolTip.Tip="{loc:Loc Chat.BtnToggleProcess}"
                                             AutomationProperties.Name="{loc:Loc Chat.BtnToggleProcess}">
                                         <PathIcon Data="{Binding ProcessRunsToggleIconKey, Converter={StaticResource ToolIconKeyToGeometryConverter}}"
                                                   Width="14" Height="14"/>
                                     </Button>
+
+                                    <!-- The conversation list is deliberately not virtualized. When analysis
+                                         is off, null content prevents a Button/PathIcon subtree per bubble. -->
+                                    <ContentControl Content="{Binding ExecutionTimelineButtonContent}">
+                                        <ContentControl.ContentTemplate>
+                                            <DataTemplate x:DataType="models:ChatMessage">
+                                                <Button Name="ExecutionTimelineButton"
+                                                        Click="OnExecutionTimelineClicked"
+                                                        ToolTip.Tip="{loc:Loc Timeline.Open}"
+                                                        AutomationProperties.Name="{loc:Loc Timeline.Open}">
+                                                    <PathIcon Data="{StaticResource AthenaIconExecutionTimeline}" Width="14" Height="14"/>
+                                                </Button>
+                                            </DataTemplate>
+                                        </ContentControl.ContentTemplate>
+                                    </ContentControl>
 
                                     <!-- 本轮总用时。刻意住在这块已经由父面板统一翻转透明度的子树里：
                                          再给它自己绑一次 IsPointerOver，就等于每次光标跨过消息行都多付一次

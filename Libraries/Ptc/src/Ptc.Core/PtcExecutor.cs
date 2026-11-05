@@ -78,7 +78,9 @@ public sealed class PtcExecutor(IPtcScriptRuntime runtime) : IPtcExecutor
             _token = _stop.Token;
             _queue = Channel.CreateBounded<Pending>(new BoundedChannelOptions(_limits.MaxPendingCalls)
             { SingleReader = true, SingleWriter = false, AllowSynchronousContinuations = false });
-            _events = Channel.CreateBounded<PtcEvent>(new BoundedChannelOptions(Math.Min(_limits.MaxToolCalls, 1024) * 3 + 5)
+            // Three per admitted call, two for the limit-triggering attempt, and four run/script
+            // lifecycle events. Keep the observer queue bounded without dropping terminal events.
+            _events = Channel.CreateBounded<PtcEvent>(new BoundedChannelOptions(Math.Min(_limits.MaxToolCalls, 1024) * 3 + 7)
             { SingleReader = true, SingleWriter = false, AllowSynchronousContinuations = false });
             _deadline = new CancellationTokenSource(_limits.MaxWallTime);
             _callerRegistration = caller.Register(() => Stop(PtcRunStatus.Cancelled, "cancelled", "The caller cancelled execution."));
@@ -128,7 +130,32 @@ public sealed class PtcExecutor(IPtcScriptRuntime runtime) : IPtcExecutor
                 var inputs = Snapshot();
                 ThrowIfStopped();
                 // One asynchronous engine owner. No UI-thread interpretation and no synchronous I/O bridge.
-                script = Task.Run(async () => await runtime.RunAsync(_request.Code, inputs, this, _limits, _token).ConfigureAwait(false));
+                script = Task.Run(async () =>
+                {
+                    Event("ScriptStarted");
+                    var scriptStatus = PtcRunStatus.Completed;
+                    string? scriptError = null;
+                    try { await runtime.RunAsync(_request.Code, inputs, this, _limits, _token).ConfigureAwait(false); }
+                    catch (PtcRuntimeException ex)
+                    {
+                        scriptStatus = ex.Status;
+                        scriptError = ex.Code;
+                        throw;
+                    }
+                    catch (OperationCanceledException) when (_token.IsCancellationRequested)
+                    {
+                        lock (_gate) { scriptStatus = _status; scriptError = _failure?.Code; }
+                        if (scriptStatus == PtcRunStatus.Completed) scriptStatus = PtcRunStatus.Cancelled;
+                        throw;
+                    }
+                    catch
+                    {
+                        scriptStatus = PtcRunStatus.Failed;
+                        scriptError = "script_error";
+                        throw;
+                    }
+                    finally { Event("ScriptFinished", error: scriptError, runStatus: scriptStatus); }
+                });
                 await script.WaitAsync(_token).ConfigureAwait(false);
                 lock (_gate)
                 {
@@ -447,13 +474,24 @@ public sealed class PtcExecutor(IPtcScriptRuntime runtime) : IPtcExecutor
             catch (Exception) { /* Host cancellation callbacks cannot replace the already-latched stop reason. */ }
         }
 
-        private void Event(string kind, Pending? call = null, string? error = null)
+        private void Event(string kind, Pending? call = null, string? error = null, PtcRunStatus? runStatus = null)
         {
             if (_sink is null) return;
+            // Capture at the source, not in DeliverEventsAsync: a slow observer can lag behind
+            // already-running concurrent tool calls by an arbitrary amount of time.
+            var occurredAt = Stopwatch.GetTimestamp();
             lock (_gate)
             {
+                // A noncooperative script may finish after bounded drain. Never publish a late
+                // event to the completed run or touch a reused observer.
+                if (_sealed && kind != "RunFinished") return;
                 if (!_events.Writer.TryWrite(new PtcEvent(_request.Context.RunId, _request.Context.ParentToolCallId,
-                        ++_sequence, kind, call?.Call.CallId, call?.Call.Name, error)))
+                        ++_sequence, kind, call?.Call.CallId, call?.Call.Name, error)
+                    {
+                        OccurredTimestamp = occurredAt,
+                        CallState = call?.State,
+                        RunStatus = kind == "RunFinished" ? _status : runStatus
+                    }))
                     Stop(PtcRunStatus.Failed, "observer_error", "Bounded event delivery queue is full.");
             }
         }

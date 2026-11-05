@@ -7,7 +7,7 @@
     <IsPackable>false</IsPackable>
   </PropertyGroup>
   <ItemGroup>
-    <PackageReference Include="AthenaAgent.Ptc.Core" Version="[0.1.0-preview.1]" />
-    <PackageReference Include="AthenaAgent.Ptc.JavaScript" Version="[0.1.0-preview.1]" />
+    <PackageReference Include="AthenaAgent.Ptc.Core" Version="[0.1.0-preview.4]" />
+    <PackageReference Include="AthenaAgent.Ptc.JavaScript" Version="[0.1.0-preview.4]" />
   </ItemGroup>
 </Project>

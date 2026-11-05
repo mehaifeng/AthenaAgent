@@ -1,6 +1,6 @@
 # AthenaAgent.Ptc — .NET programmatic tool calling prototype
 
-Two independent `net10.0` packages, version `0.1.0-preview.1`:
+Two independent `net10.0` packages, version `0.1.0-preview.4`:
 
 - `AthenaAgent.Ptc.Core` (`Ptc.Core` namespace): contracts, authorization,
   bounded scheduling, budgets, events, and explicit model-result projection.
@@ -114,6 +114,12 @@ Events are metadata only with run/parent/call IDs and monotonically increasing
 sequence. They are delivered through a bounded channel. Observer failures stop new
 work and are visible as observer_error; cleanup does not inherit the cancelled
 business token. Host-only records and model results are deliberately separate.
+`OccurredTimestamp` is captured by `Stopwatch` when the event happens (not when
+the observer receives it); it is comparable only to the same process's monotonic
+clock. `ScriptStarted`/`ScriptFinished` bracket actual interpreter execution;
+script lifetime includes awaited tool I/O. `CallState` and `RunStatus` report
+actual outcomes, including NotStarted and OutcomeUnknown. New fields are additive
+to the existing event constructor; no CLR objects or raw arguments are exposed.
 
 ## Schema subset
 

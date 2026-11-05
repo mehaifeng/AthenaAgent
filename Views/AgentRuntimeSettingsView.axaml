@@ -20,6 +20,20 @@
                     BorderThickness="1"
                     BorderBrush="{DynamicResource SemiGreyLowBrush}"
                     CornerRadius="10">
+                <StackPanel Spacing="8">
+                    <TextBlock Text="{loc:Loc Timeline.SettingsTitle}"
+                               FontSize="{DynamicResource App.FontSize.Title}" FontWeight="SemiBold"/>
+                    <CheckBox Name="ExecutionAnalysisEnabledToggle" Content="{loc:Loc Timeline.SettingsEnabled}"
+                              IsChecked="{Binding State.Config.ExecutionAnalysisEnabled}"/>
+                    <TextBlock Text="{loc:Loc Timeline.SettingsHint}" TextWrapping="Wrap" Opacity="0.62"/>
+                </StackPanel>
+            </Border>
+
+            <Border Padding="18"
+                    Background="{DynamicResource App.SectionBg}"
+                    BorderThickness="1"
+                    BorderBrush="{DynamicResource SemiGreyLowBrush}"
+                    CornerRadius="10">
                 <StackPanel Spacing="16">
                     <TextBlock Text="{loc:Loc Settings.Agent.Conversation.Title}"
                                FontSize="{DynamicResource App.FontSize.Title}"

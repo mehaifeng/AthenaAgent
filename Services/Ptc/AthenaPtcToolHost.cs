@@ -9,6 +9,7 @@ using Athena.UI.Models;
 using Athena.UI.Services.Interfaces;
 using Athena.UI.Services.SubAgents;
 using Ptc.Core;
+using Athena.UI.Services.ExecutionTimeline;
 
 namespace Athena.UI.Services.Ptc;
 
@@ -60,6 +61,9 @@ public sealed class AthenaPtcToolHost : IPtcToolHost
         using var tokenScope = ToolExecutionContext.Enter(cancellationToken);
         using var approval = ToolApprovalContext.EnterInteractive(_invocation.DelegatedTask);
         using var child = AthenaPtcInvocationScope.EnterChild(_invocation);
+        var timeline = _invocation.Timeline?.Recorder;
+        var childSpan = timeline?.EnsurePtcChild(call.CallId, call.Name, context.RunId) ?? 0;
+        using var timelineScope = ExecutionTimelineScope.Enter(timeline, childSpan);
         var result = await _registry.ExecuteAsync(call.Name, call.Arguments.GetRawText()).ConfigureAwait(false);
 
         // Do not use BudgetedJson: that is a model-reading projection, not complete business data.
