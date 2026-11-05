@@ -1,5 +1,6 @@
 using Avalonia.Controls;
-using Avalonia.Platform;
+using Avalonia.Input;
+using Avalonia.Threading;
 using Avalonia.X11.Interop;
 using Serilog;
 using System;
@@ -34,63 +35,131 @@ internal static class GtkWebViewFocusBridge
     public static void Attach(NativeWebView webView)
     {
         if (!OperatingSystem.IsLinux()) return;
-        webView.AdapterCreated += (_, _) => _ = HookAsync(webView);
+        Attach(webView, new Operations(GtkInteropHelper.RunOnGlibThread, HookNative, SetNativeFocus),
+            () => TopLevel.GetTopLevel(webView) as WindowBase);
     }
 
-    private static async Task HookAsync(NativeWebView webView)
-    {
-        try
-        {
-            // WPE 或离屏适配器走 Avalonia 自己的输入法路径，没有这个问题，也没有 GTK 顶层可给焦点
-            if (webView.TryGetPlatformHandle() is not IGtkWebViewPlatformHandle gtk || gtk.HandleDescriptor != "XID") return;
-            var webKit = gtk.WebKitWebView;
-            var hooked = await GtkInteropHelper.RunOnGlibThread(() =>
-            {
-                var toplevel = gtk_widget_get_toplevel(webKit);
-                if (toplevel == IntPtr.Zero) return false;
-                g_signal_connect_data(webKit, "button-press-event", OnButtonPressPtr, toplevel, IntPtr.Zero, 0);
-                // 接在顶层窗口上：GtkWindow 的默认处理才把按键交给焦点控件和输入法，连接的处理器先于它运行
-                g_signal_connect_data(toplevel, "key-press-event", OnKeyPressPtr, toplevel, IntPtr.Zero, 0);
-                return true;
-            });
-            if (!hooked)
-            {
-                Logger.Warning("The embedded web view has no GTK toplevel; input methods will not reach the page");
-                return;
-            }
+    // The injected operations also let the headless suite hold a GLib callback across adapter destruction.
+    internal sealed record Operations(Func<Func<bool>, Task<bool>> Schedule, Func<nint, bool> Hook,
+        Action<nint, bool> SetFocus);
 
-            Logger.Information("Embedded WebKitGTK focus bridge attached (input methods follow the host's focus)");
-            var topLevel = TopLevel.GetTopLevel(webView) as WindowBase;
-            webView.LostFocus += (_, _) => SetFocusAsync(webKit, false);
-            if (topLevel != null)
-            {
-                topLevel.Deactivated += (_, _) => SetFocusAsync(webKit, false);
-                topLevel.Activated += (_, _) => { if (webView.IsFocused) SetFocusAsync(webKit, true); };
-            }
-        }
-        catch (Exception ex)
+    internal static Attachment Attach(NativeWebView webView, Operations operations, Func<WindowBase?> findWindow)
+        => new(webView, operations, findWindow);
+
+    internal sealed class Attachment
+    {
+        private FocusSession? _session;
+
+        // Exposes the real asynchronous installation to lifecycle tests; never blocks the UI.
+        internal Task HookTask { get; private set; } = Task.CompletedTask;
+
+        internal Attachment(NativeWebView webView, Operations operations, Func<WindowBase?> findWindow)
         {
-            // 只是输入法补丁：失败了页面照常能用（英文能打），记下来
-            Logger.Warning(ex, "Hooking GTK focus for the embedded web view failed; input methods will not reach the page");
+            GtkWebViewAdapterLifetime.Observe(webView, lifetime =>
+            {
+                // WPE and offscreen adapters do not have the reparented GTK toplevel.
+                if (lifetime.HandleDescriptor != "XID") return;
+                _session = new FocusSession(webView, lifetime, operations, findWindow);
+                HookTask = _session.HookAsync();
+            }, _ =>
+            {
+                _session?.Detach();
+                _session = null;
+            });
         }
     }
 
-    private static async void SetFocusAsync(nint webKit, bool focused)
+    private sealed class FocusSession(NativeWebView webView, GtkWebViewAdapterLifetime lifetime,
+        Operations operations, Func<WindowBase?> findWindow)
     {
-        try
+        private WindowBase? _window;
+        private bool _subscribed;
+
+        internal async Task HookAsync()
         {
-            await GtkInteropHelper.RunOnGlibThread(() =>
+            try
             {
-                var toplevel = gtk_widget_get_toplevel(webKit);
-                if (toplevel != IntPtr.Zero && gtk_window_has_toplevel_focus(toplevel) != focused) PutFocusChange(toplevel, focused);
-                return true;
-            });
+                var hooked = await operations.Schedule(() => lifetime.Use(operations.Hook)).ConfigureAwait(false);
+                await Dispatcher.UIThread.InvokeAsync(() =>
+                {
+                    // The adapter may have gone away while the GTK callback or this UI continuation was queued.
+                    if (!lifetime.IsActive) return;
+                    if (!hooked)
+                    {
+                        Logger.Warning("The embedded web view has no GTK toplevel; input methods will not reach the page");
+                        return;
+                    }
+
+                    _window = findWindow();
+                    webView.LostFocus += OnLostFocus;
+                    if (_window != null)
+                    {
+                        _window.Deactivated += OnDeactivated;
+                        _window.Activated += OnActivated;
+                    }
+                    _subscribed = true;
+                    Logger.Information("Embedded WebKitGTK focus bridge attached (input methods follow the host's focus)");
+                });
+            }
+            catch (Exception ex)
+            {
+                if (lifetime.IsActive)
+                    Logger.Warning(ex, "Hooking GTK focus for the embedded web view failed; input methods will not reach the page");
+            }
         }
-        catch (Exception ex)
+
+        internal void Detach()
         {
-            // WebView 已拆掉、GTK 已退出：没有焦点可给
-            Logger.Debug(ex, "Setting GTK focus on the embedded web view failed");
+            if (!_subscribed) return;
+            webView.LostFocus -= OnLostFocus;
+            if (_window != null)
+            {
+                _window.Deactivated -= OnDeactivated;
+                _window.Activated -= OnActivated;
+            }
+            _window = null;
+            _subscribed = false;
         }
+
+        private void OnLostFocus(object? sender, FocusChangedEventArgs e) => _ = SetFocusAsync(false);
+        private void OnDeactivated(object? sender, EventArgs e) => _ = SetFocusAsync(false);
+        private void OnActivated(object? sender, EventArgs e)
+        {
+            if (lifetime.IsActive && webView.IsFocused) _ = SetFocusAsync(true);
+        }
+
+        private async Task SetFocusAsync(bool focused)
+        {
+            if (!lifetime.IsActive) return;
+            try
+            {
+                await operations.Schedule(() => lifetime.Use(webKit =>
+                {
+                    operations.SetFocus(webKit, focused);
+                    return true;
+                })).ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                Logger.Debug(ex, "Setting GTK focus on the embedded web view failed");
+            }
+        }
+    }
+
+    private static bool HookNative(nint webKit)
+    {
+        var toplevel = gtk_widget_get_toplevel(webKit);
+        if (toplevel == IntPtr.Zero) return false;
+        g_signal_connect_data(webKit, "button-press-event", OnButtonPressPtr, toplevel, IntPtr.Zero, 0);
+        // 接在顶层窗口上：GtkWindow 的默认处理才把按键交给焦点控件和输入法，连接的处理器先于它运行
+        g_signal_connect_data(toplevel, "key-press-event", OnKeyPressPtr, toplevel, IntPtr.Zero, 0);
+        return true;
+    }
+
+    private static void SetNativeFocus(nint webKit, bool focused)
+    {
+        var toplevel = gtk_widget_get_toplevel(webKit);
+        if (toplevel != IntPtr.Zero && gtk_window_has_toplevel_focus(toplevel) != focused) PutFocusChange(toplevel, focused);
     }
 
     [UnmanagedFunctionPointer(CallingConvention.Cdecl)]

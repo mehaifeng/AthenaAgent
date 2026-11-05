@@ -1,5 +1,4 @@
 using Avalonia.Controls;
-using Avalonia.Platform;
 using Avalonia.X11.Interop;
 using Serilog;
 using System;
@@ -25,8 +24,15 @@ internal static class GtkWebProcessWatch
     public static object? Attach(NativeWebView webView, Action<string> onTerminated)
     {
         if (!OperatingSystem.IsLinux()) return null;
+        return Attach(webView, onTerminated, new Operations(GtkInteropHelper.RunOnGlibThread, ConnectNative));
+    }
+
+    internal sealed record Operations(Func<Func<bool>, Task<bool>> Schedule, Action<nint, object> Connect);
+
+    internal static object Attach(NativeWebView webView, Action<string> onTerminated, Operations operations)
+    {
         var state = new State(onTerminated);
-        webView.AdapterCreated += (_, _) => _ = HookAsync(webView, state);
+        GtkWebViewAdapterLifetime.Observe(webView, lifetime => _ = HookAsync(lifetime, state, operations));
         return state;
     }
 
@@ -35,18 +41,37 @@ internal static class GtkWebProcessWatch
         public Action<string> OnTerminated { get; } = onTerminated;
     }
 
-    private static async Task HookAsync(NativeWebView webView, State state)
+    private static async Task HookAsync(GtkWebViewAdapterLifetime lifetime, State state, Operations operations)
     {
         try
         {
-            if (webView.TryGetPlatformHandle() is not IGtkWebViewPlatformHandle gtk) return;
-            var webKit = gtk.WebKitWebView;
-            var handle = GCHandle.ToIntPtr(GCHandle.Alloc(state, GCHandleType.Weak));
-            await GtkInteropHelper.RunOnGlibThread(() => g_signal_connect_data(webKit, "web-process-terminated", OnTerminatedPtr, handle, IntPtr.Zero, 0));
+            await operations.Schedule(() => lifetime.Use(webKit =>
+            {
+                operations.Connect(webKit, state);
+                return true;
+            })).ConfigureAwait(false);
         }
         catch (Exception ex)
         {
-            Logger.Warning(ex, "Watching the embedded web view's process failed; a crashed page will not be reported");
+            if (lifetime.IsActive)
+                Logger.Warning(ex, "Watching the embedded web view's process failed; a crashed page will not be reported");
+        }
+    }
+
+    private static void ConnectNative(nint webKit, object state)
+    {
+        var handle = GCHandle.Alloc(state, GCHandleType.Weak);
+        try
+        {
+            if (g_signal_connect_data(webKit, "web-process-terminated", OnTerminatedPtr,
+                    GCHandle.ToIntPtr(handle), IntPtr.Zero, 0) == 0)
+                throw new InvalidOperationException("Unable to connect web-process-terminated");
+        }
+        catch
+        {
+            // No signal owns the weak handle if connection failed.
+            handle.Free();
+            throw;
         }
     }
 

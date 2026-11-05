@@ -100,6 +100,11 @@ if (Environment.GetEnvironmentVariable("ATHENA_HEADLESS_ONLY") == "timeline")
     ExecutionTimelineHeadlessTests.Run();
     Environment.Exit(0);
 }
+if (Environment.GetEnvironmentVariable("ATHENA_HEADLESS_ONLY") == "gtk-focus")
+{
+    GtkWebViewFocusBridgeTests.Run();
+    Environment.Exit(0);
+}
 if (Environment.GetEnvironmentVariable("ATHENA_HEADLESS_ONLY") == "game-mode")
 {
     TestGameModeSwitchAndFailures();
@@ -225,6 +230,7 @@ TestShellPanelBackgroundThemeResolution();
 TestConversationSwitchVeil();
 TestConversationSwitchScrollsToBottom();
 TestRightPanelAutoExpand();
+GtkWebViewFocusBridgeTests.Run();
 TestGameModeSwitchAndFailures();
 TestGameModeCityLifecycle();
 TestGameModeAccumulation();
