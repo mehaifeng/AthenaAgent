@@ -1032,7 +1032,6 @@
     <system:String x:Key="Chat.ProcessRun.Command">终端 {0}</system:String>
     <system:String x:Key="Chat.ProcessRun.Other">其他 {0}</system:String>
     <system:String x:Key="Chat.ProcessRun.Failed">其中 {0} 次调用报错</system:String>
-    <system:String x:Key="Chat.ProcessRun.FailedTip">这些调用返回了错误。多数情况下是参数不合要求，模型会在下一步换一种做法重试；展开摘要可以看到每一次的具体报错。</system:String>
     <system:String x:Key="Chat.ProcessRun.Tip">展开或收起这段过程</system:String>
     <system:String x:Key="Chat.BtnToggleProcess">展开或收起全部过程</system:String>
     <system:String x:Key="Dialog.DontAskAgain">下次不再提示</system:String>
