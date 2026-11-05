@@ -10090,8 +10090,8 @@ static void TestProcessRunFolding(string outputPath)
     if (summary != "思考 1 次 · 调用 12 个工具（读取 7 · 搜索 1 · 写入 3 · 终端 1）")
         throw new InvalidOperationException($"摘要文字不对：「{summary}」");
     var failures = (string)summaryConverter.Convert(run.Stats, typeof(string), "Failures", CultureInfo.InvariantCulture)!;
-    if (failures != "1 个失败")
-        throw new InvalidOperationException($"失败数文字不对：「{failures}」");
+    if (failures != "其中 1 次调用报错")
+        throw new InvalidOperationException($"报错次数文字不对：「{failures}」");
 
     // 收起整段时连钉住的行一起收；再展开是全量。
     run.ToggleExpandedCommand.Execute(null);
@@ -10180,8 +10180,8 @@ static void TestProcessRunFolding(string outputPath)
         if (summaryText.Text != "思考 10 次 · 调用 30 个工具（读取 10 · 搜索 10 · 写入 10）")
             throw new InvalidOperationException($"摘要行文字不对：「{summaryText.Text}」");
         var failureText = heavyRow.GetVisualDescendants().OfType<TextBlock>().First(text => text.Name == "ProcessRunFailureText");
-        if (!failureText.IsVisible || failureText.Text != "1 个失败")
-            throw new InvalidOperationException("摘要行必须把失败数单独亮出来");
+        if (!failureText.IsVisible || failureText.Text != "其中 1 次调用报错")
+            throw new InvalidOperationException("摘要行必须单独说明有几次调用报错");
         // 预算：整个气泡（摘要行 + 正文 + 操作按钮）的控件数和 40 行无关。
         var heavyVisuals = heavyRow.GetVisualDescendants().Count();
         if (heavyVisuals > 200)

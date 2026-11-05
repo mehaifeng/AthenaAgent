@@ -1031,7 +1031,8 @@
     <system:String x:Key="Chat.ProcessRun.Write">write {0}</system:String>
     <system:String x:Key="Chat.ProcessRun.Command">command {0}</system:String>
     <system:String x:Key="Chat.ProcessRun.Other">other {0}</system:String>
-    <system:String x:Key="Chat.ProcessRun.Failed">{0} failed</system:String>
+    <system:String x:Key="Chat.ProcessRun.Failed">with {0} errors</system:String>
+    <system:String x:Key="Chat.ProcessRun.FailedTip">These calls returned errors. Most often the arguments were rejected and the model retries differently in its next step; expand the summary to see each error.</system:String>
     <system:String x:Key="Chat.ProcessRun.Tip">Expand or collapse these steps</system:String>
     <system:String x:Key="Chat.BtnToggleProcess">Expand or collapse all steps</system:String>
     <system:String x:Key="Dialog.DontAskAgain">Don't ask again</system:String>

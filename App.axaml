@@ -484,9 +484,16 @@
             <Setter Property="Opacity" Value="1"/>
         </Style>
 
+        <!-- 摘要行的失败标记只提示、不报警：过程段里某次调用报错，多半是参数不合要求，
+             模型下一步就会换一种做法，整段照样读完了。鲜艳的红色留给明细行里那一条真实报错，
+             摘要行只说明「有几次调用没成」。 -->
         <Style Selector="TextBlock.process-run-failures">
-            <Setter Property="Foreground" Value="{DynamicResource SemiRed6}"/>
+            <Setter Property="Foreground" Value="{DynamicResource SemiOrange5}"/>
             <Setter Property="FontSize" Value="{DynamicResource App.FontSize.Body}"/>
+        </Style>
+        <Style Selector="PathIcon.tool-status.summary.failed">
+            <Setter Property="Foreground" Value="{DynamicResource SemiOrange5}"/>
+            <Setter Property="Opacity" Value="0.9"/>
         </Style>
 
         <!-- 推理增量追加期间，灯泡只在默认前景色与纯白之间呼吸闪烁。
