@@ -176,6 +176,9 @@ public class ConfigService : IConfigService
             return new AppConfig();
         }
 
+        // 主对话与子代理不再限制工具轮数。丢弃旧键并重写配置，避免旧上限残留。
+        var droppedToolRoundLimits = root?.Remove("mainConversationMaxIterations") == true;
+        droppedToolRoundLimits |= root?.Remove("subAgentMaxIterations") == true;
         var config = root?.Deserialize<AppConfig>(JsonOptions) ?? new AppConfig();
         var droppedLegacyCompressionKeys = MigrateLegacyCompressionKeys(root, config);
         if (version == 5)
@@ -224,7 +227,7 @@ public class ConfigService : IConfigService
         AppConfigNormalizer.NormalizeContextPolicy(config);
         AppConfigNormalizer.NormalizeProtocol(config);
         AppConfigNormalizer.NormalizeVirtualPet(config);
-        migrated = droppedLegacyCompressionKeys;
+        migrated = droppedLegacyCompressionKeys || droppedToolRoundLimits;
         return config;
     }
 

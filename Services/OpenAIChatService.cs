@@ -41,18 +41,12 @@ public class OpenAIChatService : IChatService
     private const int CompressionSummaryFormatVersion = 1;
     // Keep the probe inexpensive, but leave room for reasoning models to emit a visible reply.
     private const int ConnectionTestMaxOutputTokens = 256;
-    // 主对话工具循环的轮数硬顶。用户可以调高预算，但不能取消兜底。
-    private const int MainConversationIterationCeiling = 200;
-    // 同一工具 + 完全相同参数连续失败到此次数后不再执行。轮数上限只保证"最终会停"，
-    // 而模型原样重发同一个失败调用能把几十轮全部烧掉；这条才是真正的止损点。
+    // 同一工具 + 完全相同参数连续失败到此次数后不再执行，提示模型换参数或换路子。
     private const int IdenticalToolFailureLimit = 3;
-    // 供应商把工具调用参数截断是它的失败，不该记在用户的轮数预算上——前若干次重试免费。
-    // 但重试本身必须有界：否则一个稳定复现的截断会绕过轮数上限，把循环变成无限。
-    private const int MaxFreeTruncatedToolCallRetries = 5;
-    // 思考写满输出预算、正文一个字都没轮到时的自救次数。这一轮对用户毫无产出，因此同样免费；
-    // 但每次重试都是一次完整的模型调用（实测可达百秒量级），所以只给一次：救不回来就如实说明，
-    // 让用户自己决定是继续、拆任务还是换模型。
-    private const int MaxFreeContentlessTruncationRetries = 1;
+    // 有效工具调用不设轮数上限；供应商反复截断参数时，只允许有限次自救。
+    private const int MaxTruncatedToolCallRetries = 5;
+    // 思考写满输出预算、正文一个字都没轮到时只自救一次，失败后如实说明。
+    private const int MaxContentlessTruncationRetries = 1;
     private readonly object _runtimeGate = new();
     private readonly IPromptService _promptService;
     private readonly ILocalizationService? _localizationService;
@@ -682,7 +676,6 @@ public class OpenAIChatService : IChatService
         using var conversationLogScope = LogContext.PushProperty("ConversationId", context.ConversationId ?? string.Empty);
         using var workspaceLogScope = LogContext.PushProperty("WorkspaceId", context.WorkspaceId ?? string.Empty);
         var iteration = 0;
-        var maxIterations = Math.Clamp(_config.MainConversationMaxIterations, 1, MainConversationIterationCeiling);
         var disabledToolCallRetries = 0;
         var truncatedToolCallRetries = 0;
         var contentlessTruncationRetries = 0;
@@ -710,7 +703,7 @@ public class OpenAIChatService : IChatService
         // 重复失败熔断：跨轮累计，因为模型的每一次原样重发都是新的一轮。
         var repeatedToolFailures = new RepeatedToolFailureGuard(IdenticalToolFailureLimit);
 
-        while (iteration < maxIterations)
+        while (true)
         {
             cancellationToken.ThrowIfCancellationRequested();
             iteration++;
@@ -1253,10 +1246,8 @@ public class OpenAIChatService : IChatService
             if (overflowRecoveryRequested)
             {
                 // 这一轮没有产出任何东西：回到循环顶部做「清理 → 仍需要则全量压缩」，然后重发。
-                // 不消耗工具轮数——它不是模型的一步。
                 overflowRecoveryRequested = false;
                 forceContextReduction = true;
-                iteration--;
                 continue;
             }
 
@@ -1352,13 +1343,15 @@ public class OpenAIChatService : IChatService
                     Log.Warning("Streaming-response tool calls appear truncated ({Reason}); dropping {Count} possibly incomplete tool calls: {Names}",
                         reason, toolCallBuilders.Count,
                         string.Join(", ", toolCallBuilders.Values.Select(b => b.FunctionName)));
-                    // 这一轮什么也没做成，退还轮数预算——供应商的截断不该白吃掉用户的一轮工具调用。
-                    // 免费重试用尽后照常计数，让轮数上限重新成为无限循环的兜底。
-                    if (truncatedToolCallRetries < MaxFreeTruncatedToolCallRetries)
+                    if (truncatedToolCallRetries >= MaxTruncatedToolCallRetries)
                     {
-                        truncatedToolCallRetries++;
-                        iteration--;
+                        Log.Warning("Tool-call arguments remained truncated after {Retries} retries; stopping the reply", truncatedToolCallRetries);
+                        yield return GetLocalized(
+                            "Chat.Error.ToolArgumentsTruncated",
+                            "[Tool call arguments were repeatedly cut off or incomplete after retries. No incomplete calls were executed. Try a larger model output limit or split the task into smaller steps.]");
+                        yield break;
                     }
+                    truncatedToolCallRetries++;
                     var retryInstruction = new UserChatMessage("[Internal instruction: your previous tool call arguments were truncated (likely due to max token limit) and produced invalid JSON. Try again with shorter arguments. For MCP server setup, prefer mcp_import_json with a compact JSON string.]");
                     rebuildTail.Add(retryInstruction);
                     messages.Add(retryInstruction);
@@ -1375,8 +1368,7 @@ public class OpenAIChatService : IChatService
                 if (disabledToolCallRetries == 0)
                 {
                     disabledToolCallRetries++;
-                    // 同理：这一轮被配置与模型行为的错配作废，退还预算。重试已被 == 0 限死为一次。
-                    iteration--;
+                    // 配置与模型行为不匹配时，只提醒一次。
                     var disabledInstruction = new UserChatMessage("[Internal instruction: function calling is disabled. Do not call tools. Answer the user's last request in plain text only.]");
                     rebuildTail.Add(disabledInstruction);
                     messages.Add(disabledInstruction);
@@ -1406,15 +1398,13 @@ public class OpenAIChatService : IChatService
                     // 自救一次：被 max_output_tokens 截断是一次可以明确指出病因的失败，
                     // 而模型并不知道自己被截断了——它只是没写完。告诉它一句，通常就能直接给出结论。
                     // 只对 Length 这么做：Incomplete/无终止事件可能是内容过滤或断流，重发未必有意义。
-                    // 这一轮什么也没产出，退还轮数预算；重试次数有界，兜底仍由轮数上限承接。
                     if (finishReason == TransportFinishReason.Length
-                        && contentlessTruncationRetries < MaxFreeContentlessTruncationRetries)
+                        && contentlessTruncationRetries < MaxContentlessTruncationRetries)
                     {
                         contentlessTruncationRetries++;
-                        iteration--;
                         Log.Information(
                             "Retrying once after a reply was truncated before any content (attempt {Attempt}/{Limit})",
-                            contentlessTruncationRetries, MaxFreeContentlessTruncationRetries);
+                            contentlessTruncationRetries, MaxContentlessTruncationRetries);
                         var truncatedReplyInstruction = new UserChatMessage(
                             "[Internal instruction: your previous reply hit the output token limit while still reasoning, so it produced no answer at all. Do not re-derive the analysis. Answer the user's request now, directly and concisely, keeping any further thinking to a minimum.]");
                         rebuildTail.Add(truncatedReplyInstruction);
@@ -1711,18 +1701,6 @@ public class OpenAIChatService : IChatService
                 throw;
             }
         }
-
-        // 循环体内每条正常终止路径都是 yield break，走到这里只剩一种可能：轮数预算打满。
-        // 此时最后一轮的工具已经执行、结果也进了上下文，却再没送回模型——静默收场会留下一个
-        // 空气泡，用户既看不出发生了什么，也不知道一句「继续」就能接上。必须说出来。
-        Log.Warning(
-            "Tool loop exhausted its round budget: ConversationId={ConversationId} MaxIterations={MaxIterations}",
-            context.ConversationId, maxIterations);
-        yield return string.Format(
-            GetLocalized(
-                "Chat.Error.ToolRoundsExhausted",
-                "[Reached the maximum of {0} tool rounds for a single reply, so the reply stopped mid-task. Say “continue” to pick up where it left off; if long runs like this keep getting cut short, raise the limit under Settings → Execution & concurrency → Main conversation execution → Maximum tool rounds per reply.]"),
-            maxIterations);
     }
 
     /// <summary>

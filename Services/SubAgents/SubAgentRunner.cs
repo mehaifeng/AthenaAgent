@@ -99,8 +99,6 @@ public sealed class SubAgentRunner
             vm.CurrentAction = "thinking…";
         });
 
-        var maxIterations = Math.Max(1, config.SubAgentMaxIterations);
-
         // 子代理是无人值守路径：审批闸门绝不弹窗，敏感/破坏性工具按静态策略处理。
         // 必须显式进入非交互作用域，覆盖来自主对话（dispatch_subagents 调用点）的交互式环境。
         using var approvalScope = Athena.UI.Services.ToolApprovalContext.EnterNonInteractive();
@@ -108,7 +106,8 @@ public sealed class SubAgentRunner
 
         try
         {
-            for (var iteration = 0; iteration < maxIterations; iteration++)
+            // 工具轮数不设上限；任务完成、取消或调用方的超时令牌结束运行。
+            for (var iteration = 0; ; iteration++)
             {
                 cancellationToken.ThrowIfCancellationRequested();
 
@@ -224,12 +223,6 @@ public sealed class SubAgentRunner
                     messages.Add(new ToolChatMessage(toolCall.Id, resultJson));
                 }
             }
-
-            // 迭代用尽仍未给出最终答复。
-            _logger.Warning(
-                "SubAgentRunner iterations exhausted: Title={Title}, MaxIterations={MaxIterations}",
-                task.Title, maxIterations);
-            return Succeed(vm, uiPost, task, "(Reached the maximum number of steps without a final answer.)", success: false);
         }
         catch (OperationCanceledException)
         {
@@ -261,17 +254,14 @@ public sealed class SubAgentRunner
     }
 
     private static SubAgentResult Succeed(
-        ISubAgentProgress vm, Action<Action> uiPost, SubAgentTaskInput task, string summary, bool success = true)
+        ISubAgentProgress vm, Action<Action> uiPost, SubAgentTaskInput task, string summary)
     {
         var text = string.IsNullOrWhiteSpace(summary) ? "(no output)" : summary.Trim();
         uiPost(() =>
         {
-            vm.State = success ? SubAgentState.Done : SubAgentState.Error;
-            if (success)
-            {
-                vm.RequestZone(SubAgentZone.Perch);
-            }
-            vm.CurrentAction = success ? "done" : "incomplete";
+            vm.State = SubAgentState.Done;
+            vm.RequestZone(SubAgentZone.Perch);
+            vm.CurrentAction = "done";
             vm.ResultSummary = text;
             vm.Log.Add(new SubAgentLogEntry { Kind = "assistant", Text = text });
         });
@@ -280,7 +270,7 @@ public sealed class SubAgentRunner
         {
             Title = task.Title,
             AgentType = task.AgentType,
-            Success = success,
+            Success = true,
             Summary = text
         };
     }

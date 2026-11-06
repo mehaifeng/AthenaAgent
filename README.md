@@ -9,7 +9,7 @@ Athena is a sophisticated, highly autonomous desktop AI assistant built with **.
 ## ✨ Key Features
 
 - **🧠 Unified Provider and Model Roles**: One OpenAI SDK-compatible provider owns shared connection details; main chat, titles, compression, automatic approval, embeddings, browser work, and sub-agents select independent models. TTS and image generation keep their own Extension connections.
-- **🛠️ Direct Tool Calling**: The main conversation invokes built-in and MCP tools through one schema-validation, approval and result-budget gate; real calls remain visible in grouped, expandable cards.
+- **🛠️ Direct Tool Calling**: The main conversation invokes built-in and MCP tools through one schema-validation, approval and result-budget gate; real calls remain visible in grouped, expandable cards. Main conversation and sub-agent tool rounds are unlimited.
 - **🧩 Optional PTC Prototype**: Default-off, bounded in-process JavaScript orchestration of five read-only file tools, with per-call approval, child progress, immutable audit records and small model projections. Not a strong sandbox. See [PTC usage and limitations](Docs/PTC_Prototype_Usage_CN.md) and [implementation evidence](Libraries/Ptc/IMPLEMENTATION.md).
 - **📊 Optional Execution Timeline**: Inspect main-model attempts, direct and PTC tool calls, script lifetime, approvals and waits in a per-reply multi-lane timeline. Disabled by default; timing metadata stays local.
 - **🦉 Parallel Sub-Agents**: Fans out batches of isolated sub-agents for concurrent work, visualized as an animated "owl village" overview.
