@@ -29,6 +29,22 @@ namespace Athena.UI.Views;
 
 public partial class MainConversationView : UserControl
 {
+    private void OnSwitchBranchClicked(object? sender, RoutedEventArgs e) => AsyncEventGuard.Run(() => OpenBranchesAsync(GitBranchDialogMode.Switch), nameof(OnSwitchBranchClicked));
+    private void OnCreateBranchClicked(object? sender, RoutedEventArgs e) => AsyncEventGuard.Run(() => OpenBranchesAsync(GitBranchDialogMode.Create), nameof(OnCreateBranchClicked));
+    private void OnManageBranchesClicked(object? sender, RoutedEventArgs e) => AsyncEventGuard.Run(() => OpenBranchesAsync(GitBranchDialogMode.Manage), nameof(OnManageBranchesClicked));
+
+    private async Task OpenBranchesAsync(GitBranchDialogMode mode)
+    {
+        try
+        {
+            if (Workbench?.HasGitRepository != true || TopLevel.GetTopLevel(this) is not Window owner) return;
+            var vm = Workbench.CreateBranchManager(mode);
+            var window = new GitBranchesWindow(vm);
+            try { await window.ShowDialog(owner); }
+            catch { vm.Dispose(); throw; }
+        }
+        catch (Exception ex) { Serilog.Log.Error(ex, "Could not show Git branches"); }
+    }
     private void OnExecutionTimelineClicked(object? sender, RoutedEventArgs e)
     {
         try

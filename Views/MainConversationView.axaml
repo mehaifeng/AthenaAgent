@@ -866,7 +866,7 @@
                     Background="{DynamicResource App.SectionBg}"
                     Padding="8">
             <Grid RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto">
-                <!-- 仓库分支入口：工作区绑定仓库时出现。名称打开差异审查，菜单暂保留 UI。 -->
+                <!-- 仓库分支入口：名称打开工作区差异审查，菜单打开仓库级分支操作。 -->
                 <Border Grid.Row="0"
                         HorizontalAlignment="Left"
                         Margin="0,0,0,5"
@@ -896,6 +896,7 @@
                                        TextTrimming="CharacterEllipsis"/>
                         </Button>
                         <Button Grid.Column="2"
+                                Name="GitBranchMenuButton"
                                 Padding="6,3"
                                 Background="Transparent"
                                 BorderThickness="1,0,0,0"
@@ -906,9 +907,9 @@
                                       Foreground="{DynamicResource App.IconMutedForeground}"/>
                             <Button.Flyout>
                                 <MenuFlyout Placement="BottomEdgeAlignedRight">
-                                    <MenuItem Header="{loc:Loc Git.Branch.SwitchSoon}" IsEnabled="False"/>
-                                    <MenuItem Header="{loc:Loc Git.Branch.CreateSoon}" IsEnabled="False"/>
-                                    <MenuItem Header="{loc:Loc Git.Branch.ManageSoon}" IsEnabled="False"/>
+                                    <MenuItem Header="{loc:Loc Git.Branches.Switch}" Click="OnSwitchBranchClicked"/>
+                                    <MenuItem Header="{loc:Loc Git.Branches.Create}" Click="OnCreateBranchClicked"/>
+                                    <MenuItem Header="{loc:Loc Git.Branches.Manage}" Click="OnManageBranchesClicked"/>
                                 </MenuFlyout>
                             </Button.Flyout>
                         </Button>

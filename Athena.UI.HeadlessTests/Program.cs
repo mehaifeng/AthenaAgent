@@ -105,6 +105,11 @@ if (Environment.GetEnvironmentVariable("ATHENA_HEADLESS_ONLY") == "gtk-focus")
     GtkWebViewFocusBridgeTests.Run();
     Environment.Exit(0);
 }
+if (Environment.GetEnvironmentVariable("ATHENA_HEADLESS_ONLY") == "git-branches")
+{
+    GitBranchTests.Run(outputPath);
+    Environment.Exit(0);
+}
 if (Environment.GetEnvironmentVariable("ATHENA_HEADLESS_ONLY") == "game-mode")
 {
     TestGameModeSwitchAndFailures();
@@ -114,6 +119,7 @@ if (Environment.GetEnvironmentVariable("ATHENA_HEADLESS_ONLY") == "game-mode")
     TestGameModeDebate();
     Environment.Exit(0);
 }
+GitBranchTests.Run(outputPath);
 OwlAnimationTests.Run(outputPath);
 if (Environment.GetEnvironmentVariable("ATHENA_OWL_TEST_ONLY") == "1")
 {
@@ -1506,7 +1512,8 @@ var workbench = new WorkspaceWorkbenchViewModel(
     new WorkspaceOperationCoordinator(),
     new HeadlessPathService(),
     new HeadlessInteractionService(),
-    new WorkspaceWatcherService());
+    new WorkspaceWatcherService(),
+    new GitBranchService(new RepositoryActivityGate()));
 workbench.HasGitRepository = true;
 workbench.CurrentBranchName = "codex/review-layout";
 workbench.IsReviewVisible = true;
@@ -6189,7 +6196,8 @@ static void TestRightPanelAutoExpand()
         new WorkspaceOperationCoordinator(),
         new HeadlessPathService(),
         new HeadlessInteractionService(),
-        new WorkspaceWatcherService());
+        new WorkspaceWatcherService(),
+        new GitBranchService(new RepositoryActivityGate()));
     var viewModel = new MainWindowViewModel(
         chatService: null,
         configService: null,
@@ -6253,7 +6261,8 @@ static void TestWorkspaceInlineRenameVisual()
         new WorkspaceOperationCoordinator(),
         new HeadlessPathService(),
         new HeadlessInteractionService(),
-        new WorkspaceWatcherService());
+        new WorkspaceWatcherService(),
+        new GitBranchService(new RepositoryActivityGate()));
     var folder = new WorkspaceFileNodeViewModel
     {
         Name = "folder",
@@ -6316,7 +6325,8 @@ static async Task TestWorkspaceRenameBehaviorAsync()
             new WorkspaceOperationCoordinator(),
             new HeadlessPathService(),
             new HeadlessInteractionService(),
-            new WorkspaceWatcherService());
+            new WorkspaceWatcherService(),
+            new GitBranchService(new RepositoryActivityGate()));
         await workbench.SetWorkspaceAsync(new WorkspaceProfile
         {
             Id = Guid.NewGuid().ToString("N"),
@@ -11513,7 +11523,8 @@ static async Task TestWorkspaceEditorRestoreAsync()
             new WorkspaceOperationCoordinator(),
             pathService,
             new HeadlessInteractionService(),
-            new WorkspaceWatcherService());
+            new WorkspaceWatcherService(),
+            new GitBranchService(new RepositoryActivityGate()));
         await sourceWorkbench.SetWorkspaceAsync(workspace);
         foreach (var fileName in new[] { "first.txt", "second.txt", "third.txt" })
         {
@@ -11532,7 +11543,8 @@ static async Task TestWorkspaceEditorRestoreAsync()
             new WorkspaceOperationCoordinator(),
             pathService,
             new HeadlessInteractionService(),
-            new WorkspaceWatcherService());
+            new WorkspaceWatcherService(),
+            new GitBranchService(new RepositoryActivityGate()));
         var selectedPaths = new List<string?>();
         restoredWorkbench.PropertyChanged += (_, args) =>
         {
@@ -11594,7 +11606,8 @@ static async Task TestWorkspaceDiffRestoreAsync()
             new WorkspaceOperationCoordinator(),
             pathService,
             new HeadlessInteractionService(),
-            new WorkspaceWatcherService());
+            new WorkspaceWatcherService(),
+            new GitBranchService(new RepositoryActivityGate()));
         await sourceWorkbench.SetWorkspaceAsync(workspace);
         await sourceWorkbench.OpenFileCommand.ExecuteAsync(
             sourceWorkbench.Files.Single(node => node.Name == "modified.txt"));
@@ -11611,7 +11624,8 @@ static async Task TestWorkspaceDiffRestoreAsync()
             new WorkspaceOperationCoordinator(),
             pathService,
             new HeadlessInteractionService(),
-            new WorkspaceWatcherService());
+            new WorkspaceWatcherService(),
+            new GitBranchService(new RepositoryActivityGate()));
         await restoredWorkbench.SetWorkspaceAsync(workspace);
 
         var restoredTab = restoredWorkbench.SelectedEditorTab
@@ -11703,7 +11717,8 @@ static async Task TestWorkspaceGitDiffAsync()
             new WorkspaceOperationCoordinator(),
             new HeadlessPathService(),
             interaction,
-            new WorkspaceWatcherService());
+            new WorkspaceWatcherService(),
+            new GitBranchService(new RepositoryActivityGate()));
         await workbench.SetWorkspaceAsync(new WorkspaceProfile
         {
             Id = Guid.NewGuid().ToString("N"),
@@ -11808,7 +11823,8 @@ static async Task TestWorkspaceGitDiffAsync()
                    new WorkspaceOperationCoordinator(),
                    new HeadlessPathService(),
                    new HeadlessInteractionService(),
-                   new WorkspaceWatcherService()))
+                   new WorkspaceWatcherService(),
+                   new GitBranchService(new RepositoryActivityGate())))
         {
             if (singleTabWorkbench.IsEditorVisible)
                 throw new InvalidOperationException("An editor pane without tabs must start closed.");
@@ -11907,6 +11923,7 @@ static async Task TestWorkspaceCommitAsync()
             new HeadlessPathService(),
             new HeadlessInteractionService(),
             new WorkspaceWatcherService(),
+            new GitBranchService(new RepositoryActivityGate()),
             new FakeCommitMessageGenerator());
         await workbench.SetWorkspaceAsync(new WorkspaceProfile
         {
@@ -11974,6 +11991,7 @@ static async Task TestWorkspaceCommitUnstagedAsync()
             new HeadlessPathService(),
             new HeadlessInteractionService(),
             new WorkspaceWatcherService(),
+            new GitBranchService(new RepositoryActivityGate()),
             new FakeCommitMessageGenerator());
         await workbench.SetWorkspaceAsync(new WorkspaceProfile
         {
@@ -12038,6 +12056,7 @@ static async Task TestWorkspaceUnstageAsync()
             new HeadlessPathService(),
             new HeadlessInteractionService(),
             new WorkspaceWatcherService(),
+            new GitBranchService(new RepositoryActivityGate()),
             new FakeCommitMessageGenerator());
         await workbench.SetWorkspaceAsync(new WorkspaceProfile
         {
@@ -12097,6 +12116,7 @@ static async Task TestWorkspaceGenerateCommitMessageAsync()
             new HeadlessPathService(),
             new HeadlessInteractionService(),
             new WorkspaceWatcherService(),
+            new GitBranchService(new RepositoryActivityGate()),
             generator);
         await workbench.SetWorkspaceAsync(new WorkspaceProfile
         {
@@ -12202,7 +12222,8 @@ static void TestWorkspaceWatcherErrors()
             new WorkspaceOperationCoordinator(),
             new HeadlessPathService(),
             new HeadlessInteractionService(),
-            watcherService);
+            watcherService,
+            new GitBranchService(new RepositoryActivityGate()));
         PumpForCompletion(
             workbench.SetWorkspaceAsync(new WorkspaceProfile
             {
@@ -12263,6 +12284,7 @@ static void TestWorkspaceWatcherErrors()
             new HeadlessPathService(),
             new HeadlessInteractionService(),
             unwatchableService,
+            new GitBranchService(new RepositoryActivityGate()),
             localizationService: localization);
         PumpForCompletion(
             unwatched.SetWorkspaceAsync(new WorkspaceProfile

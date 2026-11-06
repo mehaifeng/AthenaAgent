@@ -1,0 +1,95 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:vm="using:Athena.UI.ViewModels"
+        xmlns:loc="using:Athena.UI.Markup"
+        x:Class="Athena.UI.Views.GitBranchesWindow"
+        x:DataType="vm:GitBranchManagerViewModel"
+        Title="{Binding Title}" Width="720" Height="670" MinWidth="440" MinHeight="480"
+        WindowStartupLocation="CenterOwner">
+    <Grid RowDefinitions="Auto,Auto,Auto,*,Auto,Auto" Margin="22" RowSpacing="12">
+        <StackPanel>
+            <TextBlock Text="{Binding Title}" FontSize="{DynamicResource App.FontSize.Title}" FontWeight="SemiBold"/>
+            <TextBlock Text="{Binding RepositoryTitle}" TextWrapping="Wrap" Opacity="0.65" Margin="0,4,0,0"/>
+            <Grid ColumnDefinitions="Auto,*" RowDefinitions="Auto,Auto" ColumnSpacing="8" RowSpacing="4" Margin="0,6,0,0">
+                <TextBlock Text="{loc:Loc Git.Branches.Current}" Opacity="0.65"/>
+                <TextBlock Grid.Column="1" Text="{Binding CurrentBranch}" FontWeight="SemiBold" TextWrapping="Wrap"/>
+                <TextBlock Grid.Row="1" Text="{loc:Loc Git.Branches.MergeBase}" Opacity="0.65"/>
+                <TextBlock Grid.Row="1" Grid.Column="1" Text="{Binding BaseBranchName}" TextWrapping="Wrap"/>
+            </Grid>
+        </StackPanel>
+        <Grid Grid.Row="1" ColumnDefinitions="*,Auto" ColumnSpacing="10" IsVisible="{Binding IsBrowseMode}">
+            <TextBox Text="{Binding SearchText}" PlaceholderText="{loc:Loc Git.Branches.Search}" IsEnabled="{Binding !IsBusy}"
+                     AutomationProperties.Name="{loc:Loc Git.Branches.Search}"/>
+            <Button Grid.Column="1" Content="{loc:Loc Git.Branches.Refresh}" Command="{Binding RefreshCommand}" IsEnabled="{Binding !IsBusy}"/>
+        </Grid>
+        <StackPanel Grid.Row="2" Orientation="Horizontal" Spacing="18" IsVisible="{Binding IsBrowseMode}" IsEnabled="{Binding !IsBusy}">
+            <RadioButton Content="{Binding LocalTitle}" IsChecked="{Binding !ShowRemote}"/>
+            <RadioButton Content="{Binding RemoteTitle}" IsChecked="{Binding ShowRemote}"/>
+        </StackPanel>
+        <Grid Grid.Row="3" RowDefinitions="*,Auto,Auto" RowSpacing="12">
+            <Grid IsVisible="{Binding IsBrowseMode}">
+                <ListBox ItemsSource="{Binding Branches}" SelectedItem="{Binding SelectedBranch}" IsEnabled="{Binding !IsBusy}"
+                         Name="BranchList" AutomationProperties.Name="{loc:Loc Git.Branches.List}">
+                    <ListBox.ItemTemplate>
+                        <DataTemplate x:DataType="vm:GitBranchRow">
+                            <StackPanel Margin="6,8" Spacing="4">
+                                <TextBlock Text="{Binding Name}" FontWeight="SemiBold" TextWrapping="Wrap"/>
+                                <TextBlock Text="{Binding Badges}" Foreground="{DynamicResource App.IconAccentForeground}" TextWrapping="Wrap"/>
+                                <TextBlock Text="{Binding Metadata}" Opacity="0.65" TextTrimming="CharacterEllipsis" ToolTip.Tip="{Binding Metadata}"/>
+                            </StackPanel>
+                        </DataTemplate>
+                    </ListBox.ItemTemplate>
+                </ListBox>
+                <TextBlock Text="{loc:Loc Git.Branches.Empty}" IsVisible="{Binding IsEmpty}" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+            </Grid>
+            <StackPanel IsVisible="{Binding IsCreateMode}" Spacing="10" IsEnabled="{Binding !IsBusy}">
+                <TextBlock Text="{loc:Loc Git.Branches.NewName}"/>
+                <TextBox Text="{Binding NewBranchName}" Name="NewBranchName" PlaceholderText="feature/my-change"
+                         AutomationProperties.Name="{loc:Loc Git.Branches.NewName}"/>
+                <TextBlock Text="{loc:Loc Git.Branches.StartPoint}" Margin="0,8,0,0"/>
+                <ComboBox ItemsSource="{Binding StartPoints}" SelectedItem="{Binding SelectedStartPoint}" HorizontalAlignment="Stretch"
+                          AutomationProperties.Name="{loc:Loc Git.Branches.StartPoint}">
+                    <ComboBox.ItemTemplate><DataTemplate x:DataType="vm:GitBranchStartPoint"><TextBlock Text="{Binding Name}"/></DataTemplate></ComboBox.ItemTemplate>
+                </ComboBox>
+                <CheckBox IsChecked="{Binding SwitchAfterCreate}" Content="{loc:Loc Git.Branches.SwitchAfterCreate}"/>
+                <Button Content="{loc:Loc Git.Branches.Create}" Command="{Binding CreateCommand}" Theme="{StaticResource AccentButtonTheme}" HorizontalAlignment="Left"/>
+            </StackPanel>
+            <StackPanel Grid.Row="1" IsVisible="{Binding IsBrowseMode}" Spacing="10">
+                <TextBlock Text="{Binding SelectionDetails}" TextWrapping="Wrap" Opacity="0.7"/>
+                <StackPanel IsVisible="{Binding NeedsTrackingName}" Spacing="5">
+                    <TextBlock Text="{loc:Loc Git.Branches.TrackingName}"/>
+                    <TextBox Text="{Binding TrackingBranchName}" IsEnabled="{Binding !IsBusy}" AutomationProperties.Name="{loc:Loc Git.Branches.TrackingName}"/>
+                </StackPanel>
+                <WrapPanel Orientation="Horizontal">
+                    <Button Content="{Binding SwitchLabel}" Command="{Binding SwitchCommand}" Theme="{StaticResource AccentButtonTheme}" Margin="0,0,8,6"/>
+                    <Button Content="{loc:Loc Git.Branches.Compare}" Command="{Binding CompareCommand}" Margin="0,0,8,6" IsVisible="{Binding IsManageMode}"/>
+                    <Button Content="{loc:Loc Git.Branches.Rename}" Command="{Binding RenameCommand}" Margin="0,0,8,6" IsVisible="{Binding IsManageMode}"/>
+                    <Button Content="{loc:Loc Git.Branches.Delete}" Command="{Binding DeleteCommand}" ToolTip.Tip="{loc:Loc Git.Branches.DeleteRule}" Margin="0,0,0,6" IsVisible="{Binding IsManageMode}"/>
+                </WrapPanel>
+                <StackPanel IsVisible="{Binding IsRenaming}" Spacing="8" IsEnabled="{Binding !IsBusy}">
+                    <TextBlock Text="{loc:Loc Git.Branches.RenameHint}" TextWrapping="Wrap"/>
+                    <TextBox Text="{Binding RenameText}" AutomationProperties.Name="{loc:Loc Git.Branches.NewName}"/>
+                    <StackPanel Orientation="Horizontal" Spacing="8">
+                        <Button Content="{loc:Loc Common.Save}" Command="{Binding SaveRenameCommand}"/>
+                        <Button Content="{loc:Loc Common.Cancel}" Command="{Binding CancelEditCommand}"/>
+                    </StackPanel>
+                </StackPanel>
+                <StackPanel IsVisible="{Binding IsDeleteConfirmVisible}" Spacing="8" IsEnabled="{Binding !IsBusy}">
+                    <TextBlock Text="{Binding DeleteMessage}" TextWrapping="Wrap"/>
+                    <StackPanel Orientation="Horizontal" Spacing="8">
+                        <Button Content="{loc:Loc Git.Branches.ConfirmDelete}" Command="{Binding ConfirmDeleteCommand}"/>
+                        <Button Content="{loc:Loc Common.Cancel}" Command="{Binding CancelEditCommand}"/>
+                    </StackPanel>
+                </StackPanel>
+            </StackPanel>
+            <TextBox Grid.Row="2" Text="{Binding ComparisonText}" IsVisible="{Binding HasComparison}" IsReadOnly="True"
+                     AcceptsReturn="True" TextWrapping="Wrap" MaxHeight="150" AutomationProperties.Name="{loc:Loc Git.Branches.Compare}"/>
+        </Grid>
+        <StackPanel Grid.Row="4" Spacing="6">
+            <ProgressBar IsIndeterminate="True" IsVisible="{Binding IsBusy}" Height="3"/>
+            <TextBlock Text="{Binding ErrorText}" IsVisible="{Binding HasError}" Foreground="{DynamicResource SemiRed6}" TextWrapping="Wrap"/>
+            <TextBlock Text="{Binding StatusText}" TextWrapping="Wrap" Opacity="0.65"/>
+        </StackPanel>
+        <Button Grid.Row="5" Content="{loc:Loc Git.Branches.Close}" HorizontalAlignment="Right" Click="OnCloseClicked" IsEnabled="{Binding !IsBusy}"/>
+    </Grid>
+</Window>
