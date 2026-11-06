@@ -88,6 +88,12 @@ if (Environment.GetEnvironmentVariable("ATHENA_POLIS_E2E") == "1")
 }
 
 // 只跑游戏模式这一组（迭代用，不在正式运行里）：ATHENA_HEADLESS_ONLY=game-mode
+if (Environment.GetEnvironmentVariable("ATHENA_HEADLESS_ONLY") == "tool-rounds")
+{
+    Task.Run(ToolRoundTests.RunAsync).GetAwaiter().GetResult();
+    ToolRoundTests.VerifySettings();
+    Environment.Exit(0);
+}
 if (Environment.GetEnvironmentVariable("ATHENA_HEADLESS_ONLY") == "ptc")
 {
     Task.Run(PtcTests.RunAsync).GetAwaiter().GetResult();
@@ -140,6 +146,8 @@ Task.Run(TestPetDexCatalogAsync).GetAwaiter().GetResult();
 TestPetSettingsVisual(outputPath);
 Task.Run(TestResponsesStreamingTextAndUsageAsync).GetAwaiter().GetResult();
 Task.Run(TestResponsesToolLoopAsync).GetAwaiter().GetResult();
+Task.Run(ToolRoundTests.RunAsync).GetAwaiter().GetResult();
+ToolRoundTests.VerifySettings();
 Task.Run(PtcTests.RunAsync).GetAwaiter().GetResult();
 PtcTests.VerifyUiProjection();
 ExecutionTimelineHeadlessTests.Run();

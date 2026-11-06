@@ -100,7 +100,7 @@
     <system:String x:Key="Chat.Archive.ErrorUnavailable">归档服务不可用。</system:String>
     <system:String x:Key="Chat.Error.ImageUnsupported">当前主模型不支持图像理解，请换用支持视觉的模型后再试。</system:String>
     <system:String x:Key="Chat.Error.ImageRecognitionUnavailable">当前主对话模型无法读取图片，且没有获得可用的图像识别结果，因此无法如实描述图片内容。请配置或检查支持视觉的“图像识别”模型，或切换主对话模型后重试。</system:String>
-    <system:String x:Key="Chat.Error.ToolRoundsExhausted">[已用满单次回复的最大工具轮数（{0} 轮），回复在任务中途停下。回复“继续”即可接着往下做；若这类长流程经常被截断，可在“设置 → 执行与并发 → 主对话执行 → 单次回复最大工具轮数”里调高上限。]</system:String>
+    <system:String x:Key="Chat.Error.ToolArgumentsTruncated">[工具调用参数在多次重试后仍被截断或不完整，已停止本次回复，未执行不完整调用。请尝试提高模型输出上限，或将任务拆成较小步骤。]</system:String>
     <system:String x:Key="Chat.Error.EmptyReplyTruncated">[回复在正文出现之前就被截断了：输出预算（max_output_tokens）在模型还在思考时就用光，自动重试一次、明确要求它直接作答后仍被截断。上方的思考过程已保留。可以回复“继续”再试一次，或把任务拆成更小的步骤；若反复如此，请降低该模型的推理强度。]</system:String>
     <system:String x:Key="Chat.Error.EmptyReplyIncomplete">[本轮响应没有正常结束：供应商既没有给出正文，也没有宣告响应完成（可能是内容过滤，或流式连接中途断开）。回复“继续”即可接着往下做。]</system:String>
     <system:String x:Key="Chat.Error.StreamInterrupted">上游在回复流中途中断，本轮没有完成。这通常是供应商侧的临时故障，回复“继续”即可接着往下做。</system:String>
@@ -693,16 +693,13 @@
     <system:String x:Key="Settings.Approval.TerminalHint">白名单中的终端命令无需重复确认。</system:String>
     <system:String x:Key="Settings.Approval.JevShadowHint">弹出审批窗时，在后台把这次调用（工具名、命令行、文件路径、去掉查询串的网址）和你最近的两条消息经 OpenRouter 发给 TypeSafe Jev 打分，分数和你的最终选择一起写进日志，用来评估能否让 Jev 预筛弹窗。文件正文和任务指令只发长度，疑似密钥会打码。不影响任何审批结果；需要一个带 API key 的 OpenRouter 连接。</system:String>
     <system:String x:Key="Settings.Agent.Title">执行与并发</system:String>
-    <system:String x:Key="Settings.Agent.Description">配置主对话与并行子代理的执行边界：并发上限、工具轮数与超时。</system:String>
+    <system:String x:Key="Settings.Agent.Description">配置主对话与并行子代理的并发上限和超时。工具调用轮数不设上限。</system:String>
     <system:String x:Key="Settings.Agent.Conversation.Title">主对话执行</system:String>
     <system:String x:Key="Settings.Agent.Conversation.MaxParallel">主对话全局并发上限</system:String>
-    <system:String x:Key="Settings.Agent.Conversation.MaxToolRounds">单次回复最大工具轮数</system:String>
-    <system:String x:Key="Settings.Agent.Conversation.MaxToolRoundsHint">一次回复内允许的模型调用轮数上限。打满后回复会停在半途，需要回复“继续”接续。运行长流程技能时可调高。</system:String>
     <system:String x:Key="Settings.Agent.SubAgent.Title">子代理</system:String>
     <system:String x:Key="Settings.Agent.SubAgent.Enabled">启用子代理</system:String>
     <system:String x:Key="Settings.Agent.SubAgent.ModelHint">使用的模型在“供应商与业务模型 / 子代理”中选择。</system:String>
     <system:String x:Key="Settings.Agent.SubAgent.MaxParallel">最大并行数</system:String>
-    <system:String x:Key="Settings.Agent.SubAgent.MaxToolRounds">单代理最大工具轮数</system:String>
     <system:String x:Key="Settings.Agent.ProviderRetry.Title">供应商请求</system:String>
     <system:String x:Key="Settings.Agent.ProviderRetry.Description">回复流被上游中途掐断时自动重发同一个请求。已经开始输出正文的回合不会重试——重发会让模型从头再写一遍。</system:String>
     <system:String x:Key="Settings.Agent.ProviderRetry.Enabled">自动重试被中断的请求</system:String>
@@ -881,7 +878,6 @@
     <system:String x:Key="Config.SubAgentsDescription">启用后，主对话可将相互独立的任务分派给多个子代理并行处理；每个子代理拥有独立的上下文，最终结果汇总回主对话。</system:String>
     <system:String x:Key="Config.SubAgentsEnabled">启用并行子代理：</system:String>
     <system:String x:Key="Config.SubAgentMaxParallel">同时运行上限：</system:String>
-    <system:String x:Key="Config.SubAgentMaxIterations">单代理步数上限：</system:String>
     <system:String x:Key="Config.SubAgentTimeout">单次超时（秒）：</system:String>
 
     <!-- Service Status Messages -->

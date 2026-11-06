@@ -45,16 +45,6 @@
                                        Maximum="16"
                                        Value="{Binding State.Config.MainConversationMaxParallel}"/>
                     </Grid>
-                    <Grid ColumnDefinitions="300,180,*">
-                        <TextBlock Text="{loc:Loc Settings.Agent.Conversation.MaxToolRounds}" VerticalAlignment="Center"/>
-                        <NumericUpDown Grid.Column="1"
-                                       Minimum="1"
-                                       Maximum="200"
-                                       Value="{Binding State.Config.MainConversationMaxIterations}"/>
-                    </Grid>
-                    <TextBlock Text="{loc:Loc Settings.Agent.Conversation.MaxToolRoundsHint}"
-                               TextWrapping="Wrap"
-                               Opacity="0.58"/>
                 </StackPanel>
             </Border>
 
@@ -114,13 +104,6 @@
                                        Minimum="1"
                                        Maximum="16"
                                        Value="{Binding State.Config.SubAgentMaxParallel}"/>
-                    </Grid>
-                    <Grid ColumnDefinitions="300,180,*">
-                        <TextBlock Text="{loc:Loc Settings.Agent.SubAgent.MaxToolRounds}" VerticalAlignment="Center"/>
-                        <NumericUpDown Grid.Column="1"
-                                       Minimum="1"
-                                       Maximum="100"
-                                       Value="{Binding State.Config.SubAgentMaxIterations}"/>
                     </Grid>
                     <Grid ColumnDefinitions="300,180,*">
                         <TextBlock Text="{loc:Loc Settings.Agent.SubAgent.Timeout}" VerticalAlignment="Center"/>
