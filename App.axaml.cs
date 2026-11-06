@@ -838,6 +838,7 @@ public partial class App : Application, IAsyncDisposable
                 Log.ForContext<PetChatterService>());
         });
         services.AddSingleton<ConversationExecutionCoordinator>();
+        services.AddSingleton(sp => new GitBranchService(sp.GetRequiredService<ConversationExecutionCoordinator>().RepositoryActivity));
         services.AddSingleton<ChatSessionFactory>();
         services.AddSingleton<WorkspaceOperationCoordinator>();
         services.AddSingleton<ICommitMessageGenerator>(sp =>
@@ -857,6 +858,7 @@ public partial class App : Application, IAsyncDisposable
                 sp.GetRequiredService<IPlatformPathService>(),
                 sp.GetRequiredService<IUserInteractionService>(),
                 sp.GetRequiredService<IWorkspaceWatcherService>(),
+                sp.GetRequiredService<GitBranchService>(),
                 sp.GetService<ICommitMessageGenerator>(),
                 sp.GetService<ILocalizationService>(),
                 sp.GetService<OfficePreviewHost>()));

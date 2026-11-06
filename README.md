@@ -18,6 +18,7 @@ Athena is a sophisticated, highly autonomous desktop AI assistant built with **.
 - **📄 Document Parsing**: MinerU-backed extraction of outlines and content from attached documents.
 - **🎨 Image Generation & Audio**: Inline image generation with cross-turn continuity, plus TTS audio playback.
 - **↩️ Conversation Archive, Rewind & Fork**: Persisted, browsable sessions that can be rewound or forked into branch conversations.
+- **🌿 Workspace Git branches**: Switch or create branches above the composer; inspect local and remote snapshots, upstream status and worktree occupancy. Manage branches with patch comparison, local rename and confirmed safe deletion. Checkout checks the entire repository, and branch mutations exclude live assistant turns.
 - **⏰ Cron Scheduling**: Standard five-field cron tasks. Every firing opens its own brand-new session instead of interrupting the chat you are looking at, so a task can run while you keep working.
 - **🌍 Modern Cross-Platform UI**: Built with Avalonia UI and the Semi Design aesthetic, supporting both light/dark modes and multi-lingual interfaces (English & Chinese).
 - **🛡️ Security-First Design**: Implements strict data sandboxing, file system protection, and secure API management.

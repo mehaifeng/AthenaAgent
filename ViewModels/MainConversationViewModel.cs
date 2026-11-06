@@ -2279,6 +2279,7 @@ public partial class MainConversationViewModel : ViewModelBase, IDisposable
 
         IsSending = true;
         ConversationExecutionCoordinator.Lease? executionLease = null;
+        IDisposable? repositoryTurn = null;
         _forceNewAssistantTextSegment = false;
         _activeTextMaterialized = false;
         var modelSettings = _configService?.Load().AiModels.MainConversation;
@@ -2328,6 +2329,8 @@ public partial class MainConversationViewModel : ViewModelBase, IDisposable
                 IsQueued = true;
                 try
                 {
+                    repositoryTurn = await _executionCoordinator.RepositoryActivity.EnterTurnAsync(
+                        requestContext.WorkspaceDirectoryPath, cancellationToken);
                     executionLease = await _executionCoordinator.AcquireAsync(_conversationId, cancellationToken);
                 }
                 finally
@@ -2689,6 +2692,7 @@ public partial class MainConversationViewModel : ViewModelBase, IDisposable
         {
             var turnEndedAt = Stopwatch.GetTimestamp();
             executionLease?.Dispose();
+            repositoryTurn?.Dispose();
             if (ReferenceEquals(_responseCts, responseCts))
             {
                 _responseCts = null;

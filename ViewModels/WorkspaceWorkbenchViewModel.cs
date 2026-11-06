@@ -258,6 +258,7 @@ public partial class WorkspaceWorkbenchViewModel : ViewModelBase, IDisposable
     // 当前工作区唯一的递归监视器，与游戏模式共用（设计稿 11.2）。工作台在 SetWorkspaceAsync 里切换它：
     // 这里是外壳"当前作用域"的唯一入口，也保住了"先加载、后监听"的次序。
     private readonly IWorkspaceWatcherService _watcherService;
+    private readonly GitBranchService _branchService;
     private CancellationTokenSource? _refreshDebounce;
     private CancellationTokenSource? _gitChangeOpenCts;
     private readonly SemaphoreSlim _repositoryRefreshGate = new(1, 1);
@@ -280,6 +281,7 @@ public partial class WorkspaceWorkbenchViewModel : ViewModelBase, IDisposable
         IPlatformPathService pathService,
         IUserInteractionService interaction,
         IWorkspaceWatcherService watcherService,
+        GitBranchService branchService,
         ICommitMessageGenerator? commitMessageGenerator = null,
         ILocalizationService? localizationService = null,
         OfficePreviewHost? previewHost = null)
@@ -288,6 +290,7 @@ public partial class WorkspaceWorkbenchViewModel : ViewModelBase, IDisposable
         _pathService = pathService;
         _interaction = interaction;
         _watcherService = watcherService ?? throw new ArgumentNullException(nameof(watcherService));
+        _branchService = branchService ?? throw new ArgumentNullException(nameof(branchService));
         _watcherService.Changed += OnExternalFileChanged;
         _watcherService.ErrorsDropped += OnWatcherErrorsDropped;
         _commitMessageGenerator = commitMessageGenerator;
