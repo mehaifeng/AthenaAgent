@@ -125,6 +125,30 @@ publish_project() {
     -o "$output_dir"
 }
 
+# A Linux tarball with no launcher leaves the application list showing the
+# generic application-x-executable placeholder while the dock shows the owl
+# from Window.Icon (_NET_WM_ICON). Ship the script that writes both halves of
+# the link — Icon= and StartupWMClass — next to the binary it points at.
+package_desktop_integration() {
+  local package_dir="$1"
+
+  cp "$REPO_ROOT/Scripts/linux/install.sh" "$package_dir/install.sh"
+  chmod +x "$package_dir/install.sh"
+
+  mkdir -p "$package_dir/icons"
+  if command -v magick >/dev/null 2>&1; then
+    magick "$REPO_ROOT/Assets/AthenaAgent.png" -background none -resize 512x512 -strip \
+      "$package_dir/icons/athena.png"
+  elif command -v convert >/dev/null 2>&1; then
+    convert "$REPO_ROOT/Assets/AthenaAgent.png" -background none -resize 512x512 -strip \
+      "$package_dir/icons/athena.png"
+  else
+    # install.sh will still install whatever it is handed; the 1080 master only
+    # costs tarball size, and hicolor handles the downscale at lookup time.
+    cp "$REPO_ROOT/Assets/AthenaAgent.png" "$package_dir/icons/athena.png"
+  fi
+}
+
 archive_package() {
   local rid="$1"
   local package_dir="$2"
@@ -489,6 +513,10 @@ for rid in "${PLATFORMS[@]}"; do
     *)
       chmod +x "$package_dir/$entry_executable" "$package_dir/updater/$updater_executable"
       ;;
+  esac
+
+  case "$rid" in
+    linux-*) package_desktop_integration "$package_dir" ;;
   esac
 
   # --- tar.gz (always, for updater) ---
