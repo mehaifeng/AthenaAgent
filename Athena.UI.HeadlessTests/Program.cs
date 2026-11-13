@@ -81,6 +81,12 @@ AppBuilder.Configure<App>()
     })
     .SetupWithoutStarting();
 
+if (Environment.GetEnvironmentVariable("ATHENA_HEADLESS_ONLY") == "menu-wait")
+{
+    TestMenuItemsWait();
+    Environment.Exit(0);
+}
+
 if (Environment.GetEnvironmentVariable("ATHENA_HEADLESS_ONLY") == "themes")
 {
     TestColorSchemeSwitching();
@@ -266,6 +272,7 @@ TestColorSchemeApplyCounting();
 TestColorSchemeShellPanelRepaint();
 TestColorSchemeThumbnail();
 ThemeContrastTests.Run(Path.GetDirectoryName(outputPath)!);
+TestMenuItemsWait();
 TestConfigurationSession(Path.GetDirectoryName(outputPath)!);
 TestSelfConfigurationSurface();
 TestOrcaRouterConnectEntryPoints(Path.GetDirectoryName(outputPath)!);
@@ -866,7 +873,7 @@ workspaceMenu.RaiseEvent(new Avalonia.Interactivity.RoutedEventArgs(Button.Click
 Dispatcher.UIThread.RunJobs();
 if (!workspaceMenuFlyout.IsOpen)
     throw new InvalidOperationException("Clicking the workspace overflow button did not open its menu.");
-var workspaceMenuItems = await AwaitMenuItemsAsync(
+var workspaceMenuItems = WaitForMenuItems(
     workspaceMenuFlyout,
     ["重命名", "上下文设置", "重新定位文件夹…", "在文件夹中显示", "复制路径", "删除"],
     "Workspace menu commands or icons are incomplete.");
@@ -883,7 +890,7 @@ pinnedMenuButton.RaiseEvent(new Avalonia.Interactivity.RoutedEventArgs(Button.Cl
 Dispatcher.UIThread.RunJobs();
 if (!pinnedMenuFlyout.IsOpen)
     throw new InvalidOperationException("Clicking the conversation overflow button did not open its menu.");
-var pinnedMenuItems = await AwaitMenuItemsAsync(
+var pinnedMenuItems = WaitForMenuItems(
     pinnedMenuFlyout,
     ["重命名", "Unpin", "分支", "导出", "删除"],
     "Pinned conversation menu commands or icons are incomplete.");
@@ -12140,27 +12147,63 @@ static async Task TestWorkspaceGenerateCommitMessageAsync()
     }
 }
 
-static async Task<IReadOnlyList<MenuItem>> AwaitMenuItemsAsync(
+static IReadOnlyList<MenuItem> WaitForMenuItems(
     MenuFlyout flyout,
     IReadOnlyList<string> expectedHeaders,
-    string failureMessage)
+    string failureMessage,
+    int timeoutMs = 5000)
 {
-    // MenuFlyout items are realized lazily and their {loc:Loc} header bindings can
-    // lag a language switch, so poll until the expected text and icons settle rather
-    // than reading the flyout a single time.
-    var deadline = DateTime.UtcNow.AddSeconds(5);
-    while (DateTime.UtcNow < deadline)
+    // Headers and icons can settle after the flyout opens. The headless UI thread
+    // has an AvaloniaSynchronizationContext but no running dispatcher loop: an
+    // awaited delay queues its continuation onto the very loop we stopped pumping.
+    // Keep the original text/icon assertions and bounded wait on the UI thread.
+    IReadOnlyList<MenuItem> items = [];
+    PumpUntil(() =>
     {
-        var items = flyout.Items.OfType<MenuItem>().ToList();
-        if (items.Select(item => item.Header?.ToString()).SequenceEqual(expectedHeaders)
-            && items.All(item => item.Icon != null))
+        items = flyout.Items.OfType<MenuItem>().ToList();
+        return items.Select(item => item.Header?.ToString()).SequenceEqual(expectedHeaders)
+               && items.All(item => item.Icon != null);
+    }, timeoutMs, failureMessage);
+    return items;
+}
+
+static void TestMenuItemsWait()
+{
+    var window = new Window { Width = 200, Height = 100 };
+    window.Show();
+    try
+    {
+        var item = new MenuItem { Header = "Pending" };
+        var flyout = new MenuFlyout();
+        flyout.Items.Add(item);
+        var settledOnUiThread = false;
+        Dispatcher.UIThread.Post(() =>
         {
-            return items;
+            settledOnUiThread = Dispatcher.UIThread.CheckAccess();
+            item.Header = "Ready";
+            item.Icon = new PathIcon();
+        }, DispatcherPriority.Background);
+        var items = WaitForMenuItems(flyout, ["Ready"], "Deferred menu did not settle.");
+        if (!settledOnUiThread || items.Count != 1 || !ReferenceEquals(items[0], item))
+            throw new InvalidOperationException("Menu wait must pump deferred header/icon changes on the UI thread.");
+
+        item.Icon = null;
+        const string missingIcon = "Missing menu icon must fail within the wait limit.";
+        try
+        {
+            WaitForMenuItems(flyout, ["Ready"], missingIcon, timeoutMs: 30);
+            throw new InvalidOperationException("Menu wait accepted an item without its icon.");
         }
-        Dispatcher.UIThread.RunJobs();
-        await Task.Delay(25);
+        catch (InvalidOperationException ex) when (ex.Message == missingIcon)
+        {
+            // A delayed success must work, and an unmet condition must still fail.
+        }
     }
-    throw new InvalidOperationException(failureMessage);
+    finally
+    {
+        window.Close();
+    }
+    Console.WriteLine("[PASS] menu wait pumps deferred UI bindings and fails boundedly for missing icons");
 }
 
 // 工作区文件监视器的 Error 路径。改动前 Error 从没被订阅：Windows 缓冲区溢出、Linux inotify 溢出或撞上限、
