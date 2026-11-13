@@ -1511,6 +1511,7 @@
     <system:String x:Key="GameMode.Toggle.ToConversation">Back to conversation mode</system:String>
     <system:String x:Key="GameMode.Toggle.ToGame">Switch to game mode (Athena's polis)</system:String>
     <system:String x:Key="GameMode.Failure.Title">Game mode could not open</system:String>
+    <system:String x:Key="GameMode.Failure.SaveSetting">The game mode setting could not be saved. Please try again.</system:String>
     <system:String x:Key="GameMode.Failure.Server">The local page server could not start</system:String>
     <system:String x:Key="GameMode.Failure.Create">The embedded browser (WebView) could not be created on this system</system:String>
     <system:String x:Key="GameMode.Failure.Navigation">The game page did not load</system:String>

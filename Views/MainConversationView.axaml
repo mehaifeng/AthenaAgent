@@ -314,12 +314,12 @@
                             HorizontalAlignment="Right"
                             VerticalAlignment="Center">
                     <!-- 游戏 / 对话模式切换（设计稿 12.1）：和右栏折叠按钮在同一处。命令由外壳注入（GameMode），
-                         没有宿主时隐藏。一个 PathIcon 按 key 切换图标，不叠两个 IsVisible。 -->
+                         没有宿主或尚未通过本地输入指令启用时隐藏。一个 PathIcon 按 key 切换图标，不叠两个 IsVisible。 -->
                     <Button x:Name="GameModeToggleButton"
                             VerticalAlignment="Center"
                             Padding="5"
                             Command="{Binding #ConversationRoot.GameMode.ToggleModeCommand}"
-                            IsVisible="{Binding #ConversationRoot.GameMode, Converter={x:Static ObjectConverters.IsNotNull}}"
+                            IsVisible="{Binding #ConversationRoot.GameMode.IsAvailable, FallbackValue=False}"
                             ToolTip.Tip="{Binding #ConversationRoot.GameMode.ToggleTip}"
                             AutomationProperties.Name="{Binding #ConversationRoot.GameMode.ToggleTip}">
                         <PathIcon Width="16" Height="16"
