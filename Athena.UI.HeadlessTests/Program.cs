@@ -85,6 +85,12 @@ AppBuilder.Configure<App>()
 // event loop. Entry-point task waits must use PumpForCompletion, and synchronous
 // screenshot writes use synchronous disposal; an incomplete top-level await would
 // leave its continuation queued forever. Async helpers remain safe inside the pump.
+if (Environment.GetEnvironmentVariable("ATHENA_HEADLESS_ONLY") == "onboarding")
+{
+    OnboardingEntranceTests.Run(outputPath);
+    Environment.Exit(0);
+}
+
 if (Environment.GetEnvironmentVariable("ATHENA_HEADLESS_ONLY") == "menu-wait")
 {
     TestMenuItemsWait();
@@ -146,6 +152,7 @@ if (Environment.GetEnvironmentVariable("ATHENA_HEADLESS_ONLY") == "game-mode")
     TestGameModeDebate();
     Environment.Exit(0);
 }
+OnboardingEntranceTests.Run(outputPath);
 GitBranchTests.Run(outputPath);
 OwlAnimationTests.Run(outputPath);
 if (Environment.GetEnvironmentVariable("ATHENA_OWL_TEST_ONLY") == "1")
@@ -1511,11 +1518,7 @@ if (archiveGroup.Conversations.Contains(externalSession)
 Console.WriteLine("[PASS] conversation tree owns archive status, external completion, grouping, search, and current/non-current deletion");
 
 var onboardingPath = Path.Combine(Path.GetDirectoryName(outputPath)!, "athena-onboarding.png");
-var onboarding = new OnboardingWindow(new OnboardingViewModel())
-{
-    Width = 720,
-    Height = 600
-};
+var onboarding = new OnboardingWindow(new OnboardingViewModel());
 onboarding.Show();
 Dispatcher.UIThread.RunJobs();
 using var onboardingFrame = onboarding.CaptureRenderedFrame() ?? throw new InvalidOperationException("Onboarding renderer returned no frame.");

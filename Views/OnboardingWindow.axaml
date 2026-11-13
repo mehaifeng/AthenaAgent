@@ -10,10 +10,12 @@
         x:Class="Athena.UI.Views.OnboardingWindow"
         x:DataType="vm:OnboardingViewModel"
         Title="{loc:Loc Onboarding.Title}"
-        Width="720" Height="600"
+        Width="1440" Height="900"
+        MinWidth="1180" MinHeight="720"
+        Icon="/Assets/Athena.ico"
         WindowStartupLocation="CenterScreen"
         Background="{DynamicResource SemiColorBackground0}"
-        CanResize="False">
+        CanResize="True">
 
     <Window.Styles>
         <!-- 黑白灰蚀刻风按钮。对比度规则（明暗主题通用）：
@@ -139,6 +141,11 @@
     </Window.Styles>
 
     <Panel>
+    <Image Source="{DynamicResource App.BackgroundImage}" Stretch="UniformToFill" Opacity="0.24" IsHitTestVisible="False"/>
+    <Border x:Name="OnboardingCard" Width="720" Height="600"
+            HorizontalAlignment="Center" VerticalAlignment="Center"
+            Background="{DynamicResource SemiColorBackground0}"
+            BorderBrush="{DynamicResource SemiColorBorder}" BorderThickness="1" CornerRadius="4">
     <Grid RowDefinitions="Auto,*,Auto" Margin="30,24">
 
         <!-- 头部：猫头鹰 logo + 标题 + 语言切换 -->
@@ -349,12 +356,6 @@
         </Grid>
     </Grid>
 
-    <!-- 引导→主窗口交接遮罩：与 MainWindow.ThemeSplashImage 同一张雅典娜版画，
-         完成引导时先在本窗渐入满幕，随后主窗口以同图覆盖状态接棒，实现跨窗延续。 -->
-    <Image x:Name="HandoffVeilImage"
-           Stretch="UniformToFill"
-           Opacity="0"
-           IsHitTestVisible="False"
-           ZIndex="100"/>
+    </Border>
     </Panel>
 </Window>
