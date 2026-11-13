@@ -377,6 +377,10 @@ public partial class MainLayoutSettings : ObservableObject
     [ObservableProperty]
     private bool _panelGlassEnabled;
 
+    // 游戏入口默认隐藏，仅由输入框中的本地特殊指令启用 / 禁用。与当前是否正在游戏中分别保存。
+    [ObservableProperty]
+    private bool _gameModeEnabled;
+
     // 中间区域的模式：false = 对话，true = 游戏（雅典娜的城邦）。只由用户手动切换，切换会话不会把人踢回对话模式；
     // 重启后停在上次的模式（设计稿 10.3 第 1 条）。
     [ObservableProperty]

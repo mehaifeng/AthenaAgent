@@ -1511,6 +1511,7 @@
     <system:String x:Key="GameMode.Toggle.ToConversation">回到对话模式</system:String>
     <system:String x:Key="GameMode.Toggle.ToGame">切换到游戏模式（雅典娜的城邦）</system:String>
     <system:String x:Key="GameMode.Failure.Title">游戏模式没能打开</system:String>
+    <system:String x:Key="GameMode.Failure.SaveSetting">游戏模式设置未能保存，请重试。</system:String>
     <system:String x:Key="GameMode.Failure.Server">本地页面服务没能启动</system:String>
     <system:String x:Key="GameMode.Failure.Create">这台电脑上没能创建内嵌浏览器（WebView）</system:String>
     <system:String x:Key="GameMode.Failure.Navigation">游戏页面没能加载</system:String>

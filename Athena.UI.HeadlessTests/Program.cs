@@ -4511,7 +4511,8 @@ static void TestGameModeSwitchAndFailures()
             imageGenerationSessionService: null, configurationSession: session, gameMode: gameMode);
         var workspace = new WorkspaceProfile { Name = "我的工作区", DirectoryPath = workspaceRoot };
         var group = new WorkspaceConversationGroupViewModel(workspace);
-        var chat = new MainConversationViewModel();
+        var chatService = new HeadlessChatService();
+        var chat = new MainConversationViewModel(chatService, configService, null, null, null, localization);
         for (var i = 0; i < 6; i++)
         {
             chat.Messages.Add(new ChatMessage { Role = "user", Content = $"第 {i} 个问题" });
@@ -4533,8 +4534,48 @@ static void TestGameModeSwitchAndFailures()
         var polisView = window.GetVisualDescendants().OfType<Athena.UI.Views.GameMode.PolisView>().Single();
         var messages = window.GetVisualDescendants().OfType<ItemsControl>().Single(c => c.Name == "MessagesItemsControl");
         var pet = window.GetVisualDescendants().OfType<VirtualPetView>().Single();
-        if (!toggle.IsEffectivelyVisible || toggle.Command == null)
-            throw new InvalidOperationException("对话标题栏必须有游戏 / 对话模式切换按钮（外壳注入了 GameMode）。");
+        if (toggle.IsEffectivelyVisible || gameMode.IsAvailable || gameMode.ToggleModeCommand.CanExecute(null) || toggle.Command == null)
+            throw new InvalidOperationException("游戏入口默认隐藏且不能通过切换命令进入。");
+        gameMode.ToggleModeCommand.Execute(null);
+        if (gameMode.IsGameMode || pages.Count != 0)
+            throw new InvalidOperationException("隐藏时直接执行切换命令也不能创建游戏页面。");
+
+        void SubmitLocalCommand(string text)
+        {
+            var messagesBefore = chat.Messages.ToList();
+            var contextBefore = chat.CaptureCompressionContextFingerprint();
+            var callsBefore = chatService.StreamCallCount;
+            var pending = new ChatAttachment { FileName = "保留附件.txt" };
+            chat.PendingAttachments.Add(pending);
+            chat.InputText = text;
+            if (!chat.SendMessageCommand.CanExecute(null))
+                throw new InvalidOperationException("本地游戏指令必须能通过正常发送命令提交。");
+            var sending = chat.SendMessageCommand.ExecuteAsync(null);
+            PumpUntil(() => sending.IsCompleted, 5000, "本地指令没有收尾。");
+            sending.GetAwaiter().GetResult();
+            if (chat.InputText.Length != 0 || chat.IsSending || chatService.StreamCallCount != callsBefore
+                || !chat.Messages.SequenceEqual(messagesBefore) || chat.CaptureCompressionContextFingerprint() != contextBefore)
+                throw new InvalidOperationException("特殊指令必须清空输入、不生成气泡、不改变上下文、不调用模型。");
+            if (chat.PendingAttachments.Count != 1 || !ReferenceEquals(chat.PendingAttachments[0], pending))
+                throw new InvalidOperationException("本地指令不能发送或丢弃待发送附件。");
+            chat.PendingAttachments.Clear();
+        }
+
+        SubmitLocalCommand("  #GAMEMODE ON#\n");
+        Dispatcher.UIThread.RunJobs();
+        if (!toggle.IsEffectivelyVisible || !gameMode.IsAvailable || !configService.Load().MainLayout.GameModeEnabled
+            || configService.SaveCount == 0 || gameMode.IsGameMode || pages.Count != 0)
+            throw new InvalidOperationException("ON 必须保存并显示入口；游戏页面仍在点击切换按钮时才创建。");
+        SubmitLocalCommand("#GAMEMDOE OFF#");
+        Dispatcher.UIThread.RunJobs();
+        if (toggle.IsEffectivelyVisible || gameMode.IsAvailable || configService.Load().MainLayout.GameModeEnabled)
+            throw new InvalidOperationException("OFF 必须保存并隐藏游戏入口。");
+        SubmitLocalCommand("#GAMEMODE ON#");
+        SubmitLocalCommand("#GAMEMODE ON#"); // Repeating the same command is harmless.
+        Dispatcher.UIThread.RunJobs();
+        var persisted = JsonSerializer.Deserialize<AppConfig>(JsonSerializer.Serialize(configService.Load()))!;
+        if (!persisted.MainLayout.GameModeEnabled)
+            throw new InvalidOperationException("游戏入口开关必须参与配置 JSON 持久化。");
         if (polisView.IsVisible || pages.Count != 0 || gameMode.PageUrl != null)
             throw new InvalidOperationException("对话模式下不该有游戏视图，也不该创建页面（WebView 惰性创建）。");
         AssertEveryIconResolved(window);
@@ -4666,7 +4707,7 @@ static void TestGameModeSwitchAndFailures()
         var userBefore = chat.Messages.Count(m => m.Role == "user");
         page.Send($$"""{"v":1,"type":"say","conversationId":"{{conversation.ConversationId}}","text":"把合同列个清单"}""");
         PumpTimers(() => chat.Messages.Count(m => m.Role == "user") == userBefore + 1, 5000, "对话栏的托付要走输入框的发送命令，在这份委托里追加你的话。");
-        PumpTimers(() => !chat.SendMessageCommand.IsRunning, 5000, "发送命令没有收尾（测试外壳没有聊天服务，回答会立刻失败）。");
+        PumpTimers(() => !chat.SendMessageCommand.IsRunning, 5000, "发送命令没有收尾（测试聊天服务应立即完成）。");
         if (chat.Messages.Last(m => m.Role == "user").Content != "把合同列个清单" || chat.InputText.Length != 0)
             throw new InvalidOperationException($"托付的就是你写的那段话，发出后输入框清空，实际「{chat.Messages.Last(m => m.Role == "user").Content}」/「{chat.InputText}」。");
         // 页面替一份没显示的委托说话（切换的两拍之间、或者被注入的脚本）：不发送，话留作那份委托的草稿
@@ -4768,6 +4809,31 @@ static void TestGameModeSwitchAndFailures()
         pages[^1].Navigate(true);
         pages[^1].Send("""{"v":1,"type":"ready"}""");
         PumpTimers(() => gameMode.PageState == PolisPageState.Ready && !gameMode.HasFailure, 5000, "进程退出后重试成功，失败面板必须收起。");
+
+        SubmitLocalCommand("#GAMEMDOE OFF#");
+        PumpTimers(() => !view.IsVeilVisible, 5000, "禁用游戏模式后必须回到普通对话。");
+        if (gameMode.IsGameMode || toggle.IsEffectivelyVisible || !composerHost.IsEffectivelyVisible
+            || session.Current.MainLayout.GameMode || session.Current.MainLayout.GameModeEnabled)
+            throw new InvalidOperationException("正在游戏中时 OFF 必须返回对话、恢复输入框并隐藏入口。");
+
+        // Replacing the whole settings object must rebind the availability state.
+        configService.PublishExternal(new AppConfig { MainLayout = new MainLayoutSettings { GameModeEnabled = true } });
+        Dispatcher.UIThread.RunJobs();
+        if (!gameMode.IsAvailable || !toggle.IsEffectivelyVisible)
+            throw new InvalidOperationException("重新加载设置后必须恢复已保存的入口开关。");
+        configService.PublishExternal(new AppConfig { MainLayout = new MainLayoutSettings { GameMode = true } });
+        Dispatcher.UIThread.RunJobs();
+        if (gameMode.IsAvailable || gameMode.IsGameMode || toggle.IsEffectivelyVisible)
+            throw new InvalidOperationException("旧配置缺少入口开关时，即使保存了游戏模式也不能绕过默认隐藏。");
+
+        var callsBeforeOrdinary = chatService.StreamCallCount;
+        chat.InputText = "请解释 #GAMEMODE ON# 这条指令";
+        var ordinary = chat.SendMessageCommand.ExecuteAsync(null);
+        PumpUntil(() => ordinary.IsCompleted, 5000, "普通消息没有收尾。");
+        ordinary.GetAwaiter().GetResult();
+        if (chatService.StreamCallCount != callsBeforeOrdinary + 1 || gameMode.IsAvailable
+            || chat.Messages.Last(m => m.Role == "user").Content != "请解释 #GAMEMODE ON# 这条指令")
+            throw new InvalidOperationException("普通消息中引用指令仍须照常发送，不能误触发入口开关。");
     }
     finally
     {
@@ -4783,7 +4849,7 @@ static void TestGameModeSwitchAndFailures()
         capturingLogger.Dispose();
         if (Directory.Exists(root)) Directory.Delete(root, recursive: true);
     }
-    Console.WriteLine("[PASS] game mode: the header toggle persists the mode, the game covers the message and composer rows without building the bubble tree, its talk bar sends only to the commission shown through the composer's own command, the pet is put away, and all four failures show their reason and 'back to conversation' with a Warning — no WebView instantiated");
+    Console.WriteLine("[PASS] game mode: local commands persist entry visibility without messages, context changes, model calls or attachment loss; disabling exits the game; quoted commands remain ordinary messages; header switching, lazy pages, the talk bar and failure recovery work — no WebView instantiated");
 }
 
 // 游戏模式的城邦生命周期（设计稿 10 / 11）：外部改动增量同步并区分雅典娜与外部；重启后先按快照显示、再核对出
@@ -4814,6 +4880,7 @@ static void TestGameModeCityLifecycle()
     PolisPageFactory.Create = uri => { var page = new FakePolisPage(uri); pages.Add(page); return page; };
     var configService = new HeadlessConfigService(new AppConfig());
     var session = new AppConfigurationSession(configService);
+    session.Current.MainLayout.GameModeEnabled = true;
     session.Current.MainLayout.GameMode = true;
     var paths = new TemporaryPathService(Path.Combine(root, "AthenaData"));
     var store = new PolisSaveStore(paths, Log.Logger);
@@ -5136,6 +5203,7 @@ static void TestGameModeAccumulation()
     PolisPageFactory.Create = uri => { var p = new FakePolisPage(uri); pages.Add(p); return p; };
     var configService = new HeadlessConfigService(new AppConfig());
     var session = new AppConfigurationSession(configService);
+    session.Current.MainLayout.GameModeEnabled = true;
     session.Current.MainLayout.GameMode = true;
     var paths = new TemporaryPathService(Path.Combine(root, "AthenaData"));
     var store = new PolisSaveStore(paths, Log.Logger);
@@ -5403,6 +5471,7 @@ static void ProbePolisKnockEndToEnd()
     PolisPageFactory.Create = uri => page = new BridgedPolisPage(uri);
     var configService = new HeadlessConfigService(new AppConfig());
     var session = new AppConfigurationSession(configService);
+    session.Current.MainLayout.GameModeEnabled = true;
     session.Current.MainLayout.GameMode = true;
     var paths = new TemporaryPathService(Path.Combine(root, "AthenaData"));
     var localization = new LocalizationService();
@@ -5653,6 +5722,7 @@ static void TestGameModeCitizens()
     PolisPageFactory.Create = uri => { var p = new FakePolisPage(uri); pages.Add(p); return p; };
     var configService = new HeadlessConfigService(new AppConfig());
     var session = new AppConfigurationSession(configService);
+    session.Current.MainLayout.GameModeEnabled = true;
     session.Current.MainLayout.GameMode = true;
     var paths = new TemporaryPathService(Path.Combine(root, "AthenaData"));
     var store = new PolisSaveStore(paths, Log.Logger);
@@ -6001,6 +6071,7 @@ static void TestGameModeDebate()
     PolisPageFactory.Create = uri => { var p = new FakePolisPage(uri); pages.Add(p); return p; };
     var configService = new HeadlessConfigService(new AppConfig());
     var session = new AppConfigurationSession(configService);
+    session.Current.MainLayout.GameModeEnabled = true;
     session.Current.MainLayout.GameMode = true;
     var paths = new TemporaryPathService(Path.Combine(root, "AthenaData"));
     var store = new PolisSaveStore(paths, Log.Logger);
@@ -14141,6 +14212,7 @@ class HeadlessChatService : IChatService
 {
     public AudioOutputTestResult AudioResult { get; set; } = new() { Success = true, Message = "ok" };
     public int UpdateConfigCount { get; private set; }
+    public int StreamCallCount { get; private set; }
 
     public virtual async IAsyncEnumerable<string> StreamMessageAsync(
         string userMessage,
@@ -14163,6 +14235,7 @@ class HeadlessChatService : IChatService
         Action<PtcProgress>? onPtcProgress = null,
         ExecutionTimelineCollector? executionTimeline = null)
     {
+        StreamCallCount++;
         await Task.CompletedTask;
         yield break;
     }

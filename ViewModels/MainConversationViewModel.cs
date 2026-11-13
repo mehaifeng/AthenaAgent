@@ -1138,6 +1138,8 @@ public partial class MainConversationViewModel : ViewModelBase, IDisposable
     private async Task SendMessageAsync()
     {
         if (string.IsNullOrWhiteSpace(InputText) && PendingAttachments.Count == 0) return;
+        // Local commands must be consumed before touching messages, attachments, pet hints or model context.
+        if (await TryHandleGameModeCommandAsync()) return;
 
         var userContent = InputText;
         // 只是给宠物台词一个"现在在聊什么"的线索；仅在模型台词开启时才会随请求发出。
@@ -1164,6 +1166,37 @@ public partial class MainConversationViewModel : ViewModelBase, IDisposable
         await Task.Yield();
 
         await GetAiResponseAsync(userContent, addToContext: false);
+    }
+
+    private async Task<bool> TryHandleGameModeCommandAsync()
+    {
+        bool enabled;
+        switch (InputText.Trim())
+        {
+            case "#GAMEMODE ON#": enabled = true; break;
+            case "#GAMEMDOE OFF#": enabled = false; break; // User-facing command spelling is intentional.
+            default: return false;
+        }
+
+        var commandText = InputText;
+        InputText = string.Empty;
+        try
+        {
+            if (_configService == null)
+                throw new InvalidOperationException("Local game-mode commands require a configuration service.");
+            var config = _configService.Load();
+            config.MainLayout.GameModeEnabled = enabled;
+            if (!enabled) config.MainLayout.GameMode = false;
+            await _configService.SaveAsync(config);
+            AttachmentStatusMessage = string.Empty;
+        }
+        catch (Exception ex)
+        {
+            _logger.Warning(ex, "Saving the local game-mode command failed");
+            if (InputText.Length == 0) InputText = commandText;
+            AttachmentStatusMessage = GetString("GameMode.Failure.SaveSetting", "游戏模式设置未能保存，请重试。");
+        }
+        return true;
     }
 
     private bool CanSendMessage() => CanAcceptAttachments && (!string.IsNullOrWhiteSpace(InputText) || PendingAttachments.Count > 0);

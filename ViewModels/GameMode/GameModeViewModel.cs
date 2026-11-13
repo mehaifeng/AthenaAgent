@@ -85,6 +85,7 @@ public sealed partial class GameModeViewModel : ViewModelBase, IDisposable
     };
 
     private readonly AppConfigurationSession _configuration;
+    private MainLayoutSettings _layout;
     private readonly OfficePreviewHost _previewHost;
     private readonly IPolisSaveStore _store;
     private readonly IWorkspaceWatcherService _watcher;
@@ -230,7 +231,10 @@ public sealed partial class GameModeViewModel : ViewModelBase, IDisposable
         _debates = debates ?? throw new ArgumentNullException(nameof(debates));
         _relationStore = relations ?? throw new ArgumentNullException(nameof(relations));
         _cronTasks.TasksChanged += OnCronTasksChanged;
-        _isGameMode = _configuration.Current.MainLayout.GameMode;
+        _layout = _configuration.Current.MainLayout;
+        if (!_layout.GameModeEnabled) _layout.GameMode = false;
+        _isGameMode = _layout.GameMode;
+        _layout.PropertyChanged += OnLayoutChanged;
         _night = !string.Equals(_configuration.Current.Theme, "Light", StringComparison.OrdinalIgnoreCase);
         _flushTimer = new DispatcherTimer(FlushInterval, DispatcherPriority.Background, (_, _) => Flush());
         _watcher.Changed += OnWorkspaceChanged;
@@ -246,8 +250,29 @@ public sealed partial class GameModeViewModel : ViewModelBase, IDisposable
     /// <summary>整份配置被换掉（设置窗口保存、重新加载）：模式跟着新配置走，不再写回。</summary>
     private void OnConfigurationReplaced(object? sender, AppConfig config)
     {
-        if (config.MainLayout.GameMode != IsGameMode) IsGameMode = config.MainLayout.GameMode;
+        _layout.PropertyChanged -= OnLayoutChanged;
+        _layout = config.MainLayout;
+        _layout.PropertyChanged += OnLayoutChanged;
+        RefreshModeAvailability();
     }
+
+    private void OnLayoutChanged(object? sender, PropertyChangedEventArgs e)
+    {
+        if (e.PropertyName is not (nameof(MainLayoutSettings.GameModeEnabled) or nameof(MainLayoutSettings.GameMode))) return;
+        if (Dispatcher.UIThread.CheckAccess()) RefreshModeAvailability();
+        else Dispatcher.UIThread.Post(() => { if (!_disposed) RefreshModeAvailability(); });
+    }
+
+    private void RefreshModeAvailability()
+    {
+        OnPropertyChanged(nameof(IsAvailable));
+        ToggleModeCommand.NotifyCanExecuteChanged();
+        if (!IsAvailable) _layout.GameMode = false;
+        IsGameMode = IsAvailable && _layout.GameMode;
+    }
+
+    /// <summary>Whether the user has enabled the game-mode entry using a local composer command.</summary>
+    public bool IsAvailable => _layout.GameModeEnabled;
 
     // ———————————————————————— 模式 ————————————————————————
 
@@ -285,7 +310,7 @@ public sealed partial class GameModeViewModel : ViewModelBase, IDisposable
 
     public string FailureTitle => L("GameMode.Failure.Title", "Game mode could not open");
 
-    [RelayCommand]
+    [RelayCommand(CanExecute = nameof(IsAvailable))]
     private void ToggleMode() => SetGameMode(!IsGameMode, "toggle");
 
     /// <summary>失败面板上的"回到对话"。不悄悄退回——是用户点的（12.5）。</summary>
@@ -304,6 +329,7 @@ public sealed partial class GameModeViewModel : ViewModelBase, IDisposable
 
     private void SetGameMode(bool on, string reason)
     {
+        if (on && !IsAvailable) return;
         if (IsGameMode == on) return;
         _configuration.Current.MainLayout.GameMode = on;
         _ = SaveLayoutAsync();
@@ -2631,6 +2657,7 @@ public sealed partial class GameModeViewModel : ViewModelBase, IDisposable
         _watcher.StateChanged -= OnWatcherStateChanged;
         _localization.LanguageChanged -= OnLanguageChanged;
         _configuration.CurrentChanged -= OnConfigurationReplaced;
+        _layout.PropertyChanged -= OnLayoutChanged;
         if (_shell != null) _shell.WorkspaceRelocated -= OnWorkspaceRelocated;
     }
 }
