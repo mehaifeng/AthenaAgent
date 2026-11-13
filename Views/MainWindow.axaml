@@ -342,8 +342,6 @@
         </Image>
         <Image x:Name="ThemeTransitionImage" Stretch="UniformToFill" Opacity="0" IsHitTestVisible="False"/>
 
-        <Image x:Name="ThemeSplashImage" Stretch="UniformToFill" Opacity="0" IsHitTestVisible="True" ZIndex="100"/>
-
         <Grid x:Name="MainShellGrid" Margin="5">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="292" MinWidth="260"/>
@@ -547,7 +545,7 @@
 
             <!-- 中间始终是当前主对话，会话切换不销毁其他 Chat VM。间隙由相邻 ColumnDefinition 控制，
                  不要在这里再加 Margin，否则会和 5px 列间隙叠加成 10px。 -->
-            <Border Grid.Column="2" MinWidth="540" Classes="shell-panel">
+            <Border x:Name="ConversationPanel" Grid.Column="2" MinWidth="540" Classes="shell-panel">
                 <!-- 绑 DisplayedConversation 而不是 MainConversationViewModel：这是整棵气泡树的
                      DataContext，也是会话切换里唯一贵的那个绑定，它要比选中态晚一拍落地，
                      好让幕布先画出来一帧。理由见 MainWindowViewModel.BeginConversationSurfaceSwap。

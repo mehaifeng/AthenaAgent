@@ -306,7 +306,7 @@ public partial class App : Application, IAsyncDisposable
 
             if (!config.OnboardingCompleted)
             {
-                // 首次启动：先弹引导向导，关窗（完成或跳过）后再创建主窗口。
+                // 首次启动：完成引导后创建主窗口，并在原位交接。
                 // 引导窗口存活期间主窗口尚不存在，须临时切到显式退出模式，
                 // 否则引导窗关闭即触发 OnLastWindowClose 退出整个应用。
                 desktop.ShutdownMode = ShutdownMode.OnExplicitShutdown;
@@ -318,39 +318,41 @@ public partial class App : Application, IAsyncDisposable
                     Services.GetService<IOrcaRouterConnectService>()));
                 desktop.MainWindow = onboarding;
 
-                // 返回引导页当前主题。OnboardingViewModel 只有在最小配置校验通过后才会发起交接。
-                // 重新读一次配置：引导页里若切换过主题，initialTheme 已经过期，
-                // 直接传下去会让 ShowThemeSplashAsync 把 Avalonia 变体反向回滚，
-                // 导致主题按钮/下拉与实际配色失同步。
                 var handoffDone = false;
-                string GetCurrentOnboardingTheme()
-                {
-                    return configService.Load().Theme;
-                }
-
-                // 正常完成路径（版画揭幕）：
-                // 1. 先创建主窗口但不显示——拿到目标尺寸并预置满幕版画；
-                // 2. 引导窗中心锚定平缓拉伸到主窗口尺寸，同时版画渐入、满幕定格；
-                // 3. 主窗口在引导窗原位以满幕版画开场，之后才关引导窗（屏幕上始终有窗口）；
-                // 4. 揭幕（版画渐出）由主窗口 Opened 里的强制闪屏完成。
+                // 初始化和主窗体从一开始就使用相同尺寸。设置卡片退场后，
+                // 主窗体在原位接棒：中间对话区先出现，左右栏随后进入。
                 onboarding.HandoffRequested = async () =>
                 {
                     if (handoffDone) return;
                     handoffDone = true;
-                    var theme = GetCurrentOnboardingTheme();
+                    try
+                    {
+                        var mainWindow = CreateMainWindow(desktop, onboardingHandoff: true);
+                        mainWindow.WindowStartupLocation = WindowStartupLocation.Manual;
+                        await onboarding.PlayHandoffExitAsync();
 
-                    var mainWindow = CreateMainWindow(desktop, theme, onboardingHandoff: true);
-                    await onboarding.PlayHandoffExitAsync(mainWindow.Width, mainWindow.Height);
-
-                    mainWindow.WindowStartupLocation = WindowStartupLocation.Manual;
-                    mainWindow.Position = onboarding.Position;
-                    mainWindow.Show();
-                    // 部分平台在 Show 后会按启动策略重定位，再钉一次确保与引导窗原位重合
-                    mainWindow.Position = onboarding.Position;
-                    Log.Information("Main window created (onboarding handoff)");
-
-                    onboarding.Close();
-                    desktop.ShutdownMode = ShutdownMode.OnLastWindowClose;
+                        mainWindow.Width = onboarding.ClientSize.Width;
+                        mainWindow.Height = onboarding.ClientSize.Height;
+                        mainWindow.WindowState = onboarding.WindowState;
+                        mainWindow.Position = onboarding.Position;
+                        mainWindow.Show();
+                        // 部分平台在 Show 后会按启动策略重定位，再钉一次保持原位交接。
+                        mainWindow.Position = onboarding.Position;
+                        onboarding.Close();
+                        desktop.ShutdownMode = ShutdownMode.OnLastWindowClose;
+                        Log.Information("Main window created (onboarding panel entrance)");
+                    }
+                    catch (OperationCanceledException) when (onboarding.HandoffWasCancelled)
+                    {
+                        // 用户在交接期间关窗：不能留下显式退出模式下的隐藏进程。
+                        Avalonia.Threading.Dispatcher.UIThread.Post(() => desktop.Shutdown());
+                    }
+                    catch
+                    {
+                        handoffDone = false;
+                        desktop.MainWindow = onboarding;
+                        throw; // OnboardingWindow restores the form; AsyncEventGuard logs the failure.
+                    }
                 };
 
                 // 标题栏关闭不能绕过最小配置；完成状态只由向导校验成功后写入。
@@ -364,7 +366,7 @@ public partial class App : Application, IAsyncDisposable
                         desktop.Shutdown();
                         return;
                     }
-                    ShowMainWindow(desktop, current.Theme, onboardingHandoff: true);
+                    ShowMainWindow(desktop, onboardingHandoff: true);
                     desktop.ShutdownMode = ShutdownMode.OnLastWindowClose;
                 };
                 onboarding.Show();
@@ -372,7 +374,7 @@ public partial class App : Application, IAsyncDisposable
             }
             else
             {
-                ShowMainWindow(desktop, initialTheme);
+                ShowMainWindow(desktop);
             }
         }
 
@@ -400,17 +402,17 @@ public partial class App : Application, IAsyncDisposable
     /// <summary>
     /// 创建并显示主窗口。
     /// </summary>
-    private void ShowMainWindow(IClassicDesktopStyleApplicationLifetime desktop, string initialTheme, bool onboardingHandoff = false)
+    private void ShowMainWindow(IClassicDesktopStyleApplicationLifetime desktop, bool onboardingHandoff = false)
     {
-        var mainWindow = CreateMainWindow(desktop, initialTheme, onboardingHandoff);
+        var mainWindow = CreateMainWindow(desktop, onboardingHandoff);
         mainWindow.Show();
         Log.Information("Main window created");
     }
 
     /// <summary>
-    /// 创建主窗口但不显示（引导交接路径需要先拿到目标尺寸、摆好位置再 Show）。
+    /// 创建主窗口但不显示（初始化交接在 Show 前准备内容与位置）。
     /// </summary>
-    private MainWindow CreateMainWindow(IClassicDesktopStyleApplicationLifetime desktop, string initialTheme, bool onboardingHandoff = false)
+    private MainWindow CreateMainWindow(IClassicDesktopStyleApplicationLifetime desktop, bool onboardingHandoff = false)
     {
         // 从 DI 容器获取 ViewModel
         var mainViewModel = Services!.GetRequiredService<MainWindowViewModel>();
@@ -431,38 +433,22 @@ public partial class App : Application, IAsyncDisposable
             PendingStarterPrompt = null;
         }
 
-        // 启动动画：等待窗口完全加载后播放。
-        // Opened 会在每次从托盘重新 Show() 时再次触发。启动动画只应在
-        // 首次启动播放一次：否则引导交接路径会用启动时捕获的旧 initialTheme
-        // 调用 ShowThemeSplashAsync，把用户运行期间切换过的主题强行回滚，且
-        // 绕过 App.SetTheme 不触发 ThemeChanged，导致按钮图标/配置选中项失同步。
-        // （普通启动路径播的入场动画不切换主题，无此风险，但仍按首次保护。）
-        var initialSplashShown = false;
-        mainWindow.Opened += async (s, e) =>
-        {
-            if (!initialSplashShown)
-            {
-                initialSplashShown = true;
-                await Task.Delay(100); // 等待UI完全渲染
-                if (onboardingHandoff)
-                {
-                    // 引导交接路径强制播放：即使主题与当前一致也要完成"停留→揭幕"，
-                    // 否则覆盖层会永远留在屏幕上/或完全不播导致生硬切换。
-                    await mainWindow.ShowThemeSplashAsync(initialTheme, force: true);
-                }
-                else
-                {
-                    // 普通启动：播放一次极简"景深聚焦"入场，盖住首帧后
-                    // 会话树异步填充的瞬间，让启动过程显得一气呵成。
-                    await mainWindow.PlayStartupFocusEntranceAsync();
-                }
-            }
-        };
-
-        // 引导交接：Show() 之前预置满幕版画，首帧即被与引导窗同一张图覆盖
         if (onboardingHandoff)
         {
-            mainWindow.PrepareSplashCover(initialTheme);
+            // Show 前准备透明度；第一帧就绪后启动一次入场。没有满幕版画或额外停留，
+            // 也不携带旧主题值，托盘恢复不会重播或回滚运行期间的主题。
+            mainWindow.PrepareOnboardingEntrance();
+        }
+        else
+        {
+            var initialEntranceShown = false;
+            mainWindow.Opened += (_, _) => AsyncEventGuard.Run(async () =>
+            {
+                if (initialEntranceShown) return;
+                initialEntranceShown = true;
+                await Task.Delay(100);
+                if (mainWindow.IsVisible) await mainWindow.PlayStartupFocusEntranceAsync();
+            }, "MainWindowStartupEntrance");
         }
 
         return mainWindow;
@@ -697,10 +683,10 @@ public partial class App : Application, IAsyncDisposable
         var isDark = themeName?.ToLower() != "light";
         var theme = isDark ? ThemeVariant.Dark : ThemeVariant.Light;
 
-        // 触发主题过渡动画（运行期为背景"景深聚焦"过渡；引导交接为满幕版画揭幕）
+        // 运行期主题切换使用背景聚焦过渡；初始化交接单独使用三栏入场。
         if (Current.ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop && desktop.MainWindow is Views.MainWindow mainWindow)
         {
-            await mainWindow.ShowThemeSplashAsync(themeName ?? "Dark");
+            await mainWindow.TransitionThemeAsync(themeName ?? "Dark");
         }
         else
         {
