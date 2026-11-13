@@ -11,7 +11,7 @@
         <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
             <StackPanel Spacing="4">
                 <TextBlock Text="{loc:Loc Timeline.Title}" FontSize="20" FontWeight="SemiBold"/>
-                <TextBlock Text="{Binding Summary}" TextWrapping="Wrap" Opacity="0.78"/>
+                <TextBlock Foreground="{DynamicResource App.TextMuted}" Text="{Binding Summary}" TextWrapping="Wrap"/>
             </StackPanel>
             <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="6" VerticalAlignment="Top">
                 <Button Name="TimelineZoomOut" Content="{loc:Loc Timeline.ZoomOut}" Click="OnZoomOut"/>
@@ -19,7 +19,7 @@
                 <Button Name="TimelineZoomIn" Content="{loc:Loc Timeline.ZoomIn}" Click="OnZoomIn"/>
             </StackPanel>
         </Grid>
-        <TextBlock Grid.Row="1" Text="{Binding Notice}" TextWrapping="Wrap" Opacity="0.78"/>
+        <TextBlock Foreground="{DynamicResource App.TextMuted}" Grid.Row="1" Text="{Binding Notice}" TextWrapping="Wrap"/>
         <Border Grid.Row="2" BorderThickness="1" BorderBrush="{DynamicResource SemiGreyLowBrush}" CornerRadius="8" ClipToBounds="True">
             <ScrollViewer Name="TimelineScroll" HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Auto" ScrollChanged="OnScrollChanged">
                 <controls:ExecutionTimelineChart Name="TimelineChart" Snapshot="{Binding Snapshot}" LanguageVersion="{Binding LanguageVersion}"
@@ -28,6 +28,6 @@
             </ScrollViewer>
         </Border>
         <TextBlock Grid.Row="3" Text="{Binding Detail}" TextWrapping="Wrap" MinHeight="42"/>
-        <TextBlock Grid.Row="4" Text="{loc:Loc Timeline.MeasurementHint}" TextWrapping="Wrap" Opacity="0.62" FontSize="11"/>
+        <TextBlock Foreground="{DynamicResource App.TextMuted}" Grid.Row="4" Text="{loc:Loc Timeline.MeasurementHint}" TextWrapping="Wrap" FontSize="11"/>
     </Grid>
 </Window>

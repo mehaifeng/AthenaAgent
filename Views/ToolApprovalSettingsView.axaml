@@ -41,9 +41,8 @@
                 <TextBlock Text="{loc:Loc Settings.Approval.Title}"
                            FontSize="{DynamicResource App.FontSize.PageTitle}"
                            FontWeight="SemiBold"/>
-                <TextBlock Text="{loc:Loc Settings.Approval.Description}"
-                           TextWrapping="Wrap"
-                           Opacity="0.62"/>
+                <TextBlock Foreground="{DynamicResource App.TextMuted}" Text="{loc:Loc Settings.Approval.Description}"
+                           TextWrapping="Wrap"/>
             </StackPanel>
 
             <StackPanel Spacing="8">
@@ -58,9 +57,8 @@
                             <Border Classes="mode-card">
                                 <StackPanel Spacing="3">
                                     <TextBlock Text="{Binding Title}" FontWeight="SemiBold"/>
-                                    <TextBlock Text="{Binding Description}"
-                                               TextWrapping="Wrap"
-                                               Opacity="0.62"/>
+                                    <TextBlock Foreground="{DynamicResource App.TextMuted}" Text="{Binding Description}"
+                                               TextWrapping="Wrap"/>
                                 </StackPanel>
                             </Border>
                         </DataTemplate>
@@ -70,14 +68,12 @@
                           IsChecked="{Binding State.Config.SubAgentsInheritApproval}"/>
                 <CheckBox Content="{loc:Loc Config.ToolApproval.JevShadow}"
                           IsChecked="{Binding State.Config.ApprovalShadowEnabled}"/>
-                <TextBlock Text="{loc:Loc Settings.Approval.JevShadowHint}"
-                           TextWrapping="Wrap"
-                           Opacity="0.62"/>
+                <TextBlock Foreground="{DynamicResource App.TextMuted}" Text="{loc:Loc Settings.Approval.JevShadowHint}"
+                           TextWrapping="Wrap"/>
                 <CheckBox Content="{loc:Loc Config.Ptc.Enabled}"
                           IsChecked="{Binding State.Config.PtcEnabled}"/>
-                <TextBlock Text="{loc:Loc Config.Ptc.Hint}"
-                           TextWrapping="Wrap"
-                           Opacity="0.62"/>
+                <TextBlock Foreground="{DynamicResource App.TextMuted}" Text="{loc:Loc Config.Ptc.Hint}"
+                           TextWrapping="Wrap"/>
             </StackPanel>
 
             <Border Padding="18"
@@ -90,9 +86,8 @@
                         <TextBlock Text="{loc:Loc Config.ToolApproval.AutoAllowed}"
                                    FontSize="{DynamicResource App.FontSize.Title}"
                                    FontWeight="SemiBold"/>
-                        <TextBlock Text="{loc:Loc Settings.Approval.AutoAllowedHint}"
-                                   TextWrapping="Wrap"
-                                   Opacity="0.58"/>
+                        <TextBlock Foreground="{DynamicResource App.TextMuted}" Text="{loc:Loc Settings.Approval.AutoAllowedHint}"
+                                   TextWrapping="Wrap"/>
                     </StackPanel>
                     <ItemsControl ItemsSource="{Binding State.Config.AutoAllowedTools}">
                         <ItemsControl.ItemTemplate>
@@ -123,9 +118,8 @@
                         <TextBlock Text="{loc:Loc Config.ToolApproval.TerminalAllowlist}"
                                    FontSize="{DynamicResource App.FontSize.Title}"
                                    FontWeight="SemiBold"/>
-                        <TextBlock Text="{loc:Loc Settings.Approval.TerminalHint}"
-                                   TextWrapping="Wrap"
-                                   Opacity="0.58"/>
+                        <TextBlock Foreground="{DynamicResource App.TextMuted}" Text="{loc:Loc Settings.Approval.TerminalHint}"
+                                   TextWrapping="Wrap"/>
                     </StackPanel>
                     <Grid ColumnDefinitions="300,220,*">
                         <TextBlock Text="{loc:Loc Config.ToolApproval.MaxTerminalOutputChars}"
@@ -137,9 +131,8 @@
                                        Increment="5000"
                                        Value="{Binding State.Config.MaxTerminalOutputChars}"/>
                     </Grid>
-                    <TextBlock Text="{loc:Loc Settings.Approval.MaxOutputHint}"
-                               TextWrapping="Wrap"
-                               Opacity="0.58"/>
+                    <TextBlock Foreground="{DynamicResource App.TextMuted}" Text="{loc:Loc Settings.Approval.MaxOutputHint}"
+                               TextWrapping="Wrap"/>
                     <ItemsControl ItemsSource="{Binding State.Config.TerminalAllowlist}">
                         <ItemsControl.ItemTemplate>
                             <DataTemplate>

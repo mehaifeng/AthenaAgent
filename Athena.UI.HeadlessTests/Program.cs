@@ -81,6 +81,17 @@ AppBuilder.Configure<App>()
     })
     .SetupWithoutStarting();
 
+if (Environment.GetEnvironmentVariable("ATHENA_HEADLESS_ONLY") == "themes")
+{
+    TestColorSchemeSwitching();
+    TestColorSchemeApplyCounting();
+    TestColorSchemeShellPanelRepaint();
+    TestColorSchemeThumbnail();
+    ThemeContrastTests.Run(Path.GetDirectoryName(outputPath)!);
+    Console.WriteLine("[ALL THEME TESTS PASSED]");
+    Environment.Exit(0);
+}
+
 // 敲门的端到端走查（不在正式运行里）：真的 ViewModel 接真的页面（Playwright WebKit），ATHENA_POLIS_E2E=1
 if (Environment.GetEnvironmentVariable("ATHENA_POLIS_E2E") == "1")
 {
@@ -254,6 +265,7 @@ TestColorSchemeSwitching();
 TestColorSchemeApplyCounting();
 TestColorSchemeShellPanelRepaint();
 TestColorSchemeThumbnail();
+ThemeContrastTests.Run(Path.GetDirectoryName(outputPath)!);
 TestConfigurationSession(Path.GetDirectoryName(outputPath)!);
 TestSelfConfigurationSurface();
 TestOrcaRouterConnectEntryPoints(Path.GetDirectoryName(outputPath)!);
@@ -3458,24 +3470,9 @@ static void TestColorSchemeSwitching()
         AssertBrushColor(dark, "SemiColorBackground0", "#FF002B36");
         AssertBrushColor(light, "SemiColorBackground0", "#FFFDF6E3");
 
-        // 仅容器背景风格化：icon（主色/强调色）与文字键的解析结果必须与内置字典完全一致
-        // （复制段保留原值，或两者都缺失 → 回落 SemiTheme 默认）。
-        foreach (var key in new[]
-                 {
-                     "SemiColorPrimary", "SemiColorPrimaryLight", "App.EmphasisForeground",
-                     "App.InverseForeground", "App.SelectedBackground", "App.ToggleCheckedBackground",
-                     "ButtonSolidPrimaryBackground", // StaticResource 别名链
-                     "SemiColorText0", "SemiColorBorder", "SemiGrey0", "SemiColorFocusBorder",
-                     "SemiColorSecondary", "SemiColorLink", "AvaloniaTerminalCaretBrush",
-                     "Chat.ArchivedFg", "Markdown.HeadingFg", "CodeInlineColor", "Chat.TimestampFg",
-                     "ForegroundColor",
-                 })
-        {
-            AssertKeyKeepsDefault(dark, builtInDark, key);
-        }
-        // 容器背景类键按方案定制。
         AssertBrushColor(dark, "App.SectionBg", "#FF073642");
-        AssertBrushColor(dark, "Chat.UserBubbleBg", "#FF0A4653");
+        AssertBrushColor(dark, "App.TextPrimary", "#FFF3EFDF");
+        AssertBrushColor(dark, "ButtonSolidPrimaryBackground", "#FF8DD2DB");
         AssertBrushColor(dark, "AvaloniaTerminalColor0", "#FF002B36");
 
         // 键集对齐：内置字典每个键在方案字典中必须存在且 CLR 类型一致（防复制漏键/键名笔误）。
@@ -3595,7 +3592,7 @@ static void TestColorSchemeShellPanelRepaint()
         Dispatcher.UIThread.RunJobs();
         foreach (var panel in panels)
         {
-            if (panel.Background is not ISolidColorBrush solid || solid.Color != Color.Parse("#FF0A0914"))
+            if (panel.Background is not ISolidColorBrush solid || solid.Color != Color.Parse("#FF151126"))
                 throw new InvalidOperationException($"Shell panel must repaint to Cyberpunk dark after scheme switch, got {panel.Background}.");
         }
 
@@ -3626,15 +3623,10 @@ static void TestColorSchemeThumbnail()
         var lightDict = (ResourceDictionary)thumbnail.Resources.ThemeDictionaries[ThemeVariant.Light];
         AssertBrushColor(darkDict, "SemiColorBackground0", "#FF002B36");
         AssertBrushColor(lightDict, "SemiColorBackground0", "#FFFDF6E3");
-        // icon 与文字统一默认：复制段保留应用内置默认（Light 主色 = 近黑 #111111），文字键回落 SemiTheme。
-        AssertBrushColor(lightDict, "SemiColorPrimary", "#FF111111");
-        // 文字色统一默认：方案缺 SemiColorText* 键 → 缩略图回落 SemiTheme 默认文字色。
-        if (!thumbnail.Resources.TryGetResource("SemiColorText0", ThemeVariant.Light, out var lightText))
-            throw new InvalidOperationException("Thumbnail Light variant must resolve SemiColorText0.");
-        if (lightText is not ISolidColorBrush lightTextBrush || lightTextBrush.Color != Color.Parse("#FF1C1F23"))
-            throw new InvalidOperationException($"Thumbnail Light text must fall back to the default text color, got {lightText}.");
+        AssertBrushColor(lightDict, "SemiColorPrimary", "#FF006477");
+        AssertBrushColor(lightDict, "SemiColorText0", "#FF344C52");
 
-        // Default 方案缺 SemiColorBackground0 等键：必须回落 SemiTheme 内置值（且不受 App 当前方案污染）。
+        // Default also supplies every preview resource, independently of the current scheme.
         var defaultThumbnail = new ColorSchemeThumbnailView { SchemeName = "Default" };
         if (!defaultThumbnail.Resources.TryGetResource("SemiColorBackground0", ThemeVariant.Dark, out var defaultDark)
             || defaultDark is not ISolidColorBrush defaultDarkBrush
@@ -3649,7 +3641,7 @@ static void TestColorSchemeThumbnail()
     {
         App.SetColorScheme("Default");
     }
-    Console.WriteLine("[PASS] thumbnail control clones scheme palettes, follows variants, and falls back for Default");
+    Console.WriteLine("[PASS] thumbnail control clones complete palettes and follows light/dark variants");
 }
 
 static void AssertBrushColor(ResourceDictionary dictionary, string key, string expectedArgb)
@@ -3665,30 +3657,6 @@ static void AssertBrushColor(ResourceDictionary dictionary, string key, string e
     };
     if (actual != Color.Parse(expectedArgb))
         throw new InvalidOperationException($"Key '{key}' expected {expectedArgb}, got {actual}.");
-}
-
-// 断言键在方案字典中的解析结果与内置字典一致（保持默认；或两者都缺失 → 回落 SemiTheme）。
-static void AssertKeyKeepsDefault(ResourceDictionary scheme, ResourceDictionary builtIn, string key)
-{
-    var schemeHas = scheme.TryGetResource(key, ThemeVariant.Dark, out var schemeValue);
-    var builtInHas = builtIn.TryGetResource(key, ThemeVariant.Dark, out var builtInValue);
-    if (schemeHas != builtInHas)
-        throw new InvalidOperationException($"Key '{key}' presence must match the built-in dictionary (scheme {schemeHas}, built-in {builtInHas}).");
-    if (!schemeHas)
-        return;
-    if (schemeValue is ISolidColorBrush schemeBrush && builtInValue is ISolidColorBrush builtInBrush)
-    {
-        if (schemeBrush.Color != builtInBrush.Color || Math.Abs(schemeBrush.Opacity - builtInBrush.Opacity) > 0.001)
-            throw new InvalidOperationException($"Key '{key}' must keep the built-in brush value ({schemeBrush.Color} vs {builtInBrush.Color}).");
-        return;
-    }
-    if (schemeValue is Color schemeColor && builtInValue is Color builtInColor)
-    {
-        if (schemeColor != builtInColor)
-            throw new InvalidOperationException($"Key '{key}' must keep the built-in color value ({schemeColor} vs {builtInColor}).");
-        return;
-    }
-    throw new InvalidOperationException($"Key '{key}' resolved to unexpected types {schemeValue?.GetType()} vs {builtInValue?.GetType()}.");
 }
 
 static void TestConfigurationSession(string artifactDirectory)

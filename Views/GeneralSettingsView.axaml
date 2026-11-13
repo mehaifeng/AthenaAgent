@@ -7,16 +7,18 @@
              x:Class="Athena.UI.Views.GeneralSettingsView"
              x:DataType="vm:GeneralSettingsViewModel">
     <UserControl.Styles>
-        <!-- 配色方案缩略图画廊：透明 ListBoxItem 外壳，选中/悬停态画在缩略图卡片边框上 -->
+        <!-- Selection belongs to the list container; it must not reach through the preview's local styles. -->
         <Style Selector="ListBox.color-schemes">
             <Setter Property="Background" Value="Transparent"/>
             <Setter Property="BorderThickness" Value="0"/>
         </Style>
         <Style Selector="ListBox.color-schemes > ListBoxItem">
-            <Setter Property="Padding" Value="0"/>
+            <Setter Property="Padding" Value="5"/>
             <Setter Property="Margin" Value="3"/>
             <Setter Property="Background" Value="Transparent"/>
-            <Setter Property="BorderThickness" Value="0"/>
+            <Setter Property="BorderBrush" Value="Transparent"/>
+            <Setter Property="BorderThickness" Value="2"/>
+            <Setter Property="CornerRadius" Value="10"/>
             <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
         </Style>
         <Style Selector="ListBox.color-schemes > ListBoxItem:pointerover /template/ ContentPresenter">
@@ -25,13 +27,11 @@
         <Style Selector="ListBox.color-schemes > ListBoxItem:selected /template/ ContentPresenter">
             <Setter Property="Background" Value="Transparent"/>
         </Style>
-        <Style Selector="ListBox.color-schemes > ListBoxItem:pointerover Border.thumb-card">
-            <Setter Property="BorderBrush" Value="{DynamicResource SemiColorBorder}"/>
-            <Setter Property="BorderThickness" Value="2"/>
+        <Style Selector="ListBox.color-schemes > ListBoxItem:pointerover">
+            <Setter Property="BorderBrush" Value="{DynamicResource App.SurfaceBorder}"/>
         </Style>
-        <Style Selector="ListBox.color-schemes > ListBoxItem:selected Border.thumb-card">
-            <Setter Property="BorderBrush" Value="{DynamicResource SemiColorPrimary}"/>
-            <Setter Property="BorderThickness" Value="2"/>
+        <Style Selector="ListBox.color-schemes > ListBoxItem:selected">
+            <Setter Property="BorderBrush" Value="{DynamicResource App.EmphasisForeground}"/>
         </Style>
         <Style Selector="Button.pet-choice">
             <Setter Property="Padding" Value="9"/>
@@ -58,9 +58,8 @@
                 <TextBlock Text="{loc:Loc Settings.General.Title}"
                            FontSize="{DynamicResource App.FontSize.PageTitle}"
                            FontWeight="SemiBold"/>
-                <TextBlock Text="{loc:Loc Settings.General.Description}"
-                           TextWrapping="Wrap"
-                           Opacity="0.62"/>
+                <TextBlock Foreground="{DynamicResource App.TextMuted}" Text="{loc:Loc Settings.General.Description}"
+                           TextWrapping="Wrap"/>
             </StackPanel>
 
             <Border Padding="18"
@@ -86,7 +85,7 @@
                                  SelectedItem="{Binding State.Config.ColorScheme}">
                             <ListBox.ItemsPanel>
                                 <ItemsPanelTemplate>
-                                    <UniformGrid Columns="5" HorizontalAlignment="Stretch"/>
+                                    <UniformGrid Columns="3" HorizontalAlignment="Stretch"/>
                                 </ItemsPanelTemplate>
                             </ListBox.ItemsPanel>
                             <ListBox.ItemTemplate>
@@ -126,15 +125,13 @@
                                        Text="{Binding State.Config.MainLayout.PanelTransparency, StringFormat={}{0:P0}}"/>
                         </StackPanel>
                     </Grid>
-                    <TextBlock Text="{loc:Loc Settings.General.PanelOpacity.Description}"
-                               TextWrapping="Wrap"
-                               Opacity="0.58"/>
+                    <TextBlock Foreground="{DynamicResource App.TextMuted}" Text="{loc:Loc Settings.General.PanelOpacity.Description}"
+                               TextWrapping="Wrap"/>
                     <CheckBox x:Name="PanelGlassCheckBox"
                               Content="{loc:Loc Settings.General.PanelGlass}"
                               IsChecked="{Binding State.Config.MainLayout.PanelGlassEnabled}"/>
-                    <TextBlock Text="{loc:Loc Settings.General.PanelGlass.Description}"
-                               TextWrapping="Wrap"
-                               Opacity="0.58"/>
+                    <TextBlock Foreground="{DynamicResource App.TextMuted}" Text="{loc:Loc Settings.General.PanelGlass.Description}"
+                               TextWrapping="Wrap"/>
                 </StackPanel>
             </Border>
 
@@ -149,31 +146,27 @@
                                FontWeight="SemiBold"/>
                     <CheckBox Content="{loc:Loc Config.SkipRewindConfirm}"
                               IsChecked="{Binding State.Config.SkipRewindConfirm}"/>
-                    <TextBlock Text="{loc:Loc Settings.General.RewindHint}"
+                    <TextBlock Foreground="{DynamicResource App.TextMuted}" Text="{loc:Loc Settings.General.RewindHint}"
                                Margin="26,0,0,0"
-                               TextWrapping="Wrap"
-                               Opacity="0.58"/>
+                               TextWrapping="Wrap"/>
                     <CheckBox x:Name="AutoExpandReasoningCheckBox"
                               Content="{loc:Loc Settings.General.AutoExpandReasoning}"
                               IsChecked="{Binding State.Config.AutoExpandReasoning}"/>
-                    <TextBlock Text="{loc:Loc Settings.General.AutoExpandReasoningHint}"
+                    <TextBlock Foreground="{DynamicResource App.TextMuted}" Text="{loc:Loc Settings.General.AutoExpandReasoningHint}"
                                Margin="26,0,0,0"
-                               TextWrapping="Wrap"
-                               Opacity="0.58"/>
+                               TextWrapping="Wrap"/>
                     <CheckBox x:Name="SystemNotificationsCheckBox"
                               Content="{loc:Loc Settings.General.SystemNotifications}"
                               IsChecked="{Binding State.Config.SystemNotificationsEnabled}"/>
-                    <TextBlock Text="{loc:Loc Settings.General.SystemNotificationsHint}"
+                    <TextBlock Foreground="{DynamicResource App.TextMuted}" Text="{loc:Loc Settings.General.SystemNotificationsHint}"
                                Margin="26,0,0,0"
-                               TextWrapping="Wrap"
-                               Opacity="0.58"/>
+                               TextWrapping="Wrap"/>
                     <CheckBox x:Name="VirtualPetEnabledCheckBox"
                               Content="{loc:Loc Settings.General.VirtualPet}"
                               IsChecked="{Binding State.Config.VirtualPetEnabled}"/>
-                    <TextBlock Text="{loc:Loc Settings.General.VirtualPetHint}"
+                    <TextBlock Foreground="{DynamicResource App.TextMuted}" Text="{loc:Loc Settings.General.VirtualPetHint}"
                                Margin="26,0,0,0"
-                               TextWrapping="Wrap"
-                               Opacity="0.58"/>
+                               TextWrapping="Wrap"/>
                     <StackPanel Margin="26,0,0,0" Spacing="8">
                         <TextBlock Text="{loc:Loc Settings.General.VirtualPetChoice}"/>
                         <TextBox x:Name="VirtualPetSearchBox"
@@ -230,13 +223,11 @@
                                                         <TextBlock Text="{Binding DisplayName}"
                                                                    FontWeight="SemiBold"
                                                                    TextTrimming="CharacterEllipsis"/>
-                                                        <TextBlock Text="{Binding Attribution}"
+                                                        <TextBlock Foreground="{DynamicResource App.TextMuted}" Text="{Binding Attribution}"
                                                                    FontSize="11"
-                                                                   Opacity="0.58"
                                                                    TextTrimming="CharacterEllipsis"/>
-                                                        <TextBlock Text="{loc:Loc Settings.General.VirtualPetInstalling}"
+                                                        <TextBlock Foreground="{DynamicResource App.TextMuted}" Text="{loc:Loc Settings.General.VirtualPetInstalling}"
                                                                    FontSize="11"
-                                                                   Opacity="0.72"
                                                                    IsVisible="{Binding IsBusy}"/>
                                                     </StackPanel>
                                                 </Grid>
@@ -246,10 +237,9 @@
                                 </ItemsControl>
                             </ScrollViewer>
                         </Border>
-                        <TextBlock Text="{Binding PetCatalogStatusText}"
+                        <TextBlock Foreground="{DynamicResource App.TextMuted}" Text="{Binding PetCatalogStatusText}"
                                    FontSize="11"
-                                   TextWrapping="Wrap"
-                                   Opacity="0.58"/>
+                                   TextWrapping="Wrap"/>
                     </StackPanel>
                     <Grid Margin="26,0,0,0" ColumnDefinitions="154,260,*"
                           IsEnabled="{Binding State.Config.VirtualPetEnabled}">
@@ -271,10 +261,9 @@
                               Content="{loc:Loc Settings.General.VirtualPetRoaming}"
                               IsEnabled="{Binding State.Config.VirtualPetEnabled}"
                               IsChecked="{Binding State.Config.VirtualPetRoamingEnabled}"/>
-                    <TextBlock Text="{loc:Loc Settings.General.VirtualPetRoamingHint}"
+                    <TextBlock Foreground="{DynamicResource App.TextMuted}" Text="{loc:Loc Settings.General.VirtualPetRoamingHint}"
                                Margin="26,0,0,0"
-                               TextWrapping="Wrap"
-                               Opacity="0.58"/>
+                               TextWrapping="Wrap"/>
                     <Grid Margin="26,0,0,0" ColumnDefinitions="154,260,*"
                           IsEnabled="{Binding State.Config.VirtualPetEnabled}">
                         <TextBlock Text="{loc:Loc Settings.General.VirtualPetRoamArea}"
@@ -291,10 +280,9 @@
                               Content="{loc:Loc Settings.General.VirtualPetGravity}"
                               IsEnabled="{Binding State.Config.VirtualPetEnabled}"
                               IsChecked="{Binding State.Config.VirtualPetGravityEnabled}"/>
-                    <TextBlock Text="{loc:Loc Settings.General.VirtualPetGravityHint}"
+                    <TextBlock Foreground="{DynamicResource App.TextMuted}" Text="{loc:Loc Settings.General.VirtualPetGravityHint}"
                                Margin="26,0,0,0"
-                               TextWrapping="Wrap"
-                               Opacity="0.58"/>
+                               TextWrapping="Wrap"/>
                     <CheckBox x:Name="VirtualPetReducedMotionCheckBox"
                               Content="{loc:Loc Settings.General.VirtualPetReducedMotion}"
                               IsEnabled="{Binding State.Config.VirtualPetEnabled}"
@@ -303,18 +291,16 @@
                               Content="{loc:Loc Settings.General.VirtualPetInteraction}"
                               IsEnabled="{Binding State.Config.VirtualPetEnabled}"
                               IsChecked="{Binding State.Config.VirtualPetInteractionEnabled}"/>
-                    <TextBlock Text="{loc:Loc Settings.General.VirtualPetInteractionHint}"
+                    <TextBlock Foreground="{DynamicResource App.TextMuted}" Text="{loc:Loc Settings.General.VirtualPetInteractionHint}"
                                Margin="26,0,0,0"
-                               TextWrapping="Wrap"
-                               Opacity="0.58"/>
+                               TextWrapping="Wrap"/>
                     <CheckBox x:Name="VirtualPetChatterEnabledCheckBox"
                               Content="{loc:Loc Settings.General.VirtualPetChatter}"
                               IsEnabled="{Binding State.Config.VirtualPetInteractionEnabled}"
                               IsChecked="{Binding State.Config.VirtualPetChatterEnabled}"/>
-                    <TextBlock Text="{loc:Loc Settings.General.VirtualPetChatterHint}"
+                    <TextBlock Foreground="{DynamicResource App.TextMuted}" Text="{loc:Loc Settings.General.VirtualPetChatterHint}"
                                Margin="26,0,0,0"
-                               TextWrapping="Wrap"
-                               Opacity="0.58"/>
+                               TextWrapping="Wrap"/>
                 </StackPanel>
             </Border>
         </StackPanel>

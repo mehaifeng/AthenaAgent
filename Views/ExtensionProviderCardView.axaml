@@ -38,15 +38,14 @@
                         HorizontalContentAlignment="Left">
                     <TextBlock Text="{Binding DisplayName}" FontWeight="SemiBold" VerticalAlignment="Center"/>
                 </Button>
-                <TextBlock Grid.Column="3"
+                <TextBlock Foreground="{DynamicResource App.TextMuted}" Grid.Column="3"
                            Text="{loc:Loc Connectors.Provider.Current}"
-                           Opacity="0.72"
                            IsVisible="{Binding IsSelected}"
                            VerticalAlignment="Center"/>
             </Grid>
 
             <StackPanel Margin="34,4,12,12" Spacing="7" IsVisible="{Binding IsExpanded}">
-                <TextBlock Opacity="0.66" FontSize="12" TextWrapping="Wrap" Text="{Binding Description}"/>
+                <TextBlock Foreground="{DynamicResource App.TextMuted}" FontSize="12" TextWrapping="Wrap" Text="{Binding Description}"/>
                 <TextBlock Text="{Binding ApiKeyLabel}" IsVisible="{Binding UsesApiKey}"/>
                 <TextBox Text="{Binding Settings.ApiKey}" PasswordChar="●" IsVisible="{Binding UsesApiKey}"/>
                 <TextBlock Text="{Binding BaseUrlLabel}" IsVisible="{Binding UsesBaseUrl}"/>
@@ -54,7 +53,7 @@
                 <TextBlock Text="{loc:Loc Connectors.Provider.Model}" IsVisible="{Binding UsesModel}"/>
                 <TextBox Text="{Binding Settings.Model}" IsVisible="{Binding UsesModel}"/>
                 <TextBlock Text="{Binding ModelWarning}"
-                           Foreground="#D97706"
+                           Foreground="{DynamicResource App.WarningForeground}"
                            TextWrapping="Wrap"
                            IsVisible="{Binding HasModelWarning}"/>
                 <TextBlock Text="{Binding VoiceLabel}" IsVisible="{Binding UsesVoice}"/>

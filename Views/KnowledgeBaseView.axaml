@@ -102,10 +102,9 @@
                         BorderBrush="{DynamicResource SemiGreyLowBrush}"
                         BorderThickness="0,0,0,1">
                     <Grid ColumnDefinitions="*,Auto">
-                        <TextBlock Text="{loc:Loc Files.AwaitingInput}"
+                        <TextBlock Foreground="{DynamicResource App.TextMuted}" Text="{loc:Loc Files.AwaitingInput}"
                                    VerticalAlignment="Center"
-                                   FontSize="{DynamicResource App.FontSize.Body}"
-                                   Opacity="0.6"/>
+                                   FontSize="{DynamicResource App.FontSize.Body}"/>
                         <StackPanel Grid.Column="1"
                                     Orientation="Horizontal"
                                     Spacing="7">
@@ -204,12 +203,10 @@
                                     </StackPanel>
                                 </Button>
                             </WrapPanel>
-                            <TextBlock Text="{Binding MaintenanceStatus}"
-                                       TextWrapping="Wrap"
-                                       Opacity="0.7"/>
-                            <TextBlock Text="{Binding VectorIndexStatus}"
-                                       TextWrapping="Wrap"
-                                       Opacity="0.7"/>
+                            <TextBlock Foreground="{DynamicResource App.TextMuted}" Text="{Binding MaintenanceStatus}"
+                                       TextWrapping="Wrap"/>
+                            <TextBlock Foreground="{DynamicResource App.TextMuted}" Text="{Binding VectorIndexStatus}"
+                                       TextWrapping="Wrap"/>
                         </StackPanel>
                     </Border>
                 </Expander>
@@ -219,10 +216,9 @@
                       ColumnDefinitions="*,Auto"
                       Margin="12,9">
                     <Grid ColumnDefinitions="Auto,*">
-                        <TextBlock Text="{loc:Loc Files.Path}"
+                        <TextBlock Foreground="{DynamicResource App.TextMuted}" Text="{loc:Loc Files.Path}"
                                    FontSize="{DynamicResource App.FontSize.Body}"
                                    VerticalAlignment="Center"
-                                   Opacity="0.6"
                                    Margin="0,0,8,0"/>
                         <SelectableTextBlock Grid.Column="1"
                                              Text="{Binding SelectedFileDisplayPath}"
@@ -244,11 +240,10 @@
                                    FontWeight="Bold"
                                    VerticalAlignment="Center"
                                    Foreground="{DynamicResource App.EmphasisForeground}"/>
-                        <TextBlock Text="{loc:Loc Files.ModeRead}"
+                        <TextBlock Foreground="{DynamicResource App.TextMuted}" Text="{loc:Loc Files.ModeRead}"
                                    IsVisible="{Binding !IsEditingFile}"
                                    FontSize="{DynamicResource App.FontSize.Body}"
-                                   VerticalAlignment="Center"
-                                   Opacity="0.8"/>
+                                   VerticalAlignment="Center"/>
                         <Button Command="{Binding ToggleEditModeCommand}"
                                 IsVisible="{Binding SelectedFile, Converter={x:Static ObjectConverters.IsNotNull}}"
                                 Padding="8,2"

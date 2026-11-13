@@ -37,7 +37,7 @@
                     <PathIcon Data="{Binding IsPlaybackActive, Converter={StaticResource BoolToPlaybackIcon}}"
                               Width="12" Height="12"/>
                 </Button>
-                <TextBlock Grid.Column="2" Text="{Binding TestStatus}" VerticalAlignment="Center" Opacity="0.72"/>
+                <TextBlock Foreground="{DynamicResource App.TextMuted}" Grid.Column="2" Text="{Binding TestStatus}" VerticalAlignment="Center"/>
             </Grid>
         </StackPanel>
     </ScrollViewer>

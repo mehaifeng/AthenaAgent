@@ -54,11 +54,10 @@
                                           HorizontalContentAlignment="Center"
                                           Classes="orcarouter-connect"
                                           Content="{loc:Loc OrcaRouter.Connect}"/>
-                            <TextBlock Text="{Binding OrcaRouter.Status}"
+                            <TextBlock Foreground="{DynamicResource App.TextMuted}" Text="{Binding OrcaRouter.Status}"
                                        IsVisible="{Binding OrcaRouter.Status, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
                                        ToolTip.Tip="{Binding OrcaRouter.StatusDetails}"
                                        FontSize="{DynamicResource App.FontSize.Body}"
-                                       Opacity="0.8"
                                        TextWrapping="Wrap"/>
                             <!-- 浏览器没能自动打开时，这个链接是完成授权的唯一途径。 -->
                             <Grid ColumnDefinitions="*,Auto"
@@ -114,13 +113,12 @@
                                         <TextBlock Text="{Binding DisplayName}"
                                                    FontWeight="SemiBold"
                                                    TextTrimming="CharacterEllipsis"/>
-                                        <TextBlock Text="{Binding BaseUrl}"
+                                        <TextBlock Foreground="{DynamicResource App.TextMuted}" Text="{Binding BaseUrl}"
                                                    FontSize="{DynamicResource App.FontSize.Body}"
-                                                   Opacity="0.65"
                                                    TextTrimming="CharacterEllipsis"/>
                                         <StackPanel Orientation="Horizontal" Spacing="4">
-                                            <TextBlock Text="{Binding Models.Count}" FontSize="{DynamicResource App.FontSize.Body}" Opacity="0.8"/>
-                                            <TextBlock Text="{loc:Loc ProviderModels.ModelCount}" FontSize="{DynamicResource App.FontSize.Body}" Opacity="0.8"/>
+                                            <TextBlock Foreground="{DynamicResource App.TextMuted}" Text="{Binding Models.Count}" FontSize="{DynamicResource App.FontSize.Body}"/>
+                                            <TextBlock Foreground="{DynamicResource App.TextMuted}" Text="{loc:Loc ProviderModels.ModelCount}" FontSize="{DynamicResource App.FontSize.Body}"/>
                                         </StackPanel>
                                     </StackPanel>
                                     <Button Grid.Column="1"
@@ -315,7 +313,7 @@
                                         <TextBlock Text="{loc:Loc ProviderModels.Metadata.Title}"
                                                     FontSize="{DynamicResource App.FontSize.Title}"
                                                     FontWeight="SemiBold"/>
-                                        <TextBlock Text="{Binding MetadataCatalogText}" Opacity="0.62" TextWrapping="Wrap"/>
+                                        <TextBlock Foreground="{DynamicResource App.TextMuted}" Text="{Binding MetadataCatalogText}" TextWrapping="Wrap"/>
                                     </StackPanel>
                                     <StackPanel Orientation="Horizontal">
                                         <u:IconButton Content="{loc:Loc ProviderModels.Metadata.Refresh}"
@@ -351,9 +349,9 @@
                                                     <Grid Margin="4" RowDefinitions="Auto,Auto,Auto" ColumnDefinitions="*,Auto">
                                                         <TextBlock Text="{Binding ExternalModelId}" FontWeight="SemiBold"
                                                                    TextTrimming="CharacterEllipsis" ToolTip.Tip="{Binding ExternalModelId}"/>
-                                                        <TextBlock Grid.Row="1" Text="{Binding OpenRouterModelId}" Opacity="0.65"
+                                                        <TextBlock Foreground="{DynamicResource App.TextMuted}" Grid.Row="1" Text="{Binding OpenRouterModelId}"
                                                                    TextTrimming="CharacterEllipsis" ToolTip.Tip="{Binding OpenRouterModelId}"/>
-                                                        <TextBlock Grid.Row="2" Text="{Binding ContextWindowText}" Opacity="0.65"/>
+                                                        <TextBlock Foreground="{DynamicResource App.TextMuted}" Grid.Row="2" Text="{Binding ContextWindowText}"/>
                                                         <TextBlock Grid.Column="1" Text="{Binding MatchStatusText}" Margin="8,0,0,0"/>
                                                     </Grid>
                                                 </DataTemplate>
@@ -363,9 +361,8 @@
                                         <Border Grid.Column="2" BorderThickness="1" BorderBrush="{DynamicResource SemiGreyLowBrush}" CornerRadius="7">
                                             <ScrollViewer VerticalScrollBarVisibility="Auto">
                                                 <StackPanel Margin="14" DataContext="{Binding SelectedMetadataModel}" Spacing="12">
-                                                    <TextBlock Text="{loc:Loc ProviderModels.Metadata.Empty}"
-                                                               IsVisible="{Binding $parent[Window].((vm:ProviderModelsViewModel)DataContext).HasNoSelectedMetadataModel}"
-                                                               Opacity="0.6"/>
+                                                    <TextBlock Foreground="{DynamicResource App.TextMuted}" Text="{loc:Loc ProviderModels.Metadata.Empty}"
+                                                               IsVisible="{Binding $parent[Window].((vm:ProviderModelsViewModel)DataContext).HasNoSelectedMetadataModel}"/>
                                                     <StackPanel Spacing="6" IsVisible="{Binding $parent[Window].((vm:ProviderModelsViewModel)DataContext).HasSelectedMetadataModel}">
                                                         <TextBlock Text="{loc:Loc ProviderModels.Metadata.Identity}" FontWeight="SemiBold"/>
                                                         <Grid ColumnDefinitions="*,Auto" ColumnSpacing="6">
@@ -418,8 +415,8 @@
                                                                 <DataTemplate x:DataType="models:ModelMatchCandidate">
                                                                     <Grid ColumnDefinitions="*,Auto,Auto" ColumnSpacing="5">
                                                                         <TextBlock Text="{Binding OpenRouterModelId, StringFormat='• {0}'}" ToolTip.Tip="{Binding Rule}" TextTrimming="CharacterEllipsis"/>
-                                                                        <TextBlock Grid.Column="1" Text="{loc:Loc ProviderModels.Metadata.Score}" Opacity="0.6"/>
-                                                                        <TextBlock Grid.Column="2" Text="{Binding Score}" Opacity="0.6"/>
+                                                                        <TextBlock Foreground="{DynamicResource App.TextMuted}" Grid.Column="1" Text="{loc:Loc ProviderModels.Metadata.Score}"/>
+                                                                        <TextBlock Foreground="{DynamicResource App.TextMuted}" Grid.Column="2" Text="{Binding Score}"/>
                                                                     </Grid>
                                                                 </DataTemplate>
                                                             </ItemsControl.ItemTemplate>

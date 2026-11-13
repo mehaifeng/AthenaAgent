@@ -24,7 +24,7 @@
                         <TextBlock Text="{loc:Loc Connectors.Test}" VerticalAlignment="Center"/>
                     </StackPanel>
                 </Button>
-                <TextBlock Grid.Column="1" Text="{Binding TestStatus}" VerticalAlignment="Center" Opacity="0.72"/>
+                <TextBlock Foreground="{DynamicResource App.TextMuted}" Grid.Column="1" Text="{Binding TestStatus}" VerticalAlignment="Center"/>
             </Grid>
         </StackPanel>
     </ScrollViewer>

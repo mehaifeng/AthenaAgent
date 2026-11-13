@@ -396,7 +396,7 @@
 
                     <StackPanel x:Name="PinnedConversationsSection" Grid.Row="2" Margin="8,0,8,4"
                                 IsVisible="{Binding HasPinnedConversations}" Spacing="0">
-                        <TextBlock Text="{loc:Loc MainWindow.Section.Pinned}" FontSize="{DynamicResource App.FontSize.Caption}" FontWeight="SemiBold" Opacity="0.55" Margin="6,0,0,2"/>
+                        <TextBlock Foreground="{DynamicResource App.TextMuted}" Text="{loc:Loc MainWindow.Section.Pinned}" FontSize="{DynamicResource App.FontSize.Caption}" FontWeight="SemiBold" Margin="6,0,0,2"/>
                         <ItemsControl x:Name="PinnedConversationsList"
                                       ItemsSource="{Binding PinnedConversations}"
                                       ItemTemplate="{StaticResource ConversationSessionItemTemplate}"/>
@@ -645,7 +645,7 @@
                                         <ListBox.ItemTemplate>
                                             <DataTemplate x:DataType="vm:LogEntryViewModel">
                                                 <Grid ColumnDefinitions="64,48,*" Margin="2">
-                                                    <TextBlock Text="{Binding Timestamp, StringFormat={}{0:HH:mm:ss}}" FontSize="{DynamicResource App.FontSize.Caption}" Opacity="0.55"/>
+                                                    <TextBlock Foreground="{DynamicResource App.TextMuted}" Text="{Binding Timestamp, StringFormat={}{0:HH:mm:ss}}" FontSize="{DynamicResource App.FontSize.Caption}"/>
                                                     <TextBlock Grid.Column="1" Text="{Binding Level}" FontSize="{DynamicResource App.FontSize.Caption}"/>
                                                     <TextBlock Grid.Column="2" Text="{Binding Message}" FontSize="{DynamicResource App.FontSize.Caption}" TextTrimming="CharacterEllipsis"/>
                                                 </Grid>

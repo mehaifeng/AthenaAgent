@@ -57,9 +57,9 @@
                                     </DataTemplate>
                                 </ItemsControl.ItemTemplate>
                             </ItemsControl>
-                            <TextBlock Text="{loc:Loc Tool.ArgumentsLabel}"
+                            <TextBlock Foreground="{DynamicResource App.TextMuted}" Text="{loc:Loc Tool.ArgumentsLabel}"
                                        IsVisible="{Binding HasArguments}"
-                                       FontSize="{DynamicResource App.FontSize.Caption}" FontWeight="SemiBold" Opacity="0.6"/>
+                                       FontSize="{DynamicResource App.FontSize.Caption}" FontWeight="SemiBold"/>
                             <SelectableTextBlock Text="{Binding Arguments}"
                                                  IsVisible="{Binding HasArguments}"
                                                  FontFamily="{StaticResource MonospaceFontFamily}"
@@ -67,9 +67,9 @@
                                                  Foreground="{DynamicResource SemiColorText2}"
                                                  TextWrapping="Wrap"/>
 
-                            <TextBlock Text="{loc:Loc Tool.ResultLabel}"
+                            <TextBlock Foreground="{DynamicResource App.TextMuted}" Text="{loc:Loc Tool.ResultLabel}"
                                        IsVisible="{Binding HasResult}"
-                                       FontSize="{DynamicResource App.FontSize.Caption}" FontWeight="SemiBold" Opacity="0.6"/>
+                                       FontSize="{DynamicResource App.FontSize.Caption}" FontWeight="SemiBold"/>
                             <SelectableTextBlock Text="{Binding Result}"
                                                  IsVisible="{Binding HasResult}"
                                                  FontSize="{DynamicResource App.FontSize.Body}"

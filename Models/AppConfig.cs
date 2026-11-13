@@ -41,7 +41,7 @@ public partial class AppConfig : ObservableObject
     [ObservableProperty]
     private string _theme = "Dark";
 
-    // 配色方案：Default / Solarized / Cyberpunk / Tokyo / Monokai（与明暗主题正交）。
+    // 配色方案：AppPalettes.Names（与明暗主题正交；旧方案名保持兼容）。
     [ObservableProperty]
     private string _colorScheme = "Default";
 

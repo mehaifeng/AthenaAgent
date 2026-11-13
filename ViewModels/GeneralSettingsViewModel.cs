@@ -41,7 +41,7 @@ public sealed partial class GeneralSettingsViewModel : ViewModelBase, IDisposabl
     public AppSettingsState State { get; }
 
     /// <summary>可选配色方案（与 Config.ColorScheme 一一对应；专有名词不本地化）。</summary>
-    public string[] ColorSchemes { get; } = ["Default", "Solarized", "Cyberpunk", "Tokyo", "Monokai"];
+    public IReadOnlyList<string> ColorSchemes => AppPalettes.Names;
 
     public ObservableCollection<PetDexCatalogItemViewModel> PetResults { get; } = [];
 

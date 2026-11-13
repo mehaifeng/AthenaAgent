@@ -12,7 +12,7 @@
     <Grid Margin="14" RowDefinitions="Auto,*">
         <StackPanel>
             <TextBlock Text="{loc:Loc Approval.Heading}" FontSize="{DynamicResource App.FontSize.PageTitle}" FontWeight="SemiBold"/>
-            <TextBlock Text="{loc:Loc Approval.Description}" Opacity="0.65" TextWrapping="Wrap"/>
+            <TextBlock Foreground="{DynamicResource App.TextMuted}" Text="{loc:Loc Approval.Description}" TextWrapping="Wrap"/>
         </StackPanel>
         <ScrollViewer Grid.Row="1" Margin="0,12,0,0">
             <ItemsControl ItemsSource="{Binding Pending}">
@@ -24,7 +24,7 @@
                                     <TextBlock Text="{Binding Title}" FontWeight="SemiBold" TextWrapping="Wrap"/>
                                     <TextBlock Grid.Column="1" Text="{Binding RiskText}" Foreground="{DynamicResource SemiOrange5}"/>
                                 </Grid>
-                                <TextBlock Text="{Binding ConversationIdLabel}" FontSize="{DynamicResource App.FontSize.Caption}" Opacity="0.55"/>
+                                <TextBlock Foreground="{DynamicResource App.TextMuted}" Text="{Binding ConversationIdLabel}" FontSize="{DynamicResource App.FontSize.Caption}"/>
                                 <TextBlock Text="{Binding Request.PrettyArguments}" FontFamily="Menlo, Consolas, monospace" FontSize="{DynamicResource App.FontSize.Body}" MaxHeight="100" TextWrapping="Wrap"/>
                                 <WrapPanel>
                                     <Button Command="{Binding AllowOnceCommand}" Margin="0,0,6,0">

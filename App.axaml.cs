@@ -80,6 +80,9 @@ public partial class App : Application, IAsyncDisposable
         Log.Information("Application starting... Platform: Desktop");
 
         AvaloniaXamlLoader.Load(this);
+        var (dark, light) = GetColorSchemeDictionaries("Default");
+        Resources.ThemeDictionaries[ThemeVariant.Dark] = dark;
+        Resources.ThemeDictionaries[ThemeVariant.Light] = light;
     }
 
     private void TrayIcon_OnClicked(object? sender, EventArgs e)
@@ -637,73 +640,28 @@ public partial class App : Application, IAsyncDisposable
     /// </summary>
     public static event Action<string>? ColorSchemeChanged;
 
-    /// <summary>内置方案 + 支持的风格方案（大小写不敏感匹配）。</summary>
-    private static readonly string[] KnownColorSchemes = ["Default", "Solarized", "Cyberpunk", "Tokyo", "Monokai"];
-
-    /// <summary>当前生效的配色方案名（App.axaml 内置主题字典即 "Default" 方案）。</summary>
     private static string _currentColorScheme = "Default";
-
-    /// <summary>App.axaml 内置主题字典实例缓存，切回 Default 方案时还原。</summary>
-    private static ResourceDictionary? _defaultDarkDictionary;
-    private static ResourceDictionary? _defaultLightDictionary;
-
-    /// <summary>已加载方案的字典实例缓存（SetColorScheme 与缩略图控件共用同一实例）。</summary>
     private static readonly Dictionary<string, (ResourceDictionary Dark, ResourceDictionary Light)> _schemeDictionaries = new();
 
-    /// <summary>当前生效的配色方案名。</summary>
     public static string CurrentColorScheme => _currentColorScheme;
 
-    /// <summary>归一化方案名：大小写不敏感匹配已知方案，未命中回退 "Default"。</summary>
-    public static string NormalizeColorScheme(string? name)
-    {
-        foreach (var candidate in KnownColorSchemes)
-        {
-            if (string.Equals(candidate, name, StringComparison.OrdinalIgnoreCase))
-                return candidate;
-        }
-        return "Default";
-    }
+    public static string NormalizeColorScheme(string? name) => Models.AppPalettes.Normalize(name);
 
-    /// <summary>
-    /// 获取方案的明暗字典实例；"Default" 返回 App.axaml 内置字典缓存实例。
-    /// 供 SetColorScheme 与 ColorSchemeThumbnailView 共用同一份实例缓存。
-    /// </summary>
+    /// <summary>Cached complete dictionaries, shared by the app and thumbnail resource copies.</summary>
     public static (ResourceDictionary Dark, ResourceDictionary Light) GetColorSchemeDictionaries(string schemeName)
     {
-        var scheme = NormalizeColorScheme(schemeName);
-        _defaultDarkDictionary ??= GetBuiltInThemeDictionary(ThemeVariant.Dark);
-        _defaultLightDictionary ??= GetBuiltInThemeDictionary(ThemeVariant.Light);
-        if (scheme == "Default")
-            return (_defaultDarkDictionary, _defaultLightDictionary);
-        if (_schemeDictionaries.TryGetValue(scheme, out var cached))
-            return cached;
-        var dark = LoadSchemeDictionary(scheme, "Dark");
-        var light = LoadSchemeDictionary(scheme, "Light");
-        var pair = (dark, light);
-        _schemeDictionaries[scheme] = pair;
+        var scheme = Models.AppPalettes.Get(schemeName);
+        if (_schemeDictionaries.TryGetValue(scheme.Name, out var cached)) return cached;
+        var pair = (Athena.UI.Styles.ThemeResources.Create(scheme.Dark, true), Athena.UI.Styles.ThemeResources.Create(scheme.Light, false));
+        _schemeDictionaries[scheme.Name] = pair;
         return pair;
     }
-
-    private static ResourceDictionary GetBuiltInThemeDictionary(ThemeVariant variant)
-    {
-        if (Current?.Resources.ThemeDictionaries is { } themeDictionaries
-            && themeDictionaries.TryGetValue(variant, out var provider)
-            && provider is ResourceDictionary dict)
-        {
-            return dict;
-        }
-        throw new InvalidOperationException($"内置主题字典 {variant.Key} 未就绪");
-    }
-
-    private static ResourceDictionary LoadSchemeDictionary(string scheme, string mode) =>
-        (ResourceDictionary)AvaloniaXamlLoader.Load(
-            new Uri($"avares://Athena.UI/Styles/Themes/{scheme}.{mode}.axaml"));
 
     /// <summary>
     /// 全局设置配色方案：整体替换 ThemeDictionaries 的 Dark/Light 条目，所有 DynamicResource 消费者即时重绘。
     /// 幂等（与当前方案相同则无操作）；加载失败保持当前方案。须在 UI 线程调用。
     /// </summary>
-    /// <param name="schemeName">Default / Solarized / Cyberpunk / Tokyo / Monokai（大小写不敏感）</param>
+    /// <param name="schemeName">AppPalettes 中的方案名（大小写不敏感）</param>
     public static void SetColorScheme(string schemeName)
     {
         if (Current is not App app) return;

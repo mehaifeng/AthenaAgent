@@ -13,16 +13,16 @@
             <StackPanel Spacing="3">
                 <TextBlock Text="{loc:Loc WorkspaceContext.Title}" FontSize="{DynamicResource App.FontSize.PageTitle}" FontWeight="SemiBold"/>
                 <TextBlock Text="{Binding WorkspaceName}" FontWeight="SemiBold"/>
-                <TextBlock Text="{loc:Loc WorkspaceContext.Description}" TextWrapping="Wrap" Opacity="0.62"/>
+                <TextBlock Foreground="{DynamicResource App.TextMuted}" Text="{loc:Loc WorkspaceContext.Description}" TextWrapping="Wrap"/>
             </StackPanel>
         </Border>
 
         <ScrollViewer Grid.Row="1">
             <StackPanel Margin="20" Spacing="12">
                 <Grid ColumnDefinitions="170,*,130,190" ColumnSpacing="10" Margin="4,0">
-                    <TextBlock Grid.Column="1" Text="{loc:Loc WorkspaceContext.Value}" Opacity="0.55"/>
-                    <TextBlock Grid.Column="2" Text="{loc:Loc WorkspaceContext.Effective}" Opacity="0.55"/>
-                    <TextBlock Grid.Column="3" Text="{loc:Loc WorkspaceContext.Source}" Opacity="0.55"/>
+                    <TextBlock Foreground="{DynamicResource App.TextMuted}" Grid.Column="1" Text="{loc:Loc WorkspaceContext.Value}"/>
+                    <TextBlock Foreground="{DynamicResource App.TextMuted}" Grid.Column="2" Text="{loc:Loc WorkspaceContext.Effective}"/>
+                    <TextBlock Foreground="{DynamicResource App.TextMuted}" Grid.Column="3" Text="{loc:Loc WorkspaceContext.Source}"/>
                 </Grid>
 
                 <Border Padding="12" BorderThickness="1" BorderBrush="{DynamicResource SemiGreyLowBrush}" CornerRadius="7">
@@ -92,7 +92,7 @@
                     <StackPanel Spacing="5">
                         <TextBlock Text="{loc:Loc WorkspaceContext.Preview}" FontWeight="SemiBold"/>
                         <SelectableTextBlock Text="{Binding EffectivePolicyText}" FontFamily="Menlo,Consolas,monospace" TextWrapping="Wrap"/>
-                        <TextBlock Text="{Binding SourceText}" TextWrapping="Wrap" Opacity="0.62"/>
+                        <TextBlock Foreground="{DynamicResource App.TextMuted}" Text="{Binding SourceText}" TextWrapping="Wrap"/>
                     </StackPanel>
                 </Border>
                 <TextBlock Text="{Binding ErrorText}" IsVisible="{Binding HasError}" TextWrapping="Wrap" Foreground="{DynamicResource SemiRed6}"/>

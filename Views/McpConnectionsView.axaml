@@ -49,16 +49,15 @@
                     HorizontalAlignment="Center">
                     <StackPanel Spacing="16">
                         <Grid ColumnDefinitions="Auto,*" ColumnSpacing="20">
-                            <TextBlock Grid.Column="0" Text="{loc:Loc Config.Mcp.Enable}" VerticalAlignment="Center" Opacity="0.8"/>
+                            <TextBlock Foreground="{DynamicResource App.TextMuted}" Grid.Column="0" Text="{loc:Loc Config.Mcp.Enable}" VerticalAlignment="Center"/>
                             <ToggleSwitch Grid.Column="1" IsChecked="{Binding Config.EnableMcp}" HorizontalAlignment="Left"/>
                         </Grid>
                         <StackPanel Spacing="4">
-                            <TextBlock Text="{loc:Loc Config.Mcp.DiscoveryHint}" Opacity="0.7" FontSize="{DynamicResource App.FontSize.Body}" TextWrapping="Wrap"/>
+                            <TextBlock Foreground="{DynamicResource App.TextMuted}" Text="{loc:Loc Config.Mcp.DiscoveryHint}" FontSize="{DynamicResource App.FontSize.Body}" TextWrapping="Wrap"/>
                             <StackPanel Orientation="Horizontal">
-                                <TextBlock Text="{loc:Loc Config.Mcp.ExampleHint}"
+                                <TextBlock Foreground="{DynamicResource App.TextMuted}" Text="{loc:Loc Config.Mcp.ExampleHint}"
                                            TextWrapping="Wrap"
                                            FontSize="{DynamicResource App.FontSize.Body}"
-                                           Opacity="0.6"
                                            VerticalAlignment="Center"/>
                                 <HyperlinkButton Margin="5,0,0,0"
                                                  Content="{loc:Loc Config.Mcp.ExampleLink}"
@@ -114,7 +113,7 @@
                                                 <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
                                                     <Ellipse Width="10" Height="10" VerticalAlignment="Center"
                                                              Fill="{Binding Status, Converter={StaticResource McpStatusToBrushConverter}}"/>
-                                                    <TextBlock Text="{Binding StatusDetail}" VerticalAlignment="Center" Opacity="0.7" FontSize="{DynamicResource App.FontSize.Body}"
+                                                    <TextBlock Foreground="{DynamicResource App.TextMuted}" Text="{Binding StatusDetail}" VerticalAlignment="Center" FontSize="{DynamicResource App.FontSize.Body}"
                                                                MaxWidth="180" TextTrimming="CharacterEllipsis"/>
                                                 </StackPanel>
                                                 <!-- 重连：仅在连接失败时出现（改动配置会自动重连，此处用于配置未变时的失败重试） -->
@@ -134,7 +133,7 @@
                                             <StackPanel Spacing="6" IsVisible="{Binding IsExpanded}">
                                             <!-- 名称 + 传输类型 -->
                                             <Grid ColumnDefinitions="90,*,Auto" ColumnSpacing="10">
-                                                <TextBlock Grid.Column="0" Text="{loc:Loc Config.Mcp.Name}" VerticalAlignment="Center" Opacity="0.8"/>
+                                                <TextBlock Foreground="{DynamicResource App.TextMuted}" Grid.Column="0" Text="{loc:Loc Config.Mcp.Name}" VerticalAlignment="Center"/>
                                                 <TextBox Grid.Column="1" Text="{Binding Name}"/>
                                                 <ToggleSwitch Grid.Column="2"
                                                               IsChecked="{Binding Transport, Converter={StaticResource McpTransportIsHttp}}"
@@ -145,15 +144,15 @@
                                             <!-- Stdio 段 -->
                                             <StackPanel Spacing="6" IsVisible="{Binding Transport, Converter={StaticResource McpTransportIsHttp}, ConverterParameter=Stdio}">
                                                 <Grid ColumnDefinitions="90,*" ColumnSpacing="10" RowDefinitions="Auto,Auto">
-                                                    <TextBlock Grid.Row="0" Grid.Column="0" Text="{loc:Loc Config.Mcp.Command}" VerticalAlignment="Center" Opacity="0.8"/>
+                                                    <TextBlock Foreground="{DynamicResource App.TextMuted}" Grid.Row="0" Grid.Column="0" Text="{loc:Loc Config.Mcp.Command}" VerticalAlignment="Center"/>
                                                     <TextBox Grid.Row="0" Grid.Column="1" Margin="0,0,0,4" Text="{Binding Command}" PlaceholderText="{loc:Loc Mcp.Placeholder.Command}"/>
-                                                    <TextBlock Grid.Row="1" Grid.Column="0" Text="{loc:Loc Config.Mcp.WorkingDir}" VerticalAlignment="Center" Opacity="0.8"/>
+                                                    <TextBlock Foreground="{DynamicResource App.TextMuted}" Grid.Row="1" Grid.Column="0" Text="{loc:Loc Config.Mcp.WorkingDir}" VerticalAlignment="Center"/>
                                                     <TextBox Grid.Row="1" Grid.Column="1" Text="{Binding WorkingDirectory}" PlaceholderText="{loc:Loc Mcp.Placeholder.WorkingDir}"/>
                                                 </Grid>
 
                                                 <!-- 启动参数列表 -->
                                                 <Grid ColumnDefinitions="*,Auto">
-                                                    <TextBlock Grid.Column="0" Text="{loc:Loc Config.Mcp.Args}" VerticalAlignment="Center" Opacity="0.8"/>
+                                                    <TextBlock Foreground="{DynamicResource App.TextMuted}" Grid.Column="0" Text="{loc:Loc Config.Mcp.Args}" VerticalAlignment="Center"/>
                                                     <Button Grid.Column="1" Content="+"
                                                             Command="{Binding #McpRoot.DataContext.AddMcpArgCommand}"
                                                             CommandParameter="{Binding}"/>
@@ -173,7 +172,7 @@
 
                                                 <!-- 环境变量列表 -->
                                                 <Grid ColumnDefinitions="*,Auto">
-                                                    <TextBlock Grid.Column="0" Text="{loc:Loc Config.Mcp.Env}" VerticalAlignment="Center" Opacity="0.8"/>
+                                                    <TextBlock Foreground="{DynamicResource App.TextMuted}" Grid.Column="0" Text="{loc:Loc Config.Mcp.Env}" VerticalAlignment="Center"/>
                                                     <Button Grid.Column="1" Content="+"
                                                             Command="{Binding #McpRoot.DataContext.AddMcpEnvCommand}"
                                                             CommandParameter="{Binding}"/>
@@ -196,13 +195,13 @@
                                             <!-- Http 段 -->
                                             <StackPanel Spacing="6" IsVisible="{Binding Transport, Converter={StaticResource McpTransportIsHttp}}">
                                                 <Grid ColumnDefinitions="90,*" ColumnSpacing="10">
-                                                    <TextBlock Grid.Column="0" Text="{loc:Loc Config.Mcp.Url}" VerticalAlignment="Center" Opacity="0.8"/>
+                                                    <TextBlock Foreground="{DynamicResource App.TextMuted}" Grid.Column="0" Text="{loc:Loc Config.Mcp.Url}" VerticalAlignment="Center"/>
                                                     <TextBox Grid.Column="1" Text="{Binding Url}" PlaceholderText="{loc:Loc Mcp.Placeholder.Url}"/>
                                                 </Grid>
 
                                                 <!-- 请求头列表 -->
                                                 <Grid ColumnDefinitions="*,Auto">
-                                                    <TextBlock Grid.Column="0" Text="{loc:Loc Config.Mcp.Headers}" VerticalAlignment="Center" Opacity="0.8"/>
+                                                    <TextBlock Foreground="{DynamicResource App.TextMuted}" Grid.Column="0" Text="{loc:Loc Config.Mcp.Headers}" VerticalAlignment="Center"/>
                                                     <Button Grid.Column="1" Content="+"
                                                             Command="{Binding #McpRoot.DataContext.AddMcpHeaderCommand}"
                                                             CommandParameter="{Binding}"/>
@@ -229,7 +228,7 @@
                         </ItemsControl>
 
                         <!-- Claude Desktop JSON 导入 -->
-                        <TextBlock Text="{loc:Loc Config.Mcp.ImportTitle}" FontWeight="SemiBold" Opacity="0.8"/>
+                        <TextBlock Foreground="{DynamicResource App.TextMuted}" Text="{loc:Loc Config.Mcp.ImportTitle}" FontWeight="SemiBold"/>
                         <TextBox Text="{Binding McpImportJson}"
                                  AcceptsReturn="True"
                                  TextWrapping="Wrap"
@@ -246,7 +245,7 @@
                                     <TextBlock Text="{loc:Loc Config.Mcp.Import}" VerticalAlignment="Center"/>
                                 </StackPanel>
                             </Button>
-                            <TextBlock Grid.Column="1" Text="{Binding McpImportStatus}" VerticalAlignment="Center" Opacity="0.7" FontSize="{DynamicResource App.FontSize.Body}"/>
+                            <TextBlock Foreground="{DynamicResource App.TextMuted}" Grid.Column="1" Text="{Binding McpImportStatus}" VerticalAlignment="Center" FontSize="{DynamicResource App.FontSize.Body}"/>
                         </Grid>
                     </StackPanel>
                 </Border>

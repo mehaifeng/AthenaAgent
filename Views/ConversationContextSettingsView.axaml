@@ -10,9 +10,8 @@
                 <TextBlock Text="{loc:Loc Settings.Context.Title}"
                            FontSize="{DynamicResource App.FontSize.PageTitle}"
                            FontWeight="SemiBold"/>
-                <TextBlock Text="{loc:Loc Settings.Context.Description}"
-                           TextWrapping="Wrap"
-                           Opacity="0.62"/>
+                <TextBlock Foreground="{DynamicResource App.TextMuted}" Text="{loc:Loc Settings.Context.Description}"
+                           TextWrapping="Wrap"/>
             </StackPanel>
 
             <Border Padding="18"
@@ -25,16 +24,16 @@
                                FontSize="{DynamicResource App.FontSize.Title}"
                                FontWeight="SemiBold"/>
                     <Grid ColumnDefinitions="220,*" RowDefinitions="Auto,Auto,Auto,Auto" RowSpacing="8">
-                        <TextBlock Text="{loc:Loc Settings.Context.MainModel}" Opacity="0.62"/>
+                        <TextBlock Foreground="{DynamicResource App.TextMuted}" Text="{loc:Loc Settings.Context.MainModel}"/>
                         <TextBlock Grid.Column="1" Text="{Binding MainModelText}" TextWrapping="Wrap"/>
-                        <TextBlock Grid.Row="1" Text="{loc:Loc Settings.Context.ContextWindow}" Opacity="0.62"/>
+                        <TextBlock Foreground="{DynamicResource App.TextMuted}" Grid.Row="1" Text="{loc:Loc Settings.Context.ContextWindow}"/>
                         <StackPanel Grid.Row="1" Grid.Column="1" Orientation="Horizontal" Spacing="8">
                             <TextBlock Text="{Binding ContextWindowText}"/>
-                            <TextBlock Text="{Binding ContextWindowSourceText}" Opacity="0.62"/>
+                            <TextBlock Foreground="{DynamicResource App.TextMuted}" Text="{Binding ContextWindowSourceText}"/>
                         </StackPanel>
-                        <TextBlock Grid.Row="2" Text="{loc:Loc Settings.Context.MatchStatus}" Opacity="0.62"/>
+                        <TextBlock Foreground="{DynamicResource App.TextMuted}" Grid.Row="2" Text="{loc:Loc Settings.Context.MatchStatus}"/>
                         <TextBlock Grid.Row="2" Grid.Column="1" Text="{Binding MatchStatusText}"/>
-                        <TextBlock Grid.Row="3" Text="{loc:Loc Settings.Context.MetadataCatalog}" Opacity="0.62"/>
+                        <TextBlock Foreground="{DynamicResource App.TextMuted}" Grid.Row="3" Text="{loc:Loc Settings.Context.MetadataCatalog}"/>
                         <TextBlock Grid.Row="3" Grid.Column="1" Text="{Binding CatalogText}"/>
                     </Grid>
                 </StackPanel>
@@ -86,10 +85,9 @@
                                        Maximum="800000"
                                        Increment="10000"
                                        Value="{Binding State.Config.ContextPolicy.KeepRecentToolResultChars}"/>
-                        <TextBlock Grid.Row="1" Grid.ColumnSpan="2"
+                        <TextBlock Foreground="{DynamicResource App.TextMuted}" Grid.Row="1" Grid.ColumnSpan="2"
                                    Text="{loc:Loc Settings.Context.KeepRecentToolResultsHint}"
-                                   TextWrapping="Wrap"
-                                   Opacity="0.58"/>
+                                   TextWrapping="Wrap"/>
                     </Grid>
                     <Grid ColumnDefinitions="300,220" RowDefinitions="Auto,Auto" RowSpacing="4">
                         <TextBlock Text="{loc:Loc Settings.Context.MaxSummaryTokens}" VerticalAlignment="Center"/>
@@ -98,20 +96,17 @@
                                        Maximum="32768"
                                        Increment="1024"
                                        Value="{Binding State.Config.ContextPolicy.SummaryMaxTokens}"/>
-                        <TextBlock Grid.Row="1" Grid.ColumnSpan="2"
+                        <TextBlock Foreground="{DynamicResource App.TextMuted}" Grid.Row="1" Grid.ColumnSpan="2"
                                    Text="{loc:Loc Settings.Context.MaxSummaryTokensHint}"
-                                   TextWrapping="Wrap"
-                                   Opacity="0.58"/>
+                                   TextWrapping="Wrap"/>
                     </Grid>
                     <TextBlock Text="{Binding CompressionEffectText}"
                                TextWrapping="Wrap"/>
-                    <TextBlock Text="{Binding EffectivePolicyText}"
+                    <TextBlock Foreground="{DynamicResource App.TextMuted}" Text="{Binding EffectivePolicyText}"
                                FontFamily="Menlo,Consolas,monospace"
-                               TextWrapping="Wrap"
-                               Opacity="0.58"/>
-                    <TextBlock Text="{loc:Loc Settings.Context.UnknownAssumption}"
-                               TextWrapping="Wrap"
-                               Opacity="0.58"/>
+                               TextWrapping="Wrap"/>
+                    <TextBlock Foreground="{DynamicResource App.TextMuted}" Text="{loc:Loc Settings.Context.UnknownAssumption}"
+                               TextWrapping="Wrap"/>
                 </StackPanel>
             </Border>
 
@@ -132,9 +127,8 @@
                                        Increment="1000"
                                        Value="{Binding State.Config.WorkspaceKnowledgeCharBudget}"/>
                     </Grid>
-                    <TextBlock Text="{loc:Loc Settings.Context.BudgetHint}"
-                               TextWrapping="Wrap"
-                               Opacity="0.58"/>
+                    <TextBlock Foreground="{DynamicResource App.TextMuted}" Text="{loc:Loc Settings.Context.BudgetHint}"
+                               TextWrapping="Wrap"/>
                 </StackPanel>
             </Border>
         </StackPanel>
