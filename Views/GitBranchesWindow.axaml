@@ -9,11 +9,11 @@
     <Grid RowDefinitions="Auto,Auto,Auto,*,Auto,Auto" Margin="22" RowSpacing="12">
         <StackPanel>
             <TextBlock Text="{Binding Title}" FontSize="{DynamicResource App.FontSize.Title}" FontWeight="SemiBold"/>
-            <TextBlock Text="{Binding RepositoryTitle}" TextWrapping="Wrap" Opacity="0.65" Margin="0,4,0,0"/>
+            <TextBlock Foreground="{DynamicResource App.TextMuted}" Text="{Binding RepositoryTitle}" TextWrapping="Wrap" Margin="0,4,0,0"/>
             <Grid ColumnDefinitions="Auto,*" RowDefinitions="Auto,Auto" ColumnSpacing="8" RowSpacing="4" Margin="0,6,0,0">
-                <TextBlock Text="{loc:Loc Git.Branches.Current}" Opacity="0.65"/>
+                <TextBlock Foreground="{DynamicResource App.TextMuted}" Text="{loc:Loc Git.Branches.Current}"/>
                 <TextBlock Grid.Column="1" Text="{Binding CurrentBranch}" FontWeight="SemiBold" TextWrapping="Wrap"/>
-                <TextBlock Grid.Row="1" Text="{loc:Loc Git.Branches.MergeBase}" Opacity="0.65"/>
+                <TextBlock Foreground="{DynamicResource App.TextMuted}" Grid.Row="1" Text="{loc:Loc Git.Branches.MergeBase}"/>
                 <TextBlock Grid.Row="1" Grid.Column="1" Text="{Binding BaseBranchName}" TextWrapping="Wrap"/>
             </Grid>
         </StackPanel>
@@ -35,7 +35,7 @@
                             <StackPanel Margin="6,8" Spacing="4">
                                 <TextBlock Text="{Binding Name}" FontWeight="SemiBold" TextWrapping="Wrap"/>
                                 <TextBlock Text="{Binding Badges}" Foreground="{DynamicResource App.IconAccentForeground}" TextWrapping="Wrap"/>
-                                <TextBlock Text="{Binding Metadata}" Opacity="0.65" TextTrimming="CharacterEllipsis" ToolTip.Tip="{Binding Metadata}"/>
+                                <TextBlock Foreground="{DynamicResource App.TextMuted}" Text="{Binding Metadata}" TextTrimming="CharacterEllipsis" ToolTip.Tip="{Binding Metadata}"/>
                             </StackPanel>
                         </DataTemplate>
                     </ListBox.ItemTemplate>
@@ -55,7 +55,7 @@
                 <Button Content="{loc:Loc Git.Branches.Create}" Command="{Binding CreateCommand}" Theme="{StaticResource AccentButtonTheme}" HorizontalAlignment="Left"/>
             </StackPanel>
             <StackPanel Grid.Row="1" IsVisible="{Binding IsBrowseMode}" Spacing="10">
-                <TextBlock Text="{Binding SelectionDetails}" TextWrapping="Wrap" Opacity="0.7"/>
+                <TextBlock Foreground="{DynamicResource App.TextMuted}" Text="{Binding SelectionDetails}" TextWrapping="Wrap"/>
                 <StackPanel IsVisible="{Binding NeedsTrackingName}" Spacing="5">
                     <TextBlock Text="{loc:Loc Git.Branches.TrackingName}"/>
                     <TextBox Text="{Binding TrackingBranchName}" IsEnabled="{Binding !IsBusy}" AutomationProperties.Name="{loc:Loc Git.Branches.TrackingName}"/>
@@ -88,7 +88,7 @@
         <StackPanel Grid.Row="4" Spacing="6">
             <ProgressBar IsIndeterminate="True" IsVisible="{Binding IsBusy}" Height="3"/>
             <TextBlock Text="{Binding ErrorText}" IsVisible="{Binding HasError}" Foreground="{DynamicResource SemiRed6}" TextWrapping="Wrap"/>
-            <TextBlock Text="{Binding StatusText}" TextWrapping="Wrap" Opacity="0.65"/>
+            <TextBlock Foreground="{DynamicResource App.TextMuted}" Text="{Binding StatusText}" TextWrapping="Wrap"/>
         </StackPanel>
         <Button Grid.Row="5" Content="{loc:Loc Git.Branches.Close}" HorizontalAlignment="Right" Click="OnCloseClicked" IsEnabled="{Binding !IsBusy}"/>
     </Grid>

@@ -16,7 +16,7 @@
             <TextBox Text="{Binding Config.DocumentParserToken}"
                      PasswordChar="●"
                      IsEnabled="{Binding CanEditToken}"/>
-            <TextBlock Opacity="0.66" FontSize="12" TextWrapping="Wrap" Text="{loc:Loc Config.DocumentParserTokenHint}"/>
+            <TextBlock Foreground="{DynamicResource App.TextMuted}" FontSize="12" TextWrapping="Wrap" Text="{loc:Loc Config.DocumentParserTokenHint}"/>
         </StackPanel>
     </ScrollViewer>
 </UserControl>

@@ -223,9 +223,8 @@
                                             <TextBlock Text="{Binding StatusLabel}"
                                                        FontSize="{DynamicResource App.FontSize.Caption}"
                                                        Foreground="{DynamicResource Chat.TimestampFg}"/>
-                                            <TextBlock Text="{Binding DirectoryName}"
+                                            <TextBlock Foreground="{DynamicResource App.TextMuted}" Text="{Binding DirectoryName}"
                                                        FontSize="{DynamicResource App.FontSize.Caption}"
-                                                       Opacity="0.45"
                                                        TextTrimming="CharacterEllipsis"/>
                                         </StackPanel>
                                     </Grid>
@@ -290,10 +289,9 @@
                                        Foreground="{DynamicResource Chat.TimestampFg}"
                                        VerticalAlignment="Center"
                                        TextTrimming="CharacterEllipsis"/>
-                            <TextBlock Grid.Column="1"
+                            <TextBlock Foreground="{DynamicResource App.TextMuted}" Grid.Column="1"
                                        Text="{loc:Loc Git.Review.CommitShortcut}"
                                        FontSize="{DynamicResource App.FontSize.Micro}"
-                                       Opacity="0.45"
                                        VerticalAlignment="Center"/>
                         </Grid>
 
@@ -440,11 +438,15 @@
                         </DataTemplate>
                         </ListBox.ItemTemplate>
                     </ListBox>
-                    <ContentControl Grid.Row="1" Content="{Binding SelectedEditorTab}">
+                    <ContentControl Grid.Row="1" Content="{Binding SelectedEditorTab}"
+                                    HorizontalContentAlignment="Stretch" VerticalContentAlignment="Stretch">
                         <ContentControl.ContentTemplate>
                         <DataTemplate x:DataType="vm:WorkspaceEditorTabViewModel">
                             <Grid>
                                 <TextBox Text="{Binding Text, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                         Foreground="{DynamicResource Editor.Foreground}"
+                                         Background="{DynamicResource Editor.Background}"
+                                         VerticalAlignment="Stretch"
                                          AcceptsReturn="True"
                                          TextWrapping="NoWrap"
                                          FontFamily="Menlo, Consolas, monospace"
@@ -489,14 +491,14 @@
                                         <ListBox.ItemTemplate>
                                             <DataTemplate x:DataType="services:WorkspaceDiffLine">
                                                 <Grid ColumnDefinitions="38,38,22,Auto" MinHeight="22">
-                                                    <Border Grid.ColumnSpan="4" Background="#1F2DA44E" IsVisible="{Binding IsAdded}"/>
-                                                    <Border Grid.ColumnSpan="4" Background="#1FF85149" IsVisible="{Binding IsRemoved}"/>
-                                                    <Border Grid.Column="0" Background="#0D808080"/>
-                                                    <Border Grid.Column="1" Background="#0D808080"/>
-                                                    <TextBlock Grid.Column="0" Text="{Binding OldLineNumberText}" FontFamily="Menlo, Consolas, monospace"
-                                                               FontSize="{DynamicResource App.FontSize.Caption}" Opacity="0.45" TextAlignment="Right" Padding="0,3,6,2"/>
-                                                    <TextBlock Grid.Column="1" Text="{Binding NewLineNumberText}" FontFamily="Menlo, Consolas, monospace"
-                                                               FontSize="{DynamicResource App.FontSize.Caption}" Opacity="0.45" TextAlignment="Right" Padding="0,3,6,2"/>
+                                                    <Border Grid.ColumnSpan="4" Background="{DynamicResource Editor.AddedBackground}" IsVisible="{Binding IsAdded}"/>
+                                                    <Border Grid.ColumnSpan="4" Background="{DynamicResource Editor.RemovedBackground}" IsVisible="{Binding IsRemoved}"/>
+                                                    <Border Grid.Column="0" Background="{DynamicResource App.SurfaceBackground}"/>
+                                                    <Border Grid.Column="1" Background="{DynamicResource App.SurfaceBackground}"/>
+                                                    <TextBlock Foreground="{DynamicResource App.TextMuted}" Grid.Column="0" Text="{Binding OldLineNumberText}" FontFamily="Menlo, Consolas, monospace"
+                                                               FontSize="{DynamicResource App.FontSize.Caption}" TextAlignment="Right" Padding="0,3,6,2"/>
+                                                    <TextBlock Foreground="{DynamicResource App.TextMuted}" Grid.Column="1" Text="{Binding NewLineNumberText}" FontFamily="Menlo, Consolas, monospace"
+                                                               FontSize="{DynamicResource App.FontSize.Caption}" TextAlignment="Right" Padding="0,3,6,2"/>
                                                     <TextBlock Grid.Column="2" Text="{Binding Prefix}" FontFamily="Menlo, Consolas, monospace"
                                                                FontWeight="Bold" HorizontalAlignment="Center" VerticalAlignment="Center"/>
                                                     <TextBlock Grid.Column="3" Text="{Binding Text}" FontFamily="Menlo, Consolas, monospace"
@@ -516,8 +518,8 @@
                                             HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="8">
                                     <PathIcon Data="{StaticResource AthenaIconOpenFile}" Width="28" Height="28"
                                               Foreground="{DynamicResource App.IconMutedForeground}" HorizontalAlignment="Center"/>
-                                    <TextBlock Text="{loc:Loc Workspace.Diff.BinaryPlaceholder}"
-                                               FontSize="{DynamicResource App.FontSize.Body}" Opacity="0.6"
+                                    <TextBlock Foreground="{DynamicResource App.TextMuted}" Text="{loc:Loc Workspace.Diff.BinaryPlaceholder}"
+                                               FontSize="{DynamicResource App.FontSize.Body}"
                                                TextAlignment="Center" TextWrapping="Wrap"/>
                                 </StackPanel>
                             </Grid>
@@ -525,7 +527,7 @@
                         </ContentControl.ContentTemplate>
                     </ContentControl>
                 </Grid>
-                <TextBlock Grid.Row="2" Text="{Binding StatusText}" FontSize="{DynamicResource App.FontSize.Body}" Opacity="0.65" Margin="10,5" TextTrimming="CharacterEllipsis"/>
+                <TextBlock Foreground="{DynamicResource App.TextMuted}" Grid.Row="2" Text="{Binding StatusText}" FontSize="{DynamicResource App.FontSize.Body}" Margin="10,5" TextTrimming="CharacterEllipsis"/>
             </Grid>
         </Border>
 

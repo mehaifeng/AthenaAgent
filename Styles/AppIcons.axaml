@@ -154,24 +154,5 @@
         M189.178 118.413c-1.247-.795-2.836-.795-4.074 0-4.075 2.625-12.861 9.183-12.861 16.852 0 7.832 9.168 26.363 13.117 33.995.349.667 1.032 1.081 1.779 1.081.749 0 1.434-.414 1.784-1.081 3.94-7.623 13.094-26.163 13.094-33.995 0-7.669-8.784-14.22-12.839-16.852Z
     </StreamGeometry>
 
-    <ResourceDictionary.ThemeDictionaries>
-        <ResourceDictionary x:Key="Dark">
-            <SolidColorBrush x:Key="App.IconForeground" Color="#F2F2F2"/>
-            <SolidColorBrush x:Key="App.IconMutedForeground" Color="#A8A8A8"/>
-            <SolidColorBrush x:Key="App.IconAccentForeground" Color="#FFFFFF"/>
-            <SolidColorBrush x:Key="App.IconDangerForeground" Color="#FF8C8C"/>
-            <SolidColorBrush x:Key="App.NavigationCardBorderBrush" Color="#596575"/>
-            <SolidColorBrush x:Key="App.NavigationCardBackgroundBrush" Color="#20242B"/>
-            <SolidColorBrush x:Key="App.NavigationDividerBrush" Color="#3A4150"/>
-        </ResourceDictionary>
-        <ResourceDictionary x:Key="Light">
-            <SolidColorBrush x:Key="App.IconForeground" Color="#202020"/>
-            <SolidColorBrush x:Key="App.IconMutedForeground" Color="#6B6B6B"/>
-            <SolidColorBrush x:Key="App.IconAccentForeground" Color="#111111"/>
-            <SolidColorBrush x:Key="App.IconDangerForeground" Color="#C92A2A"/>
-            <SolidColorBrush x:Key="App.NavigationCardBorderBrush" Color="#AEB7C3"/>
-            <SolidColorBrush x:Key="App.NavigationCardBackgroundBrush" Color="#F7F8FA"/>
-            <SolidColorBrush x:Key="App.NavigationDividerBrush" Color="#E1E4EA"/>
-        </ResourceDictionary>
-    </ResourceDictionary.ThemeDictionaries>
+    <!-- App.Icon* colours are supplied by ThemeResources for every palette. -->
 </ResourceDictionary>

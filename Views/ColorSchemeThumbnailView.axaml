@@ -2,15 +2,19 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              x:Class="Athena.UI.Views.ColorSchemeThumbnailView"
              x:DataType="x:String">
+    <UserControl.Styles>
+        <Style Selector="Border.thumb-card">
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="BorderBrush" Value="{DynamicResource SemiColorBorder}"/>
+        </Style>
+    </UserControl.Styles>
     <StackPanel Spacing="6">
         <!-- 三段式迷你窗体：外层窗框 = Background0，左/右栏 = Background1，中栏 = Background2 -->
         <Border Classes="thumb-card"
                 CornerRadius="8"
-                BorderThickness="1"
-                BorderBrush="{DynamicResource SemiColorBorder}"
                 Background="{DynamicResource SemiColorBackground0}"
                 Padding="5"
-                Height="66">
+                Height="80">
             <Grid ColumnDefinitions="*,2.3*,*" ColumnSpacing="2">
                 <!-- 左栏：工作区 -->
                 <Border Grid.Column="0"
@@ -31,8 +35,8 @@
                         BorderBrush="{DynamicResource SemiColorBorder}"
                         Background="{DynamicResource SemiColorBackground2}">
                     <StackPanel Margin="4,5" Spacing="3" VerticalAlignment="Top">
-                        <Border Height="6" Width="34" CornerRadius="3" HorizontalAlignment="Left"
-                                Background="{DynamicResource SemiColorPrimary}"/>
+                        <TextBlock Text="Aa" FontSize="14" FontWeight="SemiBold"
+                                   Foreground="{DynamicResource SemiColorText0}"/>
                         <Border Height="3" CornerRadius="1.5" Background="{DynamicResource SemiColorText0}" Opacity="0.85"/>
                         <Border Height="3" CornerRadius="1.5" Background="{DynamicResource SemiColorText2}" Opacity="0.6"/>
                         <Border Height="10" CornerRadius="4" Background="{DynamicResource SemiColorPrimaryLight}"/>

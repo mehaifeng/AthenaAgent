@@ -11,9 +11,8 @@
                 <TextBlock Text="{loc:Loc Settings.Diagnostics.Title}"
                            FontSize="{DynamicResource App.FontSize.PageTitle}"
                            FontWeight="SemiBold"/>
-                <TextBlock Text="{loc:Loc Settings.Diagnostics.Description}"
-                           TextWrapping="Wrap"
-                           Opacity="0.62"/>
+                <TextBlock Foreground="{DynamicResource App.TextMuted}" Text="{loc:Loc Settings.Diagnostics.Description}"
+                           TextWrapping="Wrap"/>
             </StackPanel>
 
             <Border Padding="18"
@@ -25,9 +24,8 @@
                     <TextBlock Text="{loc:Loc Settings.Diagnostics.ContextData}"
                                FontSize="{DynamicResource App.FontSize.Title}"
                                FontWeight="SemiBold"/>
-                    <TextBlock Text="{loc:Loc Settings.Diagnostics.ContextDataHint}"
-                               TextWrapping="Wrap"
-                               Opacity="0.58"/>
+                    <TextBlock Foreground="{DynamicResource App.TextMuted}" Text="{loc:Loc Settings.Diagnostics.ContextDataHint}"
+                               TextWrapping="Wrap"/>
                     <Grid RowDefinitions="Auto" ColumnDefinitions="150,*" RowSpacing="8" ColumnSpacing="10">
                         <TextBlock Text="{loc:Loc Settings.Diagnostics.MetadataCatalog}" FontWeight="SemiBold"/>
                         <SelectableTextBlock Grid.Column="1" Text="{Binding MetadataDiagnosticsStatus}" TextWrapping="Wrap"/>
@@ -63,9 +61,8 @@
                     <TextBlock Text="{loc:Loc Settings.Diagnostics.BrowserRuntime}"
                                FontSize="{DynamicResource App.FontSize.Title}"
                                FontWeight="SemiBold"/>
-                    <TextBlock Text="{loc:Loc Settings.Diagnostics.BrowserRuntimeHint}"
-                               TextWrapping="Wrap"
-                               Opacity="0.58"/>
+                    <TextBlock Foreground="{DynamicResource App.TextMuted}" Text="{loc:Loc Settings.Diagnostics.BrowserRuntimeHint}"
+                               TextWrapping="Wrap"/>
                     <WrapPanel>
                         <u:IconButton x:Name="TestBrowserRuntimeButton"
                                       Content="{loc:Loc Config.BrowserTestRuntime}"
@@ -81,9 +78,8 @@
                             Background="{DynamicResource App.AssistantBubbleBg}"
                             CornerRadius="8"
                             IsVisible="{Binding HasBrowserRuntimeStatus}">
-                        <TextBlock Text="{Binding BrowserRuntimeStatus}"
-                                   TextWrapping="Wrap"
-                                   Opacity="0.78"/>
+                        <TextBlock Foreground="{DynamicResource App.TextMuted}" Text="{Binding BrowserRuntimeStatus}"
+                                   TextWrapping="Wrap"/>
                     </Border>
                 </StackPanel>
             </Border>
@@ -97,9 +93,8 @@
                     <TextBlock Text="{loc:Loc Settings.Diagnostics.BrowserAgent}"
                                FontSize="{DynamicResource App.FontSize.Title}"
                                FontWeight="SemiBold"/>
-                    <TextBlock Text="{loc:Loc Config.BrowserUnifiedModelHint}"
-                               TextWrapping="Wrap"
-                               Opacity="0.58"/>
+                    <TextBlock Foreground="{DynamicResource App.TextMuted}" Text="{loc:Loc Config.BrowserUnifiedModelHint}"
+                               TextWrapping="Wrap"/>
                     <u:IconButton x:Name="TestBrowserAgentButton"
                                   Content="{loc:Loc Config.BtnRunDiagnostics}"
                                   Command="{Binding TestBrowserAgentCommand}"
@@ -109,9 +104,8 @@
                             Background="{DynamicResource App.AssistantBubbleBg}"
                             CornerRadius="8"
                             IsVisible="{Binding HasBrowserAgentTestStatus}">
-                        <TextBlock Text="{Binding BrowserAgentTestStatus}"
-                                   TextWrapping="Wrap"
-                                   Opacity="0.78"/>
+                        <TextBlock Foreground="{DynamicResource App.TextMuted}" Text="{Binding BrowserAgentTestStatus}"
+                                   TextWrapping="Wrap"/>
                     </Border>
                 </StackPanel>
             </Border>

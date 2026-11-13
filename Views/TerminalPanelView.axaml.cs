@@ -11,6 +11,7 @@ public partial class TerminalPanelView : UserControl
 {
     private TerminalControl? _terminalControl;
     private bool? _terminalIsDark;
+    private string? _terminalScheme;
 
     public TerminalPanelView()
     {
@@ -29,12 +30,14 @@ public partial class TerminalPanelView : UserControl
     private void OnAttachedToVisualTree(object? sender, VisualTreeAttachmentEventArgs e)
     {
         App.ThemeChanged += OnApplicationThemeChanged;
+        App.ColorSchemeChanged += OnApplicationColorSchemeChanged;
         RecreateTerminalControl(IsDarkTheme());
     }
 
     private void OnDetachedFromVisualTree(object? sender, VisualTreeAttachmentEventArgs e)
     {
         App.ThemeChanged -= OnApplicationThemeChanged;
+        App.ColorSchemeChanged -= OnApplicationColorSchemeChanged;
     }
 
     private void OnApplicationThemeChanged(string themeName)
@@ -45,9 +48,12 @@ public partial class TerminalPanelView : UserControl
             System.StringComparison.OrdinalIgnoreCase));
     }
 
+    private void OnApplicationColorSchemeChanged(string _) => RecreateTerminalControl(IsDarkTheme());
+
     private void RecreateTerminalControl(bool isDark)
     {
-        if (_terminalControl is not null && _terminalIsDark == isDark)
+        if (_terminalControl is not null && _terminalIsDark == isDark
+            && _terminalScheme == App.CurrentColorScheme)
         {
             return;
         }
@@ -57,24 +63,27 @@ public partial class TerminalPanelView : UserControl
             _terminalControl.ClearValue(TerminalControl.ModelProperty);
         }
 
-        var foreground = isDark ? Colors.White : Colors.Black;
-        var background = isDark ? Colors.Black : Colors.White;
+        var dictionaries = App.GetColorSchemeDictionaries(App.CurrentColorScheme);
+        var palette = isDark ? dictionaries.Dark : dictionaries.Light;
+        var foreground = (IBrush)palette["Terminal.Foreground"]!;
+        var background = (IBrush)palette["Terminal.Background"]!;
         _terminalControl = new TerminalControl
         {
             RightClickAction = RightClickAction.CopyOrPaste,
             FontFamily = "Cascadia Mono,Consolas,Menlo,monospace",
             FontSize = 12,
-            CaretBrush = new SolidColorBrush(foreground),
-            SelectionBrush = new SolidColorBrush(Color.FromArgb(0x40, 0x60, 0xA0, 0xFF))
+            CaretBrush = foreground,
+            SelectionBrush = (IBrush)palette["AvaloniaTerminalSelectionBrush"]!
         };
-        _terminalControl.Resources["AvaloniaTerminalColor0"] = new SolidColorBrush(background);
-        _terminalControl.Resources["AvaloniaTerminalColor7"] = new SolidColorBrush(foreground);
-        _terminalControl.Resources["AvaloniaTerminalColor15"] = new SolidColorBrush(foreground);
+        _terminalControl.Resources["AvaloniaTerminalColor0"] = background;
+        _terminalControl.Resources["AvaloniaTerminalColor7"] = foreground;
+        _terminalControl.Resources["AvaloniaTerminalColor15"] = foreground;
         _terminalControl.Bind(
             TerminalControl.ModelProperty,
             new Binding("SelectedSession.Model"));
         TerminalHost.Child = _terminalControl;
         _terminalIsDark = isDark;
+        _terminalScheme = App.CurrentColorScheme;
     }
 
     private bool IsDarkTheme()

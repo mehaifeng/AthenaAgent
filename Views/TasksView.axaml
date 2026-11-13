@@ -90,10 +90,9 @@
                                 IsVisible="{Binding Editor.IsEditing}"
                                 Content="{loc:Loc Cron.Editor.CancelEdit}"/>
 
-                        <TextBlock Text="{Binding StatusMessage}"
+                        <TextBlock Foreground="{DynamicResource App.TextMuted}" Text="{Binding StatusMessage}"
                                    TextWrapping="Wrap"
                                    FontSize="{DynamicResource App.FontSize.Body}"
-                                   Opacity="0.7"
                                    IsVisible="{Binding StatusMessage, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"/>
                     </StackPanel>
                 </Border>
@@ -119,22 +118,21 @@
 
                 <Border Grid.Row="1"
                         IsVisible="{Binding HasCorruptedRecords}"
-                        Background="#18C62828"
-                        BorderBrush="#88C62828"
+                        Background="{DynamicResource App.DangerBackground}"
+                        BorderBrush="{DynamicResource App.DangerBorder}"
                         BorderThickness="0,0,0,1"
                         Padding="12,8">
                     <TextBlock Text="{Binding CorruptedRecordsMessage}"
                                TextWrapping="Wrap"
-                               Foreground="#C62828"
+                               Foreground="{DynamicResource App.DangerForeground}"
                                FontSize="{DynamicResource App.FontSize.Body}"/>
                 </Border>
 
-                <TextBlock Grid.Row="2"
+                <TextBlock Foreground="{DynamicResource App.TextMuted}" Grid.Row="2"
                            IsVisible="{Binding !HasTasks}"
                            Text="{loc:Loc Cron.Tasks.Empty}"
                            TextWrapping="Wrap"
                            Margin="24"
-                           Opacity="0.6"
                            HorizontalAlignment="Center"
                            VerticalAlignment="Center"/>
 
@@ -169,12 +167,11 @@
                                                                FontSize="{DynamicResource App.FontSize.Body}"/>
                                                 </Border>
                                             </StackPanel>
-                                            <TextBlock Text="{Binding Instruction}"
+                                            <TextBlock Foreground="{DynamicResource App.TextMuted}" Text="{Binding Instruction}"
                                                        TextWrapping="Wrap"
                                                        MaxLines="2"
                                                        TextTrimming="CharacterEllipsis"
-                                                       FontSize="{DynamicResource App.FontSize.Body}"
-                                                       Opacity="0.7"/>
+                                                       FontSize="{DynamicResource App.FontSize.Body}"/>
                                         </StackPanel>
 
                                         <StackPanel Grid.Column="1"
@@ -212,35 +209,33 @@
 
                                     <!-- 调度元信息 -->
                                     <Grid ColumnDefinitions="Auto,*,Auto,*,Auto,Auto" ColumnSpacing="7">
-                                        <TextBlock Text="{loc:Loc Cron.Card.Schedule}"
-                                                   FontSize="{DynamicResource App.FontSize.Body}" Opacity="0.6"/>
+                                        <TextBlock Foreground="{DynamicResource App.TextMuted}" Text="{loc:Loc Cron.Card.Schedule}"
+                                                   FontSize="{DynamicResource App.FontSize.Body}"/>
                                         <TextBlock Grid.Column="1"
                                                    Text="{Binding ScheduleDescription}"
                                                    TextWrapping="Wrap"
                                                    FontSize="{DynamicResource App.FontSize.Body}"
                                                    FontWeight="SemiBold"/>
-                                        <TextBlock Grid.Column="2"
+                                        <TextBlock Foreground="{DynamicResource App.TextMuted}" Grid.Column="2"
                                                    Text="{loc:Loc Cron.Card.NextRun}"
-                                                   FontSize="{DynamicResource App.FontSize.Body}" Opacity="0.6"/>
+                                                   FontSize="{DynamicResource App.FontSize.Body}"/>
                                         <TextBlock Grid.Column="3"
                                                    Text="{Binding NextRunText}"
                                                    FontSize="{DynamicResource App.FontSize.Body}"
                                                    FontWeight="SemiBold"/>
-                                        <TextBlock Grid.Column="4"
+                                        <TextBlock Foreground="{DynamicResource App.TextMuted}" Grid.Column="4"
                                                    Text="{Binding TimeZoneId}"
-                                                   FontSize="{DynamicResource App.FontSize.Body}" Opacity="0.55"/>
-                                        <TextBlock Grid.Column="5"
+                                                   FontSize="{DynamicResource App.FontSize.Body}"/>
+                                        <TextBlock Foreground="{DynamicResource App.TextMuted}" Grid.Column="5"
                                                    Text="{Binding StatusText}"
                                                    Margin="8,0,0,0"
                                                    FontSize="{DynamicResource App.FontSize.Body}"
-                                                   FontWeight="SemiBold"
-                                                   Opacity="0.8"/>
+                                                   FontWeight="SemiBold"/>
                                     </Grid>
 
-                                    <TextBlock Text="{Binding CronExpression}"
+                                    <TextBlock Foreground="{DynamicResource App.TextMuted}" Text="{Binding CronExpression}"
                                                FontFamily="{DynamicResource MonospaceFontFamily}"
-                                               FontSize="{DynamicResource App.FontSize.Body}"
-                                               Opacity="0.55"/>
+                                               FontSize="{DynamicResource App.FontSize.Body}"/>
 
                                     <!-- 近期运行：点进去就是那次触发开出的会话 -->
                                     <Expander IsVisible="{Binding HasRuns}"
@@ -261,22 +256,19 @@
                                                                    FontSize="{DynamicResource App.FontSize.Body}"
                                                                    FontWeight="SemiBold"
                                                                    VerticalAlignment="Center"/>
-                                                        <TextBlock Grid.Column="2"
+                                                        <TextBlock Foreground="{DynamicResource App.TextMuted}" Grid.Column="2"
                                                                    Text="{Binding TimestampText}"
                                                                    FontSize="{DynamicResource App.FontSize.Body}"
-                                                                   Opacity="0.7"
                                                                    VerticalAlignment="Center"/>
-                                                        <TextBlock Grid.Column="3"
+                                                        <TextBlock Foreground="{DynamicResource App.TextMuted}" Grid.Column="3"
                                                                    Text="{Binding TriggerText}"
                                                                    FontSize="{DynamicResource App.FontSize.Body}"
-                                                                   Opacity="0.55"
                                                                    VerticalAlignment="Center"/>
-                                                        <TextBlock Grid.Column="4"
+                                                        <TextBlock Foreground="{DynamicResource App.TextMuted}" Grid.Column="4"
                                                                    Text="{Binding DetailText}"
                                                                    IsVisible="{Binding HasDetail}"
                                                                    TextTrimming="CharacterEllipsis"
                                                                    FontSize="{DynamicResource App.FontSize.Body}"
-                                                                   Opacity="0.55"
                                                                    VerticalAlignment="Center"/>
                                                         <Button Grid.Column="5"
                                                                 Command="{Binding OpenConversationCommand}"

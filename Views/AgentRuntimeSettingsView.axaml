@@ -10,9 +10,8 @@
                 <TextBlock Text="{loc:Loc Settings.Agent.Title}"
                            FontSize="{DynamicResource App.FontSize.PageTitle}"
                            FontWeight="SemiBold"/>
-                <TextBlock Text="{loc:Loc Settings.Agent.Description}"
-                           TextWrapping="Wrap"
-                           Opacity="0.62"/>
+                <TextBlock Foreground="{DynamicResource App.TextMuted}" Text="{loc:Loc Settings.Agent.Description}"
+                           TextWrapping="Wrap"/>
             </StackPanel>
 
             <Border Padding="18"
@@ -25,7 +24,7 @@
                                FontSize="{DynamicResource App.FontSize.Title}" FontWeight="SemiBold"/>
                     <CheckBox Name="ExecutionAnalysisEnabledToggle" Content="{loc:Loc Timeline.SettingsEnabled}"
                               IsChecked="{Binding State.Config.ExecutionAnalysisEnabled}"/>
-                    <TextBlock Text="{loc:Loc Timeline.SettingsHint}" TextWrapping="Wrap" Opacity="0.62"/>
+                    <TextBlock Foreground="{DynamicResource App.TextMuted}" Text="{loc:Loc Timeline.SettingsHint}" TextWrapping="Wrap"/>
                 </StackPanel>
             </Border>
 
@@ -57,9 +56,8 @@
                     <TextBlock Text="{loc:Loc Settings.Agent.ProviderRetry.Title}"
                                FontSize="{DynamicResource App.FontSize.Title}"
                                FontWeight="SemiBold"/>
-                    <TextBlock Text="{loc:Loc Settings.Agent.ProviderRetry.Description}"
-                               TextWrapping="Wrap"
-                               Opacity="0.58"/>
+                    <TextBlock Foreground="{DynamicResource App.TextMuted}" Text="{loc:Loc Settings.Agent.ProviderRetry.Description}"
+                               TextWrapping="Wrap"/>
                     <CheckBox Content="{loc:Loc Settings.Agent.ProviderRetry.Enabled}"
                               IsChecked="{Binding State.Config.ProviderRetry.Enabled}"/>
                     <Grid ColumnDefinitions="300,180,*">
@@ -78,9 +76,8 @@
                                        IsEnabled="{Binding State.Config.ProviderRetry.Enabled}"
                                        Value="{Binding State.Config.ProviderRetry.InitialDelaySeconds}"/>
                     </Grid>
-                    <TextBlock Text="{loc:Loc Settings.Agent.ProviderRetry.Backoff}"
-                               TextWrapping="Wrap"
-                               Opacity="0.58"/>
+                    <TextBlock Foreground="{DynamicResource App.TextMuted}" Text="{loc:Loc Settings.Agent.ProviderRetry.Backoff}"
+                               TextWrapping="Wrap"/>
                 </StackPanel>
             </Border>
 
@@ -95,9 +92,8 @@
                                FontWeight="SemiBold"/>
                     <CheckBox Content="{loc:Loc Settings.Agent.SubAgent.Enabled}"
                               IsChecked="{Binding State.Config.EnableSubAgents}"/>
-                    <TextBlock Text="{loc:Loc Settings.Agent.SubAgent.ModelHint}"
-                               TextWrapping="Wrap"
-                               Opacity="0.58"/>
+                    <TextBlock Foreground="{DynamicResource App.TextMuted}" Text="{loc:Loc Settings.Agent.SubAgent.ModelHint}"
+                               TextWrapping="Wrap"/>
                     <Grid ColumnDefinitions="300,180,*">
                         <TextBlock Text="{loc:Loc Settings.Agent.SubAgent.MaxParallel}" VerticalAlignment="Center"/>
                         <NumericUpDown Grid.Column="1"

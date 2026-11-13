@@ -8,7 +8,7 @@ namespace Athena.UI.Views;
 /// 关于这些数字的诚实说明：**它们是一组起始值，不是实测结论。**
 /// 唯一有结构性依据的是 ResolveTintOpacity 的夹取（不夹，开关就等于没开）和
 /// GlassBackdropDecodeWidth 选择"升采样而非 BlurEffect"的理由。其余几个透明度
-/// 只是第一版的取值，需要在真机上对着深/浅两套主题和 5 套配色方案逐一看过再定。
+/// 只是第一版的取值，需要在真机上对着深/浅两套主题和 所有配色方案逐一看过再定。
 /// 调这些值不需要先推翻什么——它们还没有任何测量撑着。
 /// </summary>
 internal static class ShellMaterial

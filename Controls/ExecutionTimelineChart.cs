@@ -8,7 +8,6 @@ using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.Media;
-using Avalonia.Styling;
 
 namespace Athena.UI.Controls;
 
@@ -55,8 +54,15 @@ public sealed class ExecutionTimelineChart : Control
     {
         Focusable = true;
         ActualThemeVariantChanged += (_, _) => InvalidateVisual();
+        AttachedToVisualTree += (_, _) => App.ColorSchemeChanged += OnColorSchemeChanged;
+        DetachedFromVisualTree += (_, _) => App.ColorSchemeChanged -= OnColorSchemeChanged;
         Rebuild();
     }
+
+    private void OnColorSchemeChanged(string _) => InvalidateVisual();
+
+    private IBrush ThemeBrush(string key) => this.TryFindResource(key, ActualThemeVariant, out var value)
+        && value is IBrush brush ? brush : throw new InvalidOperationException($"Missing timeline brush: {key}");
 
     public void SetViewport(double width, double height, double offsetX, double offsetY)
     {
@@ -116,11 +122,10 @@ public sealed class ExecutionTimelineChart : Control
     public override void Render(DrawingContext context)
     {
         base.Render(context);
-        var dark = ActualThemeVariant == ThemeVariant.Dark;
-        var ink = new SolidColorBrush(Color.Parse(dark ? "#E4E8EF" : "#293241"));
-        var muted = new SolidColorBrush(Color.Parse(dark ? "#A4AEBD" : "#5E6B7D"));
-        var rule = new Pen(new SolidColorBrush(Color.Parse(dark ? "#3D4858" : "#D9E0E8")), 1);
-        var surface = new SolidColorBrush(Color.Parse(dark ? "#15151A" : "#FFFFFF"));
+        var ink = ThemeBrush("App.TextPrimary");
+        var muted = ThemeBrush("App.TextMuted");
+        var rule = new Pen(ThemeBrush("App.SurfaceBorder"), 1);
+        var surface = ThemeBrush("App.CanvasBackground");
         var snapshot = Snapshot;
         var timelineWidth = Math.Max(1, Width - Left - 24);
         for (var i = 0; i <= 4; i++)
@@ -142,15 +147,15 @@ public sealed class ExecutionTimelineChart : Control
                 || rect.Right < _offsetX - 30 || rect.Left > _offsetX + _viewportWidth + 30) continue;
             var color = bar.Span.Lane switch
             {
-                ExecutionTimelineLane.Model => "#397DCA",
-                ExecutionTimelineLane.Tools => "#168A82",
-                ExecutionTimelineLane.Script => "#8252B3",
-                ExecutionTimelineLane.PtcTools => "#2A9B71",
-                _ => "#AC7629"
+                ExecutionTimelineLane.Model => "#245A96",
+                ExecutionTimelineLane.Tools => "#17675F",
+                ExecutionTimelineLane.Script => "#694091",
+                ExecutionTimelineLane.PtcTools => "#246644",
+                _ => "#74521B"
             };
             var failed = bar.Span.State is ExecutionTimelineState.Failed or ExecutionTimelineState.Denied
                 or ExecutionTimelineState.Cancelled or ExecutionTimelineState.TimedOut or ExecutionTimelineState.OutcomeUnknown;
-            var border = new Pen(new SolidColorBrush(Color.Parse(failed ? "#D95151" : _selected == bar.Span.Id ? "#F2BB3D" : color)), failed || _selected == bar.Span.Id ? 2 : 1);
+            var border = new Pen(failed ? ThemeBrush("App.DangerForeground") : _selected == bar.Span.Id ? ThemeBrush("App.WarningForeground") : new SolidColorBrush(Color.Parse(color)), failed || _selected == bar.Span.Id ? 2 : 1);
             context.DrawRectangle(new SolidColorBrush(Color.Parse(color)), border, rect);
             if (rect.Width >= 55)
             {
@@ -166,7 +171,7 @@ public sealed class ExecutionTimelineChart : Control
             {
                 var parent = _bars.FirstOrDefault(bar => bar.Span.Id == parentId);
                 if (parent is not null)
-                    context.DrawLine(new Pen(new SolidColorBrush(Color.Parse("#F2BB3D")), 1.5),
+                    context.DrawLine(new Pen(ThemeBrush("App.WarningForeground"), 1.5),
                         new Point(parent.Span.Kind == ExecutionTimelineKind.ModelRequest ? parent.Bounds.Right : parent.Bounds.Left,
                             parent.Bounds.Bottom), new Point(chosen.Bounds.Left, chosen.Bounds.Top));
             }

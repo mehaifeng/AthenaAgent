@@ -81,6 +81,27 @@ AppBuilder.Configure<App>()
     })
     .SetupWithoutStarting();
 
+// SetupWithoutStarting installs a UI synchronization context without running its
+// event loop. Entry-point task waits must use PumpForCompletion, and synchronous
+// screenshot writes use synchronous disposal; an incomplete top-level await would
+// leave its continuation queued forever. Async helpers remain safe inside the pump.
+if (Environment.GetEnvironmentVariable("ATHENA_HEADLESS_ONLY") == "menu-wait")
+{
+    TestMenuItemsWait();
+    Environment.Exit(0);
+}
+
+if (Environment.GetEnvironmentVariable("ATHENA_HEADLESS_ONLY") == "themes")
+{
+    TestColorSchemeSwitching();
+    TestColorSchemeApplyCounting();
+    TestColorSchemeShellPanelRepaint();
+    TestColorSchemeThumbnail();
+    ThemeContrastTests.Run(Path.GetDirectoryName(outputPath)!);
+    Console.WriteLine("[ALL THEME TESTS PASSED]");
+    Environment.Exit(0);
+}
+
 // 敲门的端到端走查（不在正式运行里）：真的 ViewModel 接真的页面（Playwright WebKit），ATHENA_POLIS_E2E=1
 if (Environment.GetEnvironmentVariable("ATHENA_POLIS_E2E") == "1")
 {
@@ -254,6 +275,8 @@ TestColorSchemeSwitching();
 TestColorSchemeApplyCounting();
 TestColorSchemeShellPanelRepaint();
 TestColorSchemeThumbnail();
+ThemeContrastTests.Run(Path.GetDirectoryName(outputPath)!);
+TestMenuItemsWait();
 TestConfigurationSession(Path.GetDirectoryName(outputPath)!);
 TestSelfConfigurationSurface();
 TestOrcaRouterConnectEntryPoints(Path.GetDirectoryName(outputPath)!);
@@ -342,11 +365,11 @@ if (logSplitter == null
     || logSplitter.ResizeDirection != GridResizeDirection.Rows
     || logSplitter.ResizeBehavior != GridResizeBehavior.PreviousAndNext)
     throw new InvalidOperationException("The log splitter must resize adjacent rows live without preview.");
-await mainViewModel.ToggleSidePanelsCommand.ExecuteAsync(null);
+PumpForCompletion(mainViewModel.ToggleSidePanelsCommand.ExecuteAsync(null), "mainViewModel.ToggleSidePanelsCommand.ExecuteAsync");
 Dispatcher.UIThread.RunJobs();
 if (shell.ColumnDefinitions[0].MinWidth < 360 || shell.ColumnDefinitions[4].MinWidth < 260)
     throw new InvalidOperationException("Swapping side panels did not swap their physical column minimum widths.");
-await mainViewModel.ToggleSidePanelsCommand.ExecuteAsync(null);
+PumpForCompletion(mainViewModel.ToggleSidePanelsCommand.ExecuteAsync(null), "mainViewModel.ToggleSidePanelsCommand.ExecuteAsync");
 Dispatcher.UIThread.RunJobs();
 // 右栏整体收起：语义右栏与它那条分隔线一起归零，状态写进 MainLayout 并落盘。
 var shellLayout = mainViewModel.Config!.MainLayout;
@@ -364,7 +387,7 @@ if (rightPanelToggleButton.FindAncestorOfType<Grid>()?.Parent is not Border { Co
     throw new InvalidOperationException("The right panel toggle must sit in the conversation header row.");
 if (mainViewModel.RightPanelToggleIconKey != "AthenaIconPanelTowardRight")
     throw new InvalidOperationException("An expanded right-hand panel must offer to push toward the right.");
-await mainViewModel.ToggleRightPanelCommand.ExecuteAsync(null);
+PumpForCompletion(mainViewModel.ToggleRightPanelCommand.ExecuteAsync(null), "mainViewModel.ToggleRightPanelCommand.ExecuteAsync");
 Dispatcher.UIThread.RunJobs();
 if (!shellLayout.RightPanelCollapsed || !mainViewModel.IsRightPanelCollapsed || shellConfigService.SaveCount <= savesBeforeCollapse)
     throw new InvalidOperationException("Collapsing the right panel must flip MainLayout.RightPanelCollapsed and save it.");
@@ -383,15 +406,15 @@ if (shellLayout.RightWidth != rightWidthBeforeCollapse)
     throw new InvalidOperationException($"Saving the other splitter while collapsed overwrote RightWidth ({rightWidthBeforeCollapse} -> {shellLayout.RightWidth}).");
 shellLayout.LeftWidth = leftWidthBeforeCollapse;
 // 交换布局下收起作用在物理列 0/1，而不是左侧会话栏。
-await mainViewModel.ToggleSidePanelsCommand.ExecuteAsync(null);
+PumpForCompletion(mainViewModel.ToggleSidePanelsCommand.ExecuteAsync(null), "mainViewModel.ToggleSidePanelsCommand.ExecuteAsync");
 Dispatcher.UIThread.RunJobs();
 if (shell.ColumnDefinitions[0].Width.Value != 0 || shell.ColumnDefinitions[1].Width.Value != 0
     || shell.ColumnDefinitions[4].Width.Value < 260 || shell.ColumnDefinitions[3].Width.Value != 5)
     throw new InvalidOperationException("With swapped panels, collapsing must zero physical columns 0/1 and keep the session list.");
 if (mainViewModel.RightPanelToggleIconKey != "AthenaIconPanelTowardRight")
     throw new InvalidOperationException("A collapsed panel on the left must offer to pull back toward the right.");
-await mainViewModel.ToggleSidePanelsCommand.ExecuteAsync(null);
-await mainViewModel.ToggleRightPanelCommand.ExecuteAsync(null);
+PumpForCompletion(mainViewModel.ToggleSidePanelsCommand.ExecuteAsync(null), "mainViewModel.ToggleSidePanelsCommand.ExecuteAsync");
+PumpForCompletion(mainViewModel.ToggleRightPanelCommand.ExecuteAsync(null), "mainViewModel.ToggleRightPanelCommand.ExecuteAsync");
 Dispatcher.UIThread.RunJobs();
 if (shellLayout.RightPanelCollapsed || !rightPanelGrid.IsVisible || !rightSideSplitter.IsVisible
     || shell.ColumnDefinitions[4].MinWidth < 360 || shell.ColumnDefinitions[4].Width.Value < 360
@@ -854,7 +877,7 @@ workspaceMenu.RaiseEvent(new Avalonia.Interactivity.RoutedEventArgs(Button.Click
 Dispatcher.UIThread.RunJobs();
 if (!workspaceMenuFlyout.IsOpen)
     throw new InvalidOperationException("Clicking the workspace overflow button did not open its menu.");
-var workspaceMenuItems = await AwaitMenuItemsAsync(
+var workspaceMenuItems = WaitForMenuItems(
     workspaceMenuFlyout,
     ["重命名", "上下文设置", "重新定位文件夹…", "在文件夹中显示", "复制路径", "删除"],
     "Workspace menu commands or icons are incomplete.");
@@ -871,7 +894,7 @@ pinnedMenuButton.RaiseEvent(new Avalonia.Interactivity.RoutedEventArgs(Button.Cl
 Dispatcher.UIThread.RunJobs();
 if (!pinnedMenuFlyout.IsOpen)
     throw new InvalidOperationException("Clicking the conversation overflow button did not open its menu.");
-var pinnedMenuItems = await AwaitMenuItemsAsync(
+var pinnedMenuItems = WaitForMenuItems(
     pinnedMenuFlyout,
     ["重命名", "Unpin", "分支", "导出", "删除"],
     "Pinned conversation menu commands or icons are incomplete.");
@@ -880,7 +903,7 @@ pinnedMenuFlyout.Hide();
 Directory.CreateDirectory(Path.GetDirectoryName(outputPath)!);
 AssertEveryIconResolved(window);
 using var frame = window.CaptureRenderedFrame() ?? throw new InvalidOperationException("Headless renderer returned no frame.");
-await using (var output = File.Create(outputPath)) frame.Save(output, PngBitmapEncoderOptions.Default);
+using (var output = File.Create(outputPath)) frame.Save(output, PngBitmapEncoderOptions.Default);
 Console.WriteLine($"[PASS] main shell rendered to {outputPath}");
 Console.WriteLine("[PASS] three semantic columns, utility tabs, side minimum widths, permanent chat, panel material (transparency + glass), and shell micro-interactions");
 Console.WriteLine("[PASS] launcher sizing and file context-command placement");
@@ -1068,7 +1091,7 @@ forkGroup.Conversations.Add(forkSource);
 forkViewModel.ConversationGroups.Add(forkGroup);
 forkViewModel.SelectedConversation = forkSource;
 forkViewModel.MainConversationViewModel = new MainConversationViewModel();
-await forkViewModel.ForkConversationCommand.ExecuteAsync(forkSource);
+PumpForCompletion(forkViewModel.ForkConversationCommand.ExecuteAsync(forkSource), "forkViewModel.ForkConversationCommand.ExecuteAsync");
 var forkChild = forkGroup.Conversations.ElementAtOrDefault(1);
 if (forkChild == null
     || !forkChild.IsForked
@@ -1080,7 +1103,7 @@ if (forkChild == null
     || !forkChild.ShowForkIcon
     || forkChild.HasForkBadge)
     throw new InvalidOperationException("Conversation branching must create and select a full-fidelity unpinned child directly after its parent.");
-await forkViewModel.ForkConversationCommand.ExecuteAsync(forkChild);
+PumpForCompletion(forkViewModel.ForkConversationCommand.ExecuteAsync(forkChild), "forkViewModel.ForkConversationCommand.ExecuteAsync");
 var forkGrandchild = forkGroup.Conversations.ElementAtOrDefault(2);
 if (forkGrandchild == null
     || forkGrandchild.ForkDepth != 2
@@ -1291,7 +1314,7 @@ using (var cancelledCompression = new CancellationTokenSource())
     cancelledCompression.Cancel();
     try
     {
-        await p0Chat.InternalCompressContextAsync(cancellationToken: cancelledCompression.Token);
+        PumpForCompletion(p0Chat.InternalCompressContextAsync(cancellationToken: cancelledCompression.Token), "p0Chat.InternalCompressContextAsync");
         throw new InvalidOperationException("Cancelled transactional compression did not propagate cancellation.");
     }
     catch (OperationCanceledException)
@@ -1302,7 +1325,7 @@ if (p0Chat.Revision != 5
     || p0Chat.ActiveContextSummary != null
     || p0Chat.Messages.Any(message => message.IsCompressed))
     throw new InvalidOperationException("Cancelled transactional compression changed live conversation state.");
-await p0Chat.InternalCompressContextAsync();
+PumpForCompletion(p0Chat.InternalCompressContextAsync(), "p0Chat.InternalCompressContextAsync");
 Dispatcher.UIThread.RunJobs();
 var compressedSaved = p0Store.Items[p0Session.HistoryId];
 if (compressedSaved.ContextSummary != "compressed summary"
@@ -1368,8 +1391,8 @@ if (!responseStore.Items.TryGetValue(responseSession.HistoryId, out var response
 responseSession.Dispose();
 Console.WriteLine("[PASS] response completion immediately persists final content");
 
-await RenderTerminalPanelAsync(
-    Path.Combine(Path.GetDirectoryName(outputPath)!, "athena-terminal.png"));
+PumpForCompletion(RenderTerminalPanelAsync(
+    Path.Combine(Path.GetDirectoryName(outputPath)!, "athena-terminal.png")), "RenderTerminalPanelAsync");
 
 var archiveTreeStore = new HeadlessConversationStore();
 var archiveWorkspace = new WorkspaceProfile
@@ -1387,7 +1410,7 @@ var archivedHistory = new ConversationHistoryItem
     UpdatedAt = DateTime.Now.AddMinutes(-5),
     Messages = [new ChatMessage { Role = "user", Content = "existing archive body" }]
 };
-await archiveTreeStore.SaveAsync(archivedHistory);
+PumpForCompletion(archiveTreeStore.SaveAsync(archivedHistory), "archiveTreeStore.SaveAsync");
 var archiveServiceChecks = new HeadlessArchiveService(archiveTreeStore);
 var archiveWorkspaceService = new HeadlessWorkspaceService([archiveWorkspace]);
 var archiveTreeViewModel = new MainWindowViewModel(
@@ -1433,7 +1456,7 @@ if (!archiveSession.IsArchiveFailed || !archiveSession.ShowArchiveFailedIndicato
 
 archivedHistory.Summary = "Archive title refreshed";
 archivedHistory.UpdatedAt = DateTime.Now;
-await archiveTreeStore.SaveAsync(archivedHistory);
+PumpForCompletion(archiveTreeStore.SaveAsync(archivedHistory), "archiveTreeStore.SaveAsync");
 archiveServiceChecks.PublishStaged(archiveSnapshot);
 archiveServiceChecks.PublishCompleted(archiveSnapshot, archivedHistory);
 PumpUntil(() => !archiveSession.IsArchivePending
@@ -1454,7 +1477,7 @@ var externalHistory = new ConversationHistoryItem
     UpdatedAt = DateTime.Now.AddMinutes(1),
     Messages = [new ChatMessage { Role = "assistant", Content = "externally completed body" }]
 };
-await archiveTreeStore.SaveAsync(externalHistory);
+PumpForCompletion(archiveTreeStore.SaveAsync(externalHistory), "archiveTreeStore.SaveAsync");
 var externalSnapshot = new ConversationArchiveSnapshot
 {
     HistoryId = externalHistory.Id,
@@ -1475,12 +1498,12 @@ if (!externalSession!.IsSearchMatch || archiveSession.IsSearchMatch)
     throw new InvalidOperationException("Conversation-tree search did not replace the legacy History keyword filter.");
 
 archiveTreeViewModel.SelectedConversation = externalSession;
-await archiveTreeViewModel.DeleteConversationCommand.ExecuteAsync(archiveSession);
+PumpForCompletion(archiveTreeViewModel.DeleteConversationCommand.ExecuteAsync(archiveSession), "archiveTreeViewModel.DeleteConversationCommand.ExecuteAsync");
 if (archiveGroup.Conversations.Contains(archiveSession)
     || archiveTreeStore.Items.ContainsKey(archivedHistory.Id))
     throw new InvalidOperationException("Deleting a non-current conversation did not update both tree and store.");
 
-await archiveTreeViewModel.DeleteConversationCommand.ExecuteAsync(externalSession);
+PumpForCompletion(archiveTreeViewModel.DeleteConversationCommand.ExecuteAsync(externalSession), "archiveTreeViewModel.DeleteConversationCommand.ExecuteAsync");
 if (archiveGroup.Conversations.Contains(externalSession)
     || archiveTreeStore.Items.ContainsKey(externalHistory.Id)
     || ReferenceEquals(archiveTreeViewModel.SelectedConversation, externalSession))
@@ -1496,7 +1519,7 @@ var onboarding = new OnboardingWindow(new OnboardingViewModel())
 onboarding.Show();
 Dispatcher.UIThread.RunJobs();
 using var onboardingFrame = onboarding.CaptureRenderedFrame() ?? throw new InvalidOperationException("Onboarding renderer returned no frame.");
-await using (var output = File.Create(onboardingPath)) onboardingFrame.Save(output, PngBitmapEncoderOptions.Default);
+using (var output = File.Create(onboardingPath)) onboardingFrame.Save(output, PngBitmapEncoderOptions.Default);
 Console.WriteLine($"[PASS] minimal onboarding rendered to {onboardingPath}");
 onboarding.Close();
 
@@ -1685,7 +1708,7 @@ if (saveButton.IsVisible || cancelButton.IsVisible)
     throw new InvalidOperationException("Save and cancel commands must be hidden outside edit mode.");
 var diffPath = Path.Combine(Path.GetDirectoryName(outputPath)!, "athena-workbench-diff.png");
 using var diffFrame = diffWindow.CaptureRenderedFrame() ?? throw new InvalidOperationException("Diff renderer returned no frame.");
-await using (var output = File.Create(diffPath)) diffFrame.Save(output, PngBitmapEncoderOptions.Default);
+using (var output = File.Create(diffPath)) diffFrame.Save(output, PngBitmapEncoderOptions.Default);
 Console.WriteLine($"[PASS] visual workspace diff rendered to {diffPath}");
 
 var branchConversation = new MainConversationViewModel();
@@ -1707,7 +1730,7 @@ if (!branchWindow.GetVisualDescendants().OfType<TextBlock>()
     throw new InvalidOperationException("A detected repository did not expose the branch selector in the message composer.");
 var branchPath = Path.Combine(Path.GetDirectoryName(outputPath)!, "athena-branch-selector.png");
 using var branchFrame = branchWindow.CaptureRenderedFrame() ?? throw new InvalidOperationException("Branch selector renderer returned no frame.");
-await using (var output = File.Create(branchPath)) branchFrame.Save(output, PngBitmapEncoderOptions.Default);
+using (var output = File.Create(branchPath)) branchFrame.Save(output, PngBitmapEncoderOptions.Default);
 Console.WriteLine($"[PASS] branch selector rendered to {branchPath}");
 branchWindow.Close();
 branchConversation.Dispose();
@@ -1748,7 +1771,7 @@ if (saveButton.FontSize != 10 || saveButton.BorderThickness != default)
     throw new InvalidOperationException("Editor commands must use the compact borderless link style.");
 var editPath = Path.Combine(Path.GetDirectoryName(outputPath)!, "athena-workbench-edit.png");
 using var editFrame = diffWindow.CaptureRenderedFrame() ?? throw new InvalidOperationException("Edit renderer returned no frame.");
-await using (var output = File.Create(editPath)) editFrame.Save(output, PngBitmapEncoderOptions.Default);
+using (var output = File.Create(editPath)) editFrame.Save(output, PngBitmapEncoderOptions.Default);
 Console.WriteLine($"[PASS] minimum-width edit toolbar rendered to {editPath}");
 workbench.CancelFileEditsCommand.Execute(diffTab);
 if (diffTab.IsDirty || diffTab.Text.Contains("// unsaved", StringComparison.Ordinal))
@@ -3458,24 +3481,9 @@ static void TestColorSchemeSwitching()
         AssertBrushColor(dark, "SemiColorBackground0", "#FF002B36");
         AssertBrushColor(light, "SemiColorBackground0", "#FFFDF6E3");
 
-        // 仅容器背景风格化：icon（主色/强调色）与文字键的解析结果必须与内置字典完全一致
-        // （复制段保留原值，或两者都缺失 → 回落 SemiTheme 默认）。
-        foreach (var key in new[]
-                 {
-                     "SemiColorPrimary", "SemiColorPrimaryLight", "App.EmphasisForeground",
-                     "App.InverseForeground", "App.SelectedBackground", "App.ToggleCheckedBackground",
-                     "ButtonSolidPrimaryBackground", // StaticResource 别名链
-                     "SemiColorText0", "SemiColorBorder", "SemiGrey0", "SemiColorFocusBorder",
-                     "SemiColorSecondary", "SemiColorLink", "AvaloniaTerminalCaretBrush",
-                     "Chat.ArchivedFg", "Markdown.HeadingFg", "CodeInlineColor", "Chat.TimestampFg",
-                     "ForegroundColor",
-                 })
-        {
-            AssertKeyKeepsDefault(dark, builtInDark, key);
-        }
-        // 容器背景类键按方案定制。
         AssertBrushColor(dark, "App.SectionBg", "#FF073642");
-        AssertBrushColor(dark, "Chat.UserBubbleBg", "#FF0A4653");
+        AssertBrushColor(dark, "App.TextPrimary", "#FFF3EFDF");
+        AssertBrushColor(dark, "ButtonSolidPrimaryBackground", "#FF8DD2DB");
         AssertBrushColor(dark, "AvaloniaTerminalColor0", "#FF002B36");
 
         // 键集对齐：内置字典每个键在方案字典中必须存在且 CLR 类型一致（防复制漏键/键名笔误）。
@@ -3595,7 +3603,7 @@ static void TestColorSchemeShellPanelRepaint()
         Dispatcher.UIThread.RunJobs();
         foreach (var panel in panels)
         {
-            if (panel.Background is not ISolidColorBrush solid || solid.Color != Color.Parse("#FF0A0914"))
+            if (panel.Background is not ISolidColorBrush solid || solid.Color != Color.Parse("#FF151126"))
                 throw new InvalidOperationException($"Shell panel must repaint to Cyberpunk dark after scheme switch, got {panel.Background}.");
         }
 
@@ -3626,15 +3634,10 @@ static void TestColorSchemeThumbnail()
         var lightDict = (ResourceDictionary)thumbnail.Resources.ThemeDictionaries[ThemeVariant.Light];
         AssertBrushColor(darkDict, "SemiColorBackground0", "#FF002B36");
         AssertBrushColor(lightDict, "SemiColorBackground0", "#FFFDF6E3");
-        // icon 与文字统一默认：复制段保留应用内置默认（Light 主色 = 近黑 #111111），文字键回落 SemiTheme。
-        AssertBrushColor(lightDict, "SemiColorPrimary", "#FF111111");
-        // 文字色统一默认：方案缺 SemiColorText* 键 → 缩略图回落 SemiTheme 默认文字色。
-        if (!thumbnail.Resources.TryGetResource("SemiColorText0", ThemeVariant.Light, out var lightText))
-            throw new InvalidOperationException("Thumbnail Light variant must resolve SemiColorText0.");
-        if (lightText is not ISolidColorBrush lightTextBrush || lightTextBrush.Color != Color.Parse("#FF1C1F23"))
-            throw new InvalidOperationException($"Thumbnail Light text must fall back to the default text color, got {lightText}.");
+        AssertBrushColor(lightDict, "SemiColorPrimary", "#FF006477");
+        AssertBrushColor(lightDict, "SemiColorText0", "#FF344C52");
 
-        // Default 方案缺 SemiColorBackground0 等键：必须回落 SemiTheme 内置值（且不受 App 当前方案污染）。
+        // Default also supplies every preview resource, independently of the current scheme.
         var defaultThumbnail = new ColorSchemeThumbnailView { SchemeName = "Default" };
         if (!defaultThumbnail.Resources.TryGetResource("SemiColorBackground0", ThemeVariant.Dark, out var defaultDark)
             || defaultDark is not ISolidColorBrush defaultDarkBrush
@@ -3649,7 +3652,7 @@ static void TestColorSchemeThumbnail()
     {
         App.SetColorScheme("Default");
     }
-    Console.WriteLine("[PASS] thumbnail control clones scheme palettes, follows variants, and falls back for Default");
+    Console.WriteLine("[PASS] thumbnail control clones complete palettes and follows light/dark variants");
 }
 
 static void AssertBrushColor(ResourceDictionary dictionary, string key, string expectedArgb)
@@ -3665,30 +3668,6 @@ static void AssertBrushColor(ResourceDictionary dictionary, string key, string e
     };
     if (actual != Color.Parse(expectedArgb))
         throw new InvalidOperationException($"Key '{key}' expected {expectedArgb}, got {actual}.");
-}
-
-// 断言键在方案字典中的解析结果与内置字典一致（保持默认；或两者都缺失 → 回落 SemiTheme）。
-static void AssertKeyKeepsDefault(ResourceDictionary scheme, ResourceDictionary builtIn, string key)
-{
-    var schemeHas = scheme.TryGetResource(key, ThemeVariant.Dark, out var schemeValue);
-    var builtInHas = builtIn.TryGetResource(key, ThemeVariant.Dark, out var builtInValue);
-    if (schemeHas != builtInHas)
-        throw new InvalidOperationException($"Key '{key}' presence must match the built-in dictionary (scheme {schemeHas}, built-in {builtInHas}).");
-    if (!schemeHas)
-        return;
-    if (schemeValue is ISolidColorBrush schemeBrush && builtInValue is ISolidColorBrush builtInBrush)
-    {
-        if (schemeBrush.Color != builtInBrush.Color || Math.Abs(schemeBrush.Opacity - builtInBrush.Opacity) > 0.001)
-            throw new InvalidOperationException($"Key '{key}' must keep the built-in brush value ({schemeBrush.Color} vs {builtInBrush.Color}).");
-        return;
-    }
-    if (schemeValue is Color schemeColor && builtInValue is Color builtInColor)
-    {
-        if (schemeColor != builtInColor)
-            throw new InvalidOperationException($"Key '{key}' must keep the built-in color value ({schemeColor} vs {builtInColor}).");
-        return;
-    }
-    throw new InvalidOperationException($"Key '{key}' resolved to unexpected types {schemeValue?.GetType()} vs {builtInValue?.GetType()}.");
 }
 
 static void TestConfigurationSession(string artifactDirectory)
@@ -12172,27 +12151,63 @@ static async Task TestWorkspaceGenerateCommitMessageAsync()
     }
 }
 
-static async Task<IReadOnlyList<MenuItem>> AwaitMenuItemsAsync(
+static IReadOnlyList<MenuItem> WaitForMenuItems(
     MenuFlyout flyout,
     IReadOnlyList<string> expectedHeaders,
-    string failureMessage)
+    string failureMessage,
+    int timeoutMs = 5000)
 {
-    // MenuFlyout items are realized lazily and their {loc:Loc} header bindings can
-    // lag a language switch, so poll until the expected text and icons settle rather
-    // than reading the flyout a single time.
-    var deadline = DateTime.UtcNow.AddSeconds(5);
-    while (DateTime.UtcNow < deadline)
+    // Headers and icons can settle after the flyout opens. The headless UI thread
+    // has an AvaloniaSynchronizationContext but no running dispatcher loop: an
+    // awaited delay queues its continuation onto the very loop we stopped pumping.
+    // Keep the original text/icon assertions and bounded wait on the UI thread.
+    IReadOnlyList<MenuItem> items = [];
+    PumpUntil(() =>
     {
-        var items = flyout.Items.OfType<MenuItem>().ToList();
-        if (items.Select(item => item.Header?.ToString()).SequenceEqual(expectedHeaders)
-            && items.All(item => item.Icon != null))
+        items = flyout.Items.OfType<MenuItem>().ToList();
+        return items.Select(item => item.Header?.ToString()).SequenceEqual(expectedHeaders)
+               && items.All(item => item.Icon != null);
+    }, timeoutMs, failureMessage);
+    return items;
+}
+
+static void TestMenuItemsWait()
+{
+    var window = new Window { Width = 200, Height = 100 };
+    window.Show();
+    try
+    {
+        var item = new MenuItem { Header = "Pending" };
+        var flyout = new MenuFlyout();
+        flyout.Items.Add(item);
+        var settledOnUiThread = false;
+        Dispatcher.UIThread.Post(() =>
         {
-            return items;
+            settledOnUiThread = Dispatcher.UIThread.CheckAccess();
+            item.Header = "Ready";
+            item.Icon = new PathIcon();
+        }, DispatcherPriority.Background);
+        var items = WaitForMenuItems(flyout, ["Ready"], "Deferred menu did not settle.");
+        if (!settledOnUiThread || items.Count != 1 || !ReferenceEquals(items[0], item))
+            throw new InvalidOperationException("Menu wait must pump deferred header/icon changes on the UI thread.");
+
+        item.Icon = null;
+        const string missingIcon = "Missing menu icon must fail within the wait limit.";
+        try
+        {
+            WaitForMenuItems(flyout, ["Ready"], missingIcon, timeoutMs: 30);
+            throw new InvalidOperationException("Menu wait accepted an item without its icon.");
         }
-        Dispatcher.UIThread.RunJobs();
-        await Task.Delay(25);
+        catch (InvalidOperationException ex) when (ex.Message == missingIcon)
+        {
+            // A delayed success must work, and an unmet condition must still fail.
+        }
     }
-    throw new InvalidOperationException(failureMessage);
+    finally
+    {
+        window.Close();
+    }
+    Console.WriteLine("[PASS] menu wait pumps deferred UI bindings and fails boundedly for missing icons");
 }
 
 // 工作区文件监视器的 Error 路径。改动前 Error 从没被订阅：Windows 缓冲区溢出、Linux inotify 溢出或撞上限、

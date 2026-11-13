@@ -21,9 +21,8 @@
                     <TextBlock Text="{loc:Loc Settings.Window.Title}"
                                FontSize="{DynamicResource App.FontSize.PageTitle}"
                                FontWeight="SemiBold"/>
-                    <TextBlock Text="{loc:Loc Settings.Window.Subtitle}"
-                               TextWrapping="Wrap"
-                               Opacity="0.62"/>
+                    <TextBlock Foreground="{DynamicResource App.TextMuted}" Text="{loc:Loc Settings.Window.Subtitle}"
+                               TextWrapping="Wrap"/>
                 </StackPanel>
                 <ListBox x:Name="SettingsNavigation"
                          Grid.Row="1"

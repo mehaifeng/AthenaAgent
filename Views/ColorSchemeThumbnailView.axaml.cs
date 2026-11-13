@@ -1,8 +1,6 @@
 using Avalonia;
 using Avalonia.Controls;
-using Avalonia.Media;
 using Avalonia.Styling;
-using System.Collections.Generic;
 
 namespace Athena.UI.Views;
 
@@ -10,7 +8,7 @@ namespace Athena.UI.Views;
 /// 配色方案缩略图：mockup 所需键从方案字典强制解析后装入控件自身的 ThemeDictionaries，
 /// 明暗切换时随 ActualThemeVariant 自动换色，永远显示该方案在当前明暗模式下的真实配色。
 /// 注意：不能直接挂载 App 的字典实例（Avalonia 的 ResourceDictionary 是独占单父宿主），
-/// 这里克隆为独立实例；方案字典缺的键（如 Default 无 SemiColorBackground0）回落 SemiTheme 内置默认值。
+/// 这里复制到独立字典；所有预览键都必须由方案显式提供，不能回落到当前应用主题。
 /// </summary>
 public partial class ColorSchemeThumbnailView : UserControl
 {
@@ -21,34 +19,6 @@ public partial class ColorSchemeThumbnailView : UserControl
         "SemiColorText0", "SemiColorText2",
         "SemiColorPrimary", "SemiColorPrimaryLight", "SemiColorBorder",
     ];
-
-    /// <summary>SemiTheme 内置调色板（Dark），供方案字典缺键时回落（即 Default 方案的真实外观）。</summary>
-    private static readonly IReadOnlyDictionary<string, string> DarkFallbacks =
-        new Dictionary<string, string>
-        {
-            ["SemiColorBackground0"] = "#FF16161A",
-            ["SemiColorBackground1"] = "#FF232429",
-            ["SemiColorBackground2"] = "#FF35363C",
-            ["SemiColorText0"] = "#FFF9F9F9",
-            ["SemiColorText2"] = "#99F9F9F9",
-            ["SemiColorPrimary"] = "#FF54A9FF",
-            ["SemiColorPrimaryLight"] = "#3354A9FF",
-            ["SemiColorBorder"] = "#14FFFFFF",
-        };
-
-    /// <summary>SemiTheme 内置调色板（Light），供方案字典缺键时回落。</summary>
-    private static readonly IReadOnlyDictionary<string, string> LightFallbacks =
-        new Dictionary<string, string>
-        {
-            ["SemiColorBackground0"] = "#FFFFFFFF",
-            ["SemiColorBackground1"] = "#FFFFFFFF",
-            ["SemiColorBackground2"] = "#FFFFFFFF",
-            ["SemiColorText0"] = "#FF1C1F23",
-            ["SemiColorText2"] = "#991C1F23",
-            ["SemiColorPrimary"] = "#FF0064FA",
-            ["SemiColorPrimaryLight"] = "#FFEAF5FF",
-            ["SemiColorBorder"] = "#141C1F23",
-        };
 
     public static readonly StyledProperty<string> SchemeNameProperty =
         AvaloniaProperty.Register<ColorSchemeThumbnailView, string>(nameof(SchemeName), "Default");
@@ -82,7 +52,6 @@ public partial class ColorSchemeThumbnailView : UserControl
 
     private static ResourceDictionary BuildThumbnailDictionary(ResourceDictionary source, ThemeVariant variant)
     {
-        var fallbacks = variant == ThemeVariant.Dark ? DarkFallbacks : LightFallbacks;
         var dict = new ResourceDictionary();
         foreach (var key in ThumbnailKeys)
         {
@@ -90,9 +59,9 @@ public partial class ColorSchemeThumbnailView : UserControl
             {
                 dict[key] = value;
             }
-            else if (fallbacks.TryGetValue(key, out var hex))
+            else
             {
-                dict[key] = new SolidColorBrush(Color.Parse(hex));
+                throw new System.InvalidOperationException($"Theme preview is missing {key} ({variant.Key}).");
             }
         }
         return dict;

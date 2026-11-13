@@ -20,9 +20,8 @@
                 <TextBlock Text="{loc:Loc About.Header}"
                            FontWeight="SemiBold"
                            FontSize="{DynamicResource App.FontSize.PageTitle}"/>
-                <TextBlock Text="{loc:Loc About.Subtitle}"
-                           TextWrapping="Wrap"
-                           Opacity="0.62"/>
+                <TextBlock Foreground="{DynamicResource App.TextMuted}" Text="{loc:Loc About.Subtitle}"
+                           TextWrapping="Wrap"/>
             </StackPanel>
 
             <Border Background="{DynamicResource App.SectionBg}"
@@ -47,22 +46,22 @@
                                FontSize="{DynamicResource App.FontSize.Title}"/>
 
                     <Grid ColumnDefinitions="110,*" RowDefinitions="Auto,Auto,Auto,Auto,Auto">
-                        <TextBlock Grid.Row="0" Text="{loc:Loc About.KernelVer}" Opacity="0.6"/>
+                        <TextBlock Foreground="{DynamicResource App.TextMuted}" Grid.Row="0" Text="{loc:Loc About.KernelVer}"/>
                         <TextBlock Grid.Row="0" Grid.Column="1" Text="{Binding CurrentVersion}" FontWeight="SemiBold"/>
 
-                        <TextBlock Grid.Row="1" Text="{loc:Loc About.Framework}" Opacity="0.6" Margin="0,12,0,0"/>
+                        <TextBlock Foreground="{DynamicResource App.TextMuted}" Grid.Row="1" Text="{loc:Loc About.Framework}" Margin="0,12,0,0"/>
                         <TextBlock Grid.Row="1" Grid.Column="1"
                                    Text="Avalonia UI / Irihi.Ursa.Themes.Semi"
                                    TextWrapping="Wrap"
                                    Margin="0,12,0,0"/>
 
-                        <TextBlock Grid.Row="2" Text="{loc:Loc About.License}" Opacity="0.6" Margin="0,12,0,0"/>
+                        <TextBlock Foreground="{DynamicResource App.TextMuted}" Grid.Row="2" Text="{loc:Loc About.License}" Margin="0,12,0,0"/>
                         <TextBlock Grid.Row="2" Grid.Column="1" Text="MIT" Margin="0,12,0,0"/>
 
-                        <TextBlock Grid.Row="3" Text="{loc:Loc About.Author}" Opacity="0.6" Margin="0,12,0,0"/>
+                        <TextBlock Foreground="{DynamicResource App.TextMuted}" Grid.Row="3" Text="{loc:Loc About.Author}" Margin="0,12,0,0"/>
                         <TextBlock Grid.Row="3" Grid.Column="1" Text="@mehaifeng" Margin="0,12,0,0"/>
 
-                        <TextBlock Grid.Row="4" Text="{loc:Loc About.StartupTime}" Opacity="0.6" Margin="0,12,0,0"/>
+                        <TextBlock Foreground="{DynamicResource App.TextMuted}" Grid.Row="4" Text="{loc:Loc About.StartupTime}" Margin="0,12,0,0"/>
                         <TextBlock Grid.Row="4" Grid.Column="1" Text="{Binding StartupDurationText}" Margin="0,12,0,0"/>
                     </Grid>
                 </StackPanel>
@@ -71,11 +70,10 @@
             <Border Background="{DynamicResource App.AssistantBubbleBg}"
                     CornerRadius="8"
                     Padding="14">
-                <TextBlock Text="{loc:Loc About.Quote}"
+                <TextBlock Foreground="{DynamicResource App.TextMuted}" Text="{loc:Loc About.Quote}"
                            FontStyle="Italic"
                            FontSize="{DynamicResource App.FontSize.Subheading}"
-                           HorizontalAlignment="Center"
-                           Opacity="0.8"/>
+                           HorizontalAlignment="Center"/>
             </Border>
 
             <WrapPanel HorizontalAlignment="Center">
@@ -114,9 +112,8 @@
                     Padding="12"
                     IsVisible="{Binding IsUpdateProgressVisible}">
                 <StackPanel Spacing="8">
-                    <TextBlock Text="{Binding UpdateProgressStatus}"
+                    <TextBlock Foreground="{DynamicResource App.TextMuted}" Text="{Binding UpdateProgressStatus}"
                                FontSize="{DynamicResource App.FontSize.Body}"
-                               Opacity="0.8"
                                TextWrapping="Wrap"/>
                     <ProgressBar Minimum="0"
                                  Maximum="100"
