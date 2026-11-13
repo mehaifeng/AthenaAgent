@@ -81,6 +81,10 @@ AppBuilder.Configure<App>()
     })
     .SetupWithoutStarting();
 
+// SetupWithoutStarting installs a UI synchronization context without running its
+// event loop. Entry-point task waits must use PumpForCompletion, and synchronous
+// screenshot writes use synchronous disposal; an incomplete top-level await would
+// leave its continuation queued forever. Async helpers remain safe inside the pump.
 if (Environment.GetEnvironmentVariable("ATHENA_HEADLESS_ONLY") == "menu-wait")
 {
     TestMenuItemsWait();
@@ -361,11 +365,11 @@ if (logSplitter == null
     || logSplitter.ResizeDirection != GridResizeDirection.Rows
     || logSplitter.ResizeBehavior != GridResizeBehavior.PreviousAndNext)
     throw new InvalidOperationException("The log splitter must resize adjacent rows live without preview.");
-await mainViewModel.ToggleSidePanelsCommand.ExecuteAsync(null);
+PumpForCompletion(mainViewModel.ToggleSidePanelsCommand.ExecuteAsync(null), "mainViewModel.ToggleSidePanelsCommand.ExecuteAsync");
 Dispatcher.UIThread.RunJobs();
 if (shell.ColumnDefinitions[0].MinWidth < 360 || shell.ColumnDefinitions[4].MinWidth < 260)
     throw new InvalidOperationException("Swapping side panels did not swap their physical column minimum widths.");
-await mainViewModel.ToggleSidePanelsCommand.ExecuteAsync(null);
+PumpForCompletion(mainViewModel.ToggleSidePanelsCommand.ExecuteAsync(null), "mainViewModel.ToggleSidePanelsCommand.ExecuteAsync");
 Dispatcher.UIThread.RunJobs();
 // 右栏整体收起：语义右栏与它那条分隔线一起归零，状态写进 MainLayout 并落盘。
 var shellLayout = mainViewModel.Config!.MainLayout;
@@ -383,7 +387,7 @@ if (rightPanelToggleButton.FindAncestorOfType<Grid>()?.Parent is not Border { Co
     throw new InvalidOperationException("The right panel toggle must sit in the conversation header row.");
 if (mainViewModel.RightPanelToggleIconKey != "AthenaIconPanelTowardRight")
     throw new InvalidOperationException("An expanded right-hand panel must offer to push toward the right.");
-await mainViewModel.ToggleRightPanelCommand.ExecuteAsync(null);
+PumpForCompletion(mainViewModel.ToggleRightPanelCommand.ExecuteAsync(null), "mainViewModel.ToggleRightPanelCommand.ExecuteAsync");
 Dispatcher.UIThread.RunJobs();
 if (!shellLayout.RightPanelCollapsed || !mainViewModel.IsRightPanelCollapsed || shellConfigService.SaveCount <= savesBeforeCollapse)
     throw new InvalidOperationException("Collapsing the right panel must flip MainLayout.RightPanelCollapsed and save it.");
@@ -402,15 +406,15 @@ if (shellLayout.RightWidth != rightWidthBeforeCollapse)
     throw new InvalidOperationException($"Saving the other splitter while collapsed overwrote RightWidth ({rightWidthBeforeCollapse} -> {shellLayout.RightWidth}).");
 shellLayout.LeftWidth = leftWidthBeforeCollapse;
 // 交换布局下收起作用在物理列 0/1，而不是左侧会话栏。
-await mainViewModel.ToggleSidePanelsCommand.ExecuteAsync(null);
+PumpForCompletion(mainViewModel.ToggleSidePanelsCommand.ExecuteAsync(null), "mainViewModel.ToggleSidePanelsCommand.ExecuteAsync");
 Dispatcher.UIThread.RunJobs();
 if (shell.ColumnDefinitions[0].Width.Value != 0 || shell.ColumnDefinitions[1].Width.Value != 0
     || shell.ColumnDefinitions[4].Width.Value < 260 || shell.ColumnDefinitions[3].Width.Value != 5)
     throw new InvalidOperationException("With swapped panels, collapsing must zero physical columns 0/1 and keep the session list.");
 if (mainViewModel.RightPanelToggleIconKey != "AthenaIconPanelTowardRight")
     throw new InvalidOperationException("A collapsed panel on the left must offer to pull back toward the right.");
-await mainViewModel.ToggleSidePanelsCommand.ExecuteAsync(null);
-await mainViewModel.ToggleRightPanelCommand.ExecuteAsync(null);
+PumpForCompletion(mainViewModel.ToggleSidePanelsCommand.ExecuteAsync(null), "mainViewModel.ToggleSidePanelsCommand.ExecuteAsync");
+PumpForCompletion(mainViewModel.ToggleRightPanelCommand.ExecuteAsync(null), "mainViewModel.ToggleRightPanelCommand.ExecuteAsync");
 Dispatcher.UIThread.RunJobs();
 if (shellLayout.RightPanelCollapsed || !rightPanelGrid.IsVisible || !rightSideSplitter.IsVisible
     || shell.ColumnDefinitions[4].MinWidth < 360 || shell.ColumnDefinitions[4].Width.Value < 360
@@ -899,7 +903,7 @@ pinnedMenuFlyout.Hide();
 Directory.CreateDirectory(Path.GetDirectoryName(outputPath)!);
 AssertEveryIconResolved(window);
 using var frame = window.CaptureRenderedFrame() ?? throw new InvalidOperationException("Headless renderer returned no frame.");
-await using (var output = File.Create(outputPath)) frame.Save(output, PngBitmapEncoderOptions.Default);
+using (var output = File.Create(outputPath)) frame.Save(output, PngBitmapEncoderOptions.Default);
 Console.WriteLine($"[PASS] main shell rendered to {outputPath}");
 Console.WriteLine("[PASS] three semantic columns, utility tabs, side minimum widths, permanent chat, panel material (transparency + glass), and shell micro-interactions");
 Console.WriteLine("[PASS] launcher sizing and file context-command placement");
@@ -1087,7 +1091,7 @@ forkGroup.Conversations.Add(forkSource);
 forkViewModel.ConversationGroups.Add(forkGroup);
 forkViewModel.SelectedConversation = forkSource;
 forkViewModel.MainConversationViewModel = new MainConversationViewModel();
-await forkViewModel.ForkConversationCommand.ExecuteAsync(forkSource);
+PumpForCompletion(forkViewModel.ForkConversationCommand.ExecuteAsync(forkSource), "forkViewModel.ForkConversationCommand.ExecuteAsync");
 var forkChild = forkGroup.Conversations.ElementAtOrDefault(1);
 if (forkChild == null
     || !forkChild.IsForked
@@ -1099,7 +1103,7 @@ if (forkChild == null
     || !forkChild.ShowForkIcon
     || forkChild.HasForkBadge)
     throw new InvalidOperationException("Conversation branching must create and select a full-fidelity unpinned child directly after its parent.");
-await forkViewModel.ForkConversationCommand.ExecuteAsync(forkChild);
+PumpForCompletion(forkViewModel.ForkConversationCommand.ExecuteAsync(forkChild), "forkViewModel.ForkConversationCommand.ExecuteAsync");
 var forkGrandchild = forkGroup.Conversations.ElementAtOrDefault(2);
 if (forkGrandchild == null
     || forkGrandchild.ForkDepth != 2
@@ -1310,7 +1314,7 @@ using (var cancelledCompression = new CancellationTokenSource())
     cancelledCompression.Cancel();
     try
     {
-        await p0Chat.InternalCompressContextAsync(cancellationToken: cancelledCompression.Token);
+        PumpForCompletion(p0Chat.InternalCompressContextAsync(cancellationToken: cancelledCompression.Token), "p0Chat.InternalCompressContextAsync");
         throw new InvalidOperationException("Cancelled transactional compression did not propagate cancellation.");
     }
     catch (OperationCanceledException)
@@ -1321,7 +1325,7 @@ if (p0Chat.Revision != 5
     || p0Chat.ActiveContextSummary != null
     || p0Chat.Messages.Any(message => message.IsCompressed))
     throw new InvalidOperationException("Cancelled transactional compression changed live conversation state.");
-await p0Chat.InternalCompressContextAsync();
+PumpForCompletion(p0Chat.InternalCompressContextAsync(), "p0Chat.InternalCompressContextAsync");
 Dispatcher.UIThread.RunJobs();
 var compressedSaved = p0Store.Items[p0Session.HistoryId];
 if (compressedSaved.ContextSummary != "compressed summary"
@@ -1387,8 +1391,8 @@ if (!responseStore.Items.TryGetValue(responseSession.HistoryId, out var response
 responseSession.Dispose();
 Console.WriteLine("[PASS] response completion immediately persists final content");
 
-await RenderTerminalPanelAsync(
-    Path.Combine(Path.GetDirectoryName(outputPath)!, "athena-terminal.png"));
+PumpForCompletion(RenderTerminalPanelAsync(
+    Path.Combine(Path.GetDirectoryName(outputPath)!, "athena-terminal.png")), "RenderTerminalPanelAsync");
 
 var archiveTreeStore = new HeadlessConversationStore();
 var archiveWorkspace = new WorkspaceProfile
@@ -1406,7 +1410,7 @@ var archivedHistory = new ConversationHistoryItem
     UpdatedAt = DateTime.Now.AddMinutes(-5),
     Messages = [new ChatMessage { Role = "user", Content = "existing archive body" }]
 };
-await archiveTreeStore.SaveAsync(archivedHistory);
+PumpForCompletion(archiveTreeStore.SaveAsync(archivedHistory), "archiveTreeStore.SaveAsync");
 var archiveServiceChecks = new HeadlessArchiveService(archiveTreeStore);
 var archiveWorkspaceService = new HeadlessWorkspaceService([archiveWorkspace]);
 var archiveTreeViewModel = new MainWindowViewModel(
@@ -1452,7 +1456,7 @@ if (!archiveSession.IsArchiveFailed || !archiveSession.ShowArchiveFailedIndicato
 
 archivedHistory.Summary = "Archive title refreshed";
 archivedHistory.UpdatedAt = DateTime.Now;
-await archiveTreeStore.SaveAsync(archivedHistory);
+PumpForCompletion(archiveTreeStore.SaveAsync(archivedHistory), "archiveTreeStore.SaveAsync");
 archiveServiceChecks.PublishStaged(archiveSnapshot);
 archiveServiceChecks.PublishCompleted(archiveSnapshot, archivedHistory);
 PumpUntil(() => !archiveSession.IsArchivePending
@@ -1473,7 +1477,7 @@ var externalHistory = new ConversationHistoryItem
     UpdatedAt = DateTime.Now.AddMinutes(1),
     Messages = [new ChatMessage { Role = "assistant", Content = "externally completed body" }]
 };
-await archiveTreeStore.SaveAsync(externalHistory);
+PumpForCompletion(archiveTreeStore.SaveAsync(externalHistory), "archiveTreeStore.SaveAsync");
 var externalSnapshot = new ConversationArchiveSnapshot
 {
     HistoryId = externalHistory.Id,
@@ -1494,12 +1498,12 @@ if (!externalSession!.IsSearchMatch || archiveSession.IsSearchMatch)
     throw new InvalidOperationException("Conversation-tree search did not replace the legacy History keyword filter.");
 
 archiveTreeViewModel.SelectedConversation = externalSession;
-await archiveTreeViewModel.DeleteConversationCommand.ExecuteAsync(archiveSession);
+PumpForCompletion(archiveTreeViewModel.DeleteConversationCommand.ExecuteAsync(archiveSession), "archiveTreeViewModel.DeleteConversationCommand.ExecuteAsync");
 if (archiveGroup.Conversations.Contains(archiveSession)
     || archiveTreeStore.Items.ContainsKey(archivedHistory.Id))
     throw new InvalidOperationException("Deleting a non-current conversation did not update both tree and store.");
 
-await archiveTreeViewModel.DeleteConversationCommand.ExecuteAsync(externalSession);
+PumpForCompletion(archiveTreeViewModel.DeleteConversationCommand.ExecuteAsync(externalSession), "archiveTreeViewModel.DeleteConversationCommand.ExecuteAsync");
 if (archiveGroup.Conversations.Contains(externalSession)
     || archiveTreeStore.Items.ContainsKey(externalHistory.Id)
     || ReferenceEquals(archiveTreeViewModel.SelectedConversation, externalSession))
@@ -1515,7 +1519,7 @@ var onboarding = new OnboardingWindow(new OnboardingViewModel())
 onboarding.Show();
 Dispatcher.UIThread.RunJobs();
 using var onboardingFrame = onboarding.CaptureRenderedFrame() ?? throw new InvalidOperationException("Onboarding renderer returned no frame.");
-await using (var output = File.Create(onboardingPath)) onboardingFrame.Save(output, PngBitmapEncoderOptions.Default);
+using (var output = File.Create(onboardingPath)) onboardingFrame.Save(output, PngBitmapEncoderOptions.Default);
 Console.WriteLine($"[PASS] minimal onboarding rendered to {onboardingPath}");
 onboarding.Close();
 
@@ -1704,7 +1708,7 @@ if (saveButton.IsVisible || cancelButton.IsVisible)
     throw new InvalidOperationException("Save and cancel commands must be hidden outside edit mode.");
 var diffPath = Path.Combine(Path.GetDirectoryName(outputPath)!, "athena-workbench-diff.png");
 using var diffFrame = diffWindow.CaptureRenderedFrame() ?? throw new InvalidOperationException("Diff renderer returned no frame.");
-await using (var output = File.Create(diffPath)) diffFrame.Save(output, PngBitmapEncoderOptions.Default);
+using (var output = File.Create(diffPath)) diffFrame.Save(output, PngBitmapEncoderOptions.Default);
 Console.WriteLine($"[PASS] visual workspace diff rendered to {diffPath}");
 
 var branchConversation = new MainConversationViewModel();
@@ -1726,7 +1730,7 @@ if (!branchWindow.GetVisualDescendants().OfType<TextBlock>()
     throw new InvalidOperationException("A detected repository did not expose the branch selector in the message composer.");
 var branchPath = Path.Combine(Path.GetDirectoryName(outputPath)!, "athena-branch-selector.png");
 using var branchFrame = branchWindow.CaptureRenderedFrame() ?? throw new InvalidOperationException("Branch selector renderer returned no frame.");
-await using (var output = File.Create(branchPath)) branchFrame.Save(output, PngBitmapEncoderOptions.Default);
+using (var output = File.Create(branchPath)) branchFrame.Save(output, PngBitmapEncoderOptions.Default);
 Console.WriteLine($"[PASS] branch selector rendered to {branchPath}");
 branchWindow.Close();
 branchConversation.Dispose();
@@ -1767,7 +1771,7 @@ if (saveButton.FontSize != 10 || saveButton.BorderThickness != default)
     throw new InvalidOperationException("Editor commands must use the compact borderless link style.");
 var editPath = Path.Combine(Path.GetDirectoryName(outputPath)!, "athena-workbench-edit.png");
 using var editFrame = diffWindow.CaptureRenderedFrame() ?? throw new InvalidOperationException("Edit renderer returned no frame.");
-await using (var output = File.Create(editPath)) editFrame.Save(output, PngBitmapEncoderOptions.Default);
+using (var output = File.Create(editPath)) editFrame.Save(output, PngBitmapEncoderOptions.Default);
 Console.WriteLine($"[PASS] minimum-width edit toolbar rendered to {editPath}");
 workbench.CancelFileEditsCommand.Execute(diffTab);
 if (diffTab.IsDirty || diffTab.Text.Contains("// unsaved", StringComparison.Ordinal))
