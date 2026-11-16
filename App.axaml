@@ -208,6 +208,24 @@
             <Setter Property="BorderBrush" Value="{DynamicResource SemiGreyLowBrush}"/>
         </Style>
 
+        <!-- 仅手动展开的过程段使用编辑器式外框；流式窗口和收起态保持轻量。 -->
+        <Style Selector="Border.process-run-editor.expanded">
+            <Setter Property="Margin" Value="4,3,0,5"/>
+            <Setter Property="Padding" Value="10,7"/>
+            <Setter Property="Background" Value="{DynamicResource App.SectionBg}"/>
+            <Setter Property="BorderBrush" Value="{DynamicResource SemiGreyLowBrush}"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="CornerRadius" Value="5"/>
+        </Style>
+        <Style Selector="Border.tool-detail-editor">
+            <Setter Property="Margin" Value="16,3,0,6"/>
+            <Setter Property="Padding" Value="10,8"/>
+            <Setter Property="Background" Value="{DynamicResource SemiColorBackground0}"/>
+            <Setter Property="BorderBrush" Value="{DynamicResource SemiGreyLowBrush}"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="CornerRadius" Value="4"/>
+        </Style>
+
         <!-- 展开态换几何而不是旋转：PathIcon 的 RenderTransform 已被 Semi 主题占用（TransformGroup），
              样式里挂 RotateTransform 不会生效，箭头会永远指向右边。 -->
         <Style Selector="PathIcon.process-chevron">
@@ -230,18 +248,6 @@
         <Style Selector="PathIcon.tool-status.failed">
             <Setter Property="Foreground" Value="{DynamicResource SemiRed6}"/>
             <Setter Property="Opacity" Value="1"/>
-        </Style>
-
-        <!-- 摘要行的失败标记只提示、不报警：过程段里某次调用报错，多半是参数不合要求，
-             模型下一步就会换一种做法，整段照样读完了。鲜艳的红色留给明细行里那一条真实报错，
-             摘要行只说明「有几次调用没成」。 -->
-        <Style Selector="TextBlock.process-run-failures">
-            <Setter Property="Foreground" Value="{DynamicResource SemiOrange5}"/>
-            <Setter Property="FontSize" Value="{DynamicResource App.FontSize.Body}"/>
-        </Style>
-        <Style Selector="PathIcon.tool-status.summary.failed">
-            <Setter Property="Foreground" Value="{DynamicResource SemiOrange5}"/>
-            <Setter Property="Opacity" Value="0.9"/>
         </Style>
 
         <!-- 推理增量追加期间，灯泡在辅助前景色与当前主题强调色之间呼吸闪烁。

@@ -13,15 +13,9 @@ namespace Athena.UI.Models;
 public sealed record ProcessRunStats(
     int Reasoning,
     int Tools,
-    int Read,
-    int Search,
-    int Write,
-    int Command,
-    int Other,
-    int Failed,
     int Running)
 {
-    public static ProcessRunStats Empty { get; } = new(0, 0, 0, 0, 0, 0, 0, 0, 0);
+    public static ProcessRunStats Empty { get; } = new(0, 0, 0);
 }
 
 /// <summary>
@@ -66,7 +60,6 @@ public sealed partial class ProcessRun : ObservableObject
     [NotifyPropertyChangedFor(nameof(Header))]
     [NotifyPropertyChangedFor(nameof(StatusIconKey))]
     [NotifyPropertyChangedFor(nameof(IsRunning))]
-    [NotifyPropertyChangedFor(nameof(IsSucceeded))]
     private bool _isOpen;
 
     [ObservableProperty]
@@ -77,8 +70,6 @@ public sealed partial class ProcessRun : ObservableObject
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(StatusIconKey))]
     [NotifyPropertyChangedFor(nameof(IsRunning))]
-    [NotifyPropertyChangedFor(nameof(HasFailures))]
-    [NotifyPropertyChangedFor(nameof(IsSucceeded))]
     private ProcessRunStats _stats = ProcessRunStats.Empty;
 
     public IReadOnlyList<ChatMessageSegment> Segments => _segments;
@@ -93,13 +84,9 @@ public sealed partial class ProcessRun : ObservableObject
 
     public bool IsRunning => IsOpen && Stats.Running > 0;
 
-    public bool HasFailures => Stats.Failed > 0;
-
-    public bool IsSucceeded => !IsRunning && !HasFailures;
-
     public string StatusIconKey => IsRunning
         ? "AthenaIconLoading"
-        : HasFailures ? "AthenaIconFailure" : "AthenaIconSuccess";
+        : "AthenaIconLogs";
 
     public string ChevronIconKey => IsExpanded ? "AthenaIconChevronDown" : "AthenaIconChevronRight";
 
@@ -220,7 +207,7 @@ public sealed partial class ProcessRun : ObservableObject
 
     private void RecomputeStats()
     {
-        int reasoning = 0, tools = 0, read = 0, search = 0, write = 0, command = 0, other = 0, failed = 0, running = 0;
+        int reasoning = 0, tools = 0, running = 0;
         foreach (var row in _rows)
         {
             if (row is not ToolCallEntry entry)
@@ -230,20 +217,10 @@ public sealed partial class ProcessRun : ObservableObject
             }
 
             tools++;
-            switch (ToolCallDisplay.Category(entry.Name))
-            {
-                case ToolCallCategory.Read: read++; break;
-                case ToolCallCategory.Search: search++; break;
-                case ToolCallCategory.Write: write++; break;
-                case ToolCallCategory.Command: command++; break;
-                default: other++; break;
-            }
-
-            if (entry.IsFailed) failed++;
-            else if (entry.IsRunning) running++;
+            if (entry.IsRunning) running++;
         }
 
-        var stats = new ProcessRunStats(reasoning, tools, read, search, write, command, other, failed, running);
+        var stats = new ProcessRunStats(reasoning, tools, running);
         if (stats != Stats)
         {
             Stats = stats;
