@@ -4,8 +4,7 @@ using System.Threading.Tasks;
 namespace Athena.UI.Services.Interfaces;
 
 /// <summary>
-/// 调用操作系统原生的"交互式截图"工具（框选 + 裁剪 + 标注），结果写入系统剪贴板。
-/// 设计为不依赖 Avalonia/剪贴板读取，由 UI 层负责从剪贴板取回位图，保持职责清晰。
+/// 调用操作系统原生的交互式截图工具，由 UI 层导入截图文件或读取剪贴板。
 /// </summary>
 public interface IScreenCaptureService
 {
@@ -13,11 +12,12 @@ public interface IScreenCaptureService
     bool IsSupported { get; }
 
     /// <summary>
-    /// 启动平台原生截图工具，截图结果由工具复制到系统剪贴板。
-    /// 返回启动结果，告知调用方该工具是否会阻塞到用户完成，从而决定读取剪贴板的策略。
+    /// 启动平台原生截图工具，返回截图文件路径或读取剪贴板所需的状态。
     /// </summary>
-    Task<ScreenCaptureLaunchResult> LaunchInteractiveAsync(CancellationToken ct = default);
+    Task<ScreenCaptureResult> LaunchInteractiveAsync(CancellationToken ct = default);
 }
+
+public readonly record struct ScreenCaptureResult(ScreenCaptureLaunchResult Status, string? ImagePath = null);
 
 /// <summary>截图工具启动结果。</summary>
 public enum ScreenCaptureLaunchResult
@@ -28,11 +28,14 @@ public enum ScreenCaptureLaunchResult
     /// <summary>启动失败（命令缺失或异常）。</summary>
     Failed,
 
-    /// <summary>工具已阻塞运行至用户完成（macOS / Linux）；可立即读取剪贴板。</summary>
+    /// <summary>截图交互已结束，可以导入返回的文件或读取剪贴板。</summary>
     CompletedBlocking,
 
     /// <summary>用户在截图工具中取消（退出码非零）；剪贴板大概率无结果，调用方应立即结束。</summary>
     Cancelled,
+
+    /// <summary>桌面门户结束了截图交互，未提供图片或明确的取消状态。</summary>
+    EndedWithoutImage,
 
     /// <summary>工具已异步启动，完成时机未知（Windows）；需轮询剪贴板等待结果。</summary>
     LaunchedAsync

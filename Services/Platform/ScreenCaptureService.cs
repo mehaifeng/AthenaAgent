@@ -1,6 +1,8 @@
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.IO;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using Athena.UI.Services.Interfaces;
@@ -9,9 +11,9 @@ using Serilog;
 namespace Athena.UI.Services.Platform;
 
 /// <summary>
-/// 基于操作系统原生命令的交互式截图实现。结果统一写入系统剪贴板。
+/// 调用各平台的原生交互式截图工具。
 /// - macOS:  screencapture -i -c        （阻塞，自带框选 + 标注）
-/// - Linux:  flameshot gui / gnome-screenshot -a -c / spectacle -r -b -c（首个可用者，阻塞）
+/// - Linux:  GNOME Wayland 优先使用桌面截图门户，其余使用本地截图命令。
 /// - Windows: explorer ms-screenclip:   （系统截图工具，异步，结果进剪贴板）
 /// </summary>
 public class ScreenCaptureService : IScreenCaptureService
@@ -28,44 +30,26 @@ public class ScreenCaptureService : IScreenCaptureService
     public bool IsSupported =>
         OperatingSystem.IsMacOS() || OperatingSystem.IsWindows() || OperatingSystem.IsLinux();
 
-    public async Task<ScreenCaptureLaunchResult> LaunchInteractiveAsync(CancellationToken ct = default)
+    public async Task<ScreenCaptureResult> LaunchInteractiveAsync(CancellationToken ct = default)
     {
         try
         {
             if (OperatingSystem.IsMacOS())
             {
-                return await RunBlockingAsync("screencapture", new[] { "-i", "-c" }, ct);
+                return new(await RunBlockingAsync("screencapture", new[] { "-i", "-c" }, ct));
             }
 
             if (OperatingSystem.IsWindows())
             {
-                return await LaunchWindowsAsync(ct);
+                return new(await LaunchWindowsAsync(ct));
             }
 
             if (OperatingSystem.IsLinux())
             {
-                // flameshot 标注能力最强，优先；否则退化到桌面环境自带工具。
-                var candidates = new (string Cmd, string[] Args)[]
-                {
-                    ("flameshot", new[] { "gui" }),
-                    ("gnome-screenshot", new[] { "-a", "-c" }),
-                    ("spectacle", new[] { "-r", "-b", "-c" }),
-                };
-
-                foreach (var (cmd, args) in candidates)
-                {
-                    var launch = await RunBlockingAsync(cmd, args, ct);
-                    if (launch != ScreenCaptureLaunchResult.Failed)
-                    {
-                        return launch;
-                    }
-                }
-
-                _logger.Warning("No available Linux screenshot tool found (flameshot/gnome-screenshot/spectacle)");
-                return ScreenCaptureLaunchResult.Failed;
+                return await LaunchLinuxAsync(ct);
             }
 
-            return ScreenCaptureLaunchResult.Unsupported;
+            return new(ScreenCaptureLaunchResult.Unsupported);
         }
         catch (OperationCanceledException)
         {
@@ -74,8 +58,46 @@ public class ScreenCaptureService : IScreenCaptureService
         catch (Exception ex)
         {
             _logger.Error(ex, "Failed to launch screenshot tool");
-            return ScreenCaptureLaunchResult.Failed;
+            return new(ScreenCaptureLaunchResult.Failed);
         }
+    }
+
+    private async Task<ScreenCaptureResult> LaunchLinuxAsync(CancellationToken ct)
+    {
+        var desktops = Environment.GetEnvironmentVariable("XDG_CURRENT_DESKTOP")?.Split(':') ?? [];
+        if (string.Equals(Environment.GetEnvironmentVariable("XDG_SESSION_TYPE"), "wayland", StringComparison.OrdinalIgnoreCase) &&
+            desktops.Contains("GNOME", StringComparer.OrdinalIgnoreCase))
+        {
+            var capture = await LinuxScreenshotPortal.TryCaptureAsync(_logger, ct);
+            if (capture is { } result)
+            {
+                return result;
+            }
+        }
+
+        (string Command, string[] Arguments)[] candidates =
+        [
+            ("flameshot", ["gui"]),
+            ("gnome-screenshot", ["-a", "-c"]),
+            ("spectacle", ["-r", "-b", "-c"]),
+        ];
+        var searchPaths = Environment.GetEnvironmentVariable("PATH")?.Split(Path.PathSeparator) ?? [];
+        foreach (var (command, arguments) in candidates)
+        {
+            if (!searchPaths.Any(path => File.Exists(Path.Combine(path, command))))
+            {
+                continue;
+            }
+
+            var status = await RunBlockingAsync(command, arguments, ct);
+            if (status != ScreenCaptureLaunchResult.Failed)
+            {
+                return new(status);
+            }
+        }
+
+        _logger.Warning("No available Linux screenshot tool found (flameshot/gnome-screenshot/spectacle)");
+        return new(ScreenCaptureLaunchResult.Failed);
     }
 
     /// <summary>ms-screenclip 触发后承载框选覆盖层的宿主进程候选名（不含 .exe）。</summary>

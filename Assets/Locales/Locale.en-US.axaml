@@ -75,6 +75,7 @@
     <system:String x:Key="Chat.Screenshot.KeepWindow">Screenshot (keep window)</system:String>
     <system:String x:Key="Chat.Screenshot.Unsupported">Screenshots are not supported on this platform.</system:String>
     <system:String x:Key="Chat.Screenshot.Failed">Screenshot failed.</system:String>
+    <system:String x:Key="Chat.Screenshot.NoImage">The screenshot ended without an image.</system:String>
     <system:String x:Key="Chat.Attach.Remove">Remove</system:String>
     <system:String x:Key="Chat.Attach.SelectImages">Select images</system:String>
     <system:String x:Key="Chat.Attach.ImageFiles">Images</system:String>
