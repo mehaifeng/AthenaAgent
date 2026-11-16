@@ -1882,7 +1882,7 @@ public partial class MainConversationViewModel : ViewModelBase, IDisposable
     private CancellationTokenSource? _screenshotBackgroundPollCts;
 
     /// <summary>
-    /// 调用系统原生截图工具（框选/裁剪/标注），完成后从剪贴板取回图片并作为待发送附件。
+    /// 调用系统原生截图工具，将返回的图片作为待发送附件。
     /// </summary>
     /// <param name="mode">
     /// "keep" = 截图时保留本窗口（可截 AthenaAgent 自身）；其余值（含 null）= 截图时隐藏本窗口（截其它内容）。
@@ -1899,8 +1899,8 @@ public partial class MainConversationViewModel : ViewModelBase, IDisposable
             return;
         }
 
-        var clipboard = TopLevel.GetTopLevel(GetMainWindow())?.Clipboard;
-        if (clipboard == null)
+        var mainWindow = GetMainWindow();
+        if (mainWindow?.Clipboard is not { } clipboard)
         {
             AttachmentStatusMessage = GetString("Chat.Screenshot.Failed", "Failed to capture screenshot.");
             return;
@@ -1914,14 +1914,13 @@ public partial class MainConversationViewModel : ViewModelBase, IDisposable
         _screenshotBackgroundPollCts = null;
 
         _isCapturingScreenshot = true;
-        var mainWindow = GetMainWindow();
-        var previousState = mainWindow?.WindowState ?? WindowState.Normal;
+        var previousState = mainWindow.WindowState;
         var minimized = false;
         var handedOffToBackground = false;
 
         void RestoreWindow()
         {
-            if (!minimized || mainWindow == null) return;
+            if (!minimized) return;
             mainWindow.WindowState = previousState;
             mainWindow.Activate();
             minimized = false;
@@ -1935,14 +1934,34 @@ public partial class MainConversationViewModel : ViewModelBase, IDisposable
             try { await clipboard.ClearAsync(); } catch { /* 某些平台清空可能失败，忽略 */ }
 
             // 隐藏模式：最小化窗口以免遮挡截图目标；保留模式：原样显示，让截图浮层覆盖在窗口之上。
-            if (hideWindow && mainWindow != null)
+            if (hideWindow)
             {
                 mainWindow.WindowState = WindowState.Minimized;
                 await Task.Delay(250); // 等待最小化动画完成
                 minimized = true;
             }
 
-            var launch = await _screenCaptureService.LaunchInteractiveAsync();
+            var capture = await _screenCaptureService.LaunchInteractiveAsync();
+            if (capture.ImagePath is { } imagePath)
+            {
+                RestoreWindow();
+                using var screenshot = await mainWindow.StorageProvider.TryGetFileFromPathAsync(imagePath);
+                if (screenshot == null)
+                {
+                    AttachmentStatusMessage = GetString("Chat.Screenshot.Failed", "Failed to capture screenshot.");
+                    return;
+                }
+
+                await AddStorageFilesAsync([screenshot]);
+                return;
+            }
+
+            var launch = capture.Status;
+            if (launch == ScreenCaptureLaunchResult.EndedWithoutImage)
+            {
+                AttachmentStatusMessage = GetString("Chat.Screenshot.NoImage", "The screenshot ended without an image.");
+                return;
+            }
 
             if (launch == ScreenCaptureLaunchResult.Failed || launch == ScreenCaptureLaunchResult.Unsupported)
             {

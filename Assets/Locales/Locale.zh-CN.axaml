@@ -75,6 +75,7 @@
     <system:String x:Key="Chat.Screenshot.KeepWindow">截图（保留窗口）</system:String>
     <system:String x:Key="Chat.Screenshot.Unsupported">当前平台不支持截图。</system:String>
     <system:String x:Key="Chat.Screenshot.Failed">截图失败。</system:String>
+    <system:String x:Key="Chat.Screenshot.NoImage">截图已结束，系统未返回图片。</system:String>
     <system:String x:Key="Chat.Attach.Remove">移除</system:String>
     <system:String x:Key="Chat.Attach.SelectImages">选择图片</system:String>
     <system:String x:Key="Chat.Attach.ImageFiles">图片</system:String>
