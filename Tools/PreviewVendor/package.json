@@ -2,7 +2,7 @@
   "name": "athena-preview-vendor",
   "private": true,
   "version": "1.0.0",
-  "description": "Office 文档预览前端库的 vendoring 工具（开发期使用，产出提交进仓库 Assets/Preview/lib，不进入运行时）",
+  "description": "Office 文档预览与游戏模式前端库的打包工具",
   "scripts": {
     "vendor": "npm run vendor:pdf && npm run vendor:docx && npm run vendor:pptx && npm run vendor:xlsx",
     "vendor:pdf": "node vendor-pdf.mjs",

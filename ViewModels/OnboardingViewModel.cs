@@ -61,7 +61,7 @@ public partial class OnboardingViewModel : ObservableObject, IDisposable
     private ObservableCollection<string> _modelOptions = new();
     public OpenAiProviderConfiguration PrimaryProvider => Config.AiModels.Providers[0];
 
-    /// <summary>Web Search 供应商默认 BaseUrl。</summary>
+    /// <summary>当前引导步骤，从零开始。</summary>
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(IsStep1), nameof(IsStep2), nameof(IsStep3), nameof(IsNotLastStep), nameof(CanGoBack))]
     private int _currentStep;

@@ -14,14 +14,14 @@ Athena 是一款高度自主的桌面 AI 助手，基于 **.NET 10** 和 **Avalo
 - **📊 可选执行时间线**：在每条助手回复中查看主模型调用、直接及 PTC 工具调用、脚本生命周期、审批和等待。默认关闭，时间元数据仅存本地。
 - **🦉 并行子代理**：批量派发相互隔离的子代理并发处理任务，以动画化的"猫头鹰之城"总览呈现进度。
 - **🌐 浏览器自动化**：在隔离浏览器会话中以视觉引导（Playwright + Set-of-Marks）观察网页、点击可见控件、填写简单表单、上传本地文件并提取页面证据。
-- **📚 本地知识库**：基于向量检索的语义记忆系统，以 Markdown 格式本地存储，支持混合检索（向量 + BM25/FTS）与后台自维护，隐私安全，检索即所得。
+- **📚 本地知识库**：基于向量检索的语义记忆系统，以 Markdown 格式本地存储，支持混合检索（向量 + BM25/FTS）与可选后台维护。
 - **📄 文档解析**：基于 MinerU 从附件文档中提取大纲与正文内容。
 - **🎨 图像生成与语音**：支持跨轮次连贯的内联图像生成，以及 TTS 语音播放。
 - **↩️ 会话归档、回滚与分支**：会话持久化且可浏览，任意轮次均可回滚或分支为新的分支会话。
 - **🌿 工作区 Git 分支**：在输入区上方切换或新建分支，查看本地与远程快照、跟踪状态和工作树占用；管理窗口支持比较差异、重命名与确认删除已合入的本地分支。切换前检查整个仓库的未提交改动，运行中的助手会话与分支变更互斥。
 - **⏰ cron 定时任务**：标准五段 cron 调度。每次触发都会开出一个全新会话，而不是往你正在看的对话里插消息，因此任务可以在你继续工作的同时跑。
 - **🌍 现代跨平台界面**：基于 Avalonia UI 和 Semi Design，支持浅色/深色模式及多语言界面（英文 & 中文）。
-- **🛡️ 安全优先设计**：严格的数据沙箱、文件系统保护和 API 安全管理。
+- **🛡️ 安全优先设计**：工具调用遵守审批和文件访问规则，浏览器任务使用隔离会话。
 
 ## 🖼️ 界面预览
 
@@ -41,19 +41,19 @@ Athena 是一款高度自主的桌面 AI 助手，基于 **.NET 10** 和 **Avalo
 
 1. **克隆仓库**：
    ```bash
-   git clone https://github.com/your-username/AthenaAgent.git
+   git clone https://github.com/mehaifeng/AthenaAgent.git
    cd AthenaAgent
    ```
 
 2. **还原依赖**：
    ```bash
    bash Libraries/Ptc/scripts/build-local-feed.sh
-   dotnet restore
+   dotnet restore Athena.UI.sln
    ```
 
 3. **运行应用**：
    ```bash
-   dotnet run
+   dotnet run --project Athena.UI.csproj
    ```
 
 ## 🏗️ 项目结构
@@ -72,10 +72,10 @@ Athena 是一款高度自主的桌面 AI 助手，基于 **.NET 10** 和 **Avalo
 - **AI SDK**：OpenAI SDK 2.x（对话、嵌入、图像生成、Audio/TTS、工具调用；统一重试与超时策略）
 - **Markdown**：LiveMarkdown.Avalonia（流式输出、内联图片、数学公式与原生 Mermaid 图表）
 - **浏览器自动化**：Microsoft.Playwright
-- **音频**：LibVLCSharp
+- **音频**：供应商语音合成和平台播放器命令
 - **数据库**：SQLite（向量存储）
 - **日志**：Serilog（文件 + 控制台）
 
 ## 📄 开源协议
 
-本项目基于 MIT 协议开源，详见 [LICENSE](LICENSE) 文件。
+本 README 记录的项目许可证为 MIT。PTC 包随包提供该模块的[许可文件](Libraries/Ptc/LICENSE)和[第三方声明](Libraries/Ptc/ThirdPartyNotices.md)。

@@ -69,6 +69,7 @@ var tests = new (string Name, Func<Task> Run)[]
     ("embedding requests ask for float vectors and read both response encodings", TestEmbeddingRequestsFloatEncodingAsync),
     ("config v5 default context values migrate to current schema without losing providers", TestConfigV5DefaultMigrationAsync),
     ("config v5 custom context values migrate as LegacyCustom", TestConfigV5CustomMigrationAsync),
+    ("saving current config preserves chosen browser settings on reload", TestCurrentConfigBrowserSettingsRoundTripAsync),
     ("legacy compression keys migrate to the full-compaction policy and are never written back", TestLegacyContextPolicyMigrationAsync),
     ("workspace knowledge budget migrates from tokens to characters (x3) and the old key is never written back", TestCharBudgetMigrationAsync),
     ("tool result clearing keeps a char-measured recent zone, clears everything older and only grows", TestToolResultClearingAsync),
@@ -136,6 +137,7 @@ var tests = new (string Name, Func<Task> Run)[]
     ("a manual cron run never moves the next scheduled occurrence", TestCronManualRunDoesNotMoveScheduleAsync),
     ("orphaned cron runs converge to interrupted on restart", TestCronOrphanedRunsBecomeInterruptedAsync),
     ("cron worker caps concurrency at two, runs FIFO and never records a phantom success", TestCronWorkerConcurrencyAndFailurePropagationAsync),
+    ("cron worker stays busy while a dequeued run waits for a slot", TestCronWorkerHandoffAsync),
     ("cron checks align to whole minutes", TestCronWorkerMinuteAlignmentAsync),
     ("cron tools return structured validation and honour manual-run semantics", TestCronTaskFunctionsAsync),
     ("cron provenance survives the archive snapshot, history item and SQLite payload", TestCronProvenanceUpsertAsync),
@@ -362,6 +364,22 @@ static async Task TestConfigV5CustomMigrationAsync()
     AssertFalse(migrated.ContextPolicy.AutoCompress, "legacy auto-compress setting should be preserved");
     AssertEqual(AppContextPolicy.DefaultSummaryMaxTokens, migrated.ContextPolicy.SummaryMaxTokens,
         "a v5 config starts from the default summary cap; the legacy keep-rounds setting is dropped");
+}
+
+static async Task TestCurrentConfigBrowserSettingsRoundTripAsync()
+{
+    using var harness = new TestHarness();
+    var config = new AppConfig { BrowserMaxSteps = 12, BrowserPersistSession = false, BrowserSomMaxElements = 80 };
+    var service = new ConfigService(harness.PathService);
+    await service.SaveAsync(config);
+
+    using var document = JsonDocument.Parse(File.ReadAllText(service.ConfigFilePath));
+    AssertEqual(AppConfig.CurrentSchemaVersion, document.RootElement.GetProperty("configSchemaVersion").GetInt32(),
+        "saving should write the schema already used on load");
+    var reopened = await new ConfigService(harness.PathService).LoadAsync();
+    AssertEqual(12, reopened.BrowserMaxSteps, "an explicitly chosen step limit should survive reopening");
+    AssertFalse(reopened.BrowserPersistSession, "choosing not to retain browser sessions should survive reopening");
+    AssertEqual(80, reopened.BrowserSomMaxElements, "an explicitly chosen annotation limit should survive reopening");
 }
 
 static async Task TestLegacyContextPolicyMigrationAsync()
@@ -5542,6 +5560,44 @@ static async Task TestCronWorkerConcurrencyAndFailurePropagationAsync()
         "a run that never executed because the host was missing must not be recorded as succeeded");
 
     await worker.StopAsync();
+}
+
+static async Task TestCronWorkerHandoffAsync()
+{
+    var clock = new TestSystemClock(new DateTimeOffset(2026, 5, 1, 8, 0, 0, TimeSpan.Zero));
+    using var service = NewCronTaskService(NewCronRoot(), out _, clock);
+    var launcher = new TestCronSessionLauncher { HostUnavailable = true };
+    using var worker = new CronExecutionWorker(service, launcher, clock, Log.Logger);
+    var task = (await service.CreateAsync(NewCronDraft())).Task!;
+    await worker.StartAsync();
+
+    // Hold the real execution slots to make the dequeue-to-start handoff observable
+    // without relying on the thread pool to pause at that exact point.
+    var slots = (SemaphoreSlim)typeof(CronExecutionWorker).GetField(
+        "_slots", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!
+        .GetValue(worker)!;
+    for (var i = 0; i < CronExecutionWorker.MaxConcurrentRuns; i++)
+        await slots.WaitAsync();
+
+    bool idleDuringHandoff;
+    try
+    {
+        AssertTrue(await worker.RunNowAsync(task.Id) != null, "the manual run must be accepted");
+        await WaitUntilAsync(() => worker.PendingRunCount == 0, TimeSpan.FromSeconds(5));
+        AssertEqual(0, worker.ActiveRunCount, "the run must still be waiting for an execution slot");
+        idleDuringHandoff = worker.IsIdle;
+    }
+    finally
+    {
+        slots.Release(CronExecutionWorker.MaxConcurrentRuns);
+    }
+
+    await WaitUntilAsync(() => service.GetTask(task.Id)!.RecentRuns[0].IsTerminal && worker.IsIdle,
+        TimeSpan.FromSeconds(5));
+    await worker.StopAsync();
+    AssertFalse(idleDuringHandoff, "a dequeued run waiting for a slot must keep the worker busy");
+    AssertEqual(CronRunState.Failed, service.GetTask(task.Id)!.RecentRuns[0].State,
+        "a run without a host must settle as failed");
 }
 
 static Task TestCronWorkerMinuteAlignmentAsync()

@@ -38,13 +38,6 @@ public partial class MainConversationViewModel : ViewModelBase, IDisposable
     /// </summary>
     private const string ReasoningRoundSeparator = "\n\n";
 
-    private enum TransitionStageResult
-    {
-        NotNeeded,
-        Staged,
-        Failed
-    }
-
     private readonly IChatService? _chatService;
     private readonly IConfigService? _configService;
     private readonly IPromptService? _promptService;
@@ -262,17 +255,6 @@ public partial class MainConversationViewModel : ViewModelBase, IDisposable
     private string _attachmentStatusMessage = string.Empty;
 
     [ObservableProperty]
-    [NotifyPropertyChangedFor(nameof(HasBackgroundArchiveStatusMessage))]
-    [NotifyPropertyChangedFor(nameof(HasBackgroundArchiveNeutralStatus))]
-    [NotifyPropertyChangedFor(nameof(HasBackgroundArchiveErrorStatus))]
-    private string _backgroundArchiveStatusMessage = string.Empty;
-
-    [ObservableProperty]
-    [NotifyPropertyChangedFor(nameof(HasBackgroundArchiveNeutralStatus))]
-    [NotifyPropertyChangedFor(nameof(HasBackgroundArchiveErrorStatus))]
-    private bool _isBackgroundArchiveError;
-
-    [ObservableProperty]
     private string _currentTheme = "Dark";
 
     [ObservableProperty]
@@ -328,12 +310,6 @@ public partial class MainConversationViewModel : ViewModelBase, IDisposable
     public bool HasPendingAttachments => PendingAttachments.Count > 0;
 
     public bool HasAttachmentStatusMessage => !string.IsNullOrWhiteSpace(AttachmentStatusMessage);
-
-    public bool HasBackgroundArchiveStatusMessage => !string.IsNullOrWhiteSpace(BackgroundArchiveStatusMessage);
-
-    public bool HasBackgroundArchiveNeutralStatus => HasBackgroundArchiveStatusMessage && !IsBackgroundArchiveError;
-
-    public bool HasBackgroundArchiveErrorStatus => HasBackgroundArchiveStatusMessage && IsBackgroundArchiveError;
 
     public string ContextTokensInfo => _tokenService?.HasVisibleUsage != true
         ? GetString("Chat.Context.Unanchored", "Context usage will appear after the provider reports Usage.")
@@ -484,8 +460,7 @@ public partial class MainConversationViewModel : ViewModelBase, IDisposable
     // 已不在请求里的 ID），随快照落盘；提示缓存因此只在清理发生的那一刻变一次。
     private List<string> _clearedToolResultIds = new();
 
-    // 自动全量压缩的防抖门槛（见 ConversationContext.AutoCompactionFloorTokens）。会话内状态：
-    // 每轮结束从请求上下文读回，下一轮随上下文克隆带进去；不落盘。
+    // 每轮结束从请求上下文取回压缩防抖状态，随会话保存，也带入下一轮请求。
     private long _autoCompactionFloorTokens;
     private bool _postCompactionMeasurePending;
     // 清理之后是否还在等第一次实测、以及那次实测是否要求下一次直接全量压缩（见 ConversationContext）。
@@ -516,8 +491,6 @@ public partial class MainConversationViewModel : ViewModelBase, IDisposable
         long PostCompressionTokens = 0,
         long SummaryTokens = 0,
         bool UsedLocalFallback = false);
-
-    private DateTime _latestArchiveCaptureAt = DateTime.MinValue;
 
     /// <summary>子代理编排器（供 RAW 旁的 Sub-Agents 弹出小镇绑定）。</summary>
     public ISubAgentOrchestrator? Orchestrator { get; }
@@ -633,60 +606,22 @@ public partial class MainConversationViewModel : ViewModelBase, IDisposable
 
     #region Workspace
 
-    /// <summary>所有已注册的工作区列表（供下拉选择）</summary>
-    public ObservableCollection<WorkspaceProfile> AvailableWorkspaces { get; } = new();
-
-    /// <summary>当前激活的工作区</summary>
+    /// <summary>此会话在会话树中所属的工作区。</summary>
     [ObservableProperty]
     private WorkspaceProfile? _currentWorkspace;
 
-    /// <summary>工作区管理面板是否展开</summary>
-    [ObservableProperty]
-    private bool _isWorkspaceFlyoutOpen;
-
-    [RelayCommand]
-    private void ToggleWorkspaceFlyout()
-    {
-        IsWorkspaceFlyoutOpen = !IsWorkspaceFlyoutOpen;
-    }
-
-    /// <summary>当前工作区显示名称（无工作区时显示"未选择工作区"）</summary>
-    public string CurrentWorkspaceDisplayName =>
-        CurrentWorkspace?.Name ?? GetString("Chat.Workspace.None", "未选择工作区");
-
-    /// <summary>当前工作区目录路径（无则为空）</summary>
-    public string? CurrentWorkspacePath => CurrentWorkspace?.DirectoryPath;
-
     partial void OnCurrentWorkspaceChanged(WorkspaceProfile? value)
     {
-        OnPropertyChanged(nameof(CurrentWorkspaceDisplayName));
-        OnPropertyChanged(nameof(CurrentWorkspacePath));
-        ApplyWorkspaceToContext(value);
+        _currentContext.WorkspaceId = value?.Id;
+        _currentContext.WorkspaceDirectoryPath = value?.DirectoryPath;
+        _currentContext.WorkspaceKnowledgeFilePath = value == null
+            ? null
+            : _workspaceService?.GetKnowledgeFilePath(value);
+        OnPropertyChanged(nameof(ContextTokensInfo));
         InvalidateCompressionPreview();
         RefreshContextInspectorProperties();
         if (!IsSending) RefreshEffectiveContextPolicy();
         else _policyRefreshPending = true;
-    }
-
-    /// <summary>将工作区信息同步到当前对话上下文</summary>
-    private void ApplyWorkspaceToContext(WorkspaceProfile? workspace)
-    {
-        _currentContext.WorkspaceId = workspace?.Id;
-        _currentContext.WorkspaceDirectoryPath = workspace?.DirectoryPath;
-        _currentContext.WorkspaceKnowledgeFilePath = workspace == null
-            ? null
-            : _workspaceService?.GetKnowledgeFilePath(workspace);
-        _workspaceService?.SetActiveWorkspace(workspace);
-
-        // 持久化最近活跃工作区
-        if (_configService != null)
-        {
-            var config = _configService.Load();
-            config.LastActiveWorkspaceId = workspace?.Id;
-            _configService.SaveAsync(config);
-        }
-
-        OnPropertyChanged(nameof(ContextTokensInfo));
     }
 
     /// <summary>由三栏会话宿主在创建/恢复会话时设置固定工作区归属。</summary>
@@ -713,148 +648,6 @@ public partial class MainConversationViewModel : ViewModelBase, IDisposable
     public void RefreshWorkspaceDirectory()
     {
         _currentContext.WorkspaceDirectoryPath = CurrentWorkspace?.DirectoryPath;
-        OnPropertyChanged(nameof(CurrentWorkspacePath));
-    }
-
-    /// <summary>加载工作区列表并恢复上次活跃工作区</summary>
-    public async Task InitializeWorkspacesAsync()
-    {
-        if (_workspaceService == null) return;
-
-        var workspaces = await _workspaceService.LoadAllAsync();
-        AvailableWorkspaces.Clear();
-        foreach (var ws in workspaces)
-        {
-            AvailableWorkspaces.Add(ws);
-        }
-
-        // 恢复上次活跃工作区
-        if (_configService != null)
-        {
-            var config = _configService.Load();
-            if (!string.IsNullOrEmpty(config.LastActiveWorkspaceId))
-            {
-                var last = workspaces.FirstOrDefault(w => w.Id == config.LastActiveWorkspaceId);
-                if (last != null)
-                {
-                    CurrentWorkspace = last;
-                }
-            }
-        }
-    }
-
-    /// <summary>选择工作区</summary>
-    [RelayCommand]
-    private async Task SelectWorkspaceAsync(WorkspaceProfile? workspace)
-    {
-        if (CurrentWorkspace?.Id == workspace?.Id)
-        {
-            IsWorkspaceFlyoutOpen = false;
-            return;
-        }
-
-        // 会话的工作区归属应保持单一。已有消息时先归档并开启新会话，
-        // 避免一段历史混入多个项目上下文后被错误归类。
-        if (Messages.Count > 0)
-        {
-            var destination = workspace?.Name ?? GetString("Chat.Workspace.Global", "全局聊天（不使用工作区）");
-            if (_userInteractionService == null || !await _userInteractionService.ConfirmAsync(
-                GetString("Chat.Workspace.SwitchConfirm.Title", "切换工作区"),
-                string.Format(
-                    GetString("Chat.Workspace.SwitchConfirm.Message", "切换到“{0}”会先保存当前会话，并开启一个新会话，是否继续？"),
-                    destination),
-                GetString("Chat.Workspace.SwitchConfirm.Yes", "切换"),
-                GetString("Chat.Workspace.SwitchConfirm.No", "取消"))) return;
-
-            if (!await StartNewConversationForWorkspaceChangeAsync()) return;
-        }
-
-        CurrentWorkspace = workspace;
-        IsWorkspaceFlyoutOpen = false;
-    }
-
-    private async Task<bool> StartNewConversationForWorkspaceChangeAsync()
-    {
-        await _conversationTransitionLock.WaitAsync();
-        try
-        {
-            IsResetting = true;
-            BeginConversationTransition();
-            var stagedSnapshot = await TryStageCurrentConversationForTransitionAsync();
-            if (stagedSnapshot == TransitionStageResult.Failed) return false;
-
-            ResetConversationState();
-            return true;
-        }
-        finally
-        {
-            IsResetting = false;
-            _conversationTransitionLock.Release();
-        }
-    }
-
-    /// <summary>添加工作区（弹出文件夹选择器）</summary>
-    [RelayCommand]
-    private async Task AddWorkspaceAsync()
-    {
-        if (_workspaceService == null) return;
-
-        var dirPath = _userInteractionService == null
-            ? null
-            : await _userInteractionService.PickFolderAsync(GetString("Chat.Workspace.SelectFolder", "选择工作区目录"));
-        if (string.IsNullOrWhiteSpace(dirPath)) return;
-
-        // 检查是否已存在同目录的工作区
-        var existing = await _workspaceService.FindByDirectoryAsync(dirPath);
-        if (existing != null)
-        {
-            await SelectWorkspaceAsync(existing);
-            return;
-        }
-
-        // 以目录名作为工作区名
-        var name = System.IO.Path.GetFileName(dirPath.TrimEnd(System.IO.Path.DirectorySeparatorChar, System.IO.Path.AltDirectorySeparatorChar));
-        if (string.IsNullOrEmpty(name)) name = "Workspace";
-
-        var workspace = new WorkspaceProfile
-        {
-            Name = name,
-            DirectoryPath = dirPath
-        };
-
-        await _workspaceService.SaveAsync(workspace);
-        AvailableWorkspaces.Add(workspace);
-        await SelectWorkspaceAsync(workspace);
-    }
-
-    /// <summary>删除工作区</summary>
-    [RelayCommand]
-    private async Task RemoveWorkspaceAsync(WorkspaceProfile? workspace)
-    {
-        if (workspace == null || _workspaceService == null) return;
-
-        if (_userInteractionService == null || !await _userInteractionService.ConfirmAsync(
-            GetString("Chat.Workspace.RemoveConfirm.Title", "移除工作区"),
-            string.Format(
-                GetString("Chat.Workspace.RemoveConfirm.Message", "确定要移除“{0}”吗？其工作区知识文件将被永久删除；会话历史会保留为未分组记录。"),
-                workspace.Name),
-            GetString("Chat.Workspace.RemoveConfirm.Yes", "移除"),
-            GetString("Chat.Workspace.RemoveConfirm.No", "取消"))) return;
-
-        var isCurrentWorkspace = CurrentWorkspace?.Id == workspace.Id;
-        if (isCurrentWorkspace && Messages.Count > 0
-            && !await StartNewConversationForWorkspaceChangeAsync())
-        {
-            return;
-        }
-
-        if (!await _workspaceService.DeleteAsync(workspace.Id)) return;
-        AvailableWorkspaces.Remove(workspace);
-
-        if (isCurrentWorkspace)
-        {
-            CurrentWorkspace = null;
-        }
     }
 
     #endregion
@@ -996,15 +789,6 @@ public partial class MainConversationViewModel : ViewModelBase, IDisposable
         }
 
         PendingAttachments.CollectionChanged += OnPendingAttachmentsCollectionChanged;
-
-        // 计算初始 Token（系统提示词和工具声明的基底开销）
-        OnPropertyChanged(nameof(ContextTokensInfo));
-
-        if (_archiveService != null)
-        {
-            _archiveService.ArchiveCompleted += OnArchiveCompleted;
-            _archiveService.ArchiveFailed += OnArchiveFailed;
-        }
 
         RestoreDraftIfNeeded();
     }
@@ -1162,7 +946,7 @@ public partial class MainConversationViewModel : ViewModelBase, IDisposable
         // 直到本轮第一次 usage 到达覆盖。只有压缩/清理/撤销/回退这类改写才降为待测。
 
         // 先让出 UI 线程跑一次渲染，确保用户气泡立即出现，再去做后续较重的请求准备
-        // （BuildMessages / token 估算 / 读取配置等），避免发送后约 1s 才看到气泡。
+        // （例如构建请求和读取配置），避免准备请求时挡住气泡渲染。
         await Task.Yield();
 
         await GetAiResponseAsync(userContent, addToContext: false);
@@ -1471,7 +1255,7 @@ public partial class MainConversationViewModel : ViewModelBase, IDisposable
 
         UpdateConversationContext();
         await ReconcileImageGenerationSessionAsync();
-        // 回滚裁掉了后续消息：强制以估算刷新，下一轮真实 usage 会重锚。
+        // 回滚从请求中裁掉了后续消息，等待下一次 usage 重新测量。
         MarkContextUsagePending();
         UpdateBubbleButtonVisibility();
         _logger.Information("Conversation rolled back to before message {MessageId}", message.Id);
@@ -1882,7 +1666,7 @@ public partial class MainConversationViewModel : ViewModelBase, IDisposable
     private CancellationTokenSource? _screenshotBackgroundPollCts;
 
     /// <summary>
-    /// 调用系统原生截图工具（框选/裁剪/标注），完成后从剪贴板取回图片并作为待发送附件。
+    /// 调用系统原生截图工具，将返回的图片作为待发送附件。
     /// </summary>
     /// <param name="mode">
     /// "keep" = 截图时保留本窗口（可截 AthenaAgent 自身）；其余值（含 null）= 截图时隐藏本窗口（截其它内容）。
@@ -1899,8 +1683,8 @@ public partial class MainConversationViewModel : ViewModelBase, IDisposable
             return;
         }
 
-        var clipboard = TopLevel.GetTopLevel(GetMainWindow())?.Clipboard;
-        if (clipboard == null)
+        var mainWindow = GetMainWindow();
+        if (mainWindow?.Clipboard is not { } clipboard)
         {
             AttachmentStatusMessage = GetString("Chat.Screenshot.Failed", "Failed to capture screenshot.");
             return;
@@ -1914,14 +1698,13 @@ public partial class MainConversationViewModel : ViewModelBase, IDisposable
         _screenshotBackgroundPollCts = null;
 
         _isCapturingScreenshot = true;
-        var mainWindow = GetMainWindow();
-        var previousState = mainWindow?.WindowState ?? WindowState.Normal;
+        var previousState = mainWindow.WindowState;
         var minimized = false;
         var handedOffToBackground = false;
 
         void RestoreWindow()
         {
-            if (!minimized || mainWindow == null) return;
+            if (!minimized) return;
             mainWindow.WindowState = previousState;
             mainWindow.Activate();
             minimized = false;
@@ -1935,14 +1718,34 @@ public partial class MainConversationViewModel : ViewModelBase, IDisposable
             try { await clipboard.ClearAsync(); } catch { /* 某些平台清空可能失败，忽略 */ }
 
             // 隐藏模式：最小化窗口以免遮挡截图目标；保留模式：原样显示，让截图浮层覆盖在窗口之上。
-            if (hideWindow && mainWindow != null)
+            if (hideWindow)
             {
                 mainWindow.WindowState = WindowState.Minimized;
                 await Task.Delay(250); // 等待最小化动画完成
                 minimized = true;
             }
 
-            var launch = await _screenCaptureService.LaunchInteractiveAsync();
+            var capture = await _screenCaptureService.LaunchInteractiveAsync();
+            if (capture.ImagePath is { } imagePath)
+            {
+                RestoreWindow();
+                using var screenshot = await mainWindow.StorageProvider.TryGetFileFromPathAsync(imagePath);
+                if (screenshot == null)
+                {
+                    AttachmentStatusMessage = GetString("Chat.Screenshot.Failed", "Failed to capture screenshot.");
+                    return;
+                }
+
+                await AddStorageFilesAsync([screenshot]);
+                return;
+            }
+
+            var launch = capture.Status;
+            if (launch == ScreenCaptureLaunchResult.EndedWithoutImage)
+            {
+                AttachmentStatusMessage = GetString("Chat.Screenshot.NoImage", "The screenshot ended without an image.");
+                return;
+            }
 
             if (launch == ScreenCaptureLaunchResult.Failed || launch == ScreenCaptureLaunchResult.Unsupported)
             {
@@ -2157,68 +1960,9 @@ public partial class MainConversationViewModel : ViewModelBase, IDisposable
         UpdateBubbleButtonVisibility();
     }
 
-    private async Task<ConversationArchiveSnapshot?> CaptureArchiveSnapshotIfNeededAsync()
-    {
-        if (!IsConversationModified())
-        {
-            return null;
-        }
-
-        var messages = Messages
-            .Where(ConversationPersistenceHelper.ShouldPersistMessage)
-            .Select(ConversationPersistenceHelper.CloneMessage)
-            .ToList();
-
-        if (messages.Count == 0)
-        {
-            return null;
-        }
-
-        ImageGenerationSessionSnapshot? imageSessionSnapshot = null;
-        if (_imageGenerationSessionService != null)
-        {
-            imageSessionSnapshot = await _imageGenerationSessionService.CreateSnapshotAsync(_conversationId);
-        }
-
-        return new ConversationArchiveSnapshot
-        {
-            SchemaVersion = ConversationPersistenceSnapshot.CurrentSchemaVersion,
-            ConversationId = _conversationId,
-            HistoryId = _currentHistoryId,
-            Revision = _revision,
-            CreatedAt = messages.FirstOrDefault()?.Timestamp ?? DateTime.Now,
-            UpdatedAt = DateTime.Now,
-            ContextSummary = _activeContextSummary,
-            OrphanedLegacySummary = _orphanedLegacySummary,
-            CompressionHistory = CaptureCompressionHistory(),
-            Anchors = CaptureAnchors(),
-            ClearedToolResultIds = CaptureClearedToolResultIds(),
-            Usage = _tokenService?.CaptureRecord(),
-            AutoCompactionFloorTokens = _autoCompactionFloorTokens,
-            PostCompactionMeasurePending = _postCompactionMeasurePending,
-            PostClearingMeasurePending = _postClearingMeasurePending,
-            CompactionDueAfterClearing = _compactionDueAfterClearing,
-            ForkedFromConversationId = _forkedFromConversationId,
-            ForkedFromHistoryId = _forkedFromHistoryId,
-            ForkedAtMessageId = _forkedAtMessageId,
-            CreatedByCronTaskId = _createdByCronTaskId,
-            CronTaskRunId = _cronTaskRunId,
-            ScheduledFiredAt = _scheduledFiredAt,
-            WorkspaceId = _currentContext.WorkspaceId,
-            Messages = messages,
-            ImageSession = imageSessionSnapshot,
-            CapturedAt = DateTime.Now,
-            ForceGenerateSummary = true
-        };
-    }
-
-    private void ResetConversationState(bool clearMessages = true)
+    private void ResetConversationForRestore()
     {
         ReleaseAttachmentPreviews(Messages.SelectMany(message => message.Attachments));
-        if (clearMessages)
-        {
-            Messages.Clear();
-        }
         InputText = string.Empty;
         ClearPendingAttachments(deleteStoredFiles: true);
         if (_imageGenerationSessionService != null)
@@ -3124,13 +2868,7 @@ public partial class MainConversationViewModel : ViewModelBase, IDisposable
         await _imageGenerationSessionService.ReconcileAsync(_conversationId, survivingAttachmentIds);
     }
 
-    /// <summary>
-    /// 请求的内容被改写了（压缩、清理、撤销、回退……）：上一次的数字不再描述它，
-    /// （新用户消息和工具结果只是追加，上一次实测仍是精确下界，不走这里。）
-    /// 显示置为「待测」，等下一次响应的 usage 重新锚定。本地不估算——一个猜出来的数字比没有数字更会误导。
-    /// 唯一的例外是 <paramref name="lowerBoundTokens"/>：它是压缩摘要的实测 output tokens，
-    /// 由供应商回报，不是猜的。传了就显示成「≥N」的可信下界，让待测期间不至于只剩一个空横杠。
-    /// </summary>
+    /// <summary>恢复归档中的用量记录，模型指纹不匹配时由 TokenService 置为待测。</summary>
     private void RestoreUsage(ConversationUsageRecord? record)
     {
         var role = _configService?.Load().AiModels.MainConversation;
@@ -3140,6 +2878,7 @@ public partial class MainConversationViewModel : ViewModelBase, IDisposable
             role == null ? null : Athena.UI.Services.TokenService.FormatModelFingerprint(role.ProviderId, role.Model));
     }
 
+    /// <summary>请求前缀改写后等待下一次 usage，可保留供应商实测摘要的 token 下界。</summary>
     private void MarkContextUsagePending(long lowerBoundTokens = 0)
     {
         _tokenService?.MarkPending(_revision);
@@ -3727,8 +3466,8 @@ public partial class MainConversationViewModel : ViewModelBase, IDisposable
     private bool CanUndoCompression() => !IsSending && !IsCompressing && _compressionHistory.Count > 0;
 
     /// <summary>
-    /// 撤销上一次上下文压缩：把该批被归档的消息重新激活，并恢复压缩前的摘要。
-    /// 仅支持会话内（内存）撤销；切换/重置会话后栈清空。
+    /// 撤销当前会话最新的压缩检查点，恢复该批消息及压缩前的摘要。
+    /// 会话生产路径通过持久化事务提交撤销。
     /// </summary>
     public async Task<bool> InternalUndoCompressionAsync(CancellationToken cancellationToken = default)
     {
@@ -3803,7 +3542,7 @@ public partial class MainConversationViewModel : ViewModelBase, IDisposable
         SetActiveContextSummary(checkpoint.PreviousSummary);
 
         UpdateConversationContext();
-        // 撤销压缩使上下文重新变大：强制以估算刷新，下一轮真实 usage 会重锚。
+        // 撤销改变了请求的消息，等待下一次 usage 重新测量。
         MarkContextUsagePending();
         UpdateBubbleButtonVisibility();
         RefreshCompressionBoundary();
@@ -3884,14 +3623,13 @@ public partial class MainConversationViewModel : ViewModelBase, IDisposable
     }
 
     /// <summary>
-    /// Restores a persisted item into a newly-created conversation VM.
-    /// This does not stage or replace another live conversation; each tree item owns its own
-    /// conversation VM.
+    /// Restores messages and request state from an archive or a durable compression snapshot.
+    /// The conversation tree supplies the workspace, including on subsequent restores in the same session.
     /// </summary>
     public void RestorePersistedConversation(ConversationHistoryItem history)
     {
         BeginConversationTransition();
-        ResetConversationState(clearMessages: false);
+        ResetConversationForRestore();
         _conversationId = string.IsNullOrWhiteSpace(history.ConversationId)
             ? Guid.NewGuid().ToString("N")
             : history.ConversationId;
@@ -3905,13 +3643,9 @@ public partial class MainConversationViewModel : ViewModelBase, IDisposable
         _cronTaskRunId = history.CronTaskRunId;
         _scheduledFiredAt = history.ScheduledFiredAt;
 
-        CurrentWorkspace = !string.IsNullOrEmpty(history.WorkspaceId)
-            ? AvailableWorkspaces.FirstOrDefault(workspace => workspace.Id == history.WorkspaceId)
-            : null;
-
         _compressionHistory.Clear();
-        // 恢复已落盘的真实测量：切换会话后不必再从零估算整段上下文。
-        // 长度裁剪与前缀校验分别由 UpdateConversationContext 和 ContextAnchorLedger 负责。
+        // 恢复已保存的用量锚点，由 UpdateConversationContext 裁剪长度，
+        // ContextAnchorLedger 核对请求前缀。
         _contextAnchors = new List<ContextAnchorRecord>(history.Anchors ?? []);
         _clearedToolResultIds = new List<string>(history.ClearedToolResultIds ?? []);
         // 防抖门槛与待测标记随会话落盘：重启后压缩刚提交的事实不变，该等的实测照样要等，
@@ -4001,8 +3735,7 @@ public partial class MainConversationViewModel : ViewModelBase, IDisposable
     }
 
     /// <summary>
-    /// 后台逐张解码附件预览图（PreviewImage 绑定 UI，赋值在 UI 线程完成），
-    /// 全部完成后再刷一次 token 显示——此时才拿到真实图像尺寸。
+    /// 后台逐张解码附件预览图，存储服务在 UI 线程回填绑定属性。
     /// </summary>
     private void LoadPreviewsInBackground(IEnumerable<ChatMessage> messages)
     {
@@ -4017,22 +3750,16 @@ public partial class MainConversationViewModel : ViewModelBase, IDisposable
 
         var cts = new CancellationTokenSource();
         _previewLoadCts = cts;
-        var epoch = Volatile.Read(ref _conversationEpoch);
-        _ = LoadPreviewsAsync(snapshot, cts, epoch);
+        _ = LoadPreviewsAsync(snapshot, cts);
     }
 
     private async Task LoadPreviewsAsync(
         IReadOnlyList<ChatAttachment> attachments,
-        CancellationTokenSource cts,
-        int epoch)
+        CancellationTokenSource cts)
     {
         try
         {
             await _attachmentStoreService!.LoadPreviewsAsync(attachments, cts.Token);
-            if (IsCurrentConversationEpoch(epoch) && !cts.IsCancellationRequested)
-            {
-                await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() => OnPropertyChanged(nameof(ContextTokensInfo)));
-            }
         }
         catch (OperationCanceledException) when (cts.IsCancellationRequested)
         {
@@ -4052,41 +3779,6 @@ public partial class MainConversationViewModel : ViewModelBase, IDisposable
     private void CancelPendingPreviewLoading()
     {
         Interlocked.Exchange(ref _previewLoadCts, null)?.Cancel();
-    }
-
-    private async Task<TransitionStageResult> TryStageCurrentConversationForTransitionAsync()
-    {
-        var snapshot = await CaptureArchiveSnapshotIfNeededAsync();
-        if (snapshot == null)
-        {
-            return TransitionStageResult.NotNeeded;
-        }
-
-        if (_archiveService == null)
-        {
-            SetBackgroundArchiveStatus(GetString("Chat.Archive.ErrorUnavailable", "Background archive service is unavailable."), isError: true);
-            return TransitionStageResult.Failed;
-        }
-
-        try
-        {
-            _latestArchiveCaptureAt = snapshot.CapturedAt;
-            await _archiveService.StageArchiveAsync(snapshot);
-            SetBackgroundArchiveStatus(
-                GetString("Chat.Archive.Saving", "Previous conversation is being saved in the background."),
-                isError: false);
-            return TransitionStageResult.Staged;
-        }
-        catch (Exception ex)
-        {
-            _logger.Error(ex, "Failed to write to pending archive queue");
-            SetBackgroundArchiveStatus(
-                string.Format(
-                    GetString("Chat.Archive.StageFailed", "Failed to queue the previous conversation: {0}"),
-                    ex.Message),
-                isError: true);
-            return TransitionStageResult.Failed;
-        }
     }
 
     public void PersistDraft()
@@ -4306,45 +3998,6 @@ public partial class MainConversationViewModel : ViewModelBase, IDisposable
         AttachmentStatusMessage = string.Empty;
         OnPropertyChanged(nameof(CanToggleRawContext));
         SendMessageCommand.NotifyCanExecuteChanged();
-    }
-
-    private void OnArchiveCompleted(object? sender, ConversationArchiveResultEventArgs e)
-    {
-        Dispatcher.UIThread.Post(async () =>
-        {
-            if (e.Snapshot.CapturedAt != _latestArchiveCaptureAt)
-            {
-                return;
-            }
-
-            await Task.Delay(2500);
-            if (e.Snapshot.CapturedAt == _latestArchiveCaptureAt && !IsBackgroundArchiveError)
-            {
-                BackgroundArchiveStatusMessage = string.Empty;
-                IsBackgroundArchiveError = false;
-            }
-        });
-    }
-
-    private void OnArchiveFailed(object? sender, ConversationArchiveResultEventArgs e)
-    {
-        Dispatcher.UIThread.Post(() =>
-        {
-            if (e.Snapshot.CapturedAt != _latestArchiveCaptureAt)
-            {
-                return;
-            }
-
-            SetBackgroundArchiveStatus(
-                GetString("Chat.Archive.RetryLater", "Previous conversation save failed. It has been kept for retry."),
-                isError: true);
-        });
-    }
-
-    private void SetBackgroundArchiveStatus(string message, bool isError)
-    {
-        BackgroundArchiveStatusMessage = message;
-        IsBackgroundArchiveError = isError;
     }
 
     private string GetString(string key, string defaultValue)
@@ -4975,11 +4628,6 @@ public partial class MainConversationViewModel : ViewModelBase, IDisposable
             _executionTimelines.EnabledChanged -= OnExecutionTimelineEnabledChanged;
         if (_contextPolicyProvider != null)
             _contextPolicyProvider.EffectivePolicyChanged -= OnEffectivePolicyChanged;
-        if (_archiveService != null)
-        {
-            _archiveService.ArchiveCompleted -= OnArchiveCompleted;
-            _archiveService.ArchiveFailed -= OnArchiveFailed;
-        }
         if (Orchestrator != null)
         {
             Orchestrator.ActiveAgents.CollectionChanged -= OnActiveSubAgentsChanged;

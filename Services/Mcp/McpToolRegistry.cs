@@ -68,12 +68,4 @@ public sealed class McpToolRegistry
                       .ToList();
         }
     }
-
-    public IReadOnlyList<string> ServerNames()
-    {
-        lock (_gate)
-        {
-            return _byServer.Keys.OrderBy(s => s, StringComparer.OrdinalIgnoreCase).ToList();
-        }
-    }
 }

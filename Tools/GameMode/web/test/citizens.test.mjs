@@ -10,9 +10,10 @@ import { buildCitizen, CHARACTER_SPECS } from '../../../../Assets/Polis/src/art/
 import { HAIR_STYLES } from '../../../../Assets/Polis/src/art/rig.mjs';
 import { bust, CHARACTERS } from '../../../../Assets/Polis/src/art/busts.mjs';
 import {
-  TOWN, DESTINATIONS, planCitizen, planTiming, routeClear, citizenAt, newScheduleClock, scheduleClock, holdSchedule, resumeSchedule, separate, assignTiers, pickChat, nextChatAfter, greetLine,
+  TOWN, DESTINATIONS, planCitizen, planTiming, citizenAt, newScheduleClock, scheduleClock, holdSchedule, resumeSchedule, separate, assignTiers, pickChat, nextChatAfter, greetLine,
   retireTime, wakeTime, asleepAt, indoorsAt,
 } from '../../../../Assets/Polis/src/citizens.mjs';
+import { routeClear } from '../../../../Assets/Polis/src/doors.mjs';
 import { createLayout } from '../../../../Assets/Polis/src/layout.mjs';
 import { createAssetLibrary } from '../../../../Assets/Polis/src/art/assets.mjs';
 import { buildWorld } from '../../../../Assets/Polis/src/world.mjs';

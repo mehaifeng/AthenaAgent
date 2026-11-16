@@ -9,7 +9,7 @@ import {
 } from './kit.mjs';
 import { amphoraBody, statuePlinth, buildSack, buildNetRack, buildLamp } from './props.mjs';
 import { STALLS, STALL, STALL_KINDS, stallToMarket } from '../market.mjs';
-import { venueSlotLocal, TERRACE, PLOT_SIZE } from '../civic-layout.mjs';
+import { TERRACE, PLOT_SIZE } from '../civic-layout.mjs';
 
 
 // ------------------------------------------------------------------
@@ -614,11 +614,6 @@ export function buildTerrace(M, { surface = 'pave' } = {}) {
   // 系船的石柱（两根）
   for (const sx of [-1, 1]) kit.cylinder(M.stone, 0.14, 0.18, 0.5, sx * 1.8, 0.25, S / 2 - 0.2, 8);
   return kit.build();
-}
-
-/** 一排排底座（12 个），摆藏品用；底座本身是器物（props.buildPedestal），这里只给每个位次的局部坐标。 */
-export function venueSlots() {
-  return Array.from({ length: 12 }, (_, i) => venueSlotLocal(i));
 }
 
 /**

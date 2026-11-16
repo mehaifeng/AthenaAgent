@@ -145,7 +145,7 @@ public class WorkspaceService : IWorkspaceService
             KnowledgeFileName = workspace.KnowledgeFileName,
             CreatedAt = workspace.CreatedAt,
             UpdatedAt = committedAt,
-            ContextPolicyOverride = CloneContextPolicy(contextPolicyOverride)
+            ContextPolicyOverride = contextPolicyOverride?.Clone()
         };
         await EnsureKnowledgeFileAsync(persisted);
         var filePath = Path.Combine(_workspacesDirectory, $"{safeId}.json");
@@ -156,23 +156,10 @@ public class WorkspaceService : IWorkspaceService
         workspace.Id = safeId;
         workspace.KnowledgeFileName = persisted.KnowledgeFileName;
         workspace.UpdatedAt = committedAt;
-        workspace.ContextPolicyOverride = CloneContextPolicy(contextPolicyOverride);
+        workspace.ContextPolicyOverride = persisted.ContextPolicyOverride;
         _logger.Information("Saved workspace context policy: {Id}", safeId);
         WorkspacePolicyChanged?.Invoke(this, safeId);
     }
-
-    private static WorkspaceContextPolicyOverride? CloneContextPolicy(WorkspaceContextPolicyOverride? source) => source == null
-        ? null
-        : new WorkspaceContextPolicyOverride
-        {
-            ContextCapTokens = source.ContextCapTokens,
-            AutoCompress = source.AutoCompress,
-            CompressionThresholdTokens = source.CompressionThresholdTokens,
-            SummaryMaxTokens = source.SummaryMaxTokens,
-            ToolResultClearingEnabled = source.ToolResultClearingEnabled,
-            KeepRecentToolResultChars = source.KeepRecentToolResultChars,
-            WorkspaceKnowledgeCharBudget = source.WorkspaceKnowledgeCharBudget
-        };
 
     private static async Task WriteAtomicAsync(
         string path,
@@ -274,7 +261,7 @@ public class WorkspaceService : IWorkspaceService
             KnowledgeFileName = workspace.KnowledgeFileName,
             CreatedAt = workspace.CreatedAt,
             UpdatedAt = committedAt,
-            ContextPolicyOverride = CloneContextPolicy(workspace.ContextPolicyOverride)
+            ContextPolicyOverride = workspace.ContextPolicyOverride?.Clone()
         };
         await EnsureKnowledgeFileAsync(persisted);
         var filePath = Path.Combine(_workspacesDirectory, $"{safeId}.json");

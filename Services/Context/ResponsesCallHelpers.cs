@@ -18,7 +18,7 @@ using System.Threading.Tasks;
 namespace Athena.UI.Services.Context;
 
 /// <summary>
-/// 主环之外（辅助角色）的 Responses API 通用映射。
+/// 主对话与辅助角色共用的 Responses API 请求映射和辅助角色调用方法。
 /// 约定：
 /// - 协议跟随 <see cref="EffectiveOpenAiModel.Protocol"/>；Auto 在非主对话角色一律走 Chat Completions
 ///   （主对话的 Auto 判定才接模型元数据，见 ResponsesProtocolResolver）。
@@ -76,8 +76,8 @@ public static class ResponsesCallHelpers
 
     /// <summary>
     /// 构造请求选项：system 提示进 Instructions；工具进 FunctionTool；json_object 走 TextOptions。
-    /// 不设 StreamingEnabled——非流式调用点（CreateResponseAsync）要求它不为 true，
-    /// 流式调用点的置位由 <see cref="StreamOutputTextAsync"/> 负责。
+    /// 非流式调用保留 StreamingEnabled 默认值；主对话传输与
+    /// <see cref="StreamOutputTextAsync"/> 在实际打开流时置位。
     /// </summary>
     public static CreateResponseOptions CreateOptions(
         EffectiveOpenAiModel effective,

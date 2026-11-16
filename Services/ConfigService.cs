@@ -91,10 +91,7 @@ public class ConfigService : IConfigService
 
     public async Task SaveAsync(AppConfig config)
     {
-        config.ConfigSchemaVersion = 7;
-        AppConfigNormalizer.NormalizeContextPolicy(config);
-        AppConfigNormalizer.NormalizeProtocol(config);
-        AppConfigNormalizer.NormalizeVirtualPet(config);
+        NormalizeCurrentConfig(config);
         await WriteAtomicallyAsync(config).ConfigureAwait(false);
         try { StoreCache(config, File.GetLastWriteTimeUtc(ConfigFilePath)); }
         catch { InvalidateCache(); }
@@ -163,7 +160,7 @@ public class ConfigService : IConfigService
     {
         var root = JsonNode.Parse(json) as JsonObject;
         var version = root?["configSchemaVersion"]?.GetValue<int>() ?? 0;
-        if (version > 8)
+        if (version > AppConfig.CurrentSchemaVersion)
         {
             BackupExistingConfig($"future-v{version}");
             throw new UnsupportedConfigSchemaException(version);
@@ -201,34 +198,25 @@ public class ConfigService : IConfigService
                 AutoCompress = legacyAutoCompress,
                 SummaryMaxTokens = AppContextPolicy.DefaultSummaryMaxTokens
             };
-            config.ConfigSchemaVersion = 8;
-            AppConfigNormalizer.MigrateBrowserDefaults(config);
-            AppConfigNormalizer.NormalizeContextPolicy(config);
-            AppConfigNormalizer.NormalizeProtocol(config);
-            AppConfigNormalizer.NormalizeVirtualPet(config);
-            migrated = true;
-            return config;
         }
 
-        if (version is 6 or 7)
+        if (version < 8)
         {
-            // v6 → v7：浏览器智能体的旧默认值（12 步上限、不保留登录态）就地抬到新默认。
-            // v7 → v8：SoM 标注上限 80 抬到 150——同一个一次性迁移，只改仍是旧默认的项。
-            config.ConfigSchemaVersion = 8;
+            // v8 统一迁移旧浏览器默认设置，包括步数、登录态和 SoM 标注数。
             AppConfigNormalizer.MigrateBrowserDefaults(config);
-            AppConfigNormalizer.NormalizeContextPolicy(config);
-            AppConfigNormalizer.NormalizeProtocol(config);
-            AppConfigNormalizer.NormalizeVirtualPet(config);
-            migrated = true;
-            return config;
         }
 
-        config.ConfigSchemaVersion = 8;
+        NormalizeCurrentConfig(config);
+        migrated = version < AppConfig.CurrentSchemaVersion || droppedLegacyCompressionKeys || droppedToolRoundLimits;
+        return config;
+    }
+
+    private static void NormalizeCurrentConfig(AppConfig config)
+    {
+        config.ConfigSchemaVersion = AppConfig.CurrentSchemaVersion;
         AppConfigNormalizer.NormalizeContextPolicy(config);
         AppConfigNormalizer.NormalizeProtocol(config);
         AppConfigNormalizer.NormalizeVirtualPet(config);
-        migrated = droppedLegacyCompressionKeys || droppedToolRoundLimits;
-        return config;
     }
 
     /// <summary>

@@ -420,23 +420,20 @@ async function startFixture(game) {
 
 // —— 运动自检（设计稿 12.7）：镜头按脚本逐帧移动，比较每个屏幕空间效果这一帧用的位置与当帧的真实投影 ——
 // 真值在渲染之后算：渲染器这时已经把相机和人物的矩阵更新成了这一帧真正用的那一组。
-// 两个时间窗是请雅典娜自己造出来的（2026-10-13：原来取自回放的"走"和"瞬移"）：走——从广场一圈的一个点走到对面那个点；
-// 瞬移——请她去港口（远过 10 秒的路，化作一道光过去）。之后在自由视角里按住 W + D 走一段。
+// 先跟着雅典娜走到广场另一边、再跟她跑到港口。最后在自由视角里按住 W + D 走一段。
 function motionSelftest(game) {
   const sync = params.get('nosync') !== '1';   // nosync=1：故意不对齐矩阵，看修复前的偏差有多大
-  const errors = { glow: 0, bubble: 0, labels: 0 };
+  const errors = { bubble: 0, labels: 0 };
   const kinds = {};   // 名牌按种类计数：建筑、公共建筑、居民（M2）、遗失藏品的名牌（M2）……
   let frames = 0;
   const camera = game.camera;
   const controls = game.controls;
-  const size = game.R.size, dpr = game.overlay.dpr;
+  const dpr = game.overlay.dpr;
   let i = 0;
   // M2：站在一棵橄榄树跟前（有积累数据时），树的名牌和脚下的"E 去这份委托"也进自检；隔一帧换成站在一位居民跟前——
   // 他在走，脚下那块"E 和他说话"跟着他走，按他这一帧的位置投影（M3 第三轮：互动改成走近按 E）
   const tree = game.world?.groveTrees?.[0];
   const walker = [...(game.world?.residents?.keys() ?? [])][0] ?? null;
-  // 2026-10-13 起她没有瞬移（远了就跑）：去港口那一段现在是跑，同样逐帧核对
-  const teleporting = () => false;
 
   function measure(t) {
     if (tree && i % 2 === 0) game.setHover('tree', tree.conversationId);
@@ -451,18 +448,13 @@ function motionSelftest(game) {
     game.frame(t, 40, performance.now(), { snap: true, sync, script });
     const used = game.used;
     const world = game.world;
-    const tele = teleporting();
-    const truthGlow = used.glowWorld.clone();
-    if (!tele) truthGlow.copy(world.athena.userData.chest).applyMatrix4(world.athena.matrixWorld);
-    const tg = truthGlow.project(camera);
     if (frames > 0) {
-      errors.glow = Math.max(errors.glow, Math.hypot(((tg.x + 1) / 2 - used.glowUv.x) * size.x, ((tg.y + 1) / 2 - used.glowUv.y) * size.y));
-      const head = tele ? used.headWorld.clone() : world.athena.userData.headTop.clone().applyMatrix4(world.athena.matrixWorld);
+      const head = world.athena.userData.headTop.clone().applyMatrix4(world.athena.matrixWorld);
       const hb = head.project(camera);
       errors.bubble = Math.max(errors.bubble, Math.hypot(((hb.x + 1) / 2) * window.innerWidth - used.bubbleCss.x, (1 - (hb.y + 1) / 2) * window.innerHeight - used.bubbleCss.y) * dpr);
       for (const l of used.labels) {
         kinds[l.kind] = (kinds[l.kind] ?? 0) + 1;
-        const truth = l.key?.startsWith('prompt:athena') && !tele
+        const truth = l.key?.startsWith('prompt:athena')
           ? ATHENA_HOVER_ANCHOR.clone().applyMatrix4(world.athena.matrixWorld)
           : l.key?.startsWith('prompt:resident:')
             ? (() => { const r = world.residents.get(l.key.split(':')[2]); return new THREE.Vector3(r.figure.root.position.x, 0.02, r.figure.root.position.z); })()
@@ -501,14 +493,14 @@ function motionSelftest(game) {
   game.frame(0, 16, performance.now(), { snap: true });
   const walk = windowFor('agora:3', 1000);
   for (let t = walk.span[0]; t <= walk.span[1]; t += 40) measure(t);
-  const tele = windowFor('harbor', walk.span[1] + 400);
-  for (let t = tele.span[0]; t <= tele.span[1]; t += 40) measure(t);
-  const windows = [walk.span, tele.span];
-  const kindsOfWindows = [walk.kind, tele.kind];
+  const run = windowFor('harbor', walk.span[1] + 400);
+  for (let t = run.span[0]; t <= run.span[1]; t += 40) measure(t);
+  const windows = [walk.span, run.span];
+  const kindsOfWindows = [walk.kind, run.kind];
 
   // 自由视角里走路（2026-10-11）：按住 W + D，镜头不跟任何人，只在你快走出画面时挪一下（keepPlayerInView）——
   // 它和脚本的绕转、推拉、平移一起挪镜头，屏幕空间效果照样要和当帧投影对齐；而且你一直在画面里
-  const walkFrom = tele.span[1] + 400;
+  const walkFrom = run.span[1] + 400;
   game.follow = 'free';
   const start = game.player;
   // 居民（M-B）：离你最近、看得见的那位向你打招呼，他头顶的那句话在走路这一段逐帧核对
@@ -536,7 +528,7 @@ function motionSelftest(game) {
   const end = game.player;
   const walking = { frames: walkFrames, metres: +Math.hypot(end.x - start.x, end.z - start.z).toFixed(2), maxPlayerNdc: +playerNdc.toFixed(3) };
 
-  const maxErrorPx = Math.max(errors.glow, errors.bubble, errors.labels);
+  const maxErrorPx = Math.max(errors.bubble, errors.labels);
   return { maxErrorPx, errors, frames, windows, windowKinds: kindsOfWindows, sync, kinds, walk: walking };
 }
 

@@ -138,6 +138,11 @@ if (Environment.GetEnvironmentVariable("ATHENA_HEADLESS_ONLY") == "gtk-focus")
     GtkWebViewFocusBridgeTests.Run();
     Environment.Exit(0);
 }
+if (Environment.GetEnvironmentVariable("ATHENA_HEADLESS_ONLY") == "knowledge-index")
+{
+    Task.Run(KnowledgeIndexTests.RunAsync).GetAwaiter().GetResult();
+    Environment.Exit(0);
+}
 if (Environment.GetEnvironmentVariable("ATHENA_HEADLESS_ONLY") == "git-branches")
 {
     GitBranchTests.Run(outputPath);
@@ -1043,6 +1048,8 @@ window.Close();
     Console.WriteLine("[PASS] semantic views satisfy ViewLocator naming and strongly typed feature windows own their content");
     knowledgeWindow.Close();
 }
+LocalizationBindingTests.Run();
+Task.Run(KnowledgeIndexTests.RunAsync).GetAwaiter().GetResult();
 
 var groupCommandChecks = new WorkspaceConversationGroupViewModel(workspaceProfile);
 var renameCount = 0;
@@ -1427,7 +1434,13 @@ var archivedHistory = new ConversationHistoryItem
 };
 PumpForCompletion(archiveTreeStore.SaveAsync(archivedHistory), "archiveTreeStore.SaveAsync");
 var archiveServiceChecks = new HeadlessArchiveService(archiveTreeStore);
-var archiveWorkspaceService = new HeadlessWorkspaceService([archiveWorkspace]);
+var backgroundWorkspace = new WorkspaceProfile
+{
+    Id = "background-workspace",
+    Name = "Background workspace",
+    DirectoryPath = "/tmp/background-workspace"
+};
+var archiveWorkspaceService = new HeadlessWorkspaceService([archiveWorkspace, backgroundWorkspace]);
 var archiveTreeViewModel = new MainWindowViewModel(
     chatService: null,
     configService: null,
@@ -1447,10 +1460,32 @@ var archiveTreeViewModel = new MainWindowViewModel(
     conversationStore: archiveTreeStore);
 PumpUntil(() => !archiveTreeViewModel.IsConversationTreeLoading, failureMessage: "Archive tree initialization did not complete.");
 
+var taskEditor = archiveTreeViewModel.TasksViewModel.Editor;
+if (!taskEditor.AvailableWorkspaces.SequenceEqual(new[] { archiveWorkspace, backgroundWorkspace }))
+    throw new InvalidOperationException("The task editor should receive the workspaces already read for the session tree.");
+taskEditor.SelectedWorkspace = backgroundWorkspace;
+PumpForCompletion(archiveTreeViewModel.OpenTasksCommand.ExecuteAsync(null), "open scheduled tasks");
+if (!ReferenceEquals(taskEditor.SelectedWorkspace, backgroundWorkspace))
+    throw new InvalidOperationException("Refreshing task editor options must preserve the selected workspace.");
+
 var archiveGroup = archiveTreeViewModel.ConversationGroups
     .Single(group => group.Workspace?.Id == archiveWorkspace.Id);
 var archiveSession = archiveGroup.Conversations
     .Single(session => session.HistoryId == archivedHistory.Id);
+if (!ReferenceEquals(archiveSession.Chat.CurrentWorkspace, archiveGroup.Workspace))
+    throw new InvalidOperationException("History restore must use the workspace already held by the tree.");
+PumpUntil(() => ReferenceEquals(archiveWorkspaceService.ActiveWorkspace, archiveWorkspace),
+    failureMessage: "The selected conversation did not activate its workspace.");
+var backgroundAttachment = PumpForResult(archiveTreeViewModel.AttachScheduledSessionAsync(
+    new CronTask { Name = "Background probe", WorkspaceId = backgroundWorkspace.Id },
+    new CronTaskRunRecord()), "scheduled workspace attachment");
+var backgroundSession = archiveTreeViewModel.ConversationGroups
+    .Single(group => group.Workspace?.Id == backgroundWorkspace.Id).Conversations.Single();
+if (backgroundAttachment.WorkspaceFellBack
+    || !ReferenceEquals(backgroundSession.Chat.CurrentWorkspace, backgroundWorkspace)
+    || !ReferenceEquals(archiveWorkspaceService.ActiveWorkspace, archiveWorkspace)
+    || !ReferenceEquals(archiveTreeViewModel.SelectedConversation, archiveSession))
+    throw new InvalidOperationException("A scheduled session must use its own workspace without changing the visible workspace.");
 var archiveSnapshot = new ConversationArchiveSnapshot
 {
     HistoryId = archivedHistory.Id,
@@ -1506,6 +1541,12 @@ ConversationSessionItemViewModel? externalSession = null;
 PumpUntil(() => (externalSession = archiveGroup.Conversations
         .FirstOrDefault(session => session.HistoryId == externalHistory.Id)) != null,
     failureMessage: "Externally completed archive was not inserted into its workspace group.");
+if (archiveWorkspaceService.LoadAllCalls != 1)
+    throw new InvalidOperationException("Startup should load workspaces once. Restoring, scheduling and inserting sessions should reuse the tree.");
+if (archiveServiceChecks.StagedSubscriberCount != 1
+    || archiveServiceChecks.CompletedSubscriberCount != 1
+    || archiveServiceChecks.FailedSubscriberCount != 1)
+    throw new InvalidOperationException("The session tree must own a single set of archive subscriptions.");
 
 archiveTreeViewModel.ConversationSearchText = "externally completed body";
 // PumpUntil 超时即抛异常，此处 externalSession 必已赋值
@@ -1523,6 +1564,11 @@ if (archiveGroup.Conversations.Contains(externalSession)
     || archiveTreeStore.Items.ContainsKey(externalHistory.Id)
     || ReferenceEquals(archiveTreeViewModel.SelectedConversation, externalSession))
     throw new InvalidOperationException("Deleting the current conversation did not select a surviving/new session.");
+archiveTreeViewModel.Dispose();
+if (archiveServiceChecks.StagedSubscriberCount != 0
+    || archiveServiceChecks.CompletedSubscriberCount != 0
+    || archiveServiceChecks.FailedSubscriberCount != 0)
+    throw new InvalidOperationException("Disposing the session tree must release its archive subscriptions.");
 Console.WriteLine("[PASS] conversation tree owns archive status, external completion, grouping, search, and current/non-current deletion");
 
 var onboardingPath = Path.Combine(Path.GetDirectoryName(outputPath)!, "athena-onboarding.png");
@@ -1848,6 +1894,22 @@ using (previewHost)
         throw new InvalidOperationException("Office preview session release failed to remove the session.");
 }
 Console.WriteLine("[PASS] office preview assets embedded, routes served, and preview session/token URL built");
+using (var soul = typeof(App).Assembly.GetManifestResourceStream("AthenaSoul.md"))
+{
+    if (soul == null || soul.Length == 0)
+        throw new InvalidOperationException("The prompt and Knowledge Base fallback require the separate AthenaSoul manifest resource.");
+}
+foreach (var retiredResource in new[] { "AthenaSoul.md", "Polis/CLAUDE.md", "owl.webp", "owl2.webp", "SubAgents/owl-fly-01.png" })
+{
+    if (Avalonia.Platform.AssetLoader.Exists(new Uri($"avares://Athena.UI/Assets/{retiredResource}")))
+        throw new InvalidOperationException($"Unused resource is still shipped through Avalonia: {retiredResource}");
+}
+foreach (var runtimeResource in new[] { "Polis/index.html", "DarkLogo.webp", "LightLogo.webp" })
+{
+    if (!Avalonia.Platform.AssetLoader.Exists(new Uri($"avares://Athena.UI/Assets/{runtimeResource}")))
+        throw new InvalidOperationException($"Missing runtime asset: {runtimeResource}");
+}
+Console.WriteLine("[PASS] the packaged asset list keeps runtime entry points and omits retired or redundant resources");
 
 // --- cron 定时任务：编辑器、任务页、会话宿主、导航、通知语义、图标与本地化 ---
 {
@@ -1956,7 +2018,7 @@ Console.WriteLine("[PASS] office preview assets embedded, routes served, and pre
     // 执行器必须真的跑起来：未启动时 RunNowAsync 会（正确地）拒绝领取，
     // 那样这段测的就不是"立即运行"而是它的拒绝路径了。
     PumpForCompletion(cronWorker.StartAsync(), "the cron execution worker start");
-    using (var tasksViewModel = new TasksViewModel(cronService, cronSchedule, cronWorker, cronNavigator, null, cronLocalization))
+    using (var tasksViewModel = new TasksViewModel(cronService, cronSchedule, cronWorker, cronNavigator, cronLocalization))
     {
         tasksViewModel.Editor.Name = "Morning digest";
         tasksViewModel.Editor.Instruction = "summarise yesterday";
@@ -4354,10 +4416,11 @@ static void TestLifecycle()
             archiveService: archiveService);
         var session = new ConversationSessionItemViewModel(conversation, null, null);
         if (configService.ConfigSubscriberCount != 1
-            || archiveService.CompletedSubscriberCount != 1
-            || archiveService.FailedSubscriberCount != 1
+            || archiveService.StagedSubscriberCount != 0
+            || archiveService.CompletedSubscriberCount != 0
+            || archiveService.FailedSubscriberCount != 0
             || localizationService.LanguageSubscriberCount != 1)
-            throw new InvalidOperationException("Main Conversation did not attach exactly one lifecycle subscription.");
+            throw new InvalidOperationException("Main Conversation should subscribe to its config and language, while the tree owns archive notifications.");
 
         session.Dispose();
         session.Dispose();
@@ -14505,11 +14568,16 @@ sealed class HeadlessArchiveService(HeadlessConversationStore store) : IConversa
 sealed class HeadlessWorkspaceService(List<WorkspaceProfile> workspaces) : IWorkspaceService
 {
     public bool FailPolicyUpdates { get; set; }
+    public int LoadAllCalls { get; private set; }
     public WorkspaceProfile? ActiveWorkspace { get; private set; }
     public event EventHandler<WorkspaceProfile?>? ActiveWorkspaceChanged;
     public event EventHandler<string>? WorkspacePolicyChanged;
 
-    public Task<List<WorkspaceProfile>> LoadAllAsync() => Task.FromResult(workspaces.ToList());
+    public Task<List<WorkspaceProfile>> LoadAllAsync()
+    {
+        LoadAllCalls++;
+        return Task.FromResult(workspaces.ToList());
+    }
     public Task<WorkspaceProfile?> LoadByIdAsync(string id) =>
         Task.FromResult(workspaces.FirstOrDefault(workspace => workspace.Id == id));
     public Task SaveAsync(WorkspaceProfile workspace)

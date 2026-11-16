@@ -19,9 +19,6 @@ export const BLOCKING_HEIGHT = 0.4;
 export const BODY_BAND = Object.freeze({ min: 0.35, max: 1.6 });
 export const COVER_REACH = 2.5;
 
-/** 一种资产怎样参与碰撞：按高度带推足迹（缺省）、或者不参与（成果、人物、走在上面的地面件）。 */
-export const COLLISION_MODES = Object.freeze(['band', 'none']);
-
 const _a = new THREE.Vector3(), _b = new THREE.Vector3(), _c = new THREE.Vector3();
 const _m = new THREE.Matrix4(), _inv = new THREE.Matrix4();
 

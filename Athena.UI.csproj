@@ -29,7 +29,8 @@
       <DependentUpon>%(Filename)</DependentUpon>
     </Compile>
     <None Remove="**/*.axaml" />
-    <AvaloniaResource Include="Assets/**" />
+    <!-- AthenaSoul has its own manifest resource; the Polis guide is for source maintenance. -->
+    <AvaloniaResource Include="Assets/**" Exclude="Assets/AthenaSoul.md;Assets/Polis/CLAUDE.md" />
     <Compile Remove="Athena.Archive.Tests/**/*.cs" />
     <Compile Remove="Athena.Updater/**/*.cs" />
     <Compile Remove="Athena.UI.HeadlessTests/**/*.cs" />
@@ -121,7 +122,6 @@
     <!-- Avalonia UI -->
     <PackageReference Include="Avalonia" Version="12.1.1" />
     <PackageReference Include="Avalonia.Controls.WebView" Version="12.1.0" />
-    <PackageReference Include="Avalonia.Themes.Fluent" Version="12.1.1" />
     <PackageReference Include="Avalonia.Fonts.Inter" Version="12.1.1" />
     <PackageReference Include="AvaloniaTerminal" Version="1.0.0" />
 
@@ -146,9 +146,7 @@
     <PackageReference Include="SkiaSharp.NativeAssets.macOS" Version="4.150.1" />
     <PackageReference Include="SkiaSharp.NativeAssets.Win32" Version="4.150.1" />
 
-    <!-- 配置和依赖注入 -->
-    <PackageReference Include="Microsoft.Extensions.Configuration" Version="11.0.0-preview.6.26359.118" />
-    <PackageReference Include="Microsoft.Extensions.Configuration.Json" Version="11.0.0-preview.6.26359.118" />
+    <!-- 依赖注入 -->
     <PackageReference Include="Microsoft.Extensions.DependencyInjection" Version="11.0.0-preview.6.26359.118" />
     <PackageReference Include="Semi.Avalonia" Version="12.1.0.1" />
 

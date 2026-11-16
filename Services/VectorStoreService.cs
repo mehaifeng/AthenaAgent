@@ -15,103 +15,23 @@ namespace Athena.UI.Services;
 /// <summary>
 /// 文档向量记录（用于内存缓存）
 /// </summary>
-public class DocumentVector
+internal sealed class DocumentVector
 {
-    public int Id { get; set; }
     public string FilePath { get; set; } = string.Empty;
     public int ChunkIndex { get; set; }
     public string ChunkText { get; set; } = string.Empty;
     /// <summary>分块所属的标题路径面包屑（如「文档标题 &gt; 二级标题」），用于嵌入时的上下文增强。</summary>
     public string HeadingPath { get; set; } = string.Empty;
     public float[]? Embedding { get; set; }
-    public string FileHash { get; set; } = string.Empty;
-}
-
-/// <summary>
-/// 文件状态记录
-/// </summary>
-public class FileStatus
-{
-    public string FilePath { get; set; } = string.Empty;
-    public string FileHash { get; set; } = string.Empty;
-    public int ChunkCount { get; set; }
-    public DateTime LastUpdated { get; set; }
-}
-
-/// <summary>
-/// 向量存储服务接口
-/// </summary>
-public interface IVectorStoreService
-{
-    /// <summary>
-    /// 初始化数据库
-    /// </summary>
-    Task InitializeAsync();
-
-    /// <summary>
-    /// 全文本关键字检索（BM25），返回结果按相关性升序（rank 越小越相关，已取反为正向分）。
-    /// </summary>
-    Task<List<(string FilePath, int ChunkIndex, string Content, double Score)>> SearchFtsAsync(string query, int maxResults = 10);
-
-    /// <summary>
-    /// 加载所有向量到内存
-    /// </summary>
-    Task<List<DocumentVector>> LoadAllVectorsAsync();
-
-    /// <summary>
-    /// 获取所有文件状态
-    /// </summary>
-    Task<Dictionary<string, FileStatus>> GetFileStatusesAsync();
-
-    /// <summary>
-    /// 获取已完整生成向量的文件状态。与全文索引状态分离，允许 FTS 独立工作。
-    /// </summary>
-    Task<Dictionary<string, FileStatus>> GetVectorFileStatusesAsync();
-
-    /// <summary>
-    /// 保存文本分块并重建该文件的本地 FTS 索引。
-    /// </summary>
-    Task SaveChunksAsync(string filePath, string fileHash, List<(int Index, string ChunkText, string HeadingPath)> chunks);
-
-    /// <summary>
-    /// 为已经写入本地文本索引的分块补充向量。只有全部分块均成功时才记录向量状态。
-    /// </summary>
-    Task SaveEmbeddingsAsync(string filePath, string fileHash, List<(int Index, float[] Embedding)> embeddings);
-
-    /// <summary>
-    /// 读取向量库的嵌入模型指纹（模型标识 + 维度）。无记录返回 null。
-    /// </summary>
-    Task<(string Model, int Dimension)?> GetEmbeddingFingerprintAsync();
-
-    /// <summary>
-    /// 写入向量库的嵌入模型指纹。
-    /// </summary>
-    Task SetEmbeddingFingerprintAsync(string model, int dimension);
-
-    /// <summary>
-    /// 删除文件的文本、FTS 和向量索引。
-    /// </summary>
-    Task DeleteFileIndexAsync(string filePath);
-
-    /// <summary>
-    /// 仅清除向量层，保留文本分块和 FTS 索引。
-    /// </summary>
-    Task ClearEmbeddingsAsync();
-
-    /// <summary>
-    /// 获取统计信息
-    /// </summary>
-    Task<(int FileCount, int VectorCount)> GetStatisticsAsync();
 }
 
 /// <summary>
 /// SQLite 向量存储服务实现
 /// </summary>
-public class VectorStoreService : IVectorStoreService, IDisposable
+internal sealed class VectorStoreService : IDisposable
 {
     private readonly string _dbPath;
     private readonly ILogger _logger;
-    private readonly IPlatformPathService? _pathService;
     private readonly SemaphoreSlim _lock = new(1, 1);
 
     /// <summary>
@@ -122,11 +42,9 @@ public class VectorStoreService : IVectorStoreService, IDisposable
     public VectorStoreService(ILogger logger, IPlatformPathService? pathService = null)
     {
         _logger = logger.ForContext<VectorStoreService>();
-        _pathService = pathService;
-
-        if (_pathService != null)
+        if (pathService != null)
         {
-            _dbPath = _pathService.GetVectorStoreFilePath();
+            _dbPath = pathService.GetVectorStoreFilePath();
         }
         else
         {
@@ -239,7 +157,8 @@ public class VectorStoreService : IVectorStoreService, IDisposable
         }
     }
 
-    public async Task<List<DocumentVector>> LoadAllVectorsAsync()
+    /// <summary>读取本地文本分块及已生成的向量。</summary>
+    public async Task<List<DocumentVector>> LoadIndexedDocumentsAsync()
     {
         var vectors = new List<DocumentVector>();
 
@@ -250,7 +169,7 @@ public class VectorStoreService : IVectorStoreService, IDisposable
             await connection.OpenAsync();
 
             var sql = @"
-                SELECT id, file_path, chunk_index, chunk_text, embedding, heading_path
+                SELECT file_path, chunk_index, chunk_text, embedding, heading_path
                 FROM document_vectors
                 ORDER BY file_path, chunk_index
             ";
@@ -260,24 +179,23 @@ public class VectorStoreService : IVectorStoreService, IDisposable
 
             while (await reader.ReadAsync())
             {
-                var embedding = reader.IsDBNull(4) ? null : BytesToFloats((byte[])reader[4]);
+                var embedding = reader.IsDBNull(3) ? null : BytesToFloats((byte[])reader[3]);
 
                 vectors.Add(new DocumentVector
                 {
-                    Id = reader.GetInt32(0),
-                    FilePath = reader.GetString(1),
-                    ChunkIndex = reader.GetInt32(2),
-                    ChunkText = reader.GetString(3),
+                    FilePath = reader.GetString(0),
+                    ChunkIndex = reader.GetInt32(1),
+                    ChunkText = reader.GetString(2),
                     Embedding = embedding,
-                    HeadingPath = reader.IsDBNull(5) ? string.Empty : reader.GetString(5)
+                    HeadingPath = reader.IsDBNull(4) ? string.Empty : reader.GetString(4)
                 });
             }
 
-            _logger.Information("Loaded {Count} vector(s) from database", vectors.Count);
+            _logger.Information("Loaded {Count} indexed chunk(s) from database", vectors.Count);
         }
         catch (Exception ex)
         {
-            _logger.Error(ex, "Failed to load vectors");
+            _logger.Error(ex, "Failed to load indexed chunks");
         }
         finally
         {
@@ -425,72 +343,33 @@ public class VectorStoreService : IVectorStoreService, IDisposable
     private sealed record FtsQuerySpec(string? MatchExpression, List<string> ShortTerms);
     private sealed record FtsCandidate(string Content, int? MatchRank, int ShortHits, double Score);
 
-    public async Task<Dictionary<string, FileStatus>> GetFileStatusesAsync()
-    {
-        var statuses = new Dictionary<string, FileStatus>();
+    public Task<Dictionary<string, string>> GetTextFileHashesAsync()
+        => ReadFileHashesAsync("SELECT file_path, file_hash FROM file_status");
 
+    // Separate from the text index because partial embeddings are not marked complete.
+    public Task<Dictionary<string, string>> GetVectorFileHashesAsync()
+        => ReadFileHashesAsync("SELECT file_path, file_hash FROM vector_status");
+
+    private async Task<Dictionary<string, string>> ReadFileHashesAsync(string query)
+    {
+        var hashes = new Dictionary<string, string>();
         await _lock.WaitAsync();
         try
         {
             using var connection = new SqliteConnection($"Data Source={_dbPath}");
             await connection.OpenAsync();
 
-            var sql = "SELECT file_path, file_hash, chunk_count, last_updated FROM file_status";
-
-            using var command = new SqliteCommand(sql, connection);
+            using var command = new SqliteCommand(query, connection);
             using var reader = await command.ExecuteReaderAsync();
-
             while (await reader.ReadAsync())
-            {
-                var filePath = reader.GetString(0);
-                statuses[filePath] = new FileStatus
-                {
-                    FilePath = filePath,
-                    FileHash = reader.GetString(1),
-                    ChunkCount = reader.GetInt32(2),
-                    LastUpdated = DateTime.Parse(reader.GetString(3))
-                };
-            }
+                hashes[reader.GetString(0)] = reader.GetString(1);
         }
         finally
         {
             _lock.Release();
         }
 
-        return statuses;
-    }
-
-    public async Task<Dictionary<string, FileStatus>> GetVectorFileStatusesAsync()
-    {
-        var statuses = new Dictionary<string, FileStatus>();
-
-        await _lock.WaitAsync();
-        try
-        {
-            using var connection = new SqliteConnection($"Data Source={_dbPath}");
-            await connection.OpenAsync();
-
-            using var command = new SqliteCommand(
-                "SELECT file_path, file_hash, chunk_count, last_updated FROM vector_status", connection);
-            using var reader = await command.ExecuteReaderAsync();
-            while (await reader.ReadAsync())
-            {
-                var filePath = reader.GetString(0);
-                statuses[filePath] = new FileStatus
-                {
-                    FilePath = filePath,
-                    FileHash = reader.GetString(1),
-                    ChunkCount = reader.GetInt32(2),
-                    LastUpdated = DateTime.Parse(reader.GetString(3))
-                };
-            }
-        }
-        finally
-        {
-            _lock.Release();
-        }
-
-        return statuses;
+        return hashes;
     }
 
     public async Task SaveChunksAsync(

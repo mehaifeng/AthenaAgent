@@ -485,7 +485,7 @@ public class OpenAIChatService : IChatService
             try
             {
                 var workspace = await _workspaceService.LoadByIdAsync(context.WorkspaceId);
-                workspacePolicy = ClonePolicy(workspace?.ContextPolicyOverride);
+                workspacePolicy = workspace?.ContextPolicyOverride?.Clone();
             }
             catch (Exception ex) when (ex is not OperationCanceledException)
             {
@@ -607,19 +607,6 @@ public class OpenAIChatService : IChatService
         ToolResultClearingEnabled = source.ToolResultClearingEnabled,
         KeepRecentToolResultChars = source.KeepRecentToolResultChars
     };
-
-    private static WorkspaceContextPolicyOverride? ClonePolicy(WorkspaceContextPolicyOverride? source) => source == null
-        ? null
-        : new WorkspaceContextPolicyOverride
-        {
-            ContextCapTokens = source.ContextCapTokens,
-            AutoCompress = source.AutoCompress,
-            CompressionThresholdTokens = source.CompressionThresholdTokens,
-            SummaryMaxTokens = source.SummaryMaxTokens,
-            ToolResultClearingEnabled = source.ToolResultClearingEnabled,
-            KeepRecentToolResultChars = source.KeepRecentToolResultChars,
-            WorkspaceKnowledgeCharBudget = source.WorkspaceKnowledgeCharBudget
-        };
 
     /// <summary>
     /// 压缩尝试的缓存键。绑定「要压缩哪些消息 + 用哪个提示词版本 + 用哪个压缩模型」，

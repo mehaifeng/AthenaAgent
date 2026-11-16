@@ -179,7 +179,6 @@ test('faces: every sculpted head wears its painted face on the head itself; no b
     const old = [];
     f.root.traverse((o) => { if (o.isMesh && ['eyeWhite', 'iris', 'lips'].includes(o.material?.name)) old.push(o.material.name); });
     assert.deepEqual(old, [], `${id}: no sphere eyes or blob lips`);
-    if (spec.faceless) { assert.equal(decals.length, 0, `${id}: the gold maiden has no face`); continue; }
     assert.equal(decals.length, 1, `${id}: one painted face`);
     const decal = decals[0];
     assert.equal(decal.material.name, faceMaterialKey(lookFor(spec)), `${id}: wears the ${lookFor(spec)} look`);
@@ -195,7 +194,7 @@ test('faces: every sculpted head wears its painted face on the head itself; no b
     }
   }
   assert.equal(lookFor({ id: 'athena', ...CHARACTER_SPECS.athena }), 'athena');
-  assert.equal(new Set(CHARACTER_IDS.filter((id) => !CHARACTER_SPECS[id].faceless).map((id) => lookFor({ id, ...CHARACTER_SPECS[id] }))).size, Object.keys(FACE_LOOKS).length, 'every look is worn by someone');
+  assert.equal(new Set(CHARACTER_IDS.map((id) => lookFor({ id, ...CHARACTER_SPECS[id] }))).size, Object.keys(FACE_LOOKS).length, 'every look is worn by someone');
   // 和半身像一样只用 M / L / C / Q / Z
   for (const look of Object.values(FACE_LOOKS)) {
     const e = eyePaths(look.eye);

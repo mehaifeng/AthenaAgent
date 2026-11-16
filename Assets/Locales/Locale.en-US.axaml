@@ -75,6 +75,7 @@
     <system:String x:Key="Chat.Screenshot.KeepWindow">Screenshot (keep window)</system:String>
     <system:String x:Key="Chat.Screenshot.Unsupported">Screenshots are not supported on this platform.</system:String>
     <system:String x:Key="Chat.Screenshot.Failed">Screenshot failed.</system:String>
+    <system:String x:Key="Chat.Screenshot.NoImage">The screenshot ended without an image.</system:String>
     <system:String x:Key="Chat.Attach.Remove">Remove</system:String>
     <system:String x:Key="Chat.Attach.SelectImages">Select images</system:String>
     <system:String x:Key="Chat.Attach.ImageFiles">Images</system:String>
@@ -94,10 +95,7 @@
     <system:String x:Key="Chat.Attach.ParserDisabled">Document parsing is not enabled.</system:String>
     <system:String x:Key="Chat.Attach.ParseFailed">Document parse failed.</system:String>
     <system:String x:Key="Chat.Attach.ParseFailedNamed">Failed to parse {0}: {1}</system:String>
-    <system:String x:Key="Chat.Archive.Saving">Saving the previous chat in the background.</system:String>
-    <system:String x:Key="Chat.Archive.StageFailed">Failed to archive the previous chat: {0}</system:String>
     <system:String x:Key="Chat.Archive.RetryLater">Failed to archive the previous chat; will retry later.</system:String>
-    <system:String x:Key="Chat.Archive.ErrorUnavailable">Archive service unavailable.</system:String>
     <system:String x:Key="Chat.Error.ImageUnsupported">The current primary model does not support image understanding. Please switch to a vision-capable model and try again.</system:String>
     <system:String x:Key="Chat.Error.ImageRecognitionUnavailable">The main conversation model cannot read image input, and no usable image-recognition result is available. I cannot truthfully describe the visual content. Configure or verify a vision-capable Image recognition model, or switch the main model and try again.</system:String>
     <system:String x:Key="Chat.Error.ToolArgumentsTruncated">[Tool call arguments were repeatedly cut off or incomplete after retries. No incomplete calls were executed. Try a larger model output limit or split the task into smaller steps.]</system:String>
@@ -272,21 +270,7 @@
     <system:String x:Key="History.PendingStatus">Summarizing</system:String>
 
     <!-- Workspace -->
-    <system:String x:Key="Chat.Workspace.SwitchTip">Switch workspace</system:String>
-    <system:String x:Key="Chat.Workspace.None">No workspace</system:String>
-    <system:String x:Key="Chat.Workspace.Global">Global chat (no workspace)</system:String>
-    <system:String x:Key="Chat.Workspace.Add">Add workspace</system:String>
-    <system:String x:Key="Chat.Workspace.Remove">Remove workspace</system:String>
     <system:String x:Key="Chat.Workspace.SelectFolder">Select workspace directory</system:String>
-    <system:String x:Key="Chat.Workspace.SelectExisting">Select an existing workspace</system:String>
-    <system:String x:Key="Chat.Workspace.RemoveConfirm.Title">Remove workspace</system:String>
-    <system:String x:Key="Chat.Workspace.RemoveConfirm.Message">Remove “{0}”? Its workspace knowledge files will be permanently deleted; conversation history will be kept as ungrouped.</system:String>
-    <system:String x:Key="Chat.Workspace.RemoveConfirm.Yes">Remove</system:String>
-    <system:String x:Key="Chat.Workspace.RemoveConfirm.No">Cancel</system:String>
-    <system:String x:Key="Chat.Workspace.SwitchConfirm.Title">Switch workspace</system:String>
-    <system:String x:Key="Chat.Workspace.SwitchConfirm.Message">Switching to “{0}” will save the current conversation and start a new one. Continue?</system:String>
-    <system:String x:Key="Chat.Workspace.SwitchConfirm.Yes">Switch</system:String>
-    <system:String x:Key="Chat.Workspace.SwitchConfirm.No">Cancel</system:String>
     <system:String x:Key="Git.Branch.OpenReview">Open changes review</system:String>
     <system:String x:Key="Git.Branch.Menu">Branch menu</system:String>
     <system:String x:Key="Git.Branches.Switch">Switch branch</system:String>
@@ -500,7 +484,7 @@
     <system:String x:Key="WorkspaceContext.Error.Threshold">Compression threshold must be positive.</system:String>
     <system:String x:Key="WorkspaceContext.Error.KeepToolChars">Kept tool-result characters must be between 20,000 and 800,000.</system:String>
     <system:String x:Key="WorkspaceContext.Error.SummaryMax">Summary length cap must be between 1,024 and 32,768 tokens.</system:String>
-    <system:String x:Key="WorkspaceContext.Error.Knowledge">Workspace knowledge budget must be between 0 and 300,000 characters.</system:String>
+    <system:String x:Key="WorkspaceContext.Error.Knowledge">Workspace knowledge budget must be between 0 and {0:N0} characters.</system:String>
     <system:String x:Key="WorkspaceContext.Error.Save">Could not save Workspace context settings: {0}</system:String>
     <system:String x:Key="ProviderModels.Title">Providers and models</system:String>
     <system:String x:Key="ProviderModels.AddProvider">Add provider</system:String>
@@ -882,14 +866,11 @@
 
     <!-- Service Status Messages -->
     <system:String x:Key="Status.ServiceNotInitialized">Service not initialized</system:String>
-    <system:String x:Key="Status.EnterApiKeyFirst">Please enter the API Key first</system:String>
     <system:String x:Key="Status.TestingConnection">Testing connection…</system:String>
     <system:String x:Key="Status.LoadingModels">Loading model list…</system:String>
     <system:String x:Key="Status.ModelsLoaded">Loaded {0} model(s)</system:String>
     <system:String x:Key="Status.TextAndEmbeddingModelsLoaded">Loaded {0} text model(s) and {1} embedding model(s)</system:String>
     <system:String x:Key="Status.TextModelsLoadedEmbeddingFailed">Loaded {0} text model(s); embedding models failed: {1}</system:String>
-    <system:String x:Key="Status.NoModelsReturned">No models returned from this endpoint</system:String>
-    <system:String x:Key="Status.LoadModelsFailed">Failed to load model list: {0}</system:String>
     <system:String x:Key="Status.EnableAudioOutputFirst">Please enable voice first</system:String>
     <system:String x:Key="Status.EnableWebSearchFirst">Please enable web search first</system:String>
     <system:String x:Key="Status.EnableBrowserFirst">Please enable browser automation first</system:String>
@@ -970,11 +951,9 @@
     <!-- First-launch onboarding -->
     <system:String x:Key="Onboarding.Title">Welcome to Athena</system:String>
     <system:String x:Key="Onboarding.Motto">the owl wakes at dusk</system:String>
-    <system:String x:Key="Onboarding.Skip">Skip</system:String>
     <system:String x:Key="Onboarding.Next">Next</system:String>
     <system:String x:Key="Onboarding.Back">Back</system:String>
     <system:String x:Key="Onboarding.Finish">Done</system:String>
-    <system:String x:Key="Onboarding.Step1Oracle">Enter your API Key to wake your AI assistant</system:String>
     <system:String x:Key="Onboarding.Provider">Provider</system:String>
     <system:String x:Key="Onboarding.Model">Primary model</system:String>
     <system:String x:Key="Onboarding.TestConnection">Test connection</system:String>
@@ -987,20 +966,7 @@
     <system:String x:Key="Onboarding.RolesHint">One API Key can be used for all the following roles. You can override each later in Settings.</system:String>
     <system:String x:Key="Onboarding.Role.Primary">Primary model</system:String>
     <system:String x:Key="Onboarding.Role.Background">Background tasks</system:String>
-    <system:String x:Key="Onboarding.Role.Image">Image generation</system:String>
-    <system:String x:Key="Onboarding.Role.Audio">Voice</system:String>
     <system:String x:Key="Onboarding.Role.SubAgents">Sub-agents</system:String>
-    <system:String x:Key="Onboarding.Role.Browser">Browser automation</system:String>
-    <system:String x:Key="Onboarding.Step2Oracle">Enable more capabilities</system:String>
-    <system:String x:Key="Onboarding.Step2Title">Enable optional capabilities</system:String>
-    <system:String x:Key="Onboarding.Toggle.SubAgents">Parallel sub-agents</system:String>
-    <system:String x:Key="Onboarding.Toggle.SubAgentsHint">Dispatch multiple sub-agents to research and read/write files in parallel</system:String>
-    <system:String x:Key="Onboarding.Toggle.Browser">Browser automation</system:String>
-    <system:String x:Key="Onboarding.Toggle.BrowserHint">A vision-guided web agent that completes multi-step web tasks on its own</system:String>
-    <system:String x:Key="Onboarding.Toggle.WebSearch">Web search</system:String>
-    <system:String x:Key="Onboarding.Toggle.WebSearchHint">Real-time web retrieval (Tavily etc. — separate service with its own key)</system:String>
-    <system:String x:Key="Onboarding.Toggle.ImageGen">Image generation</system:String>
-    <system:String x:Key="Onboarding.Toggle.ImageGenHint">Generate and iterate on images right inside the conversation</system:String>
     <system:String x:Key="Onboarding.Step3Oracle">Ready</system:String>
     <system:String x:Key="Onboarding.Step3Welcome">Start with a greeting, or jump right into a conversation.</system:String>
     <system:String x:Key="Onboarding.Starter1">Introduce yourself and what you can help me with</system:String>
@@ -1026,11 +992,6 @@
     <system:String x:Key="Audio.RequestFailed">Voice request failed: {0}</system:String>
     <system:String x:Key="Audio.EmptyBody">Voice request returned an empty body.</system:String>
     <system:String x:Key="Audio.GenerationFailed">Voice generation failed: {0}</system:String>
-    <system:String x:Key="Audio.SystemUnavailable">System voice output is not supported on this device.</system:String>
-    <system:String x:Key="Audio.SystemFailed">System voice output failed: {0}</system:String>
-    <system:String x:Key="Audio.SystemNoFile">System voice output did not generate an audio file.</system:String>
-    <system:String x:Key="Audio.SystemEmptyFile">System voice output generated an empty audio file.</system:String>
-    <system:String x:Key="Audio.SystemGenerationFailed">System voice output generation failed: {0}</system:String>
     <system:String x:Key="Audio.StorageUnavailable">Audio attachment storage is unavailable.</system:String>
     <system:String x:Key="Audio.SaveFailed">Failed to save audio: {0}</system:String>
 

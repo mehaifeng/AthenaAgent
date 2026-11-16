@@ -381,7 +381,6 @@ test('hair: every character has a hairstyle of its own, and wherever there is ha
     styles.add(JSON.stringify(style));
     const hair = f.joints.head.getObjectByName('hair');
     assert.ok(hair, `${id}: the hair is on the head`);
-    if (f.spec.faceless) return;   // 金色侍女的头是一个椭球，同一套外推；五官的头才有接缝和起伏要查
     const head = f.joints.head.getObjectByName('head');
     const hp = head.geometry.attributes.position;
     f.root.updateMatrixWorld(true);
