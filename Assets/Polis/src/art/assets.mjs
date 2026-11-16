@@ -13,7 +13,7 @@ import * as props from './props.mjs';
 import * as plants from './plants.mjs';
 import { buildCharacter, CHARACTER_IDS } from './characters.mjs';
 import { buildDeliveredItem, buildDisplayedItem } from './items.mjs';
-import { drape, blobGeometry, limbGeometry, merge, keyed } from './rig.mjs';
+import { drape, blobGeometry, limbGeometry, keyed } from './rig.mjs';
 import { rng, hashSeed } from './noise.mjs';
 import { poseAt } from './poses.mjs';
 import { prepareExternalBody, attachExternalBody } from './bind.mjs';
@@ -26,7 +26,7 @@ import * as country from './countryside.mjs';
  * params：建筑要 { building, rand }，橄榄要 { stage, seed }，市集要 { stalls }，港口要 { quayLocalZ, pierLength, plotCenterZ }。
  */
 export function createAssetRegistry(M) {
-  const statue = props.statueGeometry(drape, blobGeometry, limbGeometry, merge, keyed);
+  const statue = props.statueGeometry(drape, blobGeometry, limbGeometry, keyed);
   statue.userData.shared = true;
   const registry = new Map();
   // 碰撞（M3 决定 1）：缺省每件东西按自己的网格在人身高度带里推足迹（footprint.mjs）；人物与成果不挡路——
@@ -218,10 +218,6 @@ export function createAssetLibrary(M, { manifest = null, fetchModel = null } = {
     }
     if (id === 'figure.athena') {
       wrapper.traverse((o) => { if (o.isMesh && !o.userData.accent) o.userData.athena = true; });
-      const light = new THREE.PointLight(0xfff6e8, 1.1, 4.5, 2);
-      light.position.set(0, 0.45, 0.3);
-      wrapper.add(light);
-      wrapper.userData.light = light;
     }
     let lastClock = null;
     return {

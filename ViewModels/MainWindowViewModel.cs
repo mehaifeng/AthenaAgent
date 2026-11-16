@@ -532,7 +532,6 @@ public partial class MainWindowViewModel : ViewModelBase, IDisposable, ICronSess
             cronScheduleService ?? new Services.Cron.CronScheduleService(localizationService),
             cronExecutionWorker,
             conversationNavigator,
-            workspaceService,
             localizationService);
         _knowledgeBaseViewModel = new KnowledgeBaseViewModel(
             fileSystemService,
@@ -608,9 +607,7 @@ public partial class MainWindowViewModel : ViewModelBase, IDisposable, ICronSess
                 task.Id, task.WorkspaceId);
         }
 
-        var chat = CreateChatSession();
-        await chat.InitializeWorkspacesAsync();
-        chat.AssignWorkspace(targetGroup.Workspace);
+        var chat = CreateChatSession(targetGroup.Workspace);
         // 溯源必须在第一次持久化之前打上，否则首版快照会以普通会话落库，重启后再也认不出它。
         chat.MarkAsScheduledRun(task.Id, run.RunId, run.ScheduledFor);
 
@@ -753,7 +750,7 @@ public partial class MainWindowViewModel : ViewModelBase, IDisposable, ICronSess
                               ? await _conversationArchiveService.LoadByIdAsync(e.Snapshot.HistoryId)
                               : null);
             if (history == null) return;
-            await UpsertConversationTreeItemAsync(history, e.Snapshot);
+            UpsertConversationTreeItem(history, e.Snapshot);
         }
         catch (Exception ex)
         {
@@ -786,7 +783,7 @@ public partial class MainWindowViewModel : ViewModelBase, IDisposable, ICronSess
                 || (!string.IsNullOrWhiteSpace(snapshot.ConversationId)
                     && string.Equals(session.ConversationId, snapshot.ConversationId, StringComparison.Ordinal)));
 
-    private async Task UpsertConversationTreeItemAsync(
+    private void UpsertConversationTreeItem(
         ConversationHistoryItem history,
         ConversationArchiveSnapshot? snapshot = null)
     {
@@ -814,12 +811,39 @@ public partial class MainWindowViewModel : ViewModelBase, IDisposable, ICronSess
         if (group == null) return;
 
         _logger.Information("Session tree inserting external archive: {HistoryId}", history.Id);
-        var chat = CreateChatSession();
-        await chat.InitializeWorkspacesAsync();
+        session = RestoreConversationSession(history, group.Workspace, ResolveForkDepth(history));
+        session.SetArchiveCompleted();
+        WireSession(session);
+        group.Conversations.Insert(0, session);
+        RefreshPinnedConversations();
+        OnConversationSearchTextChanged(ConversationSearchText);
+        _logger.Information("Session tree inserted external archive: {HistoryId}", history.Id);
+    }
+
+    private MainConversationViewModel CreateChatSession(WorkspaceProfile? workspace)
+    {
+        var chat = _chatSessionFactory?.Create()
+            ?? new MainConversationViewModel(
+                null,
+                null,
+                null,
+                null,
+                new TokenService(),
+                _localizationService,
+                archiveService: _conversationArchiveService,
+                workspaceService: _workspaceService,
+                userInteractionService: _userInteractionService);
+        chat.AssignWorkspace(workspace);
+        return chat;
+    }
+
+    private ConversationSessionItemViewModel RestoreConversationSession(
+        ConversationHistoryItem history, WorkspaceProfile? workspace, int forkDepth)
+    {
+        var chat = CreateChatSession(workspace);
         chat.RestorePersistedConversation(history);
-        chat.AssignWorkspace(group.Workspace);
         chat.InputText = history.Draft;
-        session = new ConversationSessionItemViewModel(chat, group.Workspace, _conversationStore, history.Id, _localizationService)
+        return new ConversationSessionItemViewModel(chat, workspace, _conversationStore, history.Id, _localizationService)
         {
             Title = string.IsNullOrWhiteSpace(history.Summary) ? _localizationService?.GetString("Session.Title.NewConversation", "New chat") ?? "New chat" : history.Summary,
             IsPinned = history.IsPinned,
@@ -829,28 +853,9 @@ public partial class MainWindowViewModel : ViewModelBase, IDisposable, ICronSess
             ForkedFromHistoryId = history.ForkedFromHistoryId,
             CreatedByCronTaskId = history.CreatedByCronTaskId,
             CronTaskRunId = history.CronTaskRunId,
-            ForkDepth = ResolveForkDepth(history)
+            ForkDepth = forkDepth
         };
-        session.SetArchiveCompleted();
-        WireSession(session);
-        group.Conversations.Insert(0, session);
-        RefreshPinnedConversations();
-        OnConversationSearchTextChanged(ConversationSearchText);
-        _logger.Information("Session tree inserted external archive: {HistoryId}", history.Id);
     }
-
-    private MainConversationViewModel CreateChatSession() =>
-        _chatSessionFactory?.Create()
-        ?? new MainConversationViewModel(
-            null,
-            null,
-            null,
-            null,
-            new TokenService(),
-            _localizationService,
-            archiveService: _conversationArchiveService,
-            workspaceService: _workspaceService,
-            userInteractionService: _userInteractionService);
 
     public async Task PersistSessionStateAsync()
     {
@@ -938,23 +943,7 @@ public partial class MainWindowViewModel : ViewModelBase, IDisposable, ICronSess
             foreach (var history in histories.OrderByDescending(item => item.IsPinned).ThenByDescending(item => item.UpdatedAt))
             {
                 var group = ConversationGroups.FirstOrDefault(candidate => candidate.Workspace?.Id == history.WorkspaceId) ?? globalGroup;
-                var chat = CreateChatSession();
-                await chat.InitializeWorkspacesAsync();
-                chat.RestorePersistedConversation(history);
-                chat.AssignWorkspace(group.Workspace);
-                chat.InputText = history.Draft;
-                var session = new ConversationSessionItemViewModel(chat, group.Workspace, _conversationStore, history.Id, _localizationService)
-                {
-                    Title = string.IsNullOrWhiteSpace(history.Summary) ? _localizationService?.GetString("Session.Title.NewConversation", "New chat") ?? "New chat" : history.Summary,
-                    IsPinned = history.IsPinned,
-                    UpdatedAt = history.UpdatedAt,
-                    WasInterrupted = string.Equals(history.RuntimeStatus, "interrupted", StringComparison.OrdinalIgnoreCase),
-                    ForkedFromConversationId = history.ForkedFromConversationId,
-                    ForkedFromHistoryId = history.ForkedFromHistoryId,
-                    CreatedByCronTaskId = history.CreatedByCronTaskId,
-                    CronTaskRunId = history.CronTaskRunId,
-                    ForkDepth = forkDepths.TryGetValue(history.Id, out var forkDepth) ? forkDepth : 0
-                };
+                var session = RestoreConversationSession(history, group.Workspace, forkDepths.GetValueOrDefault(history.Id));
                 WireSession(session);
                 group.Conversations.Add(session);
             }
@@ -963,7 +952,7 @@ public partial class MainWindowViewModel : ViewModelBase, IDisposable, ICronSess
             var initial = ConversationGroups.SelectMany(group => group.Conversations).OrderByDescending(session => session.UpdatedAt).FirstOrDefault();
             if (initial == null)
             {
-                initial = await CreateConversationCoreAsync(globalGroup);
+                initial = CreateConversationCore(globalGroup);
             }
             SelectedConversation = initial;
         }
@@ -976,10 +965,11 @@ public partial class MainWindowViewModel : ViewModelBase, IDisposable, ICronSess
                 WireGroup(globalGroup);
                 ConversationGroups.Add(globalGroup);
             }
-            SelectedConversation = await CreateConversationCoreAsync(ConversationGroups[0]);
+            SelectedConversation = CreateConversationCore(ConversationGroups[0]);
         }
         finally
         {
+            RefreshTaskWorkspaces();
             IsConversationTreeLoading = false;
             // cron 执行器必须等到这里才启动：工作区分组和会话树都已就位，
             // 第一批到期任务才有地方落。提前启动只会让它们撞上一棵空树。
@@ -1001,18 +991,16 @@ public partial class MainWindowViewModel : ViewModelBase, IDisposable, ICronSess
     }
 
     [RelayCommand]
-    private async Task CreateConversationAsync(WorkspaceConversationGroupViewModel? group)
+    private void CreateConversation(WorkspaceConversationGroupViewModel? group)
     {
         group ??= GlobalConversationGroup;
         if (group == null) return;
-        SelectedConversation = await CreateConversationCoreAsync(group);
+        SelectedConversation = CreateConversationCore(group);
     }
 
-    private async Task<ConversationSessionItemViewModel> CreateConversationCoreAsync(WorkspaceConversationGroupViewModel group)
+    private ConversationSessionItemViewModel CreateConversationCore(WorkspaceConversationGroupViewModel group)
     {
-        var chat = CreateChatSession();
-        await chat.InitializeWorkspacesAsync();
-        chat.AssignWorkspace(group.Workspace);
+        var chat = CreateChatSession(group.Workspace);
         var session = new ConversationSessionItemViewModel(chat, group.Workspace, _conversationStore, null, _localizationService);
         WireSession(session);
         group.Conversations.Insert(0, session);
@@ -1045,7 +1033,7 @@ public partial class MainWindowViewModel : ViewModelBase, IDisposable, ICronSess
             WireGroup(group);
             ConversationGroups.Add(group);
         }
-        SelectedConversation = await CreateConversationCoreAsync(group);
+        SelectedConversation = CreateConversationCore(group);
     }
 
     [RelayCommand]
@@ -1070,7 +1058,7 @@ public partial class MainWindowViewModel : ViewModelBase, IDisposable, ICronSess
         if (ReferenceEquals(SelectedConversation, session))
         {
             SelectedConversation = ConversationGroups.SelectMany(candidate => candidate.Conversations).OrderByDescending(candidate => candidate.UpdatedAt).FirstOrDefault()
-                ?? await CreateConversationCoreAsync(GlobalConversationGroup ?? ConversationGroups[0]);
+                ?? CreateConversationCore(GlobalConversationGroup ?? ConversationGroups[0]);
         }
     }
 
@@ -1095,7 +1083,17 @@ public partial class MainWindowViewModel : ViewModelBase, IDisposable, ICronSess
     [RelayCommand]
     private async Task OpenTasksAsync()
     {
+        RefreshTaskWorkspaces();
         if (MainOwner is { } owner) await new TasksWindow(TasksViewModel, _localizationService).ShowDialog(owner);
+    }
+
+    private void RefreshTaskWorkspaces()
+    {
+        var editor = TasksViewModel.Editor;
+        var workspaces = ConversationGroups.Select(group => group.Workspace)
+            .OfType<WorkspaceProfile>()
+            .OrderBy(workspace => workspace.Name);
+        editor.SetAvailableWorkspaces(workspaces, editor.SelectedWorkspace?.Id);
     }
 
     [RelayCommand]
@@ -1216,10 +1214,8 @@ public partial class MainWindowViewModel : ViewModelBase, IDisposable, ICronSess
 
         // 4. 新分支会话（不修改父会话任何状态）。
         var group = ConversationGroups.First(candidate => candidate.Conversations.Contains(source));
-        var chat = CreateChatSession();
-        await chat.InitializeWorkspacesAsync();
+        var chat = CreateChatSession(group.Workspace);
         chat.RestorePersistedConversation(fork);
-        chat.AssignWorkspace(group.Workspace);
         chat.MarkPersistenceMetadataChanged();
 
         // 5. 插入源下方并选中。
@@ -1267,10 +1263,8 @@ public partial class MainWindowViewModel : ViewModelBase, IDisposable, ICronSess
 
         // 4. 新分支会话。
         var group = ConversationGroups.First(candidate => candidate.Conversations.Contains(source));
-        var chat = CreateChatSession();
-        await chat.InitializeWorkspacesAsync();
+        var chat = CreateChatSession(group.Workspace);
         chat.RestorePersistedConversation(fork);
-        chat.AssignWorkspace(group.Workspace);
 
         // 5. 回填 fork 点：内容进输入框、附件克隆挂回待发送列表。
         //    restore 内部会清空待发送附件，因此必须在此之后回填。
@@ -1421,15 +1415,15 @@ public partial class MainWindowViewModel : ViewModelBase, IDisposable, ICronSess
 
     bool IPolisShell.SelectConversation(string conversationId) => TryNavigateToConversationCore(null, conversationId);
 
-    async Task<ConversationSessionItemViewModel?> IPolisShell.CreateCommissionAsync(WorkspaceProfile? workspace)
+    Task<ConversationSessionItemViewModel?> IPolisShell.CreateCommissionAsync(WorkspaceProfile? workspace)
     {
         var group = workspace == null
             ? GlobalConversationGroup
             : ConversationGroups.FirstOrDefault(candidate => candidate.Workspace?.Id == workspace.Id);
-        if (group == null) return null;
-        var created = await CreateConversationCoreAsync(group);
+        if (group == null) return Task.FromResult<ConversationSessionItemViewModel?>(null);
+        var created = CreateConversationCore(group);
         SelectedConversation = created;
-        return created;
+        return Task.FromResult<ConversationSessionItemViewModel?>(created);
     }
 
     Task IPolisShell.OpenFileAsync(string fullPath) => Workbench?.OpenFileByPathAsync(fullPath) ?? Task.CompletedTask;
@@ -1554,7 +1548,7 @@ public partial class MainWindowViewModel : ViewModelBase, IDisposable, ICronSess
                 .SelectMany(candidate => candidate.Conversations)
                 .OrderByDescending(session => session.UpdatedAt)
                 .FirstOrDefault()
-                ?? await CreateConversationCoreAsync(GlobalConversationGroup ?? ConversationGroups[0]);
+                ?? CreateConversationCore(GlobalConversationGroup ?? ConversationGroups[0]);
         }
 
         ConversationGroups.Remove(group);

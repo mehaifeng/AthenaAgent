@@ -58,8 +58,6 @@ internal sealed class XlsxNumberFormatMap
         }
     }
 
-    public bool IsTemporal(int? styleIndex) => styleIndex is not null && _styleKinds.ContainsKey(styleIndex.Value);
-
     /// <summary>Converts an Excel serial number into readable text, or null when the style is not temporal.</summary>
     public string? Format(int? styleIndex, double serial)
     {

@@ -1,5 +1,5 @@
 // 建筑套件（设计稿 M2 行"建筑套件"）：所有建筑都由这里的构件组装——台基与台阶、墙与门窗、柱廊、各种屋顶、
-// 檐部与山花、栏墙、烟囱、瓦砾、常春藤、脚手架。构件只管几何，材质由调用方给；同一座建筑里同一种材质的零件
+// 檐部与山花、栏墙、烟囱、瓦砾、常春藤。构件只管几何，材质由调用方给；同一座建筑里同一种材质的零件
 // 合成一个网格，柱子这类重复件用实例化（Kit）。柱子、柱头、三陇板、棕叶饰取自打样（Artwork/Polis/sample/）。
 // 坐标：地块中心为原点、地面 y = 0、正面朝 +z（世界里再按朝向旋转、平移）。
 import * as THREE from '../../vendor/three.bundle.mjs';
@@ -9,12 +9,16 @@ import { glassUv, LAMP_KINDS } from './lamps.mjs';
 
 const KEEP = ['position', 'normal', 'uv'];
 
-function normalizeGeometry(geometry) {
-  const g = geometry.index ? geometry.toNonIndexed() : geometry.clone();
+function normalizeGeometry(g) {
   for (const name of Object.keys(g.attributes)) if (!KEEP.includes(name)) g.deleteAttribute(name);
   if (!g.attributes.normal) g.computeVertexNormals();
   if (!g.attributes.uv) g.setAttribute('uv', new THREE.Float32BufferAttribute(new Float32Array(g.attributes.position.count * 2), 2));
   return g;
+}
+
+/** 合并后不再单独使用这些构件，因此可以直接归一化非索引几何。 */
+export function mergeGeometryParts(parts) {
+  return mergeGeometries(parts.map((part) => normalizeGeometry(part.index ? part.toNonIndexed() : part)));
 }
 
 const tmpQ = new THREE.Quaternion(), tmpE = new THREE.Euler(), tmpS = new THREE.Vector3(), tmpP = new THREE.Vector3();
@@ -47,7 +51,7 @@ export class Kit {
 
   add(material, geometry, matrix = null) {
     if (!material) throw new Error('Kit: a part needs a material');
-    const g = normalizeGeometry(geometry);
+    const g = normalizeGeometry(geometry.index ? geometry.toNonIndexed() : geometry.clone());
     if (matrix) g.applyMatrix4(matrix);
     if (!this.byMaterial.has(material)) this.byMaterial.set(material, []);
     this.byMaterial.get(material).push(g);
@@ -538,22 +542,6 @@ export function ivy(kit, M, r, { w, d, h, y0 = 0, strands = 4 }) {
       kit.add(M.ivy, new THREE.IcosahedronGeometry(1, 0), m4(px + ox, y0 + y, pz + oz, r() * 6, r() * 6, 0, s, s, s * 0.6));
     }
   }
-}
-
-/** 脚手架：写入时搭在建筑正面的木架子（单独的件，按动作显隐）。 */
-export function buildScaffold(M, width, height) {
-  const kit = new Kit();
-  const n = Math.max(2, Math.round(width / 2.2));
-  for (let i = 0; i <= n; i++) {
-    const x = -width / 2 + (i * width) / n;
-    for (const z of [0, 0.9]) kit.cylinder(M.wood, 0.05, 0.05, height, x, height / 2, z, 6);
-  }
-  for (let y = 1.4; y < height; y += 1.4) {
-    kit.box(M.wood, width + 0.2, 0.06, 1.1, 0, y, 0.45);
-    kit.box(M.wood, width + 0.2, 0.05, 0.05, 0, y + 0.6, 0.9);
-  }
-  kit.box(M.wood, Math.hypot(width, height) * 0.95, 0.05, 0.05, 0, height / 2, 0.92, 0, 0, Math.atan2(height, width));
-  return kit.build();
 }
 
 export { deg };

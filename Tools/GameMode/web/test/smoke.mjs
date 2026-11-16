@@ -68,7 +68,14 @@ async function fixtureCheck(name, browser) {
     await page.waitForFunction(() => window.__polis?.ready === true || document.title === 'error', null, { timeout: 90_000 });
     const first = await page.evaluate(() => ({ title: document.title, errors: window.__polis.errors, now: window.__polis.now, frames: window.__polis.frames, fixture: window.__polis.fixture }));
     await page.waitForTimeout(3000);
-    const later = await page.evaluate(() => ({ now: window.__polis.now, frames: window.__polis.frames, athena: window.__polis.athena, errors: window.__polis.errors, pixels: window.__polis.pixelStats() }));
+    const later = await page.evaluate(() => {
+      const s = window.__polis, g = window.__polisGame;
+      return {
+        now: s.now, frames: s.frames, athena: s.athena, errors: s.errors, pixels: s.pixelStats(),
+        personalLight: !!g.world.athena.getObjectByProperty('type', 'PointLight'),
+        personalGlow: g.R.gradePass.uniforms.uGlowStrength.value,
+      };
+    });
     const checks = {
       ready: first.title === 'ready',
       noPageErrors: later.errors.length === 0,
@@ -76,7 +83,8 @@ async function fixtureCheck(name, browser) {
       // 全空的一帧标准差≈0、只有一两种颜色
       nonEmptyFrame: later.pixels.std > 8 && later.pixels.distinct >= 16,
       animating: later.now > first.now && later.frames > first.frames,
-      athenaLivesHere: ['idle', 'walk', 'teleport'].includes(later.athena),
+      athenaLivesHere: ['idle', 'walk', 'run'].includes(later.athena),
+      noPersonalLight: !later.personalLight && later.personalGlow === 0,
       syntheticFixture: first.fixture?.synthetic === true && first.fixture.buildings >= 8,
     };
     Object.assign(result, {
@@ -206,7 +214,7 @@ async function deliveryCheck(name, browser) {
       cityLoaded: loaded.city?.buildings === city.buildings.length && loaded.city.key === 'ws-1',
       approvalOnlyOnTheBar: loaded.sealed && loaded.placeholder === waitingText && unsealed,
       noLiveMirror: loaded.errors.some((e) => e.includes('unknown host message: events')) && loaded.errors.some((e) => e.includes('unknown host message: focus'))
-        && ['idle', 'walk', 'teleport'].includes(loaded.athena),
+        && ['idle', 'walk', 'run'].includes(loaded.athena),
       nonEmptyFrame: loaded.pixels.std > 8 && loaded.pixels.distinct >= 16,
       acceptSent: inbox.includes('accept-delivery'),
       relocateSent: fogged === true && inbox.includes('relocate'),

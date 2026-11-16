@@ -27,35 +27,28 @@ public class KnowledgeBaseService : IKnowledgeBaseService, IDisposable
     private readonly IEmbeddingService? _embeddingService;
     private readonly VectorStoreService _vectorStoreService;
     private FileSystemWatcher? _watcher;
-    private readonly ConcurrentDictionary<string, DateTime> _pendingUpdates = new();
     private Timer? _debounceTimer;
 
-    /// <summary>
-    /// 文档向量缓存（内存中）
-    /// </summary>
-    private readonly List<DocumentVector> _vectorCache = new();
+    // A refresh publishes one complete snapshot. An invalidation arriving during a
+    // refresh remains pending until a later pass loads that revision.
+    private volatile IReadOnlyList<DocumentVector> _vectorCache = [];
+    private long _indexRevision;
+    private long _loadedIndexRevision = -1;
 
-    /// <summary>
-    /// 向量缓存是否已初始化
-    /// </summary>
-    private bool _vectorCacheInitialized;
+    private bool IndexNeedsRefresh =>
+        Volatile.Read(ref _loadedIndexRevision) != Volatile.Read(ref _indexRevision);
 
     /// <summary>
     /// 初始化锁
     /// </summary>
     private readonly SemaphoreSlim _initLock = new(1, 1);
 
-    #region 并发控制与安全常量
+    #region 文件写入与检索常量
 
     /// <summary>
-    /// 文件级别的锁（每个文件一个锁，避免全局锁影响性能）
+    /// 按路径串行写入新知识文件。
     /// </summary>
     private readonly ConcurrentDictionary<string, SemaphoreSlim> _fileLocks = new();
-
-    /// <summary>
-    /// 全局操作锁（用于目录操作等）
-    /// </summary>
-    private readonly SemaphoreSlim _globalLock = new(1, 1);
 
     /// <summary>
     /// 最大文件大小（10MB）
@@ -171,14 +164,12 @@ public class KnowledgeBaseService : IKnowledgeBaseService, IDisposable
                 NotifyFilter = NotifyFilters.FileName | NotifyFilters.LastWrite | NotifyFilters.Size
             };
 
-            _watcher.Created += (s, e) => EnqueueUpdate(e.FullPath);
-            _watcher.Changed += (s, e) => EnqueueUpdate(e.FullPath);
-            _watcher.Deleted += (s, e) => EnqueueUpdate(e.FullPath);
-            _watcher.Renamed += (s, e) => { EnqueueUpdate(e.OldFullPath); EnqueueUpdate(e.FullPath); };
-
+            _debounceTimer = new Timer(RefreshIndexFromWatcher, null, Timeout.Infinite, Timeout.Infinite);
+            _watcher.Created += (_, _) => ScheduleIndexRefresh();
+            _watcher.Changed += (_, _) => ScheduleIndexRefresh();
+            _watcher.Deleted += (_, _) => ScheduleIndexRefresh();
+            _watcher.Renamed += (_, _) => ScheduleIndexRefresh();
             _watcher.EnableRaisingEvents = true;
-
-            _debounceTimer = new Timer(ProcessPendingUpdates, null, Timeout.Infinite, Timeout.Infinite);
             _logger.Information("Knowledge base file watcher started");
         }
         catch (Exception ex)
@@ -187,42 +178,19 @@ public class KnowledgeBaseService : IKnowledgeBaseService, IDisposable
         }
     }
 
-    private void EnqueueUpdate(string fullPath)
-    {
-        var relativePath = GetRelativePath(fullPath);
-        _pendingUpdates[relativePath] = DateTime.Now;
-        _debounceTimer?.Change(1000, Timeout.Infinite); // 1秒防抖
-    }
+    // The refresh compares all file hashes, so one scan covers the entire event burst.
+    private void ScheduleIndexRefresh() => _debounceTimer?.Change(1000, Timeout.Infinite);
 
-    private void ProcessPendingUpdates(object? state)
-        => AsyncEventGuard.Run(() => ProcessPendingUpdatesAsync(state), nameof(ProcessPendingUpdates));
+    private void RefreshIndexFromWatcher(object? _)
+        => AsyncEventGuard.Run(RefreshIndexAsync, nameof(RefreshIndexFromWatcher));
 
-    private async Task ProcessPendingUpdatesAsync(object? state)
-    {
-        var filesToUpdate = _pendingUpdates.Keys.ToList();
-        foreach (var relativePath in filesToUpdate)
-        {
-            if (_pendingUpdates.TryRemove(relativePath, out _))
-            {
-                _logger.Information("External file change detected; updating index in background: {File}", relativePath);
-                await UpdateFileIndexAsync(relativePath);
-            }
-        }
-    }
-
-    /// <summary>
-    /// 异步初始化（在首次使用时调用）
-    /// </summary>
-    public async Task InitializeAsync()
-    {
-        // 本地分块与 FTS 索引始终初始化；Embedding 只是可选的语义增强层。
-        await LoadOrRefreshVectorsAsync();
-    }
+    /// <summary>初始化本地文本索引，以及已配置的向量层。</summary>
+    public Task InitializeAsync() => LoadOrRefreshVectorsAsync();
 
     public async Task CreateFileAsync(string relativePath, string content, string[]? tags = null)
     {
         var fullPath = GetFullPathSecure(relativePath);
-        var fileLock = GetFileLock(relativePath);
+        var fileLock = _fileLocks.GetOrAdd(relativePath, static _ => new SemaphoreSlim(1, 1));
 
         await fileLock.WaitAsync();
         try
@@ -247,14 +215,14 @@ public class KnowledgeBaseService : IKnowledgeBaseService, IDisposable
 
             await File.WriteAllTextAsync(fullPath, finalContent);
 
-            // 同步更新本地 FTS 和可选向量，保证立刻可被搜索
+            // Await indexing after the file write. The Markdown remains saved if indexing fails.
             try
             {
-                await UpdateFileIndexAsync(relativePath);
+                await RefreshIndexAsync();
             }
             catch (Exception ex)
             {
-                _logger.Warning(ex, "Failed to update file vector");
+                _logger.Warning(ex, "Failed to refresh knowledge base index for {Path}", relativePath);
             }
 
             _logger.Information("Created knowledge file: {Path}", relativePath);
@@ -262,189 +230,6 @@ public class KnowledgeBaseService : IKnowledgeBaseService, IDisposable
         finally
         {
             fileLock.Release();
-        }
-    }
-
-    public async Task AppendToFileAsync(string relativePath, string content)
-    {
-        var fullPath = GetFullPathSecure(relativePath);
-        var fileLock = GetFileLock(relativePath);
-
-        await fileLock.WaitAsync();
-        try
-        {
-            if (!File.Exists(fullPath))
-            {
-                throw new FileNotFoundException($"文件不存在: {relativePath}");
-            }
-
-            // 内容验证
-            ValidateContent(content);
-
-            var existingContent = await File.ReadAllTextAsync(fullPath);
-            var newContent = existingContent.TrimEnd() + "\n\n" + content;
-
-            // 大小限制检查
-            if (newContent.Length > MaxFileSize)
-            {
-                throw new InvalidOperationException($"文件大小超过限制 ({MaxFileSize / 1024 / 1024}MB)");
-            }
-
-            await File.WriteAllTextAsync(fullPath, newContent);
-
-            // 同步更新本地 FTS 和可选向量，保证立刻可被搜索
-            try
-            {
-                await UpdateFileIndexAsync(relativePath);
-            }
-            catch (Exception ex)
-            {
-                _logger.Warning(ex, "Failed to update file vector");
-            }
-
-            _logger.Information("Appended content to knowledge file: {Path}", relativePath);
-        }
-        finally
-        {
-            fileLock.Release();
-        }
-    }
-
-    public async Task ReplaceFileAsync(string relativePath, string content)
-    {
-        var fullPath = GetFullPathSecure(relativePath);
-        var fileLock = GetFileLock(relativePath);
-
-        await fileLock.WaitAsync();
-        try
-        {
-            if (!File.Exists(fullPath))
-            {
-                throw new FileNotFoundException($"文件不存在: {relativePath}");
-            }
-
-            // 内容验证
-            ValidateContent(content);
-
-            await File.WriteAllTextAsync(fullPath, content);
-
-            // 同步更新本地 FTS 和可选向量，保证立刻可被搜索
-            try
-            {
-                await UpdateFileIndexAsync(relativePath);
-            }
-            catch (Exception ex)
-            {
-                _logger.Warning(ex, "Failed to update file vector");
-            }
-
-            _logger.Information("Replaced knowledge file content: {Path}", relativePath);
-        }
-        finally
-        {
-            fileLock.Release();
-        }
-    }
-
-    public async Task<string?> ReadFileAsync(string relativePath)
-    {
-        var fullPath = GetFullPathSecure(relativePath);
-        var fileLock = GetFileLock(relativePath);
-
-        await fileLock.WaitAsync();
-        try
-        {
-            if (!File.Exists(fullPath))
-            {
-                return null;
-            }
-
-            var content = await File.ReadAllTextAsync(fullPath);
-            return content;
-        }
-        finally
-        {
-            fileLock.Release();
-        }
-    }
-
-    public async Task DeleteFileAsync(string relativePath)
-    {
-        var fullPath = GetFullPathSecure(relativePath);
-        var fileLock = GetFileLock(relativePath);
-
-        await fileLock.WaitAsync();
-        try
-        {
-            if (!File.Exists(fullPath))
-            {
-                throw new FileNotFoundException($"文件不存在: {relativePath}");
-            }
-
-            File.Delete(fullPath);
-
-            // 异步删除向量
-            _ = Task.Run(async () =>
-            {
-                try
-                {
-                    await UpdateFileIndexAsync(relativePath);
-                }
-                catch (Exception ex)
-                {
-                    _logger.Warning(ex, "Failed to delete file index");
-                }
-            });
-
-            _logger.Information("Deleted knowledge file: {Path}", relativePath);
-        }
-        finally
-        {
-            fileLock.Release();
-        }
-    }
-
-    public async Task DeleteDirectoryAsync(string relativePath)
-    {
-        var fullPath = GetFullPathSecure(relativePath);
-
-        await _globalLock.WaitAsync();
-        try
-        {
-            if (!Directory.Exists(fullPath))
-            {
-                throw new DirectoryNotFoundException($"目录不存在: {relativePath}");
-            }
-
-            // 获取目录下所有文件，用于后续清理向量
-            var filesToDelete = Directory.GetFiles(fullPath, "*.md", SearchOption.AllDirectories)
-                .Select(GetRelativePath)
-                .ToList();
-
-            // 递归删除目录及其所有内容
-            Directory.Delete(fullPath, recursive: true);
-
-            // 异步删除向量
-            _ = Task.Run(async () =>
-            {
-                try
-                {
-                    foreach (var file in filesToDelete)
-                    {
-                        await UpdateFileIndexAsync(file);
-                    }
-                }
-                catch (Exception ex)
-                {
-                    _logger.Warning(ex, "Failed to delete directory vectors");
-                }
-            });
-
-            _logger.Information("Deleted knowledge base directory: {Path}", relativePath);
-        }
-        finally
-        {
-            _globalLock.Release();
         }
     }
 
@@ -458,7 +243,8 @@ public class KnowledgeBaseService : IKnowledgeBaseService, IDisposable
 
         try
         {
-            if (!_vectorCacheInitialized) await LoadOrRefreshVectorsAsync();
+            if (IndexNeedsRefresh) await LoadOrRefreshVectorsAsync();
+            var vectorCache = _vectorCache;
 
             var embeddingsOn = _embeddingService != null && _embeddingService.IsConfigured;
 
@@ -472,9 +258,9 @@ public class KnowledgeBaseService : IKnowledgeBaseService, IDisposable
             // 1) 稠密召回（余弦）。同时记录全量相似度，供门控复用（含稀疏-only 候选）
             var simByKey = new Dictionary<(string, int), double>();
             var denseDocs = new List<DocumentVector>();
-            if (queryEmbedding != null && _vectorCache.Count > 0)
+            if (queryEmbedding != null && vectorCache.Count > 0)
             {
-                var scored = _vectorCache
+                var scored = vectorCache
                     .Where(d => d.Embedding != null)
                     .Select(d => (Doc: d, Sim: (double)_embeddingService!.CosineSimilarity(queryEmbedding, d.Embedding!)))
                     .ToList();
@@ -488,7 +274,7 @@ public class KnowledgeBaseService : IKnowledgeBaseService, IDisposable
             // 3) RRF 融合：score(d) = Σ 1/(k + rank)，按排名合并两路，规避分数量纲不一致
             var rrf = new Dictionary<(string, int), double>();
             var snippet = new Dictionary<(string, int), (string FilePath, string Text, string Heading)>();
-            var indexedByKey = _vectorCache.ToDictionary(
+            var indexedByKey = vectorCache.ToDictionary(
                 document => (document.FilePath, document.ChunkIndex),
                 document => document);
 
@@ -583,8 +369,9 @@ public class KnowledgeBaseService : IKnowledgeBaseService, IDisposable
 
         try
         {
-            if (!_vectorCacheInitialized) await LoadOrRefreshVectorsAsync();
-            if (_vectorCache.Count == 0) return new List<SimilarKnowledgeFile>();
+            if (IndexNeedsRefresh) await LoadOrRefreshVectorsAsync();
+            var vectorCache = _vectorCache;
+            if (vectorCache.Count == 0) return new List<SimilarKnowledgeFile>();
 
             // 内容可能很长；截断到与分块尺度相当的长度即可代表主题，避免超出嵌入上限。
             var probeText = content.Length > ChunkSize * 4 ? content[..(ChunkSize * 4)] : content;
@@ -593,7 +380,7 @@ public class KnowledgeBaseService : IKnowledgeBaseService, IDisposable
 
             // 每个文件取其所有分块与目标内容的最大相似度作为该文件的相似度。
             var perFile = new Dictionary<string, (double Sim, string Text)>();
-            foreach (var doc in _vectorCache)
+            foreach (var doc in vectorCache)
             {
                 if (doc.Embedding == null) continue;
                 var sim = (double)_embeddingService.CosineSimilarity(contentEmbedding, doc.Embedding);
@@ -629,12 +416,13 @@ public class KnowledgeBaseService : IKnowledgeBaseService, IDisposable
 
         try
         {
-            if (!_vectorCacheInitialized) await LoadOrRefreshVectorsAsync();
-            if (_vectorCache.Count == 0) return new List<DuplicateFileCluster>();
+            if (IndexNeedsRefresh) await LoadOrRefreshVectorsAsync();
+            var vectorCache = _vectorCache;
+            if (vectorCache.Count == 0) return new List<DuplicateFileCluster>();
 
             // 每个文件求分块向量质心（归一化留给 CosineSimilarity 处理）。
             var centroids = new Dictionary<string, float[]>();
-            foreach (var group in _vectorCache.Where(d => d.Embedding != null).GroupBy(d => d.FilePath))
+            foreach (var group in vectorCache.Where(d => d.Embedding != null).GroupBy(d => d.FilePath))
             {
                 var docs = group.ToList();
                 var dim = docs[0].Embedding!.Length;
@@ -656,7 +444,6 @@ public class KnowledgeBaseService : IKnowledgeBaseService, IDisposable
             string Find(string x) { while (parent[x] != x) { parent[x] = parent[parent[x]]; x = parent[x]; } return x; }
             void Union(string a, string b) { var ra = Find(a); var rb = Find(b); if (ra != rb) parent[ra] = rb; }
 
-            var pairMin = new Dictionary<string, double>(); // 组根 -> 组内最低相似度
             for (int i = 0; i < files.Count; i++)
             {
                 for (int j = i + 1; j < files.Count; j++)
@@ -699,17 +486,18 @@ public class KnowledgeBaseService : IKnowledgeBaseService, IDisposable
     /// <summary>
     /// 加载或增量刷新知识库索引。本地分块与 FTS 始终构建，向量层按配置选建。
     /// </summary>
-    public async Task LoadOrRefreshVectorsAsync()
+    private async Task LoadOrRefreshVectorsAsync()
     {
         await _initLock.WaitAsync();
         try
         {
-            if (_vectorCacheInitialized) return;
+            var revision = Volatile.Read(ref _indexRevision);
+            if (_loadedIndexRevision == revision) return;
 
             await _vectorStoreService.InitializeAsync();
-            var indexedDocuments = await _vectorStoreService.LoadAllVectorsAsync();
-            var textStatuses = await _vectorStoreService.GetFileStatusesAsync();
-            var vectorStatuses = await _vectorStoreService.GetVectorFileStatusesAsync();
+            var indexedDocuments = await _vectorStoreService.LoadIndexedDocumentsAsync();
+            var textFileHashes = await _vectorStoreService.GetTextFileHashesAsync();
+            var vectorFileHashes = await _vectorStoreService.GetVectorFileHashesAsync();
             var embeddingsOn = _embeddingService != null && _embeddingService.IsConfigured;
 
             // Embedding 模型变化只使向量失效，不应影响本地 FTS 可用性。
@@ -735,7 +523,7 @@ public class KnowledgeBaseService : IKnowledgeBaseService, IDisposable
                 {
                     await _vectorStoreService.ClearEmbeddingsAsync();
                     foreach (var document in indexedDocuments) document.Embedding = null;
-                    vectorStatuses.Clear();
+                    vectorFileHashes.Clear();
                     _logger.Information(
                         "Embedding fingerprint changed ({OldModel}/{OldDim} -> {NewModel}/{NewDim}); keeping FTS and rebuilding vectors",
                         stored?.Model ?? "(none)", stored?.Dimension ?? 0, currentModel, currentDim);
@@ -753,8 +541,8 @@ public class KnowledgeBaseService : IKnowledgeBaseService, IDisposable
                 currentFiles[relativePath] = (content, VectorStoreService.ComputeFileHash(content));
             }
 
-            foreach (var deletedPath in textStatuses.Keys.Union(vectorStatuses.Keys)
-                         .Where(path => !currentFiles.ContainsKey(path)).Distinct())
+            foreach (var deletedPath in textFileHashes.Keys.Union(vectorFileHashes.Keys)
+                         .Where(path => !currentFiles.ContainsKey(path)))
             {
                 await _vectorStoreService.DeleteFileIndexAsync(deletedPath);
                 indexedDocuments.RemoveAll(document => document.FilePath == deletedPath);
@@ -763,7 +551,7 @@ public class KnowledgeBaseService : IKnowledgeBaseService, IDisposable
             var chunksByFile = new Dictionary<string, List<Chunk>>();
             foreach (var (filePath, file) in currentFiles)
             {
-                if (textStatuses.TryGetValue(filePath, out var status) && status.FileHash == file.Hash)
+                if (textFileHashes.TryGetValue(filePath, out var indexedHash) && indexedHash == file.Hash)
                     continue;
 
                 var chunks = SplitIntoChunks(CleanForIndex(file.Content));
@@ -771,15 +559,15 @@ public class KnowledgeBaseService : IKnowledgeBaseService, IDisposable
                 await SaveTextIndexAsync(filePath, file.Hash, chunks);
 
                 indexedDocuments.RemoveAll(document => document.FilePath == filePath);
-                indexedDocuments.AddRange(CreateDocuments(filePath, file.Hash, chunks));
-                vectorStatuses.Remove(filePath);
+                indexedDocuments.AddRange(CreateDocuments(filePath, chunks));
+                vectorFileHashes.Remove(filePath);
             }
 
             if (embeddingsOn)
             {
                 foreach (var (filePath, file) in currentFiles)
                 {
-                    if (vectorStatuses.TryGetValue(filePath, out var status) && status.FileHash == file.Hash)
+                    if (vectorFileHashes.TryGetValue(filePath, out var indexedHash) && indexedHash == file.Hash)
                         continue;
 
                     var chunks = chunksByFile.TryGetValue(filePath, out var changedChunks)
@@ -791,18 +579,15 @@ public class KnowledgeBaseService : IKnowledgeBaseService, IDisposable
                 }
             }
 
-            _vectorCache.Clear();
-            _vectorCache.AddRange(indexedDocuments);
-
-            _vectorCacheInitialized = true;
             var stats = await _vectorStoreService.GetStatisticsAsync();
             _logger.Information("Knowledge base index initialized: {FileCount} file(s), {VectorCount} vector(s), embedding={Enabled}",
                 stats.FileCount, stats.VectorCount, embeddingsOn);
+            _vectorCache = indexedDocuments;
+            Volatile.Write(ref _loadedIndexRevision, revision);
         }
         catch (Exception ex)
         {
             _logger.Error(ex, "Failed to load knowledge base index");
-            _vectorCacheInitialized = false;
         }
         finally
         {
@@ -813,10 +598,10 @@ public class KnowledgeBaseService : IKnowledgeBaseService, IDisposable
     /// <summary>
     /// 使知识库索引缓存失效；下次初始化或检索时增量刷新。
     /// </summary>
-    public async Task RefreshVectorCacheAsync()
+    public Task RefreshVectorCacheAsync()
     {
-        // 重置初始化标志，下次搜索时会触发增量更新
-        _vectorCacheInitialized = false;
+        Interlocked.Increment(ref _indexRevision);
+        return Task.CompletedTask;
     }
 
     /// <summary>清空派生向量数据并立即重建；本地 FTS 始终保留。</summary>
@@ -827,8 +612,8 @@ public class KnowledgeBaseService : IKnowledgeBaseService, IDisposable
         {
             await _vectorStoreService.InitializeAsync();
             await _vectorStoreService.ClearEmbeddingsAsync();
-            _vectorCache.Clear();
-            _vectorCacheInitialized = false;
+            _vectorCache = [];
+            await RefreshVectorCacheAsync();
             _logger.Information("Vector layer cleared while keeping local FTS; rebuilding vectors with the current embedding configuration");
         }
         finally
@@ -839,7 +624,7 @@ public class KnowledgeBaseService : IKnowledgeBaseService, IDisposable
         await LoadOrRefreshVectorsAsync();
 
         var stats = await _vectorStoreService.GetStatisticsAsync();
-        var fullyIndexedFiles = await _vectorStoreService.GetVectorFileStatusesAsync();
+        var fullyIndexedFiles = await _vectorStoreService.GetVectorFileHashesAsync();
         var result = new VectorIndexRebuildResult
         {
             EmbeddingConfigured = _embeddingService?.IsConfigured ?? false,
@@ -859,21 +644,10 @@ public class KnowledgeBaseService : IKnowledgeBaseService, IDisposable
         return result;
     }
 
-    /// <summary>
-    /// 增量更新本地 FTS，并在可用时同步更新向量。
-    /// </summary>
-    private async Task UpdateFileIndexAsync(string relativePath)
+    private async Task RefreshIndexAsync()
     {
-        try
-        {
-            await RefreshVectorCacheAsync();
-            await LoadOrRefreshVectorsAsync();
-            _logger.Debug("Updated local FTS and optional vector index: {FilePath}", relativePath);
-        }
-        catch (Exception ex)
-        {
-            _logger.Error(ex, "Failed to incrementally update knowledge base index: {FilePath}", relativePath);
-        }
+        await RefreshVectorCacheAsync();
+        await LoadOrRefreshVectorsAsync();
     }
 
     /// <summary>
@@ -903,20 +677,19 @@ public class KnowledgeBaseService : IKnowledgeBaseService, IDisposable
             chunks.Select((chunk, index) => (index, chunk.DisplayText, chunk.HeadingPath)).ToList());
     }
 
-    private static List<DocumentVector> CreateDocuments(string relativePath, string hash, List<Chunk> chunks) =>
+    private static List<DocumentVector> CreateDocuments(string relativePath, List<Chunk> chunks) =>
         chunks.Select((chunk, index) => new DocumentVector
         {
             FilePath = relativePath,
             ChunkIndex = index,
             ChunkText = chunk.DisplayText,
-            HeadingPath = chunk.HeadingPath,
-            FileHash = hash
+            HeadingPath = chunk.HeadingPath
         }).ToList();
 
     private async Task<List<DocumentVector>> GenerateAndSaveEmbeddingsAsync(
         string relativePath, string hash, List<Chunk> chunks)
     {
-        var documents = CreateDocuments(relativePath, hash, chunks);
+        var documents = CreateDocuments(relativePath, chunks);
         if (_embeddingService == null || !_embeddingService.IsConfigured || chunks.Count == 0)
             return documents;
 
@@ -1033,26 +806,6 @@ public class KnowledgeBaseService : IKnowledgeBaseService, IDisposable
         return chunks;
     }
 
-    public Task<List<string>> ListFilesAsync()
-    {
-        var files = Directory.GetFiles(_knowledgeBasePath, "*.md", SearchOption.AllDirectories)
-            .Select(GetRelativePath)
-            .OrderBy(f => f)
-            .ToList();
-
-        return Task.FromResult(files);
-    }
-
-    public Task<List<string>> ListDirectoriesAsync()
-    {
-        var directories = Directory.GetDirectories(_knowledgeBasePath, "*", SearchOption.AllDirectories)
-            .Select(GetRelativePath)
-            .OrderBy(d => d)
-            .ToList();
-
-        return Task.FromResult(directories);
-    }
-
     public Task<bool> FileExistsAsync(string relativePath)
     {
         try
@@ -1072,21 +825,6 @@ public class KnowledgeBaseService : IKnowledgeBaseService, IDisposable
     private string GetRelativePath(string fullPath)
     {
         return fullPath[_knowledgeBasePath.Length..].TrimStart(Path.DirectorySeparatorChar);
-    }
-
-    #region SEARCH/REPLACE 更新策略
-
-    // 匹配模式常量
-    private const string SearchStart = "<<<<<<< SEARCH";
-    private const string Separator = "=======";
-    private const string ReplaceEnd = ">>>>>>> REPLACE";
-
-    /// <summary>
-    /// 获取文件级别的锁
-    /// </summary>
-    private SemaphoreSlim GetFileLock(string relativePath)
-    {
-        return _fileLocks.GetOrAdd(relativePath, _ => new SemaphoreSlim(1, 1));
     }
 
     /// <summary>
@@ -1138,10 +876,10 @@ public class KnowledgeBaseService : IKnowledgeBaseService, IDisposable
     /// <summary>
     /// 验证内容
     /// </summary>
-    private void ValidateContent(string content, string paramName = "content")
+    private static void ValidateContent(string content)
     {
         if (content == null)
-            throw new ArgumentNullException(paramName);
+            throw new ArgumentNullException(nameof(content));
 
         if (content.Length > MaxFileSize)
             throw new ArgumentException($"内容大小超过限制 ({MaxFileSize / 1024 / 1024}MB)");
@@ -1151,345 +889,11 @@ public class KnowledgeBaseService : IKnowledgeBaseService, IDisposable
             throw new ArgumentException("内容包含非法字符（可能为二进制文件）");
     }
 
-    /// <summary>
-    /// 使用 SEARCH/REPLACE 模式更新文件
-    /// </summary>
-    public async Task<FileUpdateResult> UpdateWithDiffAsync(
-        string relativePath,
-        string diffContent,
-        bool fuzzyMatch = true)
-    {
-        var fileLock = GetFileLock(relativePath);
-
-        await fileLock.WaitAsync();
-        try
-        {
-            var fullPath = GetFullPathSecure(relativePath);
-
-            if (!File.Exists(fullPath))
-                return new FileUpdateResult
-                {
-                    Success = false,
-                    Message = $"文件不存在: {relativePath}"
-                };
-
-            var fileContent = await File.ReadAllTextAsync(fullPath);
-
-            // 解析 DIFF 内容
-            var blocks = ParseDiffBlocks(diffContent);
-            if (blocks.Count == 0)
-                return new FileUpdateResult
-                {
-                    Success = false,
-                    Message = "未找到有效的 SEARCH/REPLACE 块。\n" +
-                              "请使用以下格式：\n" +
-                              "<<<<<<< SEARCH\n要查找的原始内容\n=======\n替换后的新内容\n>>>>>>> REPLACE"
-                };
-
-            var modifiedContent = fileContent;
-            var appliedCount = 0;
-
-            foreach (var block in blocks)
-            {
-                var matchResult = ApplyDiffBlock(modifiedContent, block, fuzzyMatch);
-
-                if (!matchResult.Success)
-                {
-                    return matchResult;
-                }
-
-                modifiedContent = matchResult.ModifiedContent!;
-                appliedCount++;
-            }
-
-            // 验证并写入
-            ValidateContent(modifiedContent);
-            await File.WriteAllTextAsync(fullPath, modifiedContent);
-
-            _logger.Information("SEARCH/REPLACE update succeeded: {Path}, applied {Count} block(s)",
-                relativePath, appliedCount);
-
-            // 同步更新本地 FTS 和可选向量，保证立刻可被搜索
-            try
-            {
-                await UpdateFileIndexAsync(relativePath);
-            }
-            catch (Exception ex)
-            {
-                _logger.Warning(ex, "Failed to update file vector");
-            }
-
-            return new FileUpdateResult
-            {
-                Success = true,
-                Message = $"成功应用 {appliedCount} 个修改",
-                AppliedBlocks = appliedCount
-            };
-        }
-        catch (Exception ex)
-        {
-            _logger.Error(ex, "SEARCH/REPLACE update failed: {Path}", relativePath);
-            return new FileUpdateResult
-            {
-                Success = false,
-                Message = $"更新失败: {ex.Message}"
-            };
-        }
-        finally
-        {
-            fileLock.Release();
-        }
-    }
-
-    /// <summary>
-    /// 解析 SEARCH/REPLACE 块
-    /// </summary>
-    private List<DiffBlock> ParseDiffBlocks(string diffContent)
-    {
-        var blocks = new List<DiffBlock>();
-        var lines = diffContent.Split('\n');
-
-        int i = 0;
-        while (i < lines.Length)
-        {
-            // 查找 SEARCH 开始标记
-            if (lines[i].TrimStart().StartsWith(SearchStart))
-            {
-                var block = new DiffBlock();
-                i++;
-
-                // 收集 SEARCH 内容
-                var searchLines = new List<string>();
-                while (i < lines.Length && !lines[i].Trim().StartsWith(Separator))
-                {
-                    searchLines.Add(lines[i]);
-                    i++;
-                }
-                block.SearchContent = string.Join("\n", searchLines).Trim('\r', '\n');
-
-                if (i < lines.Length && lines[i].Trim().StartsWith(Separator))
-                    i++;
-
-                // 收集 REPLACE 内容
-                var replaceLines = new List<string>();
-                while (i < lines.Length && !lines[i].TrimStart().StartsWith(ReplaceEnd))
-                {
-                    replaceLines.Add(lines[i]);
-                    i++;
-                }
-                block.ReplaceContent = string.Join("\n", replaceLines).Trim('\r', '\n');
-
-                if (i < lines.Length && lines[i].TrimStart().StartsWith(ReplaceEnd))
-                    i++;
-
-                if (!string.IsNullOrEmpty(block.SearchContent))
-                {
-                    blocks.Add(block);
-                }
-            }
-            else
-            {
-                i++;
-            }
-        }
-
-        return blocks;
-    }
-
-    /// <summary>
-    /// 应用单个 DIFF 块
-    /// </summary>
-    private FileUpdateResult ApplyDiffBlock(string content, DiffBlock block, bool fuzzyMatch)
-    {
-        // 首先尝试精确匹配
-        var exactIndex = content.IndexOf(block.SearchContent);
-
-        if (exactIndex >= 0)
-        {
-            // 检查是否有多处匹配
-            var secondMatch = content.IndexOf(block.SearchContent, exactIndex + 1);
-            if (secondMatch >= 0)
-            {
-                var matches = FindAllMatches(content, block.SearchContent);
-                return new FileUpdateResult
-                {
-                    Success = false,
-                    Message = $"找到 {matches.Count} 处匹配，请提供更多上下文以唯一标识要修改的位置",
-                    MultipleMatches = matches
-                };
-            }
-
-            var newContent = content.Substring(0, exactIndex)
-                           + block.ReplaceContent
-                           + content.Substring(exactIndex + block.SearchContent.Length);
-
-            return new FileUpdateResult
-            {
-                Success = true,
-                ModifiedContent = newContent,
-                LineNumber = content.Substring(0, exactIndex).Split('\n').Length
-            };
-        }
-
-        // 精确匹配失败，尝试模糊匹配
-        if (fuzzyMatch)
-        {
-            return FuzzyMatchAndReplace(content, block);
-        }
-
-        return new FileUpdateResult
-        {
-            Success = false,
-            Message = "未找到匹配的 SEARCH 内容。\n" +
-                      "请确保 SEARCH 块与文件中的原始内容完全一致。\n" +
-                      "提示：可以尝试复制文件中的原始文本，而不是手动输入。"
-        };
-    }
-
-    /// <summary>
-    /// 模糊匹配（忽略空格、制表符差异）
-    /// </summary>
-    private FileUpdateResult FuzzyMatchAndReplace(string content, DiffBlock block)
-    {
-        var normalizedContent = NormalizeForComparison(content);
-        var normalizedSearch = NormalizeForComparison(block.SearchContent);
-
-        var index = normalizedContent.Normalized.IndexOf(normalizedSearch.Normalized);
-        if (index < 0)
-        {
-            // 计算相似度，提供帮助信息
-            var similarity = CalculateSimilarity(normalizedContent.Normalized, normalizedSearch.Normalized);
-            return new FileUpdateResult
-            {
-                Success = false,
-                Message = $"未找到匹配内容（相似度: {similarity:P1}）。\n" +
-                          "请确保 SEARCH 块与文件中的原始内容尽量一致。\n" +
-                          "如果内容有较大差异，请先使用 read_memory_file 查看当前文件内容。"
-            };
-        }
-
-        // 映射回原始位置
-        var originalStart = normalizedContent.PositionMap[index];
-        var searchEndIndex = Math.Min(index + normalizedSearch.Normalized.Length - 1, normalizedContent.PositionMap.Length - 1);
-        var originalEnd = normalizedContent.PositionMap[searchEndIndex];
-
-        // 检查多处匹配
-        var secondMatch = normalizedContent.Normalized.IndexOf(normalizedSearch.Normalized, index + 1);
-        if (secondMatch >= 0)
-        {
-            return new FileUpdateResult
-            {
-                Success = false,
-                Message = "找到多处模糊匹配，请提供更多上下文以唯一标识要修改的位置"
-            };
-        }
-
-        var newContent = content.Substring(0, originalStart)
-                       + block.ReplaceContent
-                       + content.Substring(originalEnd + 1);
-
-        return new FileUpdateResult
-        {
-            Success = true,
-            ModifiedContent = newContent,
-            LineNumber = content.Substring(0, originalStart).Split('\n').Length
-        };
-    }
-
-    /// <summary>
-    /// 标准化文本用于比较（忽略空格差异）
-    /// </summary>
-    private (string Normalized, int[] PositionMap) NormalizeForComparison(string text)
-    {
-        var normalized = new StringBuilder();
-        var positionMap = new List<int>();
-
-        for (int i = 0; i < text.Length; i++)
-        {
-            var c = text[i];
-            if (!char.IsWhiteSpace(c))
-            {
-                normalized.Append(char.ToLower(c));
-                positionMap.Add(i);
-            }
-        }
-
-        return (normalized.ToString(), positionMap.ToArray());
-    }
-
-    /// <summary>
-    /// 计算文本相似度（基于 Levenshtein 距离）
-    /// </summary>
-    private static double CalculateSimilarity(string a, string b)
-    {
-        if (string.IsNullOrEmpty(a) && string.IsNullOrEmpty(b)) return 1.0;
-        if (string.IsNullOrEmpty(a) || string.IsNullOrEmpty(b)) return 0.0;
-
-        var distance = LevenshteinDistance(a, b);
-        var maxLen = Math.Max(a.Length, b.Length);
-        return 1.0 - (double)distance / maxLen;
-    }
-
-    /// <summary>
-    /// 计算 Levenshtein 距离
-    /// </summary>
-    private static int LevenshteinDistance(string a, string b)
-    {
-        var matrix = new int[a.Length + 1, b.Length + 1];
-
-        for (int i = 0; i <= a.Length; i++) matrix[i, 0] = i;
-        for (int j = 0; j <= b.Length; j++) matrix[0, j] = j;
-
-        for (int i = 1; i <= a.Length; i++)
-        {
-            for (int j = 1; j <= b.Length; j++)
-            {
-                var cost = a[i - 1] == b[j - 1] ? 0 : 1;
-                matrix[i, j] = Math.Min(
-                    Math.Min(matrix[i - 1, j] + 1, matrix[i, j - 1] + 1),
-                    matrix[i - 1, j - 1] + cost);
-            }
-        }
-
-        return matrix[a.Length, b.Length];
-    }
-
-    /// <summary>
-    /// 查找所有匹配位置
-    /// </summary>
-    private List<string> FindAllMatches(string content, string search)
-    {
-        var matches = new List<string>();
-        var index = 0;
-
-        while ((index = content.IndexOf(search, index)) != -1)
-        {
-            var start = Math.Max(0, index - 20);
-            var end = Math.Min(content.Length, index + search.Length + 20);
-            matches.Add($"...{content.Substring(start, end - start)}...");
-            index++;
-        }
-
-        return matches;
-    }
-
-    /// <summary>
-    /// DIFF 块数据结构
-    /// </summary>
-    private class DiffBlock
-    {
-        public string SearchContent { get; set; } = string.Empty;
-        public string ReplaceContent { get; set; } = string.Empty;
-    }
-
-    #endregion
-
     public void Dispose()
     {
         _watcher?.Dispose();
         _debounceTimer?.Dispose();
         _initLock.Dispose();
-        _globalLock.Dispose();
         foreach (var gate in _fileLocks.Values) gate.Dispose();
         _vectorStoreService.Dispose();
     }

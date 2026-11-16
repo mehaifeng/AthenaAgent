@@ -166,7 +166,6 @@ export function makeMaterials() {
     hairShades: [0x221b17, 0x352619, 0x4a3426, 0x684128, 0x8a6a46].map((color) => new THREE.MeshStandardMaterial({ color, roughness: 0.86 })),
     pepperHair: new THREE.MeshStandardMaterial({ color: 0x77706a, roughness: 0.78 }),
     gold: new THREE.MeshStandardMaterial({ color: 0xd8c08a, roughness: 0.34, metalness: 0.4 }),
-    maiden: new THREE.MeshStandardMaterial({ color: 0xe0c27a, roughness: 0.28, metalness: 0.85, emissive: new THREE.Color(0.25, 0.2, 0.08), emissiveIntensity: 0.4 }),
     cypress: new THREE.MeshStandardMaterial({ color: 0x34502f, roughness: 0.95 }),
     olive: new THREE.MeshStandardMaterial({ color: 0x7f8f62, roughness: 0.95 }),
     // 常春藤：第一版近黑，墙上的叶团读成一个个窟窿；提一档

@@ -43,15 +43,6 @@ export function venueStandLocal() {
   return { x: 0, z: TERRACE.aisle };
 }
 
-/** 从码头大街走上石台的路：东侧步道的北端 → 南端 → 过道正中（相对地块中心）。 */
-export function terraceApproachLocal(quayLocalZ) {
-  return [
-    { x: TERRACE.sideWalk, z: quayLocalZ },
-    { x: TERRACE.sideWalk, z: TERRACE.aisle },
-    { x: 0, z: TERRACE.aisle },
-  ];
-}
-
 /** 确定性的小抖动（FNV-1a → [−1, 1)）：同一棵树、同一个位置每次都一样。 */
 function jitter(seed) {
   let h = 0x811c9dc5;

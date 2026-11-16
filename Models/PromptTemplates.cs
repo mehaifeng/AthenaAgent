@@ -313,7 +313,7 @@ public static class PromptTemplates
         """;
 
     /// <summary>
-    /// 获取 MainPersona（运行时读取，优先级：知识库文件 > 嵌入式资源 > 代码默认值）
+    /// 首次访问时加载并在进程内缓存。优先级：知识库文件、嵌入式资源、代码默认值。
     /// </summary>
     public static string MainPersona
     {
@@ -358,17 +358,6 @@ public static class PromptTemplates
                 _logger.Information("AthenaSoul.md using built-in default");
                 return _cachedMainPersona;
             }
-        }
-    }
-
-    /// <summary>
-    /// 清除缓存（用于热重载或手动刷新）
-    /// </summary>
-    public static void ClearCache()
-    {
-        lock (_cacheLock)
-        {
-            _cachedMainPersona = null;
         }
     }
 

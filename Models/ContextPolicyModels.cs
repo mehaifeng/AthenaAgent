@@ -60,6 +60,9 @@ public partial class AppContextPolicy : ObservableObject
 
 public sealed class WorkspaceContextPolicyOverride
 {
+    // 字段级覆盖只保存值类型，复制后可独立作为请求或持久化快照。
+    internal WorkspaceContextPolicyOverride Clone() => (WorkspaceContextPolicyOverride)MemberwiseClone();
+
     public long? ContextCapTokens { get; set; }
     public bool? AutoCompress { get; set; }
     public long? CompressionThresholdTokens { get; set; }

@@ -13,15 +13,15 @@ import { parseMarkdown, parseInline, BLOCK_TYPES, INLINE_TYPES } from '../../../
 
 const SRC = fileURLToPath(new URL('../../../../Assets/Polis/src/', import.meta.url));
 
-test('frame policy: hidden stops, Athena walking or teleporting is 60, everything else idle is 30', () => {
+test('frame policy: hidden stops, Athena walking or active input and transitions use 60 FPS', () => {
   assert.equal(framePolicy({ visible: false, step: 'walk' }), 0, '不可见时停（对话模式、窗口最小化）');
   assert.equal(framePolicy({ visible: true, step: 'walk' }), FRAME.busyFps);
-  assert.equal(framePolicy({ visible: true, step: 'teleport' }), FRAME.busyFps);
+  assert.equal(framePolicy({ visible: true, step: 'run' }), FRAME.idleFps);
   assert.equal(framePolicy({ visible: true, step: 'idle', now: 10_000 }), FRAME.idleFps, '她待着是空闲');
   assert.equal(framePolicy({ visible: true, step: 'idle', transitioning: true }), FRAME.busyFps, '过场在动');
   assert.equal(framePolicy({ visible: true, step: 'idle', now: 1000, lastInputAt: 500 }), FRAME.busyFps, '刚拖过镜头');
   assert.equal(framePolicy({ visible: true, step: 'idle', playerMoving: true, now: 10_000 }), FRAME.busyFps, '你在走');
-  for (const old of ['act', 'meditate', 'await', 'deliver']) {
+  for (const old of ['act', 'meditate', 'await', 'deliver', 'teleport']) {
     assert.equal(framePolicy({ visible: true, step: old, now: 10_000 }), FRAME.idleFps, `旧编排器的 ${old} 已经没有了，不算在动`);
   }
 });

@@ -16,7 +16,8 @@ import { citizenLook, RESIDENT_SIGNATURES } from '../../../../Assets/Polis/src/a
 import { buildCitizen } from '../../../../Assets/Polis/src/art/characters.mjs';
 import { poseAt, WORK_VARIANTS, JOINT_NAMES } from '../../../../Assets/Polis/src/art/poses.mjs';
 import { GRIP, LEFT_HAND_PROPS, TWO_HANDED_PROPS } from '../../../../Assets/Polis/src/art/rig.mjs';
-import { planCitizen, citizenAt, settleStations, stationClear, inStation, routeClear, TOWN } from '../../../../Assets/Polis/src/citizens.mjs';
+import { planCitizen, citizenAt, settleStations, stationClear, inStation, TOWN } from '../../../../Assets/Polis/src/citizens.mjs';
+import { routeClear } from '../../../../Assets/Polis/src/doors.mjs';
 import { createLayout } from '../../../../Assets/Polis/src/layout.mjs';
 import { createAssetLibrary } from '../../../../Assets/Polis/src/art/assets.mjs';
 import { buildWorld } from '../../../../Assets/Polis/src/world.mjs';

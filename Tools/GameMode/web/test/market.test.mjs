@@ -10,8 +10,8 @@ import {
   MARKET, STALLS, STALL, STALL_KINDS, NEVER_VENDORS, MARKET_WAY, marketGeometry, shopLeg, marketOpen, assignVendors, vendorTiming,
   shopOutcome, shopScript, hawkCall, marketLine, hawkKey, stallToMarket, isShopper,
 } from '../../../../Assets/Polis/src/market.mjs';
-import { planCitizen, citizenAt, routeClear, seeded, retireTime, duskHome, TOWN } from '../../../../Assets/Polis/src/citizens.mjs';
-import { DOOR } from '../../../../Assets/Polis/src/doors.mjs';
+import { planCitizen, citizenAt, seeded, retireTime, duskHome, TOWN } from '../../../../Assets/Polis/src/citizens.mjs';
+import { DOOR, routeClear } from '../../../../Assets/Polis/src/doors.mjs';
 import { createLayout, PLOT } from '../../../../Assets/Polis/src/layout.mjs';
 import { createAssetLibrary } from '../../../../Assets/Polis/src/art/assets.mjs';
 import { buildWorld } from '../../../../Assets/Polis/src/world.mjs';

@@ -69,6 +69,7 @@ var tests = new (string Name, Func<Task> Run)[]
     ("embedding requests ask for float vectors and read both response encodings", TestEmbeddingRequestsFloatEncodingAsync),
     ("config v5 default context values migrate to current schema without losing providers", TestConfigV5DefaultMigrationAsync),
     ("config v5 custom context values migrate as LegacyCustom", TestConfigV5CustomMigrationAsync),
+    ("saving current config preserves chosen browser settings on reload", TestCurrentConfigBrowserSettingsRoundTripAsync),
     ("legacy compression keys migrate to the full-compaction policy and are never written back", TestLegacyContextPolicyMigrationAsync),
     ("workspace knowledge budget migrates from tokens to characters (x3) and the old key is never written back", TestCharBudgetMigrationAsync),
     ("tool result clearing keeps a char-measured recent zone, clears everything older and only grows", TestToolResultClearingAsync),
@@ -363,6 +364,22 @@ static async Task TestConfigV5CustomMigrationAsync()
     AssertFalse(migrated.ContextPolicy.AutoCompress, "legacy auto-compress setting should be preserved");
     AssertEqual(AppContextPolicy.DefaultSummaryMaxTokens, migrated.ContextPolicy.SummaryMaxTokens,
         "a v5 config starts from the default summary cap; the legacy keep-rounds setting is dropped");
+}
+
+static async Task TestCurrentConfigBrowserSettingsRoundTripAsync()
+{
+    using var harness = new TestHarness();
+    var config = new AppConfig { BrowserMaxSteps = 12, BrowserPersistSession = false, BrowserSomMaxElements = 80 };
+    var service = new ConfigService(harness.PathService);
+    await service.SaveAsync(config);
+
+    using var document = JsonDocument.Parse(File.ReadAllText(service.ConfigFilePath));
+    AssertEqual(AppConfig.CurrentSchemaVersion, document.RootElement.GetProperty("configSchemaVersion").GetInt32(),
+        "saving should write the schema already used on load");
+    var reopened = await new ConfigService(harness.PathService).LoadAsync();
+    AssertEqual(12, reopened.BrowserMaxSteps, "an explicitly chosen step limit should survive reopening");
+    AssertFalse(reopened.BrowserPersistSession, "choosing not to retain browser sessions should survive reopening");
+    AssertEqual(80, reopened.BrowserSomMaxElements, "an explicitly chosen annotation limit should survive reopening");
 }
 
 static async Task TestLegacyContextPolicyMigrationAsync()

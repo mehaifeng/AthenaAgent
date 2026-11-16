@@ -95,10 +95,7 @@
     <system:String x:Key="Chat.Attach.ParserDisabled">文档解析功能未启用。</system:String>
     <system:String x:Key="Chat.Attach.ParseFailed">文档解析失败。</system:String>
     <system:String x:Key="Chat.Attach.ParseFailedNamed">解析 {0} 失败：{1}</system:String>
-    <system:String x:Key="Chat.Archive.Saving">正在后台保存上一段对话。</system:String>
-    <system:String x:Key="Chat.Archive.StageFailed">上一段对话归档失败: {0}</system:String>
     <system:String x:Key="Chat.Archive.RetryLater">上一段对话归档失败，稍后重试。</system:String>
-    <system:String x:Key="Chat.Archive.ErrorUnavailable">归档服务不可用。</system:String>
     <system:String x:Key="Chat.Error.ImageUnsupported">当前主模型不支持图像理解，请换用支持视觉的模型后再试。</system:String>
     <system:String x:Key="Chat.Error.ImageRecognitionUnavailable">当前主对话模型无法读取图片，且没有获得可用的图像识别结果，因此无法如实描述图片内容。请配置或检查支持视觉的“图像识别”模型，或切换主对话模型后重试。</system:String>
     <system:String x:Key="Chat.Error.ToolArgumentsTruncated">[工具调用参数在多次重试后仍被截断或不完整，已停止本次回复，未执行不完整调用。请尝试提高模型输出上限，或将任务拆成较小步骤。]</system:String>
@@ -273,21 +270,7 @@
     <system:String x:Key="History.PendingStatus">生成摘要中</system:String>
 
     <!-- Workspace -->
-    <system:String x:Key="Chat.Workspace.SwitchTip">切换工作区</system:String>
-    <system:String x:Key="Chat.Workspace.None">未选择工作区</system:String>
-    <system:String x:Key="Chat.Workspace.Global">全局聊天（不使用工作区）</system:String>
-    <system:String x:Key="Chat.Workspace.Add">添加工作区</system:String>
-    <system:String x:Key="Chat.Workspace.Remove">移除工作区</system:String>
     <system:String x:Key="Chat.Workspace.SelectFolder">选择工作区目录</system:String>
-    <system:String x:Key="Chat.Workspace.SelectExisting">选择已有工作区</system:String>
-    <system:String x:Key="Chat.Workspace.RemoveConfirm.Title">移除工作区</system:String>
-    <system:String x:Key="Chat.Workspace.RemoveConfirm.Message">确定要移除“{0}”吗？其工作区知识文件将被永久删除；会话历史会保留为未分组记录。</system:String>
-    <system:String x:Key="Chat.Workspace.RemoveConfirm.Yes">移除</system:String>
-    <system:String x:Key="Chat.Workspace.RemoveConfirm.No">取消</system:String>
-    <system:String x:Key="Chat.Workspace.SwitchConfirm.Title">切换工作区</system:String>
-    <system:String x:Key="Chat.Workspace.SwitchConfirm.Message">切换到“{0}”会先保存当前会话，并开启一个新会话，是否继续？</system:String>
-    <system:String x:Key="Chat.Workspace.SwitchConfirm.Yes">切换</system:String>
-    <system:String x:Key="Chat.Workspace.SwitchConfirm.No">取消</system:String>
     <system:String x:Key="Git.Branch.OpenReview">打开差异审查</system:String>
     <system:String x:Key="Git.Branch.Menu">分支菜单</system:String>
     <system:String x:Key="Git.Branches.Switch">切换分支</system:String>
@@ -501,7 +484,7 @@
     <system:String x:Key="WorkspaceContext.Error.Threshold">压缩阈值必须大于 0。</system:String>
     <system:String x:Key="WorkspaceContext.Error.KeepToolChars">保留的工具结果字符数必须在 20,000 到 800,000 之间。</system:String>
     <system:String x:Key="WorkspaceContext.Error.SummaryMax">摘要长度上限必须在 1,024 到 32,768 token 之间。</system:String>
-    <system:String x:Key="WorkspaceContext.Error.Knowledge">Workspace 知识预算必须在 0 到 300,000 字符之间。</system:String>
+    <system:String x:Key="WorkspaceContext.Error.Knowledge">Workspace 知识预算必须在 0 到 {0:N0} 字符之间。</system:String>
     <system:String x:Key="WorkspaceContext.Error.Save">无法保存 Workspace 上下文设置：{0}</system:String>
     <system:String x:Key="ProviderModels.Title">供应商与模型</system:String>
     <system:String x:Key="ProviderModels.AddProvider">添加供应商</system:String>
@@ -883,14 +866,11 @@
 
     <!-- Service Status Messages -->
     <system:String x:Key="Status.ServiceNotInitialized">服务尚未初始化</system:String>
-    <system:String x:Key="Status.EnterApiKeyFirst">请先填写 API Key</system:String>
     <system:String x:Key="Status.TestingConnection">测试连接中…</system:String>
     <system:String x:Key="Status.LoadingModels">正在加载模型列表…</system:String>
     <system:String x:Key="Status.ModelsLoaded">已加载 {0} 个模型</system:String>
     <system:String x:Key="Status.TextAndEmbeddingModelsLoaded">已加载 {0} 个文本模型和 {1} 个嵌入模型</system:String>
     <system:String x:Key="Status.TextModelsLoadedEmbeddingFailed">已加载 {0} 个文本模型；嵌入模型加载失败：{1}</system:String>
-    <system:String x:Key="Status.NoModelsReturned">该地址未返回任何模型</system:String>
-    <system:String x:Key="Status.LoadModelsFailed">加载模型列表失败：{0}</system:String>
     <system:String x:Key="Status.EnableAudioOutputFirst">请先启用语音播报</system:String>
     <system:String x:Key="Status.EnableWebSearchFirst">请先启用网络搜索</system:String>
     <system:String x:Key="Status.EnableBrowserFirst">请先启用浏览器自动化</system:String>
@@ -971,11 +951,9 @@
     <!-- 首次启动引导 -->
     <system:String x:Key="Onboarding.Title">欢迎使用 Athena</system:String>
     <system:String x:Key="Onboarding.Motto">the owl wakes at dusk</system:String>
-    <system:String x:Key="Onboarding.Skip">跳过</system:String>
     <system:String x:Key="Onboarding.Next">下一步</system:String>
     <system:String x:Key="Onboarding.Back">上一步</system:String>
     <system:String x:Key="Onboarding.Finish">完成</system:String>
-    <system:String x:Key="Onboarding.Step1Oracle">填入 API Key，启动你的 AI 助手</system:String>
     <system:String x:Key="Onboarding.Provider">服务商</system:String>
     <system:String x:Key="Onboarding.Model">主对话模型</system:String>
     <system:String x:Key="Onboarding.TestConnection">测试连接</system:String>
@@ -988,20 +966,7 @@
     <system:String x:Key="Onboarding.RolesHint">一个 API Key 可同时用于以下角色，日后可在设置中分别覆盖。</system:String>
     <system:String x:Key="Onboarding.Role.Primary">主对话模型</system:String>
     <system:String x:Key="Onboarding.Role.Background">后台任务</system:String>
-    <system:String x:Key="Onboarding.Role.Image">图像生成</system:String>
-    <system:String x:Key="Onboarding.Role.Audio">语音播报</system:String>
     <system:String x:Key="Onboarding.Role.SubAgents">子代理</system:String>
-    <system:String x:Key="Onboarding.Role.Browser">浏览器自动化</system:String>
-    <system:String x:Key="Onboarding.Step2Oracle">启用更多能力</system:String>
-    <system:String x:Key="Onboarding.Step2Title">启用可选能力</system:String>
-    <system:String x:Key="Onboarding.Toggle.SubAgents">并行子代理</system:String>
-    <system:String x:Key="Onboarding.Toggle.SubAgentsHint">同时派出多个子代理，分别做研究或读写文件</system:String>
-    <system:String x:Key="Onboarding.Toggle.Browser">浏览器自动化</system:String>
-    <system:String x:Key="Onboarding.Toggle.BrowserHint">视觉引导的网页操作代理，可自主完成多步网页任务</system:String>
-    <system:String x:Key="Onboarding.Toggle.WebSearch">网络搜索</system:String>
-    <system:String x:Key="Onboarding.Toggle.WebSearchHint">实时检索网络信息（Tavily 等独立服务，需单独的 Key）</system:String>
-    <system:String x:Key="Onboarding.Toggle.ImageGen">图像生成</system:String>
-    <system:String x:Key="Onboarding.Toggle.ImageGenHint">在对话中直接生成、迭代图像</system:String>
     <system:String x:Key="Onboarding.Step3Oracle">准备就绪</system:String>
     <system:String x:Key="Onboarding.Step3Welcome">从一句问候开始，或直接进入对话。</system:String>
     <system:String x:Key="Onboarding.Starter1">介绍一下你自己，以及你能帮我做什么</system:String>
@@ -1027,11 +992,6 @@
     <system:String x:Key="Audio.RequestFailed">语音请求失败：{0}</system:String>
     <system:String x:Key="Audio.EmptyBody">语音请求返回为空。</system:String>
     <system:String x:Key="Audio.GenerationFailed">语音生成失败：{0}</system:String>
-    <system:String x:Key="Audio.SystemUnavailable">当前设备不支持系统语音播报。</system:String>
-    <system:String x:Key="Audio.SystemFailed">系统语音播报失败：{0}</system:String>
-    <system:String x:Key="Audio.SystemNoFile">系统语音播报未生成音频文件。</system:String>
-    <system:String x:Key="Audio.SystemEmptyFile">系统语音播报生成的音频文件为空。</system:String>
-    <system:String x:Key="Audio.SystemGenerationFailed">系统语音播报生成失败：{0}</system:String>
     <system:String x:Key="Audio.StorageUnavailable">音频附件存储不可用。</system:String>
     <system:String x:Key="Audio.SaveFailed">保存音频失败：{0}</system:String>
 

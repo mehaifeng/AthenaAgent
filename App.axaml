@@ -45,23 +45,17 @@
             <!-- 转换器 -->
             <conv:BoolToAlignmentConverter x:Key="BoolToAlignmentConverter"/>
             <conv:IntToColumnConverter x:Key="IntToColumnConverter"/>
-            <conv:IntEqualsConverter x:Key="IntEqualsConverter"/>
             <conv:EnumEqualsConverter x:Key="EnumEqualsConverter"/>
             <conv:SidePanelColumnConverter x:Key="SidePanelColumnConverter"/>
             <conv:EditorPaneGridConverter x:Key="EditorPaneGridConverter"/>
-            <conv:RoleToBrushConverter x:Key="RoleToBrushConverter"/>
-            <conv:RoleToBgConverter x:Key="RoleToBgConverter"/>
             <conv:RoleToTitleConverter x:Key="RoleToTitleConverter"/>
             <conv:LocConverter x:Key="LocConverter"/>
             <conv:DurationToTextConverter x:Key="DurationToTextConverter"/>
             <conv:ProcessRunSummaryConverter x:Key="ProcessRunSummaryConverter"/>
-            <conv:OpacityConverter x:Key="OpacityConverter"/>
             <conv:ThemeTagToVisibilityConverter x:Key="ThemeTagToVisibilityConverter"/>
             <conv:ToolIconKeyToGeometryConverter x:Key="ToolIconKeyToGeometryConverter"/>
             <conv:SubAgentStateToBrushConverter x:Key="SubAgentStateToBrushConverter"/>
-            <conv:CountToBoolConverter x:Key="CountToBoolConverter"/>
             <conv:EmptyCountToBoolConverter x:Key="EmptyCountToBoolConverter"/>
-            <conv:StringToTransformConverter x:Key="StringToTransformConverter"/>
             <conv:LinkSchemeConverter x:Key="LinkSchemeConverter"/>
 
             <!-- 「过程行」按钮主题：只有一层 Border，刻意不走 Semi 的按钮主题。
@@ -99,7 +93,6 @@
             <!-- 系统 CJK 字体优先：Win=Microsoft YaHei，macOS=PingFang SC，Linux=Noto Sans CJK SC。-->
             <FontFamily x:Key="MainFontFamily">Microsoft YaHei, PingFang SC, Noto Sans CJK SC, Segoe UI Emoji, Apple Color Emoji, Noto Color Emoji, Segoe UI, sans-serif</FontFamily>
             <FontFamily x:Key="MonospaceFontFamily">Cascadia Code, Consolas, Monaco, Menlo, Courier New, Courier, Monospace</FontFamily>
-            <FontFamily x:Key="ContentControlThemeFontFamily">Microsoft YaHei, PingFang SC, Noto Sans CJK SC, Segoe UI, sans-serif</FontFamily>
 
             <!--
                 统一字号系统：正文以 11 为基准。

@@ -25,7 +25,6 @@ public partial class TasksViewModel : ViewModelBase, IDisposable
     private readonly ICronScheduleService _scheduleService;
     private readonly CronExecutionWorker? _executionWorker;
     private readonly IConversationNavigator? _navigator;
-    private readonly IWorkspaceService? _workspaceService;
     private readonly ILocalizationService? _localizationService;
     private bool _disposed;
 
@@ -54,21 +53,19 @@ public partial class TasksViewModel : ViewModelBase, IDisposable
         L("Cron.Store.CorruptedRecords", "{0} stored task record(s) could not be read and were skipped."),
         CorruptedRecordCount);
 
-    public TasksViewModel() : this(null, new CronScheduleService(), null, null, null, null) { }
+    public TasksViewModel() : this(null, new CronScheduleService(), null, null, null) { }
 
     public TasksViewModel(
         ICronTaskService? taskService,
         ICronScheduleService scheduleService,
         CronExecutionWorker? executionWorker,
         IConversationNavigator? navigator,
-        IWorkspaceService? workspaceService,
         ILocalizationService? localizationService)
     {
         _taskService = taskService;
         _scheduleService = scheduleService;
         _executionWorker = executionWorker;
         _navigator = navigator;
-        _workspaceService = workspaceService;
         _localizationService = localizationService;
 
         _editor = new CronTaskEditorViewModel(_scheduleService, _localizationService);
@@ -83,22 +80,6 @@ public partial class TasksViewModel : ViewModelBase, IDisposable
         if (_localizationService != null)
         {
             _localizationService.LanguageChanged += OnLanguageChanged;
-        }
-
-        _ = LoadWorkspacesAsync();
-    }
-
-    private async Task LoadWorkspacesAsync()
-    {
-        if (_workspaceService == null) return;
-        try
-        {
-            var workspaces = await _workspaceService.LoadAllAsync();
-            RunOnUiThread(() => Editor.SetAvailableWorkspaces(workspaces));
-        }
-        catch (Exception)
-        {
-            // 工作区读不出来不该让任务页整页不可用：任务照常可建，只是落到全局分组。
         }
     }
 

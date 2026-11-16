@@ -1,7 +1,6 @@
 using Athena.UI.Models;
 using Avalonia.Data.Converters;
 using Avalonia.Media;
-using Avalonia.Media.Transformation;
 using System;
 using System.Globalization;
 
@@ -27,32 +26,6 @@ public class SubAgentStateToBrushConverter : IValueConverter
                 _ => Pending
             }
             : Pending;
-
-    public object ConvertBack(object? value, Type targetType, object? parameter, CultureInfo culture)
-        => throw new NotSupportedException();
-}
-
-/// <summary>整数计数 &gt; 0 → true（用于侧边 Dock 的可见性）。</summary>
-public class CountToBoolConverter : IValueConverter
-{
-    public object Convert(object? value, Type targetType, object? parameter, CultureInfo culture)
-        => value is int count && count > 0;
-
-    public object ConvertBack(object? value, Type targetType, object? parameter, CultureInfo culture)
-        => throw new NotSupportedException();
-}
-
-/// <summary>
-/// 把 "translate(x px y px)" 变换字符串解析成 TransformOperations 对象。
-/// 绑定场景下 RenderTransform 不会自动套用字符串类型转换器，故显式转换，
-/// 并配合 TransformOperationsTransition 产生平滑滑翔。
-/// </summary>
-public class StringToTransformConverter : IValueConverter
-{
-    public object? Convert(object? value, Type targetType, object? parameter, CultureInfo culture)
-        => value is string s && !string.IsNullOrWhiteSpace(s)
-            ? TransformOperations.Parse(s)
-            : null;
 
     public object ConvertBack(object? value, Type targetType, object? parameter, CultureInfo culture)
         => throw new NotSupportedException();

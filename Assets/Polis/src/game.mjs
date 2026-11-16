@@ -469,15 +469,6 @@ export function createGame({ params, status, send, onTalk = null, onUiBlocked = 
 
   // —— 玩家：WASD / 方向键走路（真实时间，不随回放暂停）。点地面不走——鼠标只管互动 ——
   const player = { pos: { x: 2.6, z: 4.4 }, yaw: Math.PI * 0.85, walkClock: 0, moving: false, dirty: false, stoppedAt: 0 };
-  /** 你身边一个她能站的地方（你在远处开口时她走过来站在这儿）：先试你右前方，撞墙就换个方向，都不行就站你这儿。 */
-  const playerSite = () => {
-    const offsets = [[0.9, 0.4], [-0.9, 0.4], [0.4, 0.9], [0.4, -0.9], [1.2, 0], [-1.2, 0], [0, 1.2], [0, -1.2]];
-    for (const [dx, dz] of offsets) {
-      const p = { x: player.pos.x + dx, z: player.pos.z + dz };
-      if (!layout || layout.walkable(p)) return `pt:${p.x.toFixed(2)},${p.z.toFixed(2)}`;
-    }
-    return `pt:${player.pos.x.toFixed(2)},${player.pos.z.toFixed(2)}`;
-  };
   const pressed = new Set();   // 按住的方向：'up' | 'down' | 'left' | 'right'
   let running = false;
   // —— M3 的动画状态：一次性的动作（接过、挥手）、托付的时刻（之后两秒多做"说"的手势）、看向谁 ——
@@ -749,13 +740,10 @@ export function createGame({ params, status, send, onTalk = null, onUiBlocked = 
   const ease = (f) => f * f * (3 - 2 * f);
   const safeSite = (site) => (site && (site === 'agora' || site === 'harbor' || site === 'gate' || site.startsWith('agora:') || site.startsWith('pt:') || layout.plots.has(site)) ? site : 'agora');
 
-  /**
-   * 雅典娜在时刻 now 的位置、朝向，以及她这一刻的动作（走 / 跑 / 停）。她没有光了：2026-10-12 去掉了始终存在的圣光，
-   * 2026-10-13 去掉了瞬移（她唯一的那一道光）。pose.teleport 恒为 null、glow 恒为 0，留着这两个字段只是让旧的读法不出错。
-   */
+  /** 雅典娜在时刻 now 的位置、朝向，以及她这一刻的动作（走 / 跑 / 停）。 */
   function athenaPose(state, now) {
     const step = state.step;
-    const pose = { x: 0, z: 0, yaw: 0, visible: true, glow: 0, teleport: null, action: 'idle', t: now, style: {} };
+    const pose = { x: 0, z: 0, yaw: 0, visible: true, action: 'idle', t: now, style: {} };
     if (!step) return pose;
     const t = now - step.start;
     if (step.kind === 'walk' || step.kind === 'run') {
@@ -767,7 +755,7 @@ export function createGame({ params, status, send, onTalk = null, onUiBlocked = 
       const f = step.reason === 'chase' ? raw : ease(raw);
       const p = pointAlong(route, f);
       const speed = running ? RUN_SPEED : SPEED;
-      Object.assign(pose, { x: p.x, z: p.z, yaw: p.dir, glow: 0, action: running ? 'run' : 'walk', t: ((polyLength(route) * f) / speed) * 1000, style: { speed, stride: running ? ATHENA_STRIDE * 1.5 : ATHENA_STRIDE } });
+      Object.assign(pose, { x: p.x, z: p.z, yaw: p.dir, action: running ? 'run' : 'walk', t: ((polyLength(route) * f) / speed) * 1000, style: { speed, stride: running ? ATHENA_STRIDE * 1.5 : ATHENA_STRIDE } });
       return pose;
     }
     const at = safeSite(step.at ?? state.position);
@@ -849,12 +837,12 @@ export function createGame({ params, status, send, onTalk = null, onUiBlocked = 
   function applyAthena(pose, line = null, dt = 16) {
     const a = world.athena;
     const ground = world.groundAt(pose.x, pose.z);
-    athenaY = athenaY == null || pose.teleport ? ground : stepToward(athenaY, ground, dt);
+    athenaY = athenaY == null ? ground : stepToward(athenaY, ground, dt);
     a.position.set(pose.x, athenaY + 0.012, pose.z);
-    // 转身是转过去的，不是一帧跳过去的（时间常数 120 毫秒，和居民一样按比例转）；瞬移和第一帧直接摆好。
+    // 转身是转过去的，不是一帧跳过去的（时间常数 120 毫秒，和居民一样按比例转）；第一帧直接摆好。
     // 2026-10-12，用户：雅典娜移动后偶发裙子剧烈抖动——她的朝向原来一帧跳过去：停步时从路的方向跳到目的地的朝向、
     // 走到路的拐角跳到下一段，最多 180°，裙子是布料模拟，被一帧甩过去要抖一秒多
-    athenaYaw = athenaYaw == null || pose.teleport ? pose.yaw : turnToward(athenaYaw, pose.yaw, 1 - Math.exp(-dt / 120));
+    athenaYaw = athenaYaw == null ? pose.yaw : turnToward(athenaYaw, pose.yaw, 1 - Math.exp(-dt / 120));
     a.rotation.y = athenaYaw;
     a.visible = pose.visible;
     // M3：停着的时候，旁白气泡在说就做"说"的手势，对话栏开着、你在旁边就侧耳听；离你近就看着你（做事和交付时不看）
@@ -887,21 +875,13 @@ export function createGame({ params, status, send, onTalk = null, onUiBlocked = 
       status.athenaPose = action;
       return;
     }
-    if (action === 'idle' && !pose.teleport && !handover) {
+    if (action === 'idle' && !handover) {
       if (line && line.alpha > 0.3) { action = 'talk'; style.speaker = true; }
       else if (talkingToAthena() && dp < 7) { action = 'talk'; style.speaker = false; }
     }
-    if (dp < 8 && !pose.teleport) style.lookAt = playerHead.set(player.pos.x, 1.5, player.pos.z);
+    if (dp < 8) style.lookAt = playerHead.set(player.pos.x, 1.5, player.pos.z);
     world.athenaFigure.pose(action, pose.t, style);
     status.athenaPose = action;
-    // 光属于雅典娜：只在她化作一道光的那一下亮（第一版有一个 0.6 的底：站着脚下也有一圈光）。
-    // 夜里她的光照得更亮、更远：夜城里只有她这一处亮
-    const light = a.userData.light;
-    if (!light) return;
-    const boost = 1 + 1.4 * nightK;
-    light.position.set(0, 0.45, 0.3);
-    light.distance = 4.5 + 2.5 * nightK;
-    light.intensity = pose.glow * 3 * boost;
   }
 
   /** 港口的船此刻在出海的哪一段（0..1），泊着时为 null（BOAT_TRIP：按墙钟的时刻表）。 */
@@ -1236,14 +1216,6 @@ export function createGame({ params, status, send, onTalk = null, onUiBlocked = 
       indoorDoors = { list: citizens.indoors, world, map };
     }
     return indoorDoors.map;
-  }
-
-  /** 住在这扇门后面的人：街上的（日程里用这扇门的）与街上满了、在屋里的（按种子分到这座楼的这扇门）。 */
-  function doorResidents(doorId) {
-    const out = [];
-    for (const c of world.citizens.values()) if (c.plan?.door?.id === doorId) out.push(c.id);
-    for (const [id, door] of indoorDoorMap()) if (door === doorId && !world.citizens.has(id)) out.push(id);
-    return out;
   }
 
   /** 此刻在这扇门后面的人：日程里在屋里的街上居民（出来见你的不算），和一直在屋里的那些。 */
@@ -2197,7 +2169,7 @@ export function createGame({ params, status, send, onTalk = null, onUiBlocked = 
       : follow === 'player'
         ? new THREE.Vector3(player.pos.x, 1, player.pos.z)
         : follow === 'athena'
-          ? pose.teleport ? new THREE.Vector3(pose.teleport.x, 1, pose.teleport.z) : new THREE.Vector3(pose.x, 1, pose.z)
+          ? new THREE.Vector3(pose.x, 1, pose.z)
           : null;
     if (!want) {
       if (player.moving) keepPlayerInView(dt, snap);
@@ -2281,17 +2253,8 @@ export function createGame({ params, status, send, onTalk = null, onUiBlocked = 
     R.placeSun(controls.target);
     if (sync) R.syncMatrices();
 
-    const glowWorld = pose.teleport ? pose.teleport.clone() : world.athena.userData.chest.clone().applyMatrix4(world.athena.matrixWorld);
-    const headWorld = pose.teleport ? pose.teleport.clone().setY(1.95) : world.athena.userData.headTop.clone().applyMatrix4(world.athena.matrixWorld);
-    const glowUv = R.projectUv(glowWorld);
-    const feetUv = R.projectUv(tmp.set(glowWorld.x, 0, glowWorld.z));
-    const topUv = R.projectUv(tmp.set(glowWorld.x, 1.9, glowWorld.z));
-    const g = R.gradePass.uniforms;
-    g.uGlowPos.value.set(glowUv.x, glowUv.y);
-    g.uGlowRadius.value = Math.max(0.008, (Math.abs(topUv.y - feetUv.y) / 1) * (pose.teleport ? 0.55 : 0.75));
-    g.uGlowStrength.value = pose.glow;
-    g.uSeed.value = (now % 1000) / 1000;
-
+    R.gradePass.uniforms.uSeed.value = (now % 1000) / 1000;
+    const headWorld = world.athena.userData.headTop.clone().applyMatrix4(world.athena.matrixWorld);
     const bubbleCss = R.projectCss(headWorld);
     // 居民头顶的话（M-B）：和她的那一句一样按这一帧的矩阵投影（运动自检逐帧核对）
     // 你头顶的话（2026-10-13）：你对一位居民说的那一句，说完留一阵（他开口之后淡得快一点）
@@ -2326,7 +2289,7 @@ export function createGame({ params, status, send, onTalk = null, onUiBlocked = 
     const flashNow = performance.now();
     // 名牌：建筑、公共建筑、市集摊位一直画；居民的只在还没结识、或者指针停在他身上时画（满城的名字太挤）；
     // 橄榄树的只在指针停在那棵树上时画；遗失的藏品在它的底座上挂一块名牌
-    // 居民即会话（M-B）的名牌：只在离你 6 米内、或者你够得着他的时候画——三十多块名牌一起画，满屏都是字
+    // 城里居民的名牌：只在离你 6 米内、或者你够得着他的时候画——三十多块名牌一起画，满屏都是字
     const citizenLabelShown = (l) => {
       const c = world.citizens.get(l.key.slice('citizen:'.length));
       if (!c?.figure?.root.visible) return false;
@@ -2367,11 +2330,11 @@ export function createGame({ params, status, send, onTalk = null, onUiBlocked = 
     const offscreen = (p) => p.x < 0 || p.y < 0 || p.x > window.innerWidth || p.y > window.innerHeight;
     let athenaEdge = null;
     if (follow !== 'athena' && pose.visible && !reveal) {
-      // 自由视角（缺省）下她常常在画面外：边缘一枚白色的标记指着她（光属于雅典娜，不用点缀色），点它就跟过去
+      // 自由视角（缺省）下她常常在画面外：边缘一枚白色的标记指着她，点它就跟过去
       const p = R.projectCss(tmp.set(pose.x, 1, pose.z));
-      if (offscreen(p)) athenaEdge = { x: p.x, y: p.y, busy: pose.action !== 'idle' || pose.glow > 0.25 };
+      if (offscreen(p)) athenaEdge = { x: p.x, y: p.y, busy: pose.action !== 'idle' };
     }
-    used = { glowWorld, glowUv: { x: glowUv.x, y: glowUv.y }, headWorld, bubbleCss, labels, citizenBubbles };
+    used = { bubbleCss, labels, citizenBubbles };
 
     R.render();
     syncUiBlocked();
@@ -2655,7 +2618,7 @@ export function createGame({ params, status, send, onTalk = null, onUiBlocked = 
     for (const v of world.venues.values()) for (const s of v.slots) {
       if (s.item && items.get(s.item)?.item.lost) add('item', s.world.x, s.world.z, { id: s.item });
     }
-    if (onTalk && pose?.visible && !pose.teleport) add('athena', world.athena.position.x, world.athena.position.z);
+    if (onTalk && pose?.visible) add('athena', world.athena.position.x, world.athena.position.z);
     for (const r of world.residents.values()) add('resident', r.figure.root.position.x, r.figure.root.position.z, { id: r.kind });
     for (const c of world.citizens.values()) if (c.figure?.root.visible) add('citizen', c.figure.root.position.x, c.figure.root.position.z, { id: c.id });
     // 有人住的门（第三轮需求 3）：门阶前按 E 敲门。正在敲的那一扇不再给提示

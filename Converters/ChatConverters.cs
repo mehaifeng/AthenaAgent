@@ -1,7 +1,5 @@
-using Avalonia;
 using Avalonia.Data.Converters;
 using Avalonia.Layout;
-using Avalonia.Media;
 using Athena.UI.Models;
 using Athena.UI.Services.Interfaces;
 using System;
@@ -29,18 +27,6 @@ public class IntToColumnConverter : IValueConverter
         return 0;
     }
     public object ConvertBack(object? value, Type targetType, object? parameter, CultureInfo culture) => throw new NotImplementedException();
-}
-
-/// <summary>主导航页缓存：仅切换页面可见性，不从视觉树移除页面。</summary>
-public class IntEqualsConverter : IValueConverter
-{
-    public object Convert(object? value, Type targetType, object? parameter, CultureInfo culture)
-        => value is int actual
-           && int.TryParse(parameter?.ToString(), out var expected)
-           && actual == expected;
-
-    public object ConvertBack(object? value, Type targetType, object? parameter, CultureInfo culture)
-        => throw new NotImplementedException();
 }
 
 /// <summary>消息计数 == 0 → true(空会话占位可见性)。</summary>
@@ -98,19 +84,6 @@ public class EditorPaneGridConverter : IValueConverter
         => throw new NotSupportedException();
 }
 
-// 移除 RoleToBrushConverter 和 RoleToBgConverter 的复杂逻辑，改为简单的占位符或删除（如果不再使用）
-public class RoleToBrushConverter : IValueConverter
-{
-    public object Convert(object? value, Type targetType, object? parameter, CultureInfo culture) => Brushes.Transparent;
-    public object ConvertBack(object? value, Type targetType, object? parameter, CultureInfo culture) => throw new NotImplementedException();
-}
-
-public class RoleToBgConverter : IValueConverter
-{
-    public object Convert(object? value, Type targetType, object? parameter, CultureInfo culture) => Brushes.Transparent;
-    public object ConvertBack(object? value, Type targetType, object? parameter, CultureInfo culture) => throw new NotImplementedException();
-}
-
 public class RoleToTitleConverter : IValueConverter
 {
     public object Convert(object? value, Type targetType, object? parameter, CultureInfo culture)
@@ -118,16 +91,6 @@ public class RoleToTitleConverter : IValueConverter
         string key = (value is bool isUser && isUser) ? "Chat.RoleUser" : "Chat.RoleAssistant";
         var localizationService = App.Services?.GetService(typeof(ILocalizationService)) as ILocalizationService;
         return localizationService?.GetString(key, key) ?? key;
-    }
-    public object ConvertBack(object? value, Type targetType, object? parameter, CultureInfo culture) => throw new NotImplementedException();
-}
-
-public class OpacityConverter : IValueConverter
-{
-    public object Convert(object? value, Type targetType, object? parameter, CultureInfo culture)
-    {
-        bool isCompressed = value is bool b && b;
-        return isCompressed ? 0.4 : 1.0;
     }
     public object ConvertBack(object? value, Type targetType, object? parameter, CultureInfo culture) => throw new NotImplementedException();
 }
@@ -146,23 +109,13 @@ public class ThemeTagToVisibilityConverter : IValueConverter
 }
 
 /// <summary>
-/// 把 Semi 图标资源 key（字符串）解析为 PathIcon 可用的 Geometry。
+/// 把 AthenaIcon 图标资源键解析为 PathIcon 可用的 Geometry。
 /// 用于按工具名动态选择图标（无法用 {StaticResource {Binding}} 实现）。
 /// </summary>
 public class ToolIconKeyToGeometryConverter : IValueConverter
 {
     public object? Convert(object? value, Type targetType, object? parameter, CultureInfo culture)
-    {
-        if (value is string key
-            && !string.IsNullOrEmpty(key)
-            && Application.Current?.TryGetResource(key, null, out var resource) == true
-            && resource is Geometry geometry)
-        {
-            return geometry;
-        }
-
-        return null;
-    }
+        => value is string { Length: > 0 } key ? IconResources.Resolve(key) : null;
 
     public object? ConvertBack(object? value, Type targetType, object? parameter, CultureInfo culture) => throw new NotImplementedException();
 }

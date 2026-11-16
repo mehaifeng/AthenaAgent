@@ -9,6 +9,7 @@ using Avalonia.Controls;
 using Avalonia.Headless;
 using Avalonia.Interactivity;
 using Avalonia.Input;
+using Avalonia.Media.Imaging;
 using Avalonia.Styling;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
@@ -113,7 +114,7 @@ internal static class ExecutionTimelineHeadlessTests
             if (!string.IsNullOrWhiteSpace(capture))
             {
                 using var output = File.Create(capture);
-                frame.Save(output);
+                frame.Save(output, PngBitmapEncoderOptions.Default);
             }
             window.RequestedThemeVariant = ThemeVariant.Dark;
             Dispatcher.UIThread.RunJobs();
@@ -125,7 +126,7 @@ internal static class ExecutionTimelineHeadlessTests
                 if (!string.IsNullOrWhiteSpace(darkCapture))
                 {
                     using var output = File.Create(darkCapture);
-                    darkFrame.Save(output);
+                    darkFrame.Save(output, PngBitmapEncoderOptions.Default);
                 }
             }
 

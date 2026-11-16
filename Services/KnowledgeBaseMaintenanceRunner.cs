@@ -10,6 +10,8 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
+using AiModelRole = Athena.UI.Models.AiModelRole;
+using ReasoningEffort = Athena.UI.Models.ReasoningEffort;
 // OpenAI SDK Experimental 面（OPENAI001）：本文件直接使用 Responses 类型。
 #pragma warning disable OPENAI001
 
@@ -78,14 +80,16 @@ public sealed class KnowledgeBaseMaintenanceRunner
     public async Task<(bool Success, string Summary)> RunAsync(string instruction, CancellationToken cancellationToken)
     {
         var config = _configService.Load();
-        var effective = KnowledgeMaintenanceModelResolver.Resolve(config);
+        // Leave reasoning effort at the provider default for maintenance calls.
+        var effective = OpenAiModelRuntimeFactory.Resolve(config, AiModelRole.KnowledgeMaintenance)
+            with { Effort = ReasoningEffort.Auto };
 
         if (string.IsNullOrWhiteSpace(effective.ApiKey) || string.IsNullOrWhiteSpace(effective.Model))
         {
             return (false, GetLocalized("KbMaint.ModelNotConfigured", "Maintenance model is not configured (missing API Key or model)."));
         }
 
-        var isResponses = ResponsesCallHelpers.ShouldUseResponses(effective.ToEffectiveOpenAiModel());
+        var isResponses = ResponsesCallHelpers.ShouldUseResponses(effective);
         ChatClient chatClient = null!;
         ResponsesClient responsesClient = null!;
         try
@@ -96,7 +100,7 @@ public sealed class KnowledgeBaseMaintenanceRunner
             chatClient = client.GetChatClient(effective.Model);
             if (isResponses)
             {
-                responsesClient = ResponsesCallHelpers.CreateResponsesClient(effective.ToEffectiveOpenAiModel(), config.Timeout);
+                responsesClient = ResponsesCallHelpers.CreateResponsesClient(effective, config.Timeout);
             }
         }
         catch (Exception ex)
@@ -140,7 +144,7 @@ public sealed class KnowledgeBaseMaintenanceRunner
                 {
                     if (isResponses)
                     {
-                        var responsesOptions = ResponsesCallHelpers.CreateOptions(effective.ToEffectiveOpenAiModel(), SystemPrompt, (float?)effective.Temperature, effective.MaxOutputTokens, tools);
+                        var responsesOptions = ResponsesCallHelpers.CreateOptions(effective, SystemPrompt, (float?)effective.Temperature, effective.MaxOutputTokens, tools);
                         ResponsesCallHelpers.AddInputItems(responsesOptions, messages.Skip(1));
                         responsesValue = (await responsesClient.CreateResponseAsync(responsesOptions, cancellationToken)).Value;
                     }

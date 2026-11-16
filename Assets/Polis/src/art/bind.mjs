@@ -495,7 +495,7 @@ export function attachExternalBody(figure, body) {
     mesh.receiveShadow = true;
     // 姿势一变包围球就不准；她总在镜头中间附近，剔除省不下什么，宁可不剔
     mesh.frustumCulled = false;
-    if (figure.spec?.glow) mesh.userData.athena = true;
+    if (figure.spec?.highlight) mesh.userData.athena = true;
     root.add(mesh);
     mesh.updateMatrixWorld(true);
     mesh.bind(skeleton, mesh.matrixWorld);

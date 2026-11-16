@@ -6,21 +6,10 @@
 // M2 美术审查：第一版的叶团仍是十几个平滑的大圆团（光滑法线让每一团都像一朵云），中景里还是花椰菜。
 // 现在叶团小一半、多两三倍，是棱面的二十面体（逐面法线，一个个小平面反光，读得出是一簇簇叶子），在枝端撒开、彼此留缝。
 import * as THREE from '../../vendor/three.bundle.mjs';
-import { mergeGeometries } from '../../vendor/three.bundle.mjs';
 import { valueNoise, fbm, rng } from './noise.mjs';
-import { shadowed, m4 } from './kit.mjs';
+import { shadowed, m4, mergeGeometryParts } from './kit.mjs';
 
 const mesh = (g, m) => shadowed(new THREE.Mesh(g, m));
-
-function merge(list) {
-  return mergeGeometries(list.map((g) => {
-    const n = g.index ? g.toNonIndexed() : g;
-    for (const name of Object.keys(n.attributes)) if (!['position', 'normal', 'uv'].includes(name)) n.deleteAttribute(name);
-    if (!n.attributes.normal) n.computeVertexNormals();
-    if (!n.attributes.uv) n.setAttribute('uv', new THREE.Float32BufferAttribute(new Float32Array(n.attributes.position.count * 2), 2));
-    return n;
-  }));
-}
 
 /** 按噪声把一团几何的轮廓揉得不规则（只动 x / z）。 */
 export function lumpy(geom, seed, amount, freq) {
@@ -112,7 +101,7 @@ export function oliveGeometries(stage = 'grown', seed = 1) {
     g.translate(c.x + Math.cos(a) * d, c.y + (r() - 0.4) * cloud * 0.55, c.z + Math.sin(a) * d);
     leaves.push(g);
   }
-  return { bark: merge(bark), leaves: merge(leaves), height: p.height + p.clump[1] };
+  return { bark: mergeGeometryParts(bark), leaves: mergeGeometryParts(leaves), height: p.height + p.clump[1] };
 }
 
 /** 一棵橄榄（单独摆放的那种：空地上、广场边、美术审查）。 */
@@ -156,7 +145,7 @@ export function buildLaurel(M, { seed = 5, size = 1 } = {}) {
     leaves.push(g);
   }
   const T = new THREE.Group();
-  const crown = mesh(merge(leaves), M.laurel);
+  const crown = mesh(mergeGeometryParts(leaves), M.laurel);
   crown.scale.setScalar(size);
   T.add(crown);
   T.userData.height = 1.3 * size;
@@ -176,7 +165,7 @@ export function buildPottedPlant(M, { seed = 9 } = {}) {
     leaves.push(g);
   }
   T.add(mesh(new THREE.CylinderGeometry(0.02, 0.025, 0.3, 6).translate(0, 0.55, 0), M.bark));
-  T.add(mesh(merge(leaves), M.olive));
+  T.add(mesh(mergeGeometryParts(leaves), M.olive));
   T.userData.height = 0.95;
   return T;
 }
@@ -196,7 +185,7 @@ export function buildAcanthus(M, { seed = 11 } = {}) {
     leaves.push(g);
   }
   const T = new THREE.Group();
-  T.add(mesh(merge(leaves), M.ivy));
+  T.add(mesh(mergeGeometryParts(leaves), M.ivy));
   T.userData.height = 0.4;
   return T;
 }

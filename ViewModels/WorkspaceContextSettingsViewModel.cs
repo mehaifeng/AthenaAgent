@@ -34,7 +34,7 @@ public sealed partial class WorkspaceContextSettingsViewModel : ViewModelBase, I
         _policyProvider = policyProvider;
         _workspaceService = workspaceService;
         _localization = localization;
-        _baseline = Clone(workspace.ContextPolicyOverride);
+        _baseline = workspace.ContextPolicyOverride?.Clone();
         LoadDraft(_baseline);
         if (_localization != null) _localization.LanguageChanged += OnLanguageChanged;
     }
@@ -117,7 +117,7 @@ public sealed partial class WorkspaceContextSettingsViewModel : ViewModelBase, I
         {
             var draft = BuildDraft();
             await _workspaceService.UpdateContextPolicyAsync(_workspace, draft);
-            _baseline = Clone(draft);
+            _baseline = draft?.Clone();
             OnPropertyChanged(nameof(IsDirty));
             CloseRequested?.Invoke(this, EventArgs.Empty);
         }
@@ -210,7 +210,8 @@ public sealed partial class WorkspaceContextSettingsViewModel : ViewModelBase, I
                 || SummaryMaxTokens > AppContextPolicy.MaxSummaryMaxTokens))
             return L("WorkspaceContext.Error.SummaryMax", "Summary length cap must be between 1,024 and 32,768 tokens.");
         if (OverrideWorkspaceKnowledgeBudget && WorkspaceKnowledgeCharBudget is < 0 or > AppConfig.MaxWorkspaceKnowledgeCharBudget)
-            return L("WorkspaceContext.Error.Knowledge", "Workspace knowledge budget must be between 0 and 100,000.");
+            return string.Format(L("WorkspaceContext.Error.Knowledge", "Workspace knowledge budget must be between 0 and {0:N0} characters."),
+                AppConfig.MaxWorkspaceKnowledgeCharBudget);
         return string.Empty;
     }
 
@@ -237,19 +238,6 @@ public sealed partial class WorkspaceContextSettingsViewModel : ViewModelBase, I
         || value.KeepRecentToolResultChars.HasValue
         || value.SummaryMaxTokens.HasValue
         || value.WorkspaceKnowledgeCharBudget.HasValue;
-
-    private static WorkspaceContextPolicyOverride? Clone(WorkspaceContextPolicyOverride? source) => source == null
-        ? null
-        : new WorkspaceContextPolicyOverride
-        {
-            ContextCapTokens = source.ContextCapTokens,
-            AutoCompress = source.AutoCompress,
-            CompressionThresholdTokens = source.CompressionThresholdTokens,
-            ToolResultClearingEnabled = source.ToolResultClearingEnabled,
-            KeepRecentToolResultChars = source.KeepRecentToolResultChars,
-            SummaryMaxTokens = source.SummaryMaxTokens,
-            WorkspaceKnowledgeCharBudget = source.WorkspaceKnowledgeCharBudget
-        };
 
     private static bool Equivalent(WorkspaceContextPolicyOverride? left, WorkspaceContextPolicyOverride? right) =>
         left?.ContextCapTokens == right?.ContextCapTokens

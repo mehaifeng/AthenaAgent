@@ -78,6 +78,11 @@ export async function runGallery({ params, status }) {
   if (entry.kind === 'figure') {
     const citizenSpec = citizenSeed != null ? citizenLook(citizenSeed, { age: params.get('age') ?? 'adult', trade: params.get('trade') }).spec : null;
     const figure = citizenSpec ? buildCitizen(M, citizenSpec) : assets.figure(id);
+    if (id === 'figure.athena') {
+      const light = new THREE.PointLight(0xfff6e8, 1.1, 4.5, 2);
+      light.position.set(0, 0.45, 0.3);
+      figure.root.add(light);
+    }
     R.scene.add(figure.root);
     // 居民干活（第三轮需求 4）：他那门手艺；要工位的，工位摆在他面前（和城里一样，正面朝着他）
     const craft = citizenSeed != null ? craftFor(params.get('trade'), citizenSeed) : null;
@@ -89,7 +94,6 @@ export async function runGallery({ params, status }) {
       station.scale.setScalar(k);
       R.scene.add(station);
     }
-    R.gradePass.uniforms.uGlowStrength.value = 0;
     // &weights=1：蒙在程序化骨架上的外部人物按蒙皮权重上色（每根骨头一种颜色，按权重混合；不去色）——查权重分错了地方用
     if (params.get('weights') === '1' && figure.skinned) showWeights(R, figure);
     window.__polisGallery = { figure, R };
@@ -104,7 +108,7 @@ export async function runGallery({ params, status }) {
     const zoomOverride = Number(params.get('zoom'));
     if (zoomOverride > 0) center.set(0, Number(params.get('cy') ?? 1.6), 0);
     place(zoomOverride > 0 ? zoomOverride : VIEWS[view] ?? 1);
-    // 和城里一样：雅典娜只在干活和交付时有光（game.mjs 的 athenaPose）
+    // 对照图保留雅典娜干活和交付时的参考光晕。
     if (who === 'athena' && (still === 'work' || still === 'deliver')) glowAt(R, figure);
     R.render();
     caption(`${entry.label} · ${id} · ${view === 'mid' ? '中景' : '游戏视距'}`);
@@ -135,8 +139,6 @@ export async function runGallery({ params, status }) {
   } else if (id === 'civic.harbor') {
     Object.assign(params2, { quayLocalZ: 6, pierLength: 14, plotCenterZ: 0 });
   }
-  // 光晕属于雅典娜：别的资产的对照图里不能有一团默认位置的光
-  R.gradePass.uniforms.uGlowStrength.value = 0;
   const object = assets.object(id, params2);
   if (id.startsWith('prop.display-')) {
     const pedestal = assets.object('prop.pedestal');
@@ -193,7 +195,7 @@ function showWeights(R, figure) {
   }
 }
 
-/** 雅典娜的光晕：和城里一样，按当帧矩阵把胸口投到屏幕上，半径随她在屏幕上的身高。 */
+/** 美术审查的参考光晕按当帧矩阵对准雅典娜的胸口，半径随屏幕上的身高。 */
 function glowAt(R, figure) {
   figure.root.updateMatrixWorld(true);
   const chest = figure.root.userData.chest.clone().applyMatrix4(figure.root.matrixWorld);
@@ -331,7 +333,6 @@ function citizenLineup({ R, M, params, status, place, center, view, azimuth }) {
   const theta = THREE.MathUtils.degToRad(azimuth);
   const box = new THREE.Box3();
   const people = [];
-  R.gradePass.uniforms.uGlowStrength.value = 0;
   for (let k = 0; k < n; k++) {
     const i = from + k;
     const seed = lineupSeed(i);

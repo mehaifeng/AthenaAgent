@@ -29,7 +29,8 @@
       <DependentUpon>%(Filename)</DependentUpon>
     </Compile>
     <None Remove="**/*.axaml" />
-    <AvaloniaResource Include="Assets/**" />
+    <!-- AthenaSoul has its own manifest resource; the Polis guide is for source maintenance. -->
+    <AvaloniaResource Include="Assets/**" Exclude="Assets/AthenaSoul.md;Assets/Polis/CLAUDE.md" />
     <Compile Remove="Athena.Archive.Tests/**/*.cs" />
     <Compile Remove="Athena.Updater/**/*.cs" />
     <Compile Remove="Athena.UI.HeadlessTests/**/*.cs" />
