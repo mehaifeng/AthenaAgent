@@ -3,6 +3,7 @@ using Athena.UI.Services.Interfaces;
 using Serilog;
 using System;
 using System.Collections.Concurrent;
+using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -37,6 +38,7 @@ public sealed class CronExecutionWorker : IDisposable
     private Timer? _timer;
     private Task? _pump;
     private int _activeRuns;
+    private int _outstandingRuns;
     private bool _disposed;
 
     public CronExecutionWorker(
@@ -57,8 +59,8 @@ public sealed class CronExecutionWorker : IDisposable
 
     public int PendingRunCount => _queue.Count;
 
-    /// <summary>没有排队也没有在跑。测试用它判断一批触发是否已经全部落定。</summary>
-    public bool IsIdle => _queue.IsEmpty && ActiveRunCount == 0;
+    /// <summary>已入队的运行全部处理完毕，包括出队后等执行槽和写回终态的运行。</summary>
+    public bool IsIdle => Volatile.Read(ref _outstandingRuns) == 0;
 
     /// <summary>
     /// 启动执行泵。先把上次退出时遗留的 Queued/Running 收敛成 Interrupted，再对齐到下一个整分钟开始检查。
@@ -112,12 +114,19 @@ public sealed class CronExecutionWorker : IDisposable
         var now = _clock.UtcNow;
         while (_queue.TryDequeue(out var pending))
         {
-            await _taskService.CompleteRunAsync(
-                pending.Task.Id,
-                pending.Run.RunId,
-                CronRunState.Interrupted,
-                now,
-                note: "The app stopped before this queued run started.");
+            try
+            {
+                await _taskService.CompleteRunAsync(
+                    pending.Task.Id,
+                    pending.Run.RunId,
+                    CronRunState.Interrupted,
+                    now,
+                    note: "The app stopped before this queued run started.");
+            }
+            finally
+            {
+                Interlocked.Decrement(ref _outstandingRuns);
+            }
         }
 
         lifetime?.Dispose();
@@ -134,12 +143,7 @@ public sealed class CronExecutionWorker : IDisposable
         {
             var now = _clock.UtcNow;
             var claims = await _taskService.ClaimDueAsync(now);
-            foreach (var claim in claims)
-            {
-                _queue.Enqueue(claim);
-                _queueSignal.Release();
-            }
-
+            EnqueueRuns(claims);
             return claims.Count;
         }
         finally
@@ -165,9 +169,18 @@ public sealed class CronExecutionWorker : IDisposable
         var claim = await _taskService.ClaimManualAsync(taskId, _clock.UtcNow);
         if (claim == null) return null;
 
-        _queue.Enqueue(claim);
-        _queueSignal.Release();
+        EnqueueRuns([claim]);
         return claim;
+    }
+
+    private void EnqueueRuns(IReadOnlyList<CronTaskClaim> claims)
+    {
+        if (claims.Count == 0) return;
+
+        Interlocked.Add(ref _outstandingRuns, claims.Count);
+        foreach (var claim in claims)
+            _queue.Enqueue(claim);
+        _queueSignal.Release(claims.Count);
     }
 
     private async Task SafeRunDueChecksAsync()
@@ -214,7 +227,8 @@ public sealed class CronExecutionWorker : IDisposable
                 _ =>
                 {
                     Interlocked.Decrement(ref _activeRuns);
-                    _slots.Release();
+                    try { _slots.Release(); }
+                    finally { Interlocked.Decrement(ref _outstandingRuns); }
                 },
                 CancellationToken.None,
                 TaskContinuationOptions.None,
