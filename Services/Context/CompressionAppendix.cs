@@ -178,9 +178,6 @@ public static class CompressionAppendix
             requests);
     }
 
-    /// <summary>附录之前的正文；喂给模型的「上一份摘要」去掉附录，因为附录会被重新生成。</summary>
-    public static string StripAppendices(string? summary) => Parse(summary).Prose;
-
     /// <summary>
     /// 合并上一份摘要里的用户请求与这一批材料里的用户消息，只留最新 3 条（旧的在前）。
     /// </summary>

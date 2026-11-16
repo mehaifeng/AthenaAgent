@@ -42,7 +42,9 @@ public sealed class SubAgentRunner
     {
         var preset = SubAgentTypes.Resolve(task.AgentType);
         var config = _configService.Load();
-        var effective = SubAgentModelResolver.Resolve(config);
+        // Leave reasoning effort at the provider default for sub-agent calls.
+        var effective = OpenAiModelRuntimeFactory.Resolve(config, AiModelRole.SubAgent)
+            with { Effort = ReasoningEffort.Auto };
 
         _logger.Information(
             "SubAgentRunner starting: Title={Title}, AgentType={AgentType}, Model={Model}",
@@ -54,7 +56,7 @@ public sealed class SubAgentRunner
             return Fail(vm, uiPost, task, "Sub-agent model is not configured (missing API key or model).");
         }
 
-        var isResponses = ResponsesCallHelpers.ShouldUseResponses(effective.ToEffectiveOpenAiModel());
+        var isResponses = ResponsesCallHelpers.ShouldUseResponses(effective);
         ChatClient chatClient = null!;
         ResponsesClient responsesClient = null!;
         try
@@ -65,7 +67,7 @@ public sealed class SubAgentRunner
             chatClient = client.GetChatClient(effective.Model);
             if (isResponses)
             {
-                responsesClient = ResponsesCallHelpers.CreateResponsesClient(effective.ToEffectiveOpenAiModel(), config.Timeout);
+                responsesClient = ResponsesCallHelpers.CreateResponsesClient(effective, config.Timeout);
             }
         }
         catch (Exception ex)
@@ -85,7 +87,7 @@ public sealed class SubAgentRunner
         var options = new ChatCompletionOptions
         {
             Temperature = (float?)effective.Temperature,
-            MaxOutputTokenCount = effective.MaxTokens
+            MaxOutputTokenCount = effective.MaxOutputTokens
         };
         foreach (var tool in tools)
         {
@@ -124,7 +126,7 @@ public sealed class SubAgentRunner
                 {
                     if (isResponses)
                     {
-                        var responsesOptions = ResponsesCallHelpers.CreateOptions(effective.ToEffectiveOpenAiModel(), preset.SystemPrompt, (float?)effective.Temperature, effective.MaxTokens, tools);
+                        var responsesOptions = ResponsesCallHelpers.CreateOptions(effective, preset.SystemPrompt, (float?)effective.Temperature, effective.MaxOutputTokens, tools);
                         ResponsesCallHelpers.AddInputItems(responsesOptions, messages.Skip(1));
                         responsesValue = (await responsesClient.CreateResponseAsync(responsesOptions, cancellationToken)).Value;
                     }

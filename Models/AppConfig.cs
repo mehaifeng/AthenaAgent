@@ -18,8 +18,10 @@ public enum VirtualPetRoamArea
 /// </summary>
 public partial class AppConfig : ObservableObject
 {
+    public const int CurrentSchemaVersion = 8;
+
     [ObservableProperty]
-    private int _configSchemaVersion = 6;
+    private int _configSchemaVersion = CurrentSchemaVersion;
 
     [ObservableProperty]
     private AppContextPolicy _contextPolicy = new();
@@ -311,11 +313,6 @@ public partial class AppConfig : ObservableObject
     // 首次启动引导是否已完成（完成或跳过均置 true，之后不再弹出）。
     [ObservableProperty]
     private bool _onboardingCompleted;
-
-    // 工作区配置
-    // 最近活跃的工作区 ID（启动时恢复，null 表示无活跃工作区）。
-    [ObservableProperty]
-    private string? _lastActiveWorkspaceId;
 
     // 工作区知识文件全量注入 system prompt 时的字符预算上限。用字符而不是 token：这个预算控制的是材料大小，
     // 不是用量统计，而本地已经没有任何按字符猜 token 的东西。旧配置的 token 预算迁移时按 ×3 换算。

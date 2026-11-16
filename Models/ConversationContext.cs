@@ -39,28 +39,27 @@ public class ConversationContext
     public List<string> ClearedToolResultIds { get; set; } = new();
 
     /// <summary>
-    /// 自动全量压缩的防抖门槛（token）：上次压缩提交后若压缩后的估算仍不低于阈值，说明再压也压不下去，
-    /// 此时只有当前用量涨过这个值（压缩后用量 + 阈值的 1/4）才允许再次自动压缩，避免每轮都重压。
-    /// 0 表示没有门槛。会话内状态，不落盘；<see cref="Reset"/> 清零。
+    /// 自动全量压缩的防抖门槛。提交后第一次实测若仍达到阈值，就等用量达到「该实测值 + 阈值的 1/4」
+    /// 才再次自动压缩。0 表示没有门槛。随会话快照保存，<see cref="Reset"/> 清零。
     /// </summary>
     public long AutoCompactionFloorTokens { get; set; }
 
     /// <summary>
     /// 刚提交过压缩、还在等第一次实测。压缩后的用量只有下一次响应的 usage 才知道（本地不估算），
-    /// 到那时若仍不低于阈值，就按 <see cref="AutoCompactionFloorTokens"/> 设防抖门槛。会话内状态，不落盘。
+    /// 到那时若仍达到阈值，就设置 <see cref="AutoCompactionFloorTokens"/>。随会话快照保存。
     /// </summary>
     public bool PostCompactionMeasurePending { get; set; }
 
     /// <summary>
     /// 刚做过一次工具结果清理、还在等第一次实测。到那时若用量仍高于阈值，说明光清理压不下来，
-    /// 置 <see cref="CompactionDueAfterClearing"/>。会话内状态，不落盘；<see cref="Reset"/> 清零。
+    /// 置 <see cref="CompactionDueAfterClearing"/>。随会话快照保存，<see cref="Reset"/> 清零。
     /// </summary>
     public bool PostClearingMeasurePending { get; set; }
 
     /// <summary>
     /// 清理之后的第一次实测仍高于阈值：下一次超阈值时直接进入全量压缩，不再因为「又有新的可清项」而只做清理。
     /// 工具密集的长任务每一轮都会把更早的结果挤出保留区，若可清项总是优先，压缩就永远轮不到，
-    /// 而工具参数、正文、推理这些清理碰不到的内容会一路涨到供应商报超限。会话内状态，不落盘。
+    /// 而工具参数、正文、推理这些清理碰不到的内容会一路涨到供应商报超限。随会话快照保存。
     /// </summary>
     public bool CompactionDueAfterClearing { get; set; }
 
@@ -131,13 +130,6 @@ public class ConversationContext
     }
 
     public void Clear() => _messages.Clear();
-
-    public void RemoveMessages(int count)
-    {
-        if (count <= 0) return;
-        int toRemove = Math.Min(count, _messages.Count);
-        _messages.RemoveRange(0, toRemove);
-    }
 
     public bool RemoveMessagesById(IReadOnlyCollection<string> messageIds)
     {

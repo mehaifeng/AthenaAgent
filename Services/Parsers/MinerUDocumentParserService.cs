@@ -1,6 +1,7 @@
 using System;
 using System.IO;
 using System.IO.Compression;
+using System.Linq;
 using System.Net.Http;
 using System.Net.Http.Headers;
 using System.Text;
@@ -266,7 +267,7 @@ public class MinerUDocumentParserService : IDocumentParserService, IDisposable
 
         // 优先取 full.md；否则退而取任意 .md 文件。
         var entry = archive.GetEntry("full.md")
-                    ?? archive.Entries.FirstOrDefaultMarkdown();
+                    ?? archive.Entries.FirstOrDefault(entry => entry.Name.EndsWith(".md", StringComparison.OrdinalIgnoreCase));
         if (entry == null)
         {
             throw new InvalidOperationException("No markdown file found in extract result");
@@ -307,20 +308,4 @@ public class MinerUDocumentParserService : IDocumentParserService, IDisposable
     }
 
     public void Dispose() => _httpClient.Dispose();
-}
-
-internal static class ZipArchiveExtensions
-{
-    public static ZipArchiveEntry? FirstOrDefaultMarkdown(this System.Collections.ObjectModel.ReadOnlyCollection<ZipArchiveEntry> entries)
-    {
-        foreach (var entry in entries)
-        {
-            if (entry.Name.EndsWith(".md", StringComparison.OrdinalIgnoreCase))
-            {
-                return entry;
-            }
-        }
-
-        return null;
-    }
 }

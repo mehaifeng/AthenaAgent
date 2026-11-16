@@ -242,28 +242,14 @@ public sealed class ResponsesTransport : ICompletionTransport
         IReadOnlyList<OpenAI.Chat.ChatMessage> messages,
         int maxOutputTokens)
     {
-        var options = new CreateResponseOptions
-        {
-            Model = runtime.MainModel.Model,
-            Instructions = BuildInstructions(messages),
-            Temperature = runtime.ChatOptions.Temperature,
-            TopP = runtime.ChatOptions.TopP,
-            MaxOutputTokenCount = maxOutputTokens > 0 ? maxOutputTokens : runtime.ChatOptions.MaxOutputTokenCount,
-            StreamingEnabled = true,
-            // 无状态：Athena 自管上下文（压缩/回缩/分支），绝不使用服务端 store。
-            StoredOutputEnabled = false,
-        };
-
-        foreach (var tool in runtime.ToolDefinitions)
-        {
-            options.Tools.Add(new FunctionTool(
-                tool.FunctionName,
-                tool.FunctionParameters,
-                tool.FunctionSchemaIsStrict)
-            {
-                FunctionDescription = tool.FunctionDescription ?? string.Empty,
-            });
-        }
+        var options = ResponsesCallHelpers.CreateOptions(
+            runtime.MainModel,
+            BuildInstructions(messages),
+            runtime.ChatOptions.Temperature,
+            maxOutputTokens > 0 ? maxOutputTokens : runtime.ChatOptions.MaxOutputTokenCount,
+            runtime.ToolDefinitions);
+        options.TopP = runtime.ChatOptions.TopP;
+        options.StreamingEnabled = true;
 
         // 完整推理文本：官方 OpenAI 端点经 include=reasoning 获取（responses 协议下完整思考
         // 文本的唯一通道）。第三方 /responses 端点（OpenRouter 实测）对 include 支持面极窄，
@@ -282,31 +268,10 @@ public sealed class ResponsesTransport : ICompletionTransport
                 runtime.MainModel.BaseUrl);
         }
 
-        // 推理强度：仅在显式配置时发送（Auto = 端点默认），wire 名 effort。
-        if (runtime.MainModel.Effort != ReasoningEffort.Auto)
-        {
-            options.ReasoningOptions = new ResponseReasoningOptions
-            {
-                ReasoningEffortLevel = MapEffort(runtime.MainModel.Effort)
-            };
-        }
-
         ResponsesCallHelpers.AddInputItems(options, messages);
 
         return options;
     }
-
-    private static ResponseReasoningEffortLevel MapEffort(ReasoningEffort effort) => effort switch
-    {
-        ReasoningEffort.None => ResponseReasoningEffortLevel.None,
-        ReasoningEffort.Minimal => ResponseReasoningEffortLevel.Minimal,
-        ReasoningEffort.Low => ResponseReasoningEffortLevel.Low,
-        ReasoningEffort.Medium => ResponseReasoningEffortLevel.Medium,
-        ReasoningEffort.High => ResponseReasoningEffortLevel.High,
-        ReasoningEffort.XHigh => (ResponseReasoningEffortLevel)"xhigh",
-        ReasoningEffort.Max => (ResponseReasoningEffortLevel)"max",
-        _ => ResponseReasoningEffortLevel.Medium
-    };
 
     private static string BuildInstructions(IReadOnlyList<OpenAI.Chat.ChatMessage> messages)
     {

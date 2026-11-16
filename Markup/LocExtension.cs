@@ -1,5 +1,6 @@
 using System;
 using Avalonia.Data;
+using Avalonia.Data.Converters;
 using Avalonia.Markup.Xaml;
 using Athena.UI.Services.Interfaces;
 
@@ -40,43 +41,15 @@ public class LocExtension : MarkupExtension
             return DefaultValue ?? Key;
         }
 
-        // Create a binding to the LocalizedStringProvider
-        var binding = new Binding
+        return CreateBinding(localizationService, Key, DefaultValue ?? Key);
+    }
+
+    internal static Binding CreateBinding(ILocalizationService localizationService, string key, string fallback)
+        // Follow the service's existing property notification through Avalonia's binding lifetime.
+        => new(nameof(ILocalizationService.CurrentLanguage))
         {
-            Source = new LocalizedStringProvider(localizationService, Key, DefaultValue),
-            Path = nameof(LocalizedStringProvider.GetString),
-            Mode = BindingMode.OneWay
+            Source = localizationService,
+            Mode = BindingMode.OneWay,
+            Converter = new FuncValueConverter<string, string>(_ => localizationService.GetString(key, fallback))
         };
-
-        return binding;
-    }
-}
-
-/// <summary>
-/// Helper class that provides localized strings and notifies when language changes
-/// </summary>
-public class LocalizedStringProvider : System.ComponentModel.INotifyPropertyChanged
-{
-    private readonly ILocalizationService _localizationService;
-    private readonly string _key;
-    private readonly string? _defaultValue;
-
-    public LocalizedStringProvider(ILocalizationService localizationService, string key, string? defaultValue)
-    {
-        _localizationService = localizationService;
-        _key = key;
-        _defaultValue = defaultValue;
-
-        // Subscribe to language changes
-        _localizationService.LanguageChanged += OnLanguageChanged;
-    }
-
-    private void OnLanguageChanged(object? sender, EventArgs e)
-    {
-        PropertyChanged?.Invoke(this, new System.ComponentModel.PropertyChangedEventArgs(nameof(GetString)));
-    }
-
-    public string GetString => _localizationService.GetString(_key, _defaultValue ?? _key);
-
-    public event System.ComponentModel.PropertyChangedEventHandler? PropertyChanged;
 }

@@ -2,7 +2,6 @@ using Athena.UI.Models;
 using Athena.UI.Services.Interfaces;
 using OpenAI;
 using OpenAI.Chat;
-using OpenAI.Embeddings;
 using System;
 using System.ClientModel;
 using System.Collections.Generic;
@@ -29,20 +28,7 @@ public sealed class OpenAiModelRuntimeFactory
 
     public static EffectiveOpenAiModel Resolve(AppConfig config, AiModelRole role)
     {
-        var settings = role switch
-        {
-            AiModelRole.MainConversation => config.AiModels.MainConversation,
-            AiModelRole.TitleGeneration => config.AiModels.TitleGeneration,
-            AiModelRole.ContextCompression => config.AiModels.ContextCompression,
-            AiModelRole.Approval => config.AiModels.Approval,
-            AiModelRole.Embedding => config.AiModels.Embedding,
-            AiModelRole.BrowserAgent => config.AiModels.BrowserAgent,
-            AiModelRole.SubAgent => config.AiModels.SubAgent,
-            AiModelRole.KnowledgeMaintenance => config.AiModels.KnowledgeMaintenance,
-            AiModelRole.ImageRecognition => config.AiModels.ImageRecognition,
-            AiModelRole.Companion => config.AiModels.Companion,
-            _ => throw new ArgumentOutOfRangeException(nameof(role), role, null)
-        };
+        var settings = GetRoleSettings(config, role);
 
         var provider = config.AiModels.Providers.FirstOrDefault(candidate =>
             string.Equals(candidate.Id, settings.ProviderId, StringComparison.Ordinal));
@@ -187,17 +173,6 @@ public sealed class OpenAiModelRuntimeFactory
         var effective = Resolve(config, role);
         effective.ValidateChatRole(role);
         return CreateClient(effective, config.Timeout).GetChatClient(effective.Model);
-    }
-
-    public EmbeddingClient CreateEmbeddingClient()
-    {
-        var config = _configService.Load();
-        var effective = Resolve(config, AiModelRole.Embedding);
-        if (string.IsNullOrWhiteSpace(effective.ApiKey) || string.IsNullOrWhiteSpace(effective.Model))
-        {
-            throw new InvalidOperationException("Embedding model is not configured.");
-        }
-        return CreateClient(effective, config.Timeout).GetEmbeddingClient(effective.Model);
     }
 
     public async Task<(bool Success, string Message)> TestChatAsync(

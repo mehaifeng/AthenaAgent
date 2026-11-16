@@ -14,14 +14,14 @@ Athena is a sophisticated, highly autonomous desktop AI assistant built with **.
 - **📊 Optional Execution Timeline**: Inspect main-model attempts, direct and PTC tool calls, script lifetime, approvals and waits in a per-reply multi-lane timeline. Disabled by default; timing metadata stays local.
 - **🦉 Parallel Sub-Agents**: Fans out batches of isolated sub-agents for concurrent work, visualized as an animated "owl village" overview.
 - **🌐 Browser Automation**: Runs vision-guided, isolated browser sessions (Playwright + Set-of-Marks) to inspect web pages, click visible controls, fill simple forms, upload local files, and extract page evidence.
-- **📚 Local Knowledge Base**: A vector-powered semantic memory stored locally in Markdown files with hybrid retrieval (vectors + BM25/FTS) and background self-maintenance, ensuring privacy and instant retrieval.
+- **📚 Local Knowledge Base**: A vector-powered semantic memory stored locally in Markdown files with hybrid retrieval (vectors + BM25/FTS) and optional background maintenance.
 - **📄 Document Parsing**: MinerU-backed extraction of outlines and content from attached documents.
 - **🎨 Image Generation & Audio**: Inline image generation with cross-turn continuity, plus TTS audio playback.
 - **↩️ Conversation Archive, Rewind & Fork**: Persisted, browsable sessions that can be rewound or forked into branch conversations.
 - **🌿 Workspace Git branches**: Switch or create branches above the composer; inspect local and remote snapshots, upstream status and worktree occupancy. Manage branches with patch comparison, local rename and confirmed safe deletion. Checkout checks the entire repository, and branch mutations exclude live assistant turns.
 - **⏰ Cron Scheduling**: Standard five-field cron tasks. Every firing opens its own brand-new session instead of interrupting the chat you are looking at, so a task can run while you keep working.
 - **🌍 Modern Cross-Platform UI**: Built with Avalonia UI and the Semi Design aesthetic, supporting both light/dark modes and multi-lingual interfaces (English & Chinese).
-- **🛡️ Security-First Design**: Implements strict data sandboxing, file system protection, and secure API management.
+- **🛡️ Security-First Design**: Tool calls follow approval and file-access policies. Browser sessions use isolated contexts.
 
 ## 🖼️ Interface Preview
 
@@ -41,19 +41,19 @@ Athena is a sophisticated, highly autonomous desktop AI assistant built with **.
 
 1. **Clone the repository**:
    ```bash
-   git clone https://github.com/your-username/AthenaAgent.git
+   git clone https://github.com/mehaifeng/AthenaAgent.git
    cd AthenaAgent
    ```
 
 2. **Restore dependencies**:
    ```bash
    bash Libraries/Ptc/scripts/build-local-feed.sh
-   dotnet restore
+   dotnet restore Athena.UI.sln
    ```
 
 3. **Run the application**:
    ```bash
-   dotnet run
+   dotnet run --project Athena.UI.csproj
    ```
 
 ## 🏗️ Project Structure
@@ -72,10 +72,10 @@ Athena is a sophisticated, highly autonomous desktop AI assistant built with **.
 - **AI SDK**: OpenAI SDK 2.x (Chat, Embeddings, Image Generation, Audio/TTS, Tool Calling; shared retry and timeout policy)
 - **Markdown**: LiveMarkdown.Avalonia (streaming output with inline images, math, and native Mermaid diagrams)
 - **Browser Automation**: Microsoft.Playwright
-- **Audio**: LibVLCSharp
+- **Audio**: Provider TTS and platform player commands
 - **Database**: SQLite (for vector storage)
 - **Logging**: Serilog (File + Console sinks)
 
 ## 📄 License
 
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+This README records MIT as the project license. The PTC packages ship their own [license file](Libraries/Ptc/LICENSE) and [notices](Libraries/Ptc/ThirdPartyNotices.md).

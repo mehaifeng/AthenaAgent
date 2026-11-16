@@ -966,7 +966,7 @@ Scripts/run-headless-tests.sh → [ALL HEADLESS TESTS PASSED]，exit=0
 
 ### 决定
 
-1. **工作区监视器由工作台驱动**：共享的 `WorkspaceWatcherService` 由 `WorkspaceWorkbenchViewModel.SetWorkspaceAsync` 切换（外壳"当前作用域"的唯一入口，也保住了"先加载、后监听"的次序），游戏按事件里的工作区 Id 认领。没用 `IWorkspaceService.ActiveWorkspaceChanged`：它在每个会话 `AssignWorkspace` 时都会触发（启动恢复全部会话、定时任务在后台开会话），不等于"当前选中"。
+1. **工作区监视器由工作台驱动**。共享的 `WorkspaceWatcherService` 由 `WorkspaceWorkbenchViewModel.SetWorkspaceAsync` 切换，按先加载、后监听的顺序运行，游戏按事件里的工作区 Id 认领。M1 时每个会话绑定工作区都会发布 `ActiveWorkspaceChanged`。当前由外壳选中会话时发布该事件，游戏继续跟随工作台的监视器。
 2. **`SetWorkspaceAsync` 同时比较 Id 与根目录**：工作区是共享的活对象，重新定位后 Id 不变，只比 Id 会把新位置当成"同一个工作区"什么都不做。
 3. **游戏模式下不建气泡树**（设计稿 9.2 的"需要实测"）：`ATHENA_SWAP_PERF=1` 的探针（`ProbeHiddenSurfaceSwap`，20 条助手消息、240 个工具行的会话）：可见换绑 648 ms，**隐藏换绑 843 ms**，都是 10 770 个视觉元素；隐藏换绑之后再显示 0 ms——隐藏的列表照样实体化整棵树。所以不是"藏起来"，而是消息列表不给数据源；`ItemsSource` 改在代码里给（XAML 绑定在 DataContext 换绑时会重新产出值，盖掉 null，测试抓到过）。切回对话：升幕布、等 60 ms（够提交一帧幕布）、再给数据源。
 4. **页面放进 `Assets/Polis/`**，随应用作为 Avalonia 资源发布；测试、夹具、导出工具留在 `Tools/GameMode/`。开发用的静态服务按应用的样子挂载 `/polis/`、`/fixtures/`、`/.local/`。

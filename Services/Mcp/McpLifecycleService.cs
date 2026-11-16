@@ -99,17 +99,6 @@ public sealed class McpLifecycleService : IAsyncDisposable
         }
     }
 
-    /// <summary>手动重连一个服务器：清掉其已应用记录，再触发一次 apply。用于失败后重试。</summary>
-    public async Task ReconnectAsync(string serverName)
-    {
-        _logger.Information("McpLifecycleService manual reconnect: {Server}", serverName);
-        await _applyLock.WaitAsync().ConfigureAwait(false);
-        try { _applied.Remove(serverName); }
-        finally { _applyLock.Release(); }
-        await _controller.StopServerAsync(serverName).ConfigureAwait(false);
-        await ApplyAsync(_configService.Load()).ConfigureAwait(false);
-    }
-
     public async ValueTask DisposeAsync()
     {
         _configService.ConfigChanged -= OnConfigChanged;

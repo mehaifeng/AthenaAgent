@@ -24,39 +24,6 @@ public interface IKnowledgeBaseService
     Task CreateFileAsync(string relativePath, string content, string[]? tags = null);
 
     /// <summary>
-    /// 追加内容到知识文件
-    /// </summary>
-    /// <param name="relativePath">相对路径</param>
-    /// <param name="content">要追加的内容</param>
-    Task AppendToFileAsync(string relativePath, string content);
-
-    /// <summary>
-    /// 替换知识文件内容
-    /// </summary>
-    /// <param name="relativePath">相对路径</param>
-    /// <param name="content">新内容</param>
-    Task ReplaceFileAsync(string relativePath, string content);
-
-    /// <summary>
-    /// 读取知识文件内容
-    /// </summary>
-    /// <param name="relativePath">相对路径</param>
-    /// <returns>文件内容，不存在返回 null</returns>
-    Task<string?> ReadFileAsync(string relativePath);
-
-    /// <summary>
-    /// 删除知识文件
-    /// </summary>
-    /// <param name="relativePath">相对路径</param>
-    Task DeleteFileAsync(string relativePath);
-
-    /// <summary>
-    /// 删除知识库目录（及其所有内容）
-    /// </summary>
-    /// <param name="relativePath">相对路径</param>
-    Task DeleteDirectoryAsync(string relativePath);
-
-    /// <summary>
     /// 搜索知识库
     /// </summary>
     /// <param name="query">搜索关键词</param>
@@ -81,18 +48,6 @@ public interface IKnowledgeBaseService
     Task<List<DuplicateFileCluster>> DetectDuplicateClustersAsync(double minSimilarity);
 
     /// <summary>
-    /// 列出所有知识文件
-    /// </summary>
-    /// <returns>文件路径列表</returns>
-    Task<List<string>> ListFilesAsync();
-
-    /// <summary>
-    /// 列出所有目录
-    /// </summary>
-    /// <returns>目录路径列表</returns>
-    Task<List<string>> ListDirectoriesAsync();
-
-    /// <summary>
     /// 检查文件是否存在
     /// </summary>
     /// <param name="relativePath">相对路径</param>
@@ -100,16 +55,7 @@ public interface IKnowledgeBaseService
     Task<bool> FileExistsAsync(string relativePath);
 
     /// <summary>
-    /// 使用 SEARCH/REPLACE 模式更新文件
-    /// </summary>
-    /// <param name="relativePath">文件相对路径</param>
-    /// <param name="diffContent">包含 SEARCH/REPLACE 块的内容</param>
-    /// <param name="fuzzyMatch">是否启用模糊匹配（忽略空格/缩进差异），默认 true</param>
-    /// <returns>更新结果</returns>
-    Task<FileUpdateResult> UpdateWithDiffAsync(string relativePath, string diffContent, bool fuzzyMatch = true);
-
-    /// <summary>
-    /// 刷新向量缓存（在文件变更后调用）
+    /// 标记索引需要增量刷新，由下次查询或后台索引更新处理。
     /// </summary>
     Task RefreshVectorCacheAsync();
 
