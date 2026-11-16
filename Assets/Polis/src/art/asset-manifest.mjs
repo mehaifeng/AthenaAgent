@@ -8,7 +8,6 @@
 //   2. 条目形状不对 → 忽略，记一笔；
 //   3. 模型加载失败（404、解析错误、没有网格）→ 回退，记一笔（status.assets.fallbacks）。
 
-export const ASSET_KINDS = Object.freeze(['building', 'prop', 'plant', 'figure', 'civic']);
 export const MODEL_ACTIONS = Object.freeze(['walk', 'run', 'idle', 'work', 'deliver', 'talk', 'wave', 'receive']);
 /** 模型里没有某个动作的片段时退到哪一个（M3 加了跑、说话、挥手、接过）。 */
 const ACTION_FALLBACK = Object.freeze({ run: 'walk', talk: 'idle', wave: 'idle', receive: 'idle', work: 'idle', deliver: 'idle', walk: 'idle' });

@@ -11,8 +11,8 @@
 // 一张粗代理布按位置约束积分、被大腿 / 小腿 / 骨盆 / 髋的胶囊顶在外面，带褶的细网格每帧贴在代理上重建。
 // 姿势仍是纯函数给的；布料和弹簧骨只加二级运动，不改姿势。
 import * as THREE from '../../vendor/three.bundle.mjs';
-import { mergeGeometries } from '../../vendor/three.bundle.mjs';
 import { lerp, smooth } from './noise.mjs';
+import { mergeGeometryParts, shadowed } from './kit.mjs';
 import { restPose, poseAt, blendPoses } from './poses.mjs';
 import { createChain, stepChain, settleChain, segmentDirection, SPRING } from './springs.mjs';
 import { createCloth, stepCloth, resetCloth, bindFine, applyFine, clothPoint, CLOTH } from './cloth.mjs';
@@ -28,9 +28,7 @@ export const LOOK = Object.freeze({ maxYaw: 1.0, maxPitch: 0.45, giveUp: 1.5, ta
 /** 全城共用的风（世界坐标，米 / 秒量级的漂移）：game.mjs 每帧设一次，弹簧骨读它。 */
 const WIND = new THREE.Vector3();
 export function setClothWind(v) { WIND.copy(v); }
-export function clothWind() { return WIND; }
 
-const shadowed = (o) => { o.castShadow = true; o.receiveShadow = true; return o; };
 const mesh = (g, m) => shadowed(new THREE.Mesh(g, m));
 /** 标成"细节"的网格（手指、脚趾）：figure.setDetail(false) 时藏起来（M-B，远处的居民）。 */
 const detail = (o) => { o.userData.detail = true; return o; };
@@ -94,16 +92,6 @@ export function blobGeometry(at, scale, rot = [0, 0, 0], detail = [20, 14]) {
   const g = new THREE.SphereGeometry(1, detail[0], detail[1]);
   g.applyMatrix4(new THREE.Matrix4().compose(new THREE.Vector3(...at), new THREE.Quaternion().setFromEuler(new THREE.Euler(...rot)), new THREE.Vector3(...scale)));
   return g;
-}
-
-export function merge(list) {
-  return mergeGeometries(list.map((g) => {
-    const n = g.index ? g.toNonIndexed() : g;
-    for (const name of Object.keys(n.attributes)) if (!['position', 'normal', 'uv'].includes(name)) n.deleteAttribute(name);
-    if (!n.attributes.normal) n.computeVertexNormals();
-    if (!n.attributes.uv) n.setAttribute('uv', new THREE.Float32BufferAttribute(new Float32Array(n.attributes.position.count * 2), 2));
-    return n;
-  }));
 }
 
 // ———————————————————————— 弹簧骨上的衣料 ————————————————————————
@@ -599,7 +587,7 @@ function calfLacing(section, gold, { from = -0.425, to = -0.24, turns = 1.75 } =
     return new THREE.TubeGeometry(new THREE.CatmullRomCurve3(pts, true), 48, r, 5, true);
   };
   parts.push(ring(to, 0.0034), ring(to - 0.011, 0.002), ring(-SHIN_LENGTH + 0.012, 0.003));
-  return mesh(merge(parts), gold);
+  return mesh(mergeGeometryParts(parts), gold);
 }
 
 /** 胡子：椭球按发丝方向揉出一缕缕的起伏，下沿参差；短须贴脸、长须垂到胸前。 */
@@ -750,11 +738,8 @@ const HAIR_E2 = new THREE.Vector3().crossVectors(HAIR_POLE, HAIR_E1).normalize()
 
 /** 雕出来的头的三个半径（sculptHead 最后那一下缩放）：顶点除以它、归一化，就是它在单位球上的方向。 */
 export const HEAD_RADII = Object.freeze([0.082, 0.11, 0.095]);
-/** 没有五官的头（金色侍女）：一个椭球。 */
-const FACELESS_RADII = Object.freeze([0.078, 0.104, 0.09]);
-
 /**
- * 一种发型的头发外壳：这个人实际的头（head：雕好的头或无脸的椭球）沿法线外推（发区里）或内收（发区外）。
+ * 一种发型的头发外壳：雕好的头（head）沿法线外推（发区里）或内收（发区外）。
  * 返回几何与 offsets（每个顶点推了多少，测试用；顶点和 head 一一对应）。
  */
 export function sculptHairShell(head, radii, style) {
@@ -789,7 +774,7 @@ function twoSided(material) {
 function buildHair(spec, headGeometry, hairMat, head, strips, scale) {
   const style = HAIR_STYLES[spec.hair];
   if (!style) return headGeometry;
-  const shell = mesh(sculptHairShell(headGeometry, spec.faceless ? FACELESS_RADII : HEAD_RADII, style).geometry, hairMat);
+  const shell = mesh(sculptHairShell(headGeometry, HEAD_RADII, style).geometry, hairMat);
   shell.name = 'hair';
   head.add(shell);
   // 头发盖过耳朵（发际线在耳朵下面）就不放耳朵：耳朵比头发厚，会从头发里戳出一个肉色的尖
@@ -899,7 +884,7 @@ function braidAlong(band, tube) {
     g.translate(p.x + out.x * (k % 2 ? 0.002 : -0.001), p.y, p.z + out.z * (k % 2 ? 0.002 : -0.001));
     parts.push(g);
   }
-  return merge(parts);
+  return mergeGeometryParts(parts);
 }
 
 /** surface 上满足 keep 的顶点离 center 最远多少（面纱的顶盖按它定半径，盖住头发）。 */
@@ -1024,7 +1009,7 @@ function upperGarment(spec) {
   // 领口到肩的那一块（盖住斜方肌）只到胳膊内侧：肩头归袖子（挂在肩关节上，袖顶的圆顶就是肩头）。
   // 第一版宽 0.165，盖过了肩关节（0.172）的大半——垂着手时叠在袖顶上，像套了两层袖子；胳膊一抬，它是留在原地的两块肩垫
   parts.push(blobGeometry([0, 1.455, 0], [SHOULDER_YOKE * b, 0.07, 0.1]));
-  const g = merge(parts);
+  const g = mergeGeometryParts(parts);
   g.translate(0, -spineY, 0);
   let sash = null;
   if (spec.garment === 'himation' || spec.garment === 'chlamys') {
@@ -1074,7 +1059,7 @@ export function sleeveGeometry(spec, sx) {
   hem.rotateX(Math.PI / 2);
   hem.scale(1, 1, 0.94);
   hem.translate(0, -len, 0);
-  const g = merge([tube, cap, hem]);
+  const g = mergeGeometryParts([tube, cap, hem]);
   // 沿着上臂摆：肩 → 肘是 [sx·0.02, −0.26, 0.01]（arm() 里的那一根）
   g.applyQuaternion(new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, -1, 0), new THREE.Vector3(sx * 0.02, -0.26, 0.01).normalize()));
   return g;
@@ -1131,7 +1116,7 @@ function headgear(spec, M, strips, scale, surface) {
         leaf.translate(p.x + out2.x * 0.004, p.y + (k % 2 ? 0.004 : -0.002), p.z + out2.z * 0.004);
         leaves.push(leaf);
       }
-      out.push(mesh(merge([ring, ...leaves]), M.laurel));
+      out.push(mesh(mergeGeometryParts([ring, ...leaves]), M.laurel));
       break;
     }
     case 'pilos':
@@ -1680,7 +1665,7 @@ function buildTwoHanded(name, M, accentGift) {
 /**
  * 按人物参数建一副骨架。
  * @param {object} M 材质
- * @param {object} spec 人物参数（characters.mjs）：height、garment、cloth、hair、beard、headgear、build、props、glow、faceless、gold
+ * @param {object} spec 人物参数（characters.mjs）：height、garment、cloth、hair、beard、headgear、build、props、highlight
  * @returns {{ root: THREE.Group, joints: object, props: Map<string, THREE.Group>, spec: object, apply(pose): void, pose(action, t, style): void }}
  */
 export function buildFigure(M, spec) {
@@ -1699,8 +1684,8 @@ export function buildFigure(M, spec) {
     return j;
   };
   const cloth = spec.cloth;
-  const skin = spec.gold ? M.maiden : M.skin;
-  const hairMat = spec.gold ? M.maiden : spec.hairMat ?? M.hair;
+  const skin = M.skin;
+  const hairMat = spec.hairMat ?? M.hair;
   const b = spec.build ?? 1;
 
   /** 挂在弹簧骨上的衣料（衣摆、围裙、面纱、辫子、斗篷）：每帧由 updateCloth 推进。 */
@@ -1714,7 +1699,6 @@ export function buildFigure(M, spec) {
   J.legR = joint(J.hips, -0.085 * b, -0.02, 0);
   J.kneeL = joint(J.legL, 0, -0.44, 0);
   J.kneeR = joint(J.legR, 0, -0.44, 0);
-  const legMat = spec.gold ? M.maiden : M.skin;
   const longGarment = isLongGarment(spec);
   // 腿：M2 给长衣的人去掉了腿（走路时屈膝的小腿从衣摆前面戳出来一截肉色）；M3 衣摆是会动的布，走起来向后甩，
   // 没有腿就只剩两只鞋浮在衣摆前面——腿建回来，长衣的步子仍摆得小（legSwing 0.24），布料碰撞把裙摆挡在腿外（cloth.mjs）。
@@ -1723,17 +1707,17 @@ export function buildFigure(M, spec) {
   const shin = legSection(legShape.shin, b);
   for (const [sx, leg, knee] of [[1, J.legL, J.kneeL], [-1, J.legR, J.kneeR]]) {
     // 大腿、小腿：放样出来的腿（LEG_PROFILES）——大腿往膝收，小腿肚在上三分之一，往下收到细的脚踝；膝盖处一个小圆
-    const thigh = mesh(taperedLimb(legSection(legShape.thigh, b), 0.44, { s1: 1.04 }), legMat);
+    const thigh = mesh(taperedLimb(legSection(legShape.thigh, b), 0.44, { s1: 1.04 }), skin);
     thigh.name = 'thigh';
     leg.add(thigh);
     const [kx, ky, kz] = legShape.knee;
-    leg.add(mesh(blobGeometry([0, -0.44, 0.008], [kx * b, ky, kz * b]), legMat));
-    const shinMesh = mesh(taperedLimb(shin, SHIN_LENGTH, { s1: 1.03 }), legMat);
+    leg.add(mesh(blobGeometry([0, -0.44, 0.008], [kx * b, ky, kz * b]), skin));
+    const shinMesh = mesh(taperedLimb(shin, SHIN_LENGTH, { s1: 1.03 }), skin);
     shinMesh.name = 'shin';
     knee.add(shinMesh);
     const foot = spec.sandals === 'tyrrhenian'
       ? buildTyrrhenianFoot(sx, M.skin, M.wood, M.gold)
-      : buildFoot(sx, spec.gold ? M.maiden : M.skin, spec.gold ? M.maiden : M.leather, shin);
+      : buildFoot(sx, skin, M.leather, shin);
     foot.position.set(0, -SHIN_LENGTH, 0.0);
     knee.add(foot);
     if (spec.sandals === 'tyrrhenian') { const lacing = calfLacing(shin, M.gold); lacing.name = 'lacing'; knee.add(lacing); }
@@ -1788,7 +1772,7 @@ export function buildFigure(M, spec) {
     // 上下一样粗——像电线杆（2026-10-12，用户）
     neckGeometry(legSection(NECK_PROFILES[fem ? 'female' : 'male'], b), 0.608, 0.028, 0.15),
   ];
-  const torsoSkin = mesh(merge(skinTorso), skin);
+  const torsoSkin = mesh(mergeGeometryParts(skinTorso), skin);
   torsoSkin.name = 'torsoSkin';
   J.spine.add(torsoSkin);
 
@@ -1796,13 +1780,11 @@ export function buildFigure(M, spec) {
   J.head = joint(J.spine, 0, 0.675, 0.014);
   const face = { beard: !!spec.beard, ...(spec.face ?? {}) };
   // 头的网格（头发按它外推，所以留着它）
-  const headGeometry = spec.faceless ? blobGeometry([0, 0.0, 0], [...FACELESS_RADII], [0, 0, 0], [48, 32]) : sculptHead(face);
+  const headGeometry = sculptHead(face);
   const headMesh = mesh(headGeometry, skin);
   headMesh.name = 'head';
   J.head.add(headMesh);
-  if (!spec.faceless) {
-    for (const piece of faceDetails(M, spec, headGeometry, skin)) J.head.add(piece);
-  }
+  for (const piece of faceDetails(M, spec, headGeometry, skin)) J.head.add(piece);
   // 仪态（spec.bearing）：头的基础俯角与上身的后仰，叠在每个姿势上。人人默认微微低头（0.06）；
   // 雅典娜抬着下巴、挺着胸（2026-10-12，用户：整体没有一点飒爽的气质）
   const headTilt = spec.bearing?.head ?? 0.06, spineTilt = spec.bearing?.spine ?? 0;
@@ -1881,7 +1863,7 @@ export function buildFigure(M, spec) {
     if ((side === 'L') !== LEFT_HAND_PROPS.includes(prop)) throw new Error(`rig: '${spec.id}' carries '${prop}' in the wrong hand`);
   }
 
-  if (spec.glow) root.traverse((o) => { if (o.isMesh) o.userData.athena = true; });
+  if (spec.highlight) root.traverse((o) => { if (o.isMesh) o.userData.athena = true; });
   root.userData.chest = new THREE.Vector3(0, 1.15 * s, 0);
   root.userData.headTop = new THREE.Vector3(0, H + 0.05, 0);
   root.userData.hand = new THREE.Vector3(-0.2 * s, 0.85 * s, 0.1 * s);

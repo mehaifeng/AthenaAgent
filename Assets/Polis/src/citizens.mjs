@@ -1,5 +1,5 @@
 // 居民在城里怎么过日子（M-B，2026-10-13）：日程、避让、分档、闲聊。纯逻辑（不碰 DOM、不碰 three.js），Node 单测 citizens.test.mjs。
-// 一位居民是一场会话（C# 的 PolisCitizens）；长相在 art/citizens.mjs，这里只管他在哪儿、在干什么、跟谁说话。
+// 居民来自建筑、摊位和小屋（C# 的 PolisCitizens）；长相在 art/citizens.mjs，这里只管他在哪儿、在干什么、跟谁说话。
 //
 // 规则（每一条都有断言）：
 //   1. 日程按墙钟、按种子错开：每人一个周期（plan.periodMs）——先在家门口待着，走去一处（广场一圈、市集、港口、神庙、图书馆、
@@ -49,7 +49,7 @@
 //      市集活着（layout.marketVisit 给了）时，三成的人（market.isShopper，按种子）闲逛就是去市集买东西：市集排第一、多远都去
 //      （和去干活一样不受 strollMs 的偏好）；其余的人照旧，挑到市集也逛。
 
-import { DOOR, transitAt } from './doors.mjs';
+import { DOOR, routeClear, transitAt } from './doors.mjs';
 import { STATION_GAPS, STATION_EXTENT } from './art/crafts.mjs';
 import { MARKET, vendorTiming, isShopper } from './market.mjs';
 
@@ -132,20 +132,6 @@ export function standNear(center, r, [lo, hi], walkable, tries = 10) {
     if (clear) return p;
   }
   return { x: center.x, z: center.z };
-}
-
-/** 整条路每 step 米查一次都能站（街道图的第一段从广场的站位直线连到路口，可能横穿讲台或祭坛）。 */
-export function routeClear(pts, walkable, step = 0.25) {
-  for (let k = 1; k < pts.length; k++) {
-    const a = pts[k - 1], b = pts[k];
-    const len = Math.hypot(b.x - a.x, b.z - a.z);
-    const n = Math.max(1, Math.ceil(len / step));
-    for (let i = 0; i <= n; i++) {
-      const u = i / n;
-      if (!walkable({ x: a.x + (b.x - a.x) * u, z: a.z + (b.z - a.z) * u })) return false;
-    }
-  }
-  return true;
 }
 
 /**

@@ -1,7 +1,7 @@
-// 渲染：正交相机 + 后期（环境光遮蔽 → 色调映射 → 调色 + 雅典娜的光 + 暗角 + 颗粒），取自打样。
+// 渲染：正交相机 + 后期（环境光遮蔽 → 夜间灯火辉光 → 色调映射 → 调色、暗角与颗粒），取自打样。
 // 世界是彩色的（2026-10-12，用户：世界上色）；黑白调色（只给标记物体留色）仍在，?grade=1 打开，用来对照明暗关系。
 //
-// 屏幕空间效果（光晕、旁白气泡、建筑名牌）必须用"这一帧真正用来渲染的"相机矩阵投影（设计稿 12.2）：
+// 屏幕空间效果（旁白气泡、建筑名牌、美术审查的参考光晕）必须用"这一帧真正用来渲染的"相机矩阵投影（设计稿 12.2）：
 // three.js 的 lookAt（OrbitControls 每帧都调）会先用"新位置 + 旧朝向"刷新矩阵，直到 render 才改正。
 // 所以每帧的顺序固定为：移动相机与人物 → syncMatrices() → 计算所有屏幕空间位置 → 渲染。
 import * as THREE from '../vendor/three.bundle.mjs';
@@ -16,7 +16,7 @@ export const FILL = Object.freeze({ day: 0xe4dfd6, night: 0x15181d });
 /**
  * 夜里的辉光（2026-10-13，用户：灯火没有散射）：灯火的光在空气里散开一圈。在色调映射之前（线性、半浮点的缓冲里）
  * 取出亮过 threshold 的部分，降到 1/2、1/4、1/8、1/16 各模糊一遍再叠回去——近处一圈紧的、远处一圈宽而淡的。
- * 白天关掉（白天的高光不需要它，也省掉这几遍绘制）；夜里强度跟着 nightK。月光下的墙远到不了阈值，亮的只有灯火和雅典娜。
+ * 白天关掉（白天的高光不需要它，也省掉这几遍绘制）；夜里强度跟着 nightK。月光下的墙远到不了阈值。
  */
 export const GLOW = Object.freeze({ threshold: 0.75, knee: 0.6, strength: 0.95, levels: 4, weights: [0.55, 0.75, 0.9, 1.0] });
 
@@ -166,9 +166,8 @@ export function createRenderer({ canvas, ao = true, shadows = true, grade = fals
       uAspect: { value: aspect() },
       uGlowPos: { value: new THREE.Vector2(0.5, 0.5) },
       uGlowRadius: { value: 0.05 },
-      uGlowStrength: { value: 0.2 },
+      uGlowStrength: { value: 0 },
       uSeed: { value: 0.37 },
-      uEdge: { value: 0 },
       uNight: { value: 0 },
       uFill: { value: new THREE.Vector3() },
       uTexel: { value: new THREE.Vector2(1 / size.x, 1 / size.y) },
@@ -178,7 +177,7 @@ export function createRenderer({ canvas, ao = true, shadows = true, grade = fals
       void main() { vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }`,
     fragmentShader: /* glsl */`
       uniform sampler2D tDiffuse, tMask;
-      uniform float uGrade, uAccent, uAspect, uGlowRadius, uGlowStrength, uSeed, uEdge, uNight;
+      uniform float uGrade, uAccent, uAspect, uGlowRadius, uGlowStrength, uSeed, uNight;
       uniform vec2 uGlowPos, uTexel;
       uniform vec3 uFill;
       varying vec2 vUv;
@@ -193,10 +192,12 @@ export function createRenderer({ canvas, ao = true, shadows = true, grade = fals
         vec3 col = mix(c, vec3(g), uGrade * (1.0 - m));
         // 夜里：月光下带一点冷（银蓝），点缀色不动
         col = mix(col, col * vec3(0.84, 0.9, 1.0), uNight * 0.7 * (1.0 - m));
-        vec2 d = vUv - uGlowPos; d.x *= uAspect;
-        float r2 = dot(d, d) / (uGlowRadius * uGlowRadius);
-        // 光属于雅典娜：夜里她的光更强、更暖，是夜城里唯一的亮处
-        col += uGlowStrength * (1.0 + 0.9 * uNight) * exp(-r2 * 1.2) * (1.0 - 0.92 * self) * mix(vec3(1.0), vec3(1.0, 0.95, 0.84), uNight);
+        // 美术审查专用光晕。城里的夜间灯火由前面的辉光通道处理。
+        if (uGlowStrength > 0.0) {
+          vec2 d = vUv - uGlowPos; d.x *= uAspect;
+          float r2 = dot(d, d) / (uGlowRadius * uGlowRadius);
+          col += uGlowStrength * (1.0 + 0.9 * uNight) * exp(-r2 * 1.2) * (1.0 - 0.92 * self) * mix(vec3(1.0), vec3(1.0, 0.95, 0.84), uNight);
+        }
         col += self * (0.025 + 0.05 * uNight);
         vec2 q = vUv - 0.5; q.x *= uAspect;
         col *= mix(1.0, 0.84 - 0.14 * uNight, smoothstep(0.5, 1.15, length(q)));
@@ -289,7 +290,7 @@ export function createRenderer({ canvas, ao = true, shadows = true, grade = fals
   setNight(0);
 
   return {
-    renderer, scene, camera, composer, gradePass, gtao, glow, sun, hemi, size,
+    renderer, scene, camera, composer, gradePass, gtao, glow, sun, hemi,
     applyFrustum, resize, syncMatrices, projectUv, projectCss, placeSun, render, setNight,
     get night() { return night; },
     /** 地图外此刻的纯色（显示空间的 0..1 分量）：测试与截图核对用。 */

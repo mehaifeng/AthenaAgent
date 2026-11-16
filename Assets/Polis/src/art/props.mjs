@@ -2,8 +2,7 @@
 // 整个世界会被调成黑白，红陶与黑釉去色后是中灰与近黑，纹饰读得出来。点缀色从不用在器物上（它只给"轮到你了"）。
 // 每个函数返回一个 Group，原点在器物底面中心，正面朝 +z。
 import * as THREE from '../../vendor/three.bundle.mjs';
-import { mergeGeometries } from '../../vendor/three.bundle.mjs';
-import { Kit, m4, shadowed } from './kit.mjs';
+import { Kit, m4, mergeGeometryParts, shadowed } from './kit.mjs';
 import { valueNoise, fbm } from './noise.mjs';
 
 const lathe = (pts, segments = 20) => new THREE.LatheGeometry(pts.map(([r, y]) => new THREE.Vector2(r, y)), segments);
@@ -344,7 +343,7 @@ export function statuePlinth(kit, M, { x = 0, z = 0, width = 0.9, height = 0.9, 
  * 衣褶顺着左腿往下垂），下身长袍细密的竖褶加上斜挂的外袍（himation）从左肩斜到右胯，上身胸肩、颈、头，头发与鬓角、
  * 鼻梁，一只手举着长矛、一只手垂着挽住外袍的一角，袍下露出两只脚尖。一体几何（几尊共用一份），约三千个三角形。
  */
-export function statueGeometry(drape, blob, limb, merge, keyed) {
+export function statueGeometry(drape, blob, limb, keyed) {
   const n = valueNoise(7);
   const parts = [
     // 下身长袍：右腿承重——左边（+x）的衣褶往前鼓一点，裙摆略微斜
@@ -388,7 +387,7 @@ export function statueGeometry(drape, blob, limb, merge, keyed) {
     blob([-0.07, 0.03, 0.21], [0.045, 0.03, 0.08], [0, 0, 0], [10, 6]),
     blob([0.09, 0.03, 0.18], [0.045, 0.03, 0.08], [0, 0.25, 0], [10, 6]),
   ];
-  return merge(parts);
+  return mergeGeometryParts(parts);
 }
 
 /** 立像（第四轮）：立在带线脚与刻字带的台座上（statuePlinth）。原点在台座底面中心。 */
@@ -406,9 +405,4 @@ export function buildPedestal(M) {
   kit.box(M.marble, 0.68, 0.58, 0.68, 0, 0.41, 0);
   kit.box(M.marble, 0.82, 0.1, 0.82, 0, 0.75, 0);
   return kit.build();
-}
-
-/** 器物的合并工具：供 statueGeometry 之外的调用方把几块几何合成一份。 */
-export function mergeAll(list) {
-  return mergeGeometries(list.map((g) => (g.index ? g.toNonIndexed() : g)));
 }
