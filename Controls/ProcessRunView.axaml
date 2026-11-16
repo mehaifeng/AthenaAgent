@@ -15,13 +15,12 @@
                             Command="{Binding ToggleExpandedCommand}"
                             ToolTip.Tip="{loc:Loc Chat.ProcessRun.Tip}"
                             AutomationProperties.Name="{Binding Stats, Converter={StaticResource ProcessRunSummaryConverter}}">
-                        <Grid ColumnDefinitions="Auto,*,Auto,Auto">
-                            <!-- summary 类把这段摘要的失败色和明细行区分开：这里只是「有几次调用报错」 -->
+                        <Grid ColumnDefinitions="Auto,*,Auto">
+                            <!-- 完成后使用中性的过程图标；失败状态只属于具体调用。 -->
                             <PathIcon Grid.Column="0"
-                                      Classes="tool-status summary"
+                                      Name="ProcessRunStatusIcon"
+                                      Classes="tool-status"
                                       Classes.SlowSpin="{Binding IsRunning}"
-                                      Classes.success="{Binding IsSucceeded}"
-                                      Classes.failed="{Binding HasFailures}"
                                       Margin="0,0,6,0"
                                       Data="{Binding StatusIconKey, Converter={StaticResource ToolIconKeyToGeometryConverter}}"/>
 
@@ -34,17 +33,7 @@
                                        TextTrimming="CharacterEllipsis"
                                        VerticalAlignment="Center"/>
 
-                            <!-- 失败绝不能藏进折叠里，但这里是提示而不是警报：单纯陈述有几次调用报错，
-                                 颜色与图标都比明细行弱一档。 -->
-                            <TextBlock Grid.Column="2"
-                                       Name="ProcessRunFailureText"
-                                       Classes="process-run-failures"
-                                       IsVisible="{Binding HasFailures}"
-                                       Text="{Binding Stats, Converter={StaticResource ProcessRunSummaryConverter}, ConverterParameter=Failures}"
-                                       Margin="6,0,6,0"
-                                       VerticalAlignment="Center"/>
-
-                            <PathIcon Grid.Column="3"
+                            <PathIcon Grid.Column="2"
                                       Classes="process-chevron"
                                       Data="{Binding ChevronIconKey, Converter={StaticResource ToolIconKeyToGeometryConverter}}"/>
                         </Grid>
@@ -54,21 +43,32 @@
         </ContentControl>
 
         <!-- 只有 VisibleRows 里的行被实例化：被窗口挤出去、或已折叠的行不占任何控件 -->
-        <ItemsControl ItemsSource="{Binding VisibleRows}">
-            <ItemsControl.ItemTemplate>
-                <controls:ProcessRowTemplateSelector>
-                    <controls:ProcessRowTemplateSelector.ReasoningTemplate>
-                        <DataTemplate x:DataType="models:ChatMessageSegment">
-                            <controls:ReasoningRowView HorizontalAlignment="Stretch"/>
-                        </DataTemplate>
-                    </controls:ProcessRowTemplateSelector.ReasoningTemplate>
-                    <controls:ProcessRowTemplateSelector.ToolCallTemplate>
-                        <DataTemplate x:DataType="models:ToolCallEntry">
-                            <controls:ToolCallRowView HorizontalAlignment="Stretch"/>
-                        </DataTemplate>
-                    </controls:ProcessRowTemplateSelector.ToolCallTemplate>
-                </controls:ProcessRowTemplateSelector>
-            </ItemsControl.ItemTemplate>
-        </ItemsControl>
+        <Border Name="ProcessRunEditor"
+                Classes="process-run-editor"
+                Classes.expanded="{Binding IsExpanded}">
+            <Grid ColumnDefinitions="Auto,*">
+                <!-- 一条缩进线提示编辑器结构，不为每个折叠行增加控件。 -->
+                <Border Grid.Column="0" Width="1" Margin="0,1,9,1"
+                        Background="{DynamicResource SemiGreyLowBrush}"
+                        IsVisible="{Binding IsExpanded}"/>
+                <ItemsControl Grid.Column="1" ItemsSource="{Binding VisibleRows}"
+                              FontFamily="{StaticResource MonospaceFontFamily}">
+                    <ItemsControl.ItemTemplate>
+                        <controls:ProcessRowTemplateSelector>
+                            <controls:ProcessRowTemplateSelector.ReasoningTemplate>
+                                <DataTemplate x:DataType="models:ChatMessageSegment">
+                                    <controls:ReasoningRowView HorizontalAlignment="Stretch"/>
+                                </DataTemplate>
+                            </controls:ProcessRowTemplateSelector.ReasoningTemplate>
+                            <controls:ProcessRowTemplateSelector.ToolCallTemplate>
+                                <DataTemplate x:DataType="models:ToolCallEntry">
+                                    <controls:ToolCallRowView HorizontalAlignment="Stretch"/>
+                                </DataTemplate>
+                            </controls:ProcessRowTemplateSelector.ToolCallTemplate>
+                        </controls:ProcessRowTemplateSelector>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
+            </Grid>
+        </Border>
     </StackPanel>
 </UserControl>

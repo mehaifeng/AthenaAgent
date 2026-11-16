@@ -148,6 +148,13 @@ if (Environment.GetEnvironmentVariable("ATHENA_HEADLESS_ONLY") == "git-branches"
     GitBranchTests.Run(outputPath);
     Environment.Exit(0);
 }
+if (Environment.GetEnvironmentVariable("ATHENA_HEADLESS_ONLY") == "process-runs")
+{
+    TestAssistantBubbleLayoutVisual(outputPath);
+    TestProcessRunFolding(outputPath);
+    TestToolCallEditorVisual(outputPath);
+    Environment.Exit(0);
+}
 if (Environment.GetEnvironmentVariable("ATHENA_HEADLESS_ONLY") == "game-mode")
 {
     TestGameModeSwitchAndFailures();
@@ -205,6 +212,7 @@ TestReasoningBubbleState();
 TestReasoningBulbVisualState();
 TestAssistantBubbleLayoutVisual(outputPath);
 TestProcessRunFolding(outputPath);
+TestToolCallEditorVisual(outputPath);
 TestComposerReasoningEffortPicker(outputPath);
 Task.Run(TestReasoningStreamingInBubbleAsync).GetAwaiter().GetResult();
 TestInterleavedReasoningSegmentOrder();
@@ -10237,17 +10245,14 @@ static void TestProcessRunFolding(string outputPath)
         throw new InvalidOperationException("正文段开始输出时，它前面的过程段必须结束");
     if (run.Header == null || run.VisibleRows.Count != 1 || !ReferenceEquals(run.VisibleRows[0], pinned))
         throw new InvalidOperationException($"结束的过程段只剩摘要行（外加用户亲手点开的行），实为 {run.VisibleRows.Count} 行");
-    if (run.Stats != new ProcessRunStats(1, 12, 7, 1, 3, 1, 0, 1, 0))
+    if (run.Stats != new ProcessRunStats(1, 12, 0))
         throw new InvalidOperationException($"过程段计数不对：{run.Stats}");
-    if (!run.HasFailures || run.StatusIconKey != "AthenaIconFailure")
-        throw new InvalidOperationException("有失败的过程段，摘要行必须显示失败");
+    if (run.StatusIconKey != "AthenaIconLogs")
+        throw new InvalidOperationException("包含失败调用的过程段必须使用中性摘要图标");
     var summaryConverter = new ProcessRunSummaryConverter();
     var summary = (string)summaryConverter.Convert(run.Stats, typeof(string), null, CultureInfo.InvariantCulture)!;
-    if (summary != "思考 1 次 · 调用 12 个工具（读取 7 · 搜索 1 · 写入 3 · 终端 1）")
+    if (summary != "思考 1 次 · 调用 12 个工具")
         throw new InvalidOperationException($"摘要文字不对：「{summary}」");
-    var failures = (string)summaryConverter.Convert(run.Stats, typeof(string), "Failures", CultureInfo.InvariantCulture)!;
-    if (failures != "其中 1 次调用报错")
-        throw new InvalidOperationException($"报错次数文字不对：「{failures}」");
 
     // 收起整段时连钉住的行一起收；再展开是全量。
     run.ToggleExpandedCommand.Execute(null);
@@ -10333,11 +10338,14 @@ static void TestProcessRunFolding(string outputPath)
         if (headers.Count != 1)
             throw new InvalidOperationException($"40 行的过程段应只剩一行摘要，渲染出 {headers.Count} 个摘要行");
         var summaryText = heavyRow.GetVisualDescendants().OfType<TextBlock>().First(text => text.Name == "ProcessRunSummaryText");
-        if (summaryText.Text != "思考 10 次 · 调用 30 个工具（读取 10 · 搜索 10 · 写入 10）")
+        if (summaryText.Text != "思考 10 次 · 调用 30 个工具")
             throw new InvalidOperationException($"摘要行文字不对：「{summaryText.Text}」");
-        var failureText = heavyRow.GetVisualDescendants().OfType<TextBlock>().First(text => text.Name == "ProcessRunFailureText");
-        if (!failureText.IsVisible || failureText.Text != "其中 1 次调用报错")
-            throw new InvalidOperationException("摘要行必须单独说明有几次调用报错");
+        if (headers[0].GetVisualDescendants().OfType<TextBlock>().Any(text => text.Text?.Contains("报错", StringComparison.Ordinal) == true))
+            throw new InvalidOperationException("摘要行不能显示失败提示");
+        var summaryIcon = headers[0].GetVisualDescendants().OfType<PathIcon>().First(icon => icon.Name == "ProcessRunStatusIcon");
+        var neutralGeometry = Application.Current?.FindResource("AthenaIconLogs") as Geometry;
+        if (summaryIcon.Classes.Contains("failed") || summaryIcon.Classes.Contains("success") || !ReferenceEquals(summaryIcon.Data, neutralGeometry))
+            throw new InvalidOperationException("摘要行不能用失败或成功图标暗示调用结果");
         // 预算：整个气泡（摘要行 + 正文 + 操作按钮）的控件数和 40 行无关。
         var heavyVisuals = heavyRow.GetVisualDescendants().Count();
         if (heavyVisuals > 200)
@@ -10354,6 +10362,13 @@ static void TestProcessRunFolding(string outputPath)
         if (heavyRow.GetVisualDescendants().OfType<ToolCallRowView>().Count() != 30
             || heavyRow.GetVisualDescendants().OfType<ReasoningRowView>().Count() != 10)
             throw new InvalidOperationException("点击摘要行必须展开全部 40 行");
+        var editor = heavyRow.GetVisualDescendants().OfType<Border>().First(border => border.Name == "ProcessRunEditor");
+        if (!editor.Classes.Contains("expanded") || editor.BorderThickness.Left <= 0 || editor.Background == null)
+            throw new InvalidOperationException("展开的过程列表必须有编辑器式外框");
+        var failedRow = heavyRow.GetVisualDescendants().OfType<ToolCallRowView>()
+            .Single(row => (row.DataContext as ToolCallEntry)?.ToolCallId == "h4-3");
+        if (!failedRow.GetVisualDescendants().OfType<PathIcon>().Any(icon => icon.Classes.Contains("tool-status") && icon.Classes.Contains("failed")))
+            throw new InvalidOperationException("展开后仍须在失败调用行保留失败状态");
 
         // 气泡级按钮：一次收起全部，再一次展开全部。
         var toggleAll = heavyRow.GetVisualDescendants().OfType<Button>().First(button => button.Name == "ToggleProcessRunsButton");
@@ -10391,11 +10406,108 @@ static void TestProcessRunFolding(string outputPath)
 
         var bubblePath = Path.Combine(Path.GetDirectoryName(outputPath)!, "athena-process-run.png");
         SaveWindowFrame(window, bubblePath);
-        Console.WriteLine($"[PASS] process runs fold to one summary row, keep a live window while streaming, and never hide failures: {bubblePath}");
+        Console.WriteLine($"[PASS] process runs show neutral count summaries and keep failure status in expanded rows: {bubblePath}");
     }
     finally
     {
         window.Close();
+        Dispatcher.UIThread.RunJobs();
+    }
+}
+
+static void TestToolCallEditorVisual(string outputPath)
+{
+    var previousTheme = Application.Current!.RequestedThemeVariant;
+    using var chat = new MainConversationViewModel();
+    chat.Messages.Add(new ChatMessage { Role = "user", Content = "检查文件并说明原因" });
+    var failed = new ToolCallEntry
+    {
+        ToolCallId = "failed-editor-call",
+        Name = "read_system_file",
+        Summary = "读取文件 · /workspace/资料/招标文件.json",
+        Arguments = "{\n  \"path\": \"/workspace/资料/招标文件.json\",\n  \"encoding\": \"utf-8\"\n}",
+        Result = "无法读取文件：路径不存在。请检查目录并重试。",
+        Status = ToolCallStatus.Failed,
+        IsExpanded = true
+    };
+    var group = new ChatMessageSegment { Kind = ChatMessageSegmentKind.ToolCallGroup };
+    group.ToolCalls.Add(failed);
+    group.ToolCalls.Add(new ToolCallEntry
+    {
+        ToolCallId = "success-editor-call",
+        Name = "list_system_directory",
+        Summary = "列出目录 · /workspace/资料",
+        Arguments = "{\n  \"path\": \"/workspace/资料\"\n}",
+        Result = "找到 2 个文件。",
+        Status = ToolCallStatus.Success
+    });
+    var assistant = new ChatMessage { Role = "assistant" };
+    assistant.Segments.Add(new ChatMessageSegment { Kind = ChatMessageSegmentKind.Reasoning, Text = "先确认文件所在目录。" });
+    assistant.Segments.Add(group);
+    assistant.Segments.Add(new ChatMessageSegment { Kind = ChatMessageSegmentKind.Markdown, Text = "已找到正确目录。" });
+    var run = assistant.DisplaySegments.OfType<ProcessRun>().Single();
+    run.SetExpanded(true);
+    chat.Messages.Add(assistant);
+
+    var view = new MainConversationView { DataContext = chat };
+    var window = new Window { Width = 720, Height = 620, Content = view };
+    try
+    {
+        Application.Current.RequestedThemeVariant = ThemeVariant.Dark;
+        window.Show();
+        Dispatcher.UIThread.RunJobs();
+        using (var settle = window.CaptureRenderedFrame()) { }
+        Dispatcher.UIThread.RunJobs();
+
+        var row = window.GetVisualDescendants().OfType<ToolCallRowView>()
+            .Single(item => ReferenceEquals(item.DataContext, failed));
+        var editor = row.GetVisualDescendants().OfType<Border>().Single(item => item.Name == "ToolDetailEditor");
+        if (editor.Background == null || editor.BorderThickness.Left <= 0)
+            throw new InvalidOperationException("工具详情必须使用带边框和背景的编辑器布局");
+        var name = row.GetVisualDescendants().OfType<SelectableTextBlock>().Single(item => item.Name == "ToolDetailName");
+        var arguments = row.GetVisualDescendants().OfType<SelectableTextBlock>().Single(item => item.Name == "ToolDetailArguments");
+        var result = row.GetVisualDescendants().OfType<SelectableTextBlock>().Single(item => item.Name == "ToolDetailResult");
+        if (name.Text != failed.Name || arguments.Text != failed.Arguments || result.Text != failed.Result
+            || arguments.TextWrapping != TextWrapping.Wrap || result.TextWrapping != TextWrapping.Wrap
+            || !Equals(arguments.FontFamily, result.FontFamily))
+            throw new InvalidOperationException("工具名称、参数和结果预览必须保持原文、可选中并按等宽字体换行");
+        if (!row.GetVisualDescendants().OfType<TextBlock>().Any(item => item.Text == "结果预览"))
+            throw new InvalidOperationException("截取过的工具结果必须标为结果预览");
+        if (!row.GetVisualDescendants().OfType<PathIcon>().Any(item => item.Classes.Contains("tool-status") && item.Classes.Contains("failed")))
+            throw new InvalidOperationException("编辑器里的失败调用必须保留失败状态");
+        if (row.GetVisualDescendants().OfType<TextBox>().Any())
+            throw new InvalidOperationException("工具详情不能变成可编辑输入框");
+
+        var screenshotDirectory = Path.GetDirectoryName(outputPath)!;
+        SaveWindowFrame(window, Path.Combine(screenshotDirectory, "athena-process-editor-dark.png"));
+        Application.Current.RequestedThemeVariant = ThemeVariant.Light;
+        window.Width = 520;
+        Dispatcher.UIThread.RunJobs();
+        using (var settle = window.CaptureRenderedFrame()) { }
+        Dispatcher.UIThread.RunJobs();
+        SaveWindowFrame(window, Path.Combine(screenshotDirectory, "athena-process-editor-light-narrow.png"));
+
+        // 详情折叠后不再实例化，重新展开仍可读取原内容。
+        failed.IsExpanded = false;
+        Dispatcher.UIThread.RunJobs();
+        if (row.GetVisualDescendants().OfType<Border>().Any(item => item.Name == "ToolDetailEditor"))
+            throw new InvalidOperationException("折叠工具项后不能保留详情子树");
+        failed.IsExpanded = true;
+        Dispatcher.UIThread.RunJobs();
+        if (row.GetVisualDescendants().OfType<SelectableTextBlock>().Single(item => item.Name == "ToolDetailArguments").Text != failed.Arguments)
+            throw new InvalidOperationException("重新展开后必须保留原参数");
+
+        var archive = System.Text.Json.JsonSerializer.Serialize(assistant);
+        var restored = System.Text.Json.JsonSerializer.Deserialize<ChatMessage>(archive)!;
+        var restoredFailure = restored.Segments.SelectMany(segment => segment.ToolCalls).Single(item => item.ToolCallId == failed.ToolCallId);
+        if (restoredFailure.Status != ToolCallStatus.Failed || restoredFailure.Arguments != failed.Arguments || restoredFailure.Result != failed.Result)
+            throw new InvalidOperationException("历史会话必须保留失败状态和工具详情");
+        Console.WriteLine("[PASS] editor-style tool details preserve selectable content, failure state and archived data across themes");
+    }
+    finally
+    {
+        window.Close();
+        Application.Current.RequestedThemeVariant = previousTheme;
         Dispatcher.UIThread.RunJobs();
     }
 }
