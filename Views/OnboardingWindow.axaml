@@ -202,7 +202,6 @@
                         <TextBlock Foreground="{DynamicResource App.TextMuted}" Grid.Column="1"
                                    Text="{loc:Loc OrcaRouter.Connect.Hint}"
                                    FontSize="{DynamicResource App.FontSize.Body}"
-                                   Opacity="0.6"
                                    VerticalAlignment="Center"
                                    TextWrapping="Wrap"/>
                         <Button Grid.Column="2"
@@ -214,7 +213,6 @@
                                Text="{Binding OrcaRouter.Status}"
                                IsVisible="{Binding OrcaRouter.Status, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
                                ToolTip.Tip="{Binding OrcaRouter.StatusDetails}"
-                               Opacity="0.85"
                                TextWrapping="Wrap"/>
                     <!-- 浏览器没能自动打开时，这个链接是完成授权的唯一途径。 -->
                     <Grid ColumnDefinitions="*,Auto"

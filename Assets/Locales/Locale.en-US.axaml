@@ -901,7 +901,7 @@
     <system:String x:Key="Tool.DefaultName">Tool</system:String>
     <system:String x:Key="Tool.CallComplete">{0} done; thinking continues…</system:String>
     <system:String x:Key="Tool.ArgumentsLabel">Arguments</system:String>
-    <system:String x:Key="Tool.ResultLabel">Result</system:String>
+    <system:String x:Key="Tool.ResultLabel">Result preview</system:String>
     <system:String x:Key="Tool.Name.WebSearch">Web search</system:String>
     <system:String x:Key="Tool.Name.RecallMemory">Recall memory</system:String>
     <system:String x:Key="Tool.Name.CreateMemory">Save memory</system:String>
@@ -1073,13 +1073,6 @@
     <system:String x:Key="Chat.Reasoning.ShowLess">Show less</system:String>
     <system:String x:Key="Chat.ProcessRun.Reasoning">Thought {0}×</system:String>
     <system:String x:Key="Chat.ProcessRun.Tools">{0} tool calls</system:String>
-    <system:String x:Key="Chat.ProcessRun.Breakdown"> ({0})</system:String>
-    <system:String x:Key="Chat.ProcessRun.Read">read {0}</system:String>
-    <system:String x:Key="Chat.ProcessRun.Search">search {0}</system:String>
-    <system:String x:Key="Chat.ProcessRun.Write">write {0}</system:String>
-    <system:String x:Key="Chat.ProcessRun.Command">command {0}</system:String>
-    <system:String x:Key="Chat.ProcessRun.Other">other {0}</system:String>
-    <system:String x:Key="Chat.ProcessRun.Failed">with {0} errors</system:String>
     <system:String x:Key="Chat.ProcessRun.Tip">Expand or collapse these steps</system:String>
     <system:String x:Key="Chat.BtnToggleProcess">Expand or collapse all steps</system:String>
     <system:String x:Key="Dialog.DontAskAgain">Don't ask again</system:String>

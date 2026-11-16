@@ -901,7 +901,7 @@
     <system:String x:Key="Tool.DefaultName">工具</system:String>
     <system:String x:Key="Tool.CallComplete">{0} 调用完成，继续思考中…</system:String>
     <system:String x:Key="Tool.ArgumentsLabel">参数</system:String>
-    <system:String x:Key="Tool.ResultLabel">结果</system:String>
+    <system:String x:Key="Tool.ResultLabel">结果预览</system:String>
     <system:String x:Key="Tool.Name.WebSearch">搜索</system:String>
     <system:String x:Key="Tool.Name.RecallMemory">回忆记忆</system:String>
     <system:String x:Key="Tool.Name.CreateMemory">写入记忆</system:String>
@@ -1073,13 +1073,6 @@
     <system:String x:Key="Chat.Reasoning.ShowLess">收起长文</system:String>
     <system:String x:Key="Chat.ProcessRun.Reasoning">思考 {0} 次</system:String>
     <system:String x:Key="Chat.ProcessRun.Tools">调用 {0} 个工具</system:String>
-    <system:String x:Key="Chat.ProcessRun.Breakdown">（{0}）</system:String>
-    <system:String x:Key="Chat.ProcessRun.Read">读取 {0}</system:String>
-    <system:String x:Key="Chat.ProcessRun.Search">搜索 {0}</system:String>
-    <system:String x:Key="Chat.ProcessRun.Write">写入 {0}</system:String>
-    <system:String x:Key="Chat.ProcessRun.Command">终端 {0}</system:String>
-    <system:String x:Key="Chat.ProcessRun.Other">其他 {0}</system:String>
-    <system:String x:Key="Chat.ProcessRun.Failed">其中 {0} 次调用报错</system:String>
     <system:String x:Key="Chat.ProcessRun.Tip">展开或收起这段过程</system:String>
     <system:String x:Key="Chat.BtnToggleProcess">展开或收起全部过程</system:String>
     <system:String x:Key="Dialog.DontAskAgain">下次不再提示</system:String>

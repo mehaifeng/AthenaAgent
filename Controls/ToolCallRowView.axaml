@@ -46,10 +46,28 @@
         <ContentControl Content="{Binding ExpandedDetails}">
             <ContentControl.ContentTemplate>
                 <DataTemplate x:DataType="models:ToolCallEntry">
-                    <Border Classes="process-detail">
-                        <StackPanel Spacing="4">
-                            <!-- Built only when the parent row is expanded. Children are event DTO
-                                 projections, never extra provider calls or new archive fields. -->
+                    <Border Classes="tool-detail-editor" Name="ToolDetailEditor">
+                        <StackPanel Spacing="8">
+                            <SelectableTextBlock Name="ToolDetailName"
+                                                 Text="{Binding Name}"
+                                                 FontFamily="{StaticResource MonospaceFontFamily}"
+                                                 FontSize="{DynamicResource App.FontSize.Body}"
+                                                 FontWeight="SemiBold"
+                                                 Foreground="{DynamicResource SemiColorText2}"
+                                                 TextWrapping="Wrap"/>
+
+                            <StackPanel Spacing="3" IsVisible="{Binding HasArguments}">
+                                <TextBlock Foreground="{DynamicResource App.TextMuted}" Text="{loc:Loc Tool.ArgumentsLabel}"
+                                           FontSize="{DynamicResource App.FontSize.Caption}" FontWeight="SemiBold"/>
+                                <SelectableTextBlock Name="ToolDetailArguments"
+                                                     Text="{Binding Arguments}"
+                                                     FontFamily="{StaticResource MonospaceFontFamily}"
+                                                     FontSize="{DynamicResource App.FontSize.Body}"
+                                                     Foreground="{DynamicResource SemiColorText2}"
+                                                     TextWrapping="Wrap"/>
+                            </StackPanel>
+
+                            <!-- PTC 子调用仍按实际顺序嵌套显示，不产生额外的供应商调用或归档字段。 -->
                             <ItemsControl ItemsSource="{Binding ProgramCalls}">
                                 <ItemsControl.ItemTemplate>
                                     <DataTemplate x:DataType="models:ToolCallEntry">
@@ -57,24 +75,17 @@
                                     </DataTemplate>
                                 </ItemsControl.ItemTemplate>
                             </ItemsControl>
-                            <TextBlock Foreground="{DynamicResource App.TextMuted}" Text="{loc:Loc Tool.ArgumentsLabel}"
-                                       IsVisible="{Binding HasArguments}"
-                                       FontSize="{DynamicResource App.FontSize.Caption}" FontWeight="SemiBold"/>
-                            <SelectableTextBlock Text="{Binding Arguments}"
-                                                 IsVisible="{Binding HasArguments}"
-                                                 FontFamily="{StaticResource MonospaceFontFamily}"
-                                                 FontSize="{DynamicResource App.FontSize.Body}"
-                                                 Foreground="{DynamicResource SemiColorText2}"
-                                                 TextWrapping="Wrap"/>
 
-                            <TextBlock Foreground="{DynamicResource App.TextMuted}" Text="{loc:Loc Tool.ResultLabel}"
-                                       IsVisible="{Binding HasResult}"
-                                       FontSize="{DynamicResource App.FontSize.Caption}" FontWeight="SemiBold"/>
-                            <SelectableTextBlock Text="{Binding Result}"
-                                                 IsVisible="{Binding HasResult}"
-                                                 FontSize="{DynamicResource App.FontSize.Body}"
-                                                 Foreground="{DynamicResource SemiColorText2}"
-                                                 TextWrapping="Wrap"/>
+                            <StackPanel Spacing="3" IsVisible="{Binding HasResult}">
+                                <TextBlock Foreground="{DynamicResource App.TextMuted}" Text="{loc:Loc Tool.ResultLabel}"
+                                           FontSize="{DynamicResource App.FontSize.Caption}" FontWeight="SemiBold"/>
+                                <SelectableTextBlock Name="ToolDetailResult"
+                                                     Text="{Binding Result}"
+                                                     FontFamily="{StaticResource MonospaceFontFamily}"
+                                                     FontSize="{DynamicResource App.FontSize.Body}"
+                                                     Foreground="{DynamicResource SemiColorText2}"
+                                                     TextWrapping="Wrap"/>
+                            </StackPanel>
                         </StackPanel>
                     </Border>
                 </DataTemplate>

@@ -219,10 +219,9 @@ public class DurationToTextConverter : IValueConverter
 }
 
 /// <summary>
-/// 过程段摘要行的文字：「思考 4 次 · 调用 17 个工具（读取 8 · 搜索 5 · 写入 3 · 终端 1）」。
-/// ConverterParameter="Failures" 时只出失败数（「其中 1 次调用报错」），它单独一个 TextBlock 好上提示色：
-/// 这是「有一次调用没成」的陈述，不是整段的判决——后面常常还有一次成功的重试。
-/// 计数为 0 的部分不出现：「其他 0」只是噪声。
+/// 过程段摘要行的文字：「思考 4 次 · 调用 17 个工具」。
+/// 单次调用的状态只在展开后的明细里展示。
+/// 计数为 0 的部分不出现。
 /// </summary>
 public class ProcessRunSummaryConverter : IValueConverter
 {
@@ -241,11 +240,6 @@ public class ProcessRunSummaryConverter : IValueConverter
             localizationService?.GetString(key, fallback) ?? fallback,
             count);
 
-        if (parameter is "Failures")
-        {
-            return stats.Failed > 0 ? Format("Chat.ProcessRun.Failed", "{0} failed", stats.Failed) : string.Empty;
-        }
-
         var parts = new List<string>(2);
         if (stats.Reasoning > 0)
         {
@@ -254,24 +248,7 @@ public class ProcessRunSummaryConverter : IValueConverter
 
         if (stats.Tools > 0)
         {
-            var breakdown = new List<string>(5);
-            void Add(int count, string key, string fallback)
-            {
-                if (count > 0)
-                {
-                    breakdown.Add(Format(key, fallback, count));
-                }
-            }
-
-            Add(stats.Read, "Chat.ProcessRun.Read", "read {0}");
-            Add(stats.Search, "Chat.ProcessRun.Search", "search {0}");
-            Add(stats.Write, "Chat.ProcessRun.Write", "write {0}");
-            Add(stats.Command, "Chat.ProcessRun.Command", "command {0}");
-            Add(stats.Other, "Chat.ProcessRun.Other", "other {0}");
-
-            var breakdownFormat = localizationService?.GetString("Chat.ProcessRun.Breakdown", " ({0})") ?? " ({0})";
-            parts.Add(Format("Chat.ProcessRun.Tools", "{0} tool calls", stats.Tools)
-                + string.Format(CultureInfo.InvariantCulture, breakdownFormat, string.Join(Separator, breakdown)));
+            parts.Add(Format("Chat.ProcessRun.Tools", "{0} tool calls", stats.Tools));
         }
 
         return string.Join(Separator, parts);
