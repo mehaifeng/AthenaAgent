@@ -143,7 +143,7 @@ package_desktop_integration() {
     convert "$REPO_ROOT/Assets/AthenaAgent.png" -background none -resize 512x512 -strip \
       "$package_dir/icons/athena.png"
   else
-    # install.sh will still install whatever it is handed; the 1080 master only
+    # install.sh will still install whatever it is handed; the full-size master only
     # costs tarball size, and hicolor handles the downscale at lookup time.
     cp "$REPO_ROOT/Assets/AthenaAgent.png" "$package_dir/icons/athena.png"
   fi

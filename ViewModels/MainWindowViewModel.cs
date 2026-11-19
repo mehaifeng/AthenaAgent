@@ -43,8 +43,9 @@ public partial class MainWindowViewModel : ViewModelBase, IDisposable, ICronSess
     private readonly CronExecutionWorker? _cronExecutionWorker;
     private readonly ApprovalQueueViewModel? _approvalQueue;
     private readonly ILogService? _logService;
-    private readonly Func<SkillsConnectorsWindowViewModel>? _skillsConnectorsFactory;
-    private readonly Func<AppSettingsWindowViewModel>? _appSettingsFactory;
+    private readonly Func<SkillsConnectorsViewModel>? _skillsConnectorsFactory;
+    private readonly Func<AppSettingsViewModel>? _appSettingsFactory;
+    private readonly Func<ProviderModelsViewModel>? _providerModelsFactory;
     private readonly IConversationTitleGenerator? _titleGenerator;
     private bool _disposed;
 
@@ -126,6 +127,23 @@ public partial class MainWindowViewModel : ViewModelBase, IDisposable, ICronSess
     }
 
     public ObservableCollection<LogEntryViewModel> CompactLogEntries { get; } = new();
+
+    private ViewModelBase? _activePage;
+    public ViewModelBase? ActivePage => _activePage;
+    public bool IsConversationPageActive => ActivePage == null;
+    public ApprovalQueueViewModel? ApprovalQueue => _approvalQueue;
+    public ToolApprovalModePickerViewModel? ApprovalModePicker { get; }
+
+    public string ActivePageTitle => ActivePage switch
+    {
+        AppSettingsViewModel => L("Settings.Window.Title", "App Settings"),
+        ProviderModelsViewModel => L("ProviderModels.Title", "Providers and models"),
+        SkillsConnectorsViewModel => L("Connectors.Window.Title", "Skills and extensions"),
+        WorkspaceContextSettingsViewModel => L("WorkspaceContext.Title", "Workspace context settings"),
+        TasksViewModel _ => L("Window.Tasks.Title", "Scheduled tasks"),
+        KnowledgeBaseViewModel _ => L("Window.KnowledgeBase.Title", "Knowledge base"),
+        _ => string.Empty
+    };
 
     [ObservableProperty]
     private int _globalErrorCount;
@@ -467,8 +485,8 @@ public partial class MainWindowViewModel : ViewModelBase, IDisposable, ICronSess
         WorkspaceWorkbenchViewModel? workbench = null,
         ApprovalQueueViewModel? approvalQueue = null,
         AppConfigurationSession? configurationSession = null,
-        Func<SkillsConnectorsWindowViewModel>? skillsConnectorsFactory = null,
-        Func<AppSettingsWindowViewModel>? appSettingsFactory = null,
+        Func<SkillsConnectorsViewModel>? skillsConnectorsFactory = null,
+        Func<AppSettingsViewModel>? appSettingsFactory = null,
         TerminalPanelViewModel? terminalPanelViewModel = null,
         IContextPolicyProvider? contextPolicyProvider = null,
         IConversationTitleGenerator? titleGenerator = null,
@@ -479,7 +497,9 @@ public partial class MainWindowViewModel : ViewModelBase, IDisposable, ICronSess
         IConversationNavigator? conversationNavigator = null,
         ISystemNotificationService? notifications = null,
         IAppForegroundProbe? foregroundProbe = null,
-        GameModeViewModel? gameMode = null)
+        GameModeViewModel? gameMode = null,
+        Func<ProviderModelsViewModel>? providerModelsFactory = null,
+        ToolApprovalModePickerViewModel? approvalModePicker = null)
     {
         GameMode = gameMode;
         if (GameMode != null)
@@ -495,6 +515,8 @@ public partial class MainWindowViewModel : ViewModelBase, IDisposable, ICronSess
         _foregroundProbe = foregroundProbe;
         _titleGenerator = titleGenerator;
         _localizationService = localizationService;
+        if (_localizationService != null)
+            _localizationService.LanguageChanged += OnLanguageChanged;
         _chatSessionFactory = chatSessionFactory;
         _conversationArchiveService = archiveService;
         _conversationStore = conversationStore;
@@ -509,9 +531,11 @@ public partial class MainWindowViewModel : ViewModelBase, IDisposable, ICronSess
         if (Workbench != null) Workbench.RevealRequested += OnWorkbenchRevealRequested;
         _configurationSession = configurationSession;
         _approvalQueue = approvalQueue;
+        ApprovalModePicker = approvalModePicker;
         _logService = logService;
         _skillsConnectorsFactory = skillsConnectorsFactory;
         _appSettingsFactory = appSettingsFactory;
+        _providerModelsFactory = providerModelsFactory;
         if (_configurationSession != null)
             _configurationSession.CurrentChanged += OnCurrentConfigChanged;
         // 跟踪初始配置里的 MainLayout，让面板透明度滑块第一次拖动就能即时反映到主窗口。
@@ -566,6 +590,8 @@ public partial class MainWindowViewModel : ViewModelBase, IDisposable, ICronSess
     }
 
     private void OnApprovalQueueChanged(object? sender, NotifyCollectionChangedEventArgs e) => RefreshApprovalStates();
+
+    private void OnLanguageChanged(object? sender, EventArgs e) => OnPropertyChanged(nameof(ActivePageTitle));
 
     private void OnLogsChanged()
     {
@@ -723,6 +749,7 @@ public partial class MainWindowViewModel : ViewModelBase, IDisposable, ICronSess
         if (session == null) return false;
 
         SelectedConversation = session;
+        ReturnToConversation();
         return true;
     }
 
@@ -1066,25 +1093,16 @@ public partial class MainWindowViewModel : ViewModelBase, IDisposable, ICronSess
         (Avalonia.Application.Current?.ApplicationLifetime as IClassicDesktopStyleApplicationLifetime)?.MainWindow;
 
     [RelayCommand]
-    private async Task OpenProviderModelsAsync()
-    {
-        var owner = MainOwner;
-        var viewModel = App.Services?.GetService(typeof(ProviderModelsViewModel)) as ProviderModelsViewModel;
-        if (owner == null || viewModel == null) return;
-        await new ProviderModelsWindow { DataContext = viewModel }.ShowDialog(owner);
-    }
+    private void OpenProviderModels() => OpenPage(_providerModelsFactory);
 
     [RelayCommand]
-    private async Task OpenKnowledgeBaseAsync()
-    {
-        if (MainOwner is { } owner) await new KnowledgeBaseWindow(KnowledgeBaseViewModel, _localizationService).ShowDialog(owner);
-    }
+    private void OpenKnowledgeBase() => SetActivePage(KnowledgeBaseViewModel);
 
     [RelayCommand]
-    private async Task OpenTasksAsync()
+    private void OpenTasks()
     {
         RefreshTaskWorkspaces();
-        if (MainOwner is { } owner) await new TasksWindow(TasksViewModel, _localizationService).ShowDialog(owner);
+        SetActivePage(TasksViewModel);
     }
 
     private void RefreshTaskWorkspaces()
@@ -1097,19 +1115,47 @@ public partial class MainWindowViewModel : ViewModelBase, IDisposable, ICronSess
     }
 
     [RelayCommand]
-    private async Task OpenSkillsConnectorsAsync()
+    private void OpenSkillsConnectors() => OpenPage(_skillsConnectorsFactory);
+
+    [RelayCommand]
+    private void OpenAppSettings() => OpenPage(_appSettingsFactory);
+
+    private void OpenPage<TPage>(Func<TPage>? factory) where TPage : ViewModelBase
     {
-        if (MainOwner is { } owner && _skillsConnectorsFactory?.Invoke() is { } viewModel)
-            await new SkillsConnectorsWindow { DataContext = viewModel }.ShowDialog(owner);
+        if (ActivePage is TPage) return;
+        if (factory == null)
+        {
+            _logger.Warning("Could not open page {Page}: no view model factory", typeof(TPage).Name);
+            return;
+        }
+        SetActivePage(factory());
     }
 
     [RelayCommand]
-    private async Task OpenAppSettingsAsync()
+    private void ReturnToConversation() => SetActivePage(null);
+
+    private void SetActivePage(ViewModelBase? page)
     {
-        _logger.Information("MainWindow opening AppSettings");
-        if (MainOwner is { } owner && _appSettingsFactory?.Invoke() is { } viewModel)
-            await new AppSettingsWindow { DataContext = viewModel }.ShowDialog(owner);
+        var previousPage = ActivePage;
+        if (ReferenceEquals(previousPage, page)) return;
+
+        if (previousPage is WorkspaceContextSettingsViewModel previousWorkspace)
+            previousWorkspace.CloseRequested -= OnWorkspaceSettingsCloseRequested;
+        if (page is WorkspaceContextSettingsViewModel workspace)
+            workspace.CloseRequested += OnWorkspaceSettingsCloseRequested;
+
+        _activePage = page;
+        OnPropertyChanged(nameof(ActivePage));
+        OnPropertyChanged(nameof(ActivePageTitle));
+        OnPropertyChanged(nameof(IsConversationPageActive));
+
+        if (previousPage is IDisposable disposable
+            && !ReferenceEquals(previousPage, TasksViewModel)
+            && !ReferenceEquals(previousPage, KnowledgeBaseViewModel))
+            disposable.Dispose();
     }
+
+    private void OnWorkspaceSettingsCloseRequested(object? sender, EventArgs e) => ReturnToConversation();
 
     [RelayCommand]
     private async Task OpenDetailedLogsAsync()
@@ -1342,7 +1388,7 @@ public partial class MainWindowViewModel : ViewModelBase, IDisposable, ICronSess
         };
         group.RevealRequested += (_, _) => RevealWorkspace(group);
         group.CopyPathRequested += async (_, _) => await CopyWorkspacePathAsync(group);
-        group.ContextSettingsRequested += async (_, _) => await OpenWorkspaceContextSettingsAsync(group);
+        group.ContextSettingsRequested += (_, _) => OpenWorkspaceContextSettings(group);
         group.RelocateRequested += (_, _) => AsyncEventGuard.Run(() => PickAndRelocateWorkspaceAsync(group), nameof(PickAndRelocateWorkspaceAsync));
         group.DeleteRequested += async (_, _) => await DeleteWorkspaceAsync(group);
     }
@@ -1506,21 +1552,19 @@ public partial class MainWindowViewModel : ViewModelBase, IDisposable, ICronSess
         Process.Start(start);
     }
 
-    private async Task OpenWorkspaceContextSettingsAsync(WorkspaceConversationGroupViewModel group)
+    private void OpenWorkspaceContextSettings(WorkspaceConversationGroupViewModel group)
     {
         if (group.Workspace == null
             || _workspaceService == null
             || _contextPolicyProvider == null
-            || Config == null
-            || MainOwner is not { } owner)
+            || Config == null)
             return;
-        var viewModel = new WorkspaceContextSettingsViewModel(
+        SetActivePage(new WorkspaceContextSettingsViewModel(
             group.Workspace,
             Config,
             _contextPolicyProvider,
             _workspaceService,
-            _localizationService);
-        await new WorkspaceContextSettingsWindow { DataContext = viewModel }.ShowDialog(owner);
+            _localizationService));
     }
 
     private async Task DeleteWorkspaceAsync(WorkspaceConversationGroupViewModel group)
@@ -1600,9 +1644,13 @@ public partial class MainWindowViewModel : ViewModelBase, IDisposable, ICronSess
 
     private void RefreshApprovalStates()
     {
+        var byConversation = _approvalQueue?.Pending.ToLookup(item => item.ConversationId);
         foreach (var session in ConversationGroups.SelectMany(group => group.Conversations))
         {
-            session.IsWaitingForApproval = _approvalQueue?.Pending.Any(item => item.ConversationId == session.ConversationId) == true;
+            var pending = byConversation?[session.ConversationId];
+            session.IsWaitingForApproval = pending?.Any() == true;
+            if (pending == null) continue;
+            foreach (var item in pending) item.ConversationTitle = session.Title;
         }
     }
 
@@ -1611,6 +1659,9 @@ public partial class MainWindowViewModel : ViewModelBase, IDisposable, ICronSess
         if (_disposed) return;
         _disposed = true;
 
+        SetActivePage(null);
+        if (_localizationService != null)
+            _localizationService.LanguageChanged -= OnLanguageChanged;
         if (_approvalQueue != null)
             _approvalQueue.Pending.CollectionChanged -= OnApprovalQueueChanged;
         if (GameMode != null)

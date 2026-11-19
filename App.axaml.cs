@@ -638,7 +638,7 @@ public partial class App : Application, IAsyncDisposable
     {
         var scheme = Models.AppPalettes.Get(schemeName);
         if (_schemeDictionaries.TryGetValue(scheme.Name, out var cached)) return cached;
-        var pair = (Athena.UI.Styles.ThemeResources.Create(scheme.Dark, true), Athena.UI.Styles.ThemeResources.Create(scheme.Light, false));
+        var pair = (Athena.UI.Styles.ThemeResources.Create(scheme, true), Athena.UI.Styles.ThemeResources.Create(scheme, false));
         _schemeDictionaries[scheme.Name] = pair;
         return pair;
     }
@@ -841,7 +841,8 @@ public partial class App : Application, IAsyncDisposable
                 sp.GetRequiredService<Athena.UI.Services.GameMode.IPolisDebateService>(),
                 sp.GetRequiredService<Athena.UI.Services.GameMode.PolisRelationStore>()));
         services.AddSingleton<AboutViewModel>();
-        services.AddTransient<AppSettingsWindowViewModel>();
+        services.AddSingleton<ToolApprovalModePickerViewModel>();
+        services.AddTransient<AppSettingsViewModel>();
         services.AddTransient<ProviderModelsViewModel>();
         // 单例：单飞闸门归它所有，两个窗口不能各起一次授权（两个 state 会互相污染）。
         // 端点配置在组合根加载；缺失或被改坏时服务自报不可用，入口保持禁用。
@@ -876,7 +877,7 @@ public partial class App : Application, IAsyncDisposable
         services.AddTransient<ImageGenerationSettingsViewModel>();
         services.AddTransient<WebSearchSettingsViewModel>();
         services.AddTransient<DocumentParserSettingsViewModel>();
-        services.AddTransient<SkillsConnectorsWindowViewModel>();
+        services.AddTransient<SkillsConnectorsViewModel>();
 
         // Token 统计服务（单例，跨页面同步）
         services.AddSingleton<ITokenService, TokenService>();
@@ -1205,7 +1206,7 @@ public partial class App : Application, IAsyncDisposable
             sp.GetRequiredService<IPlatformPathService>(), sp.GetRequiredService<Services.Ptc.AthenaPtcRunStore>(), Log.Logger));
 
         // Function Registry（单例）
-        // 工具审批弹窗展示器（UI 层）。服务层只依赖接口。
+        // 主窗体内的工具审批队列。服务层只依赖接口。
         services.AddSingleton<ApprovalQueueViewModel>(sp =>
             new ApprovalQueueViewModel(
                 sp.GetService<IConversationSessionAccessor>(),
@@ -1479,10 +1480,10 @@ public partial class App : Application, IAsyncDisposable
             var terminalPanelViewModel = sp.GetRequiredService<TerminalPanelViewModel>();
             var contextPolicyProvider = sp.GetRequiredService<IContextPolicyProvider>();
             _ = sp.GetRequiredService<AppConfigurationApplier>();
-            Func<SkillsConnectorsWindowViewModel> skillsConnectorsFactory =
-                () => sp.GetRequiredService<SkillsConnectorsWindowViewModel>();
-            Func<AppSettingsWindowViewModel> appSettingsFactory =
-                () => sp.GetRequiredService<AppSettingsWindowViewModel>();
+            Func<SkillsConnectorsViewModel> skillsConnectorsFactory =
+                () => sp.GetRequiredService<SkillsConnectorsViewModel>();
+            Func<AppSettingsViewModel> appSettingsFactory =
+                () => sp.GetRequiredService<AppSettingsViewModel>();
 
             return new MainWindowViewModel(
                 chatService,
@@ -1523,7 +1524,9 @@ public partial class App : Application, IAsyncDisposable
                 conversationNavigator,
                 sp.GetService<ISystemNotificationService>(),
                 sp.GetService<IAppForegroundProbe>(),
-                sp.GetRequiredService<Athena.UI.ViewModels.GameMode.GameModeViewModel>());
+                sp.GetRequiredService<Athena.UI.ViewModels.GameMode.GameModeViewModel>(),
+                () => sp.GetRequiredService<ProviderModelsViewModel>(),
+                sp.GetRequiredService<ToolApprovalModePickerViewModel>());
         });
 
         Log.Debug("Dependency injection services configured");

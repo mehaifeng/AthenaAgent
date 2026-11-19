@@ -38,9 +38,9 @@ The left pane owns workspaces and the conversation tree, the center permanently 
 
 ## 3. App Settings and Provider Models
 
-![App Settings window](images/AppSettingsWindow.png)
+![App Settings](images/AppSettingsWindow.png)
 
-Settings are auto-saved; no manual save button is required.
+App Settings, Provider Models, Knowledge Base, Skills and Extensions, Workspace Context Settings, and Scheduled Tasks open in the main window. Select the conversation icon at the upper left to return to the same chat. App Settings saves edits automatically.
 
 ### 3.1 Appearance and interaction preferences
 - Theme: UI look only.
@@ -62,6 +62,8 @@ Recommendation:
 ### 3.3 Runtime, approvals, and diagnostics
 App Settings owns context limits, automatic compression, workspace-knowledge budget, sub-agent concurrency, tool approval mode and allowlists, plus browser runtime/agent diagnostics.
 
+The shield button next to the screenshot control shows the current tool approval mode and opens its menu. The setting applies to every conversation. Enabling **Allow all** requires confirmation.
+
 Recommendation:
 - Keep the embedding model stable; frequent switching can hurt vector consistency.
 
@@ -76,9 +78,9 @@ Recommendation:
 
 ## 4. Skills & Connectors
 
-![Skills and Connectors window](images/SkillsConnectorsWindow.png)
+![Skills and Connectors](images/SkillsConnectorsWindow.png)
 
-The independent Skills & Connectors window has six persistent sections: Skills, MCP, Speech, Image generation, Web Search, and Document parsing. Switching sections preserves each page's in-progress state, and changes are saved automatically.
+Skills and Extensions contains six sections covering Skills, MCP, Speech, Image generation, Web Search, and Document parsing. Switching sections preserves edits in progress, and changes are saved automatically.
 
 - **Voice**: Enable voice, then configure the provider, API endpoint, API key, model name, and voice. Auto-play can be controlled separately; use **Diagnostics** to check the configuration.
 - **Image generation**: Enable it to let the assistant use `generate_image`; provide its API endpoint, API key, and model name.
@@ -140,7 +142,7 @@ Example:
 
 ## 8. Knowledge Base and Long-Term Memory
 
-![Knowledge Base window](images/KnowledgeBaseWindow.png)
+![Knowledge Base](images/KnowledgeBaseWindow.png)
 
 ### 8.1 The Knowledge Base page
 - The left panel is the directory tree; create folders and Markdown files directly to organize long-term memory (for example `user_preferences`, `user_profiles`).

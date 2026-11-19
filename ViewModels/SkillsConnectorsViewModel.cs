@@ -5,7 +5,7 @@ using System.Collections.Generic;
 
 namespace Athena.UI.ViewModels;
 
-public sealed partial class SkillsConnectorsWindowViewModel : ViewModelBase, IDisposable
+public sealed partial class SkillsConnectorsViewModel : ViewModelBase, IDisposable
 {
     private readonly ILocalizationService? _localizationService;
     private bool _disposed;
@@ -20,7 +20,7 @@ public sealed partial class SkillsConnectorsWindowViewModel : ViewModelBase, IDi
         ("Connectors.Nav.Document", "Document parsing", "AthenaIconDocumentParsing")
     ];
 
-    public SkillsConnectorsWindowViewModel(
+    public SkillsConnectorsViewModel(
         SkillsViewModel skills,
         McpConnectionsViewModel mcpConnections,
         SpeechSettingsViewModel speech,

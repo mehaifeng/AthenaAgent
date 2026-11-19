@@ -1,0 +1,87 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:Athena.UI.ViewModels"
+             xmlns:loc="using:Athena.UI.Markup"
+             x:Class="Athena.UI.Views.ApprovalQueueView"
+             x:DataType="vm:ApprovalQueueViewModel">
+    <UserControl.Styles>
+        <Style Selector="TextBlock.approval-risk">
+            <Setter Property="Foreground" Value="{DynamicResource App.TextMuted}"/>
+        </Style>
+        <Style Selector="TextBlock.approval-risk.high-risk">
+            <Setter Property="Foreground" Value="{DynamicResource App.DangerForeground}"/>
+        </Style>
+    </UserControl.Styles>
+
+    <Border Background="{DynamicResource App.PanelVeilBrush}"
+            BorderBrush="{DynamicResource App.SurfaceBorder}"
+            BorderThickness="1" CornerRadius="8" ClipToBounds="True">
+        <Grid RowDefinitions="Auto,*">
+            <Border Background="{DynamicResource App.SectionBg}"
+                    BorderBrush="{DynamicResource App.SurfaceBorder}"
+                    BorderThickness="0,0,0,1" Padding="12,8">
+                <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="8">
+                    <PathIcon Data="{StaticResource AthenaIconToolApproval}" Width="14" Height="14"
+                              Foreground="{DynamicResource App.WarningForeground}"/>
+                    <TextBlock Grid.Column="1" Text="{loc:Loc Approval.Heading}" FontWeight="SemiBold"
+                               VerticalAlignment="Center"/>
+                    <TextBlock Grid.Column="2" Text="{Binding Pending.Count}" FontWeight="SemiBold"
+                               Foreground="{DynamicResource App.WarningForeground}" VerticalAlignment="Center"/>
+                </Grid>
+            </Border>
+
+            <ScrollViewer Grid.Row="1" MaxHeight="244" HorizontalScrollBarVisibility="Disabled">
+                <ItemsControl ItemsSource="{Binding Pending}" Margin="8,8,8,0">
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate x:DataType="vm:ApprovalQueueItemViewModel">
+                            <Border Background="{DynamicResource App.SectionBg}"
+                                    BorderBrush="{DynamicResource App.SurfaceBorder}"
+                                    BorderThickness="1" CornerRadius="6"
+                                    Padding="10" Margin="0,0,0,8">
+                                <StackPanel Spacing="7">
+                                    <Grid ColumnDefinitions="*,Auto" ColumnSpacing="10">
+                                        <TextBlock Text="{Binding Title}" FontWeight="SemiBold" TextWrapping="Wrap"/>
+                                        <TextBlock Grid.Column="1" Classes="approval-risk"
+                                                   Classes.high-risk="{Binding Request.IsDestructive}"
+                                                   FontSize="{DynamicResource App.FontSize.Caption}" FontWeight="SemiBold"
+                                                   Text="{Binding RiskText}"/>
+                                    </Grid>
+                                    <TextBlock Text="{Binding ConversationLabel}" TextTrimming="CharacterEllipsis"
+                                               ToolTip.Tip="{Binding ConversationLabel}"
+                                               Foreground="{DynamicResource App.TextMuted}"
+                                               FontSize="{DynamicResource App.FontSize.Caption}"/>
+                                    <TextBlock Text="{Binding Request.RiskReason}" TextWrapping="Wrap"
+                                               Foreground="{DynamicResource App.DangerForeground}"
+                                               IsVisible="{Binding Request.RiskReason, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"/>
+                                    <TextBox x:Name="ApprovalArguments" Text="{Binding Request.PrettyArguments, Mode=OneWay}"
+                                             IsVisible="{Binding Request.PrettyArguments, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
+                                             IsReadOnly="True" AcceptsReturn="True" TextWrapping="Wrap" MaxHeight="88"
+                                             ScrollViewer.VerticalScrollBarVisibility="Auto"
+                                             FontFamily="Menlo,Consolas,monospace" FontSize="{DynamicResource App.FontSize.Caption}"
+                                             Background="{DynamicResource Editor.Background}"
+                                             AutomationProperties.Name="{loc:Loc Dialog.ToolApproval.Details}"/>
+                                    <TextBlock TextWrapping="Wrap" Foreground="{DynamicResource App.TextMuted}"
+                                               FontSize="{DynamicResource App.FontSize.Caption}"
+                                               IsVisible="{Binding Request.ApprovalScope, Converter={x:Static StringConverters.IsNotNullOrEmpty}}">
+                                        <Run Text="{loc:Loc Dialog.ToolApproval.ScopeLabel}"/> <Run Text="{Binding Request.ApprovalScope}"/>
+                                    </TextBlock>
+                                    <WrapPanel HorizontalAlignment="Right">
+                                        <Button x:Name="DenyApprovalButton" Command="{Binding DenyCommand}"
+                                                Margin="0,0,6,0" Content="{loc:Loc Approval.Button.Deny}"/>
+                                        <Button Command="{Binding AllowSessionCommand}"
+                                                Margin="0,0,6,0" Content="{loc:Loc Approval.Button.AllowSession}"/>
+                                        <Button Command="{Binding AllowAlwaysCommand}"
+                                                Margin="0,0,6,0" Content="{loc:Loc Approval.Button.AllowAlways}"/>
+                                        <Button x:Name="AllowOnceApprovalButton" Command="{Binding AllowOnceCommand}"
+                                                Content="{loc:Loc Approval.Button.AllowOnce}"
+                                                Theme="{StaticResource AccentButtonTheme}"/>
+                                    </WrapPanel>
+                                </StackPanel>
+                            </Border>
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
+            </ScrollViewer>
+        </Grid>
+    </Border>
+</UserControl>

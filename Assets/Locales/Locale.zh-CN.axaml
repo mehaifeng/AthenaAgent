@@ -665,14 +665,17 @@
     <system:String x:Key="ContextInspector.Raw.Failed">RAW Context 构建失败：{0}</system:String>
     <system:String x:Key="Settings.Approval.Title">工具审批</system:String>
     <system:String x:Key="Settings.Approval.Description">决定工具调用何时需要你的确认，并管理永久放行项。</system:String>
-    <system:String x:Key="Settings.Approval.Balanced.Title">均衡 · 推荐</system:String>
+    <system:String x:Key="Settings.Approval.Balanced.Title">均衡</system:String>
     <system:String x:Key="Settings.Approval.Balanced.Description">只读工具自动执行，写入、删除和终端命令需要确认。</system:String>
     <system:String x:Key="Settings.Approval.Strict.Title">严格</system:String>
     <system:String x:Key="Settings.Approval.Strict.Description">每一次工具调用都需要确认。</system:String>
     <system:String x:Key="Settings.Approval.Automatic.Title">自动</system:String>
     <system:String x:Key="Settings.Approval.Automatic.Description">由自动审批模型裁决未被静态规则处理的调用。</system:String>
-    <system:String x:Key="Settings.Approval.Off.Title">关闭审批</system:String>
-    <system:String x:Key="Settings.Approval.Off.Description">所有工具自动执行，适合完全受信任的环境。</system:String>
+    <system:String x:Key="Settings.Approval.Off.Title">完全允许</system:String>
+    <system:String x:Key="Settings.Approval.Off.Description">工具调用自动放行，无需人工审批。</system:String>
+    <system:String x:Key="Settings.Approval.Off.ConfirmTitle">启用「完全允许」？</system:String>
+    <system:String x:Key="Settings.Approval.Off.ConfirmMessage">启用后，工具调用会跳过人工审批，包括写入文件、删除内容和执行终端命令。此设置适用于所有会话。</system:String>
+    <system:String x:Key="Settings.Approval.Off.ConfirmAction">启用完全允许</system:String>
     <system:String x:Key="Settings.Approval.AutoAllowedHint">这些工具已被永久放行，可随时撤销。</system:String>
     <system:String x:Key="Settings.Approval.TerminalHint">白名单中的终端命令无需重复确认。</system:String>
     <system:String x:Key="Settings.Approval.JevShadowHint">弹出审批窗时，在后台把这次调用（工具名、命令行、文件路径、去掉查询串的网址）和你最近的两条消息经 OpenRouter 发给 TypeSafe Jev 打分，分数和你的最终选择一起写进日志，用来评估能否让 Jev 预筛弹窗。文件正文和任务指令只发长度，疑似密钥会打码。不影响任何审批结果；需要一个带 API key 的 OpenRouter 连接。</system:String>
@@ -933,8 +936,8 @@
     <!-- Tool Approval Settings -->
     <system:String x:Key="Config.ToolApproval.Header">工具授权</system:String>
     <system:String x:Key="Config.ToolApproval.Mode">授权模式</system:String>
-    <system:String x:Key="Config.ToolApproval.Mode.Off">关闭（全部自动放行）</system:String>
-    <system:String x:Key="Config.ToolApproval.Mode.Balanced">平衡（写入/删除/终端需确认，推荐）</system:String>
+    <system:String x:Key="Config.ToolApproval.Mode.Off">完全允许（全部自动放行）</system:String>
+    <system:String x:Key="Config.ToolApproval.Mode.Balanced">均衡（写入、删除和终端命令需确认）</system:String>
     <system:String x:Key="Config.ToolApproval.Mode.Strict">严格（所有工具都需确认）</system:String>
     <system:String x:Key="Config.ToolApproval.Mode.Automatic">自动（由审批模型裁决）</system:String>
     <system:String x:Key="Config.ToolApproval.ModeHint">在平衡模式下，只读类工具自动放行；写入、删除、终端命令在执行前请求确认。</system:String>
@@ -1075,6 +1078,7 @@
     <system:String x:Key="MainWindow.Tip.AddWorkspace">添加工作区</system:String>
     <system:String x:Key="MainWindow.Tip.ExpandCollapse">展开/收起</system:String>
     <system:String x:Key="MainWindow.Tip.NewConversation">新建对话</system:String>
+    <system:String x:Key="MainWindow.Navigation.Conversation">对话</system:String>
     <system:String x:Key="MainWindow.Tip.GlobalMenu">全局对话菜单</system:String>
     <system:String x:Key="MainWindow.Tip.WorkspaceMenu">工作区菜单</system:String>
     <system:String x:Key="MainWindow.Tip.ConfirmRename">确认重命名</system:String>
@@ -1086,9 +1090,7 @@
     <system:String x:Key="MainWindow.Section.Pinned">置顶对话</system:String>
 
     <!-- 审批队列 -->
-    <system:String x:Key="Approval.Window.Title">待审批工具</system:String>
     <system:String x:Key="Approval.Heading">待审批工具</system:String>
-    <system:String x:Key="Approval.Description">会话会停在工具调用处；你可以按任意顺序处理，其他会话不受影响。</system:String>
     <system:String x:Key="Approval.ConversationPrefix">会话：{0}</system:String>
     <system:String x:Key="Approval.ConversationUnknown">未知会话</system:String>
     <system:String x:Key="Approval.RiskHigh">高风险</system:String>

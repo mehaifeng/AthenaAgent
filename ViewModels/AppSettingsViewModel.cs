@@ -6,15 +6,16 @@ using System.Collections.Generic;
 
 namespace Athena.UI.ViewModels;
 
-public sealed partial class AppSettingsWindowViewModel : ViewModelBase, IDisposable
+public sealed partial class AppSettingsViewModel : ViewModelBase, IDisposable
 {
     private readonly AppSettingsState _state;
     private readonly ILocalizationService? _localizationService;
     private bool _disposed;
 
-    public AppSettingsWindowViewModel(
+    public AppSettingsViewModel(
         AppConfigurationSession configurationSession,
         AboutViewModel about,
+        ToolApprovalModePickerViewModel approvalModePicker,
         IHeadlessBrowserService? browserService = null,
         IBrowserVisionService? browserVisionService = null,
         ILocalizationService? localizationService = null,
@@ -33,7 +34,7 @@ public sealed partial class AppSettingsWindowViewModel : ViewModelBase, IDisposa
             metadataResolver,
             contextPolicyResolver,
             localizationService);
-        ToolApproval = new ToolApprovalSettingsViewModel(_state, localizationService);
+        ToolApproval = new ToolApprovalSettingsViewModel(_state, approvalModePicker);
         AgentRuntime = new AgentRuntimeSettingsViewModel(_state);
         RuntimeDiagnostics = new RuntimeDiagnosticsViewModel(
             _state,
@@ -73,7 +74,6 @@ public sealed partial class AppSettingsWindowViewModel : ViewModelBase, IDisposa
         _disposed = true;
         if (_localizationService != null)
             _localizationService.LanguageChanged -= OnLanguageChanged;
-        ToolApproval.Dispose();
         ConversationContext.Dispose();
         RuntimeDiagnostics.Dispose();
         General.Dispose();

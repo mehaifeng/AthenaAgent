@@ -1,18 +1,13 @@
-<Window xmlns="https://github.com/avaloniaui"
-        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        xmlns:vm="using:Athena.UI.ViewModels"
-        xmlns:loc="using:Athena.UI.Markup"
-        x:Class="Athena.UI.Views.WorkspaceContextSettingsWindow"
-        x:DataType="vm:WorkspaceContextSettingsViewModel"
-        Title="{loc:Loc WorkspaceContext.Title}"
-        Width="820" Height="720"
-        MinWidth="640" MinHeight="520"
-        WindowStartupLocation="CenterOwner">
-    <Grid RowDefinitions="Auto,*,Auto">
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:Athena.UI.ViewModels"
+             xmlns:loc="using:Athena.UI.Markup"
+             x:Class="Athena.UI.Views.WorkspaceContextSettingsView"
+             x:DataType="vm:WorkspaceContextSettingsViewModel">
+    <Grid RowDefinitions="Auto,*,Auto" MaxWidth="1120">
         <Border Padding="20,16" BorderBrush="{DynamicResource SemiGreyLowBrush}" BorderThickness="0,0,0,1">
             <StackPanel Spacing="3">
-                <TextBlock Text="{loc:Loc WorkspaceContext.Title}" FontSize="{DynamicResource App.FontSize.PageTitle}" FontWeight="SemiBold"/>
-                <TextBlock Text="{Binding WorkspaceName}" FontWeight="SemiBold"/>
+                <TextBlock Text="{Binding WorkspaceName}" FontSize="{DynamicResource App.FontSize.Heading}" FontWeight="SemiBold"/>
                 <TextBlock Foreground="{DynamicResource App.TextMuted}" Text="{loc:Loc WorkspaceContext.Description}" TextWrapping="Wrap"/>
             </StackPanel>
         </Border>
@@ -106,4 +101,4 @@
             </StackPanel>
         </Border>
     </Grid>
-</Window>
+</UserControl>

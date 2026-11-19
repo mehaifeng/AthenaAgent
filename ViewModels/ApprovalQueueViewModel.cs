@@ -1,7 +1,7 @@
 using Athena.UI.Models;
 using Athena.UI.Services.Interfaces;
-using Athena.UI.Views;
 using Avalonia.Threading;
+using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using Serilog;
 using System;
@@ -12,14 +12,10 @@ using System.Threading.Tasks;
 
 namespace Athena.UI.ViewModels;
 
-/// <summary>Global, non-modal approval queue. Any session can wait; other sessions and the settings window keep working.</summary>
+/// <summary>Global approval queue presented above the conversation composer.</summary>
 public sealed class ApprovalQueueViewModel : ViewModelBase, IToolApprovalPrompter
 {
-    /// <summary>
-    /// 整个审批队列共用一条系统通知。三个待审批弹三条提示只是噪音——
-    /// 它们本来就会收进同一个窗口，用户要做的也是同一个动作：回来看一眼。
-    /// 固定的 Key 让后续的 Show 就地替换、清空时能撤回。
-    /// </summary>
+    // The queue shares one system notification which can be refreshed or withdrawn by key.
     private const string ApprovalNotificationKey = "athena.tool-approval";
 
     private readonly IConversationSessionAccessor? _sessionAccessor;
@@ -27,10 +23,8 @@ public sealed class ApprovalQueueViewModel : ViewModelBase, IToolApprovalPrompte
     private readonly ISystemNotificationService? _notifications;
     private readonly IAppForegroundProbe? _foregroundProbe;
     private readonly ILogger _logger;
-    private ApprovalQueueWindow? _window;
-
-    /// <summary>已经发出过通知；用于避免对着空队列反复调用撤回。</summary>
     private bool _notificationPosted;
+    private Task _notificationUpdate = Task.CompletedTask;
 
     public ApprovalQueueViewModel(
         IConversationSessionAccessor? sessionAccessor,
@@ -59,75 +53,56 @@ public sealed class ApprovalQueueViewModel : ViewModelBase, IToolApprovalPrompte
     }
 
     public ObservableCollection<ApprovalQueueItemViewModel> Pending { get; } = new();
+    public bool HasPending => Pending.Count > 0;
 
     private string L(string key, string fallback)
         => _localization?.GetString(key, fallback) ?? fallback;
 
-    public Task<ToolApprovalScope> PromptAsync(ToolApprovalRequest request, CancellationToken cancellationToken)
+    public async Task<ToolApprovalScope> PromptAsync(ToolApprovalRequest request, CancellationToken cancellationToken)
     {
+        cancellationToken.ThrowIfCancellationRequested();
         var item = new ApprovalQueueItemViewModel(
             request,
             _sessionAccessor?.CurrentConversationId,
             L,
-            Complete);
+            (entry, scope) => Complete(entry, scope, cancellationToken));
+        using var cancellation = cancellationToken.Register(() =>
+            Dispatcher.UIThread.Post(() => Complete(item, ToolApprovalScope.Deny, cancellationToken)));
         Dispatcher.UIThread.Post(() =>
         {
+            if (cancellationToken.IsCancellationRequested)
+            {
+                Complete(item, ToolApprovalScope.Deny, cancellationToken);
+                return;
+            }
             Pending.Add(item);
-            // 前台状态必须在 EnsureWindow 之前读：它会 Activate 审批窗口，
-            // 而在应用已经被激活之后再问「人在不在」，答案永远是「在」。
-            var wasForeground = _foregroundProbe?.IsForeground ?? false;
-            EnsureWindow();
-            if (!wasForeground) PostApprovalNotification();
+            OnPendingChanged();
+            _logger.Information("Approval queue received new request; pending={Count}", Pending.Count);
         });
-        if (cancellationToken.CanBeCanceled)
-        {
-            cancellationToken.Register(() => Dispatcher.UIThread.Post(() => Complete(item, ToolApprovalScope.Deny)));
-        }
-        return item.Completion.Task;
+        return await item.Completion.Task.ConfigureAwait(false);
     }
 
-    private void Complete(ApprovalQueueItemViewModel item, ToolApprovalScope result)
+    private void Complete(ApprovalQueueItemViewModel item, ToolApprovalScope result, CancellationToken cancellationToken)
     {
-        if (!item.Completion.TrySetResult(result)) return;
-        _logger.Information(
-            "ApprovalQueue user decision: Function={Function}, Scope={Scope}",
-            item.Request?.FunctionName, result);
-        Pending.Remove(item);
-        if (Pending.Count == 0)
+        if (cancellationToken.IsCancellationRequested)
         {
-            _window?.Hide();
-            WithdrawApprovalNotification();
+            if (!item.Completion.TrySetCanceled(cancellationToken)) return;
         }
         else
         {
-            // 队列里还剩东西，通知得跟着改口——否则用户看到的还是那条
-            // 指向已经处理完的调用的旧提示。
-            PostApprovalNotification();
+            if (!item.Completion.TrySetResult(result)) return;
+            _logger.Information(
+                "ApprovalQueue user decision: Function={Function}, Scope={Scope}",
+                item.Request.FunctionName, result);
         }
+        if (Pending.Remove(item)) OnPendingChanged();
     }
 
-    private void EnsureWindow()
+    private void OnPendingChanged()
     {
-        if (_window == null)
-        {
-            _window = new ApprovalQueueWindow
-            {
-                DataContext = this
-            };
-            _window.Closing += (_, e) =>
-            {
-                if (Pending.Count > 0)
-                {
-                    e.Cancel = true;
-                    _window.Hide();
-                }
-            };
-            // 人已经站到窗口前面了，那条「快回来看」的通知就该消失。
-            _window.Activated += (_, _) => WithdrawApprovalNotification();
-        }
-        if (!_window.IsVisible) _window.Show();
-        _window.Activate();
-        _logger.Information("Approval queue received new request; pending={Count}", Pending.Count);
+        OnPropertyChanged(nameof(HasPending));
+        if (HasPending && _foregroundProbe?.IsForeground != true) PostApprovalNotification();
+        else WithdrawApprovalNotification();
     }
 
     /// <summary>
@@ -158,22 +133,22 @@ public sealed class ApprovalQueueViewModel : ViewModelBase, IToolApprovalPrompte
         };
 
         _notificationPosted = true;
-        // 不 await：通知后端要拉起一个子进程，而这里跑在 UI 线程上，
-        // 审批窗口的弹出不该等一次 osascript / PowerShell 启动。
-        _ = SafeNotifyAsync(request);
+        // Serialize updates so an in-flight show finishes before a replacement or withdrawal.
+        _notificationUpdate = SafeNotifyAsync(_notificationUpdate, request);
     }
 
-    private void WithdrawApprovalNotification()
+    internal void WithdrawApprovalNotification()
     {
         if (_notifications == null || !_notificationPosted) return;
         _notificationPosted = false;
-        _ = SafeWithdrawAsync();
+        _notificationUpdate = SafeWithdrawAsync(_notificationUpdate);
     }
 
-    private async Task SafeNotifyAsync(SystemNotificationRequest request)
+    private async Task SafeNotifyAsync(Task previous, SystemNotificationRequest request)
     {
         try
         {
+            await previous.ConfigureAwait(false);
             await _notifications!.ShowAsync(request).ConfigureAwait(false);
         }
         catch (Exception ex)
@@ -184,10 +159,11 @@ public sealed class ApprovalQueueViewModel : ViewModelBase, IToolApprovalPrompte
         }
     }
 
-    private async Task SafeWithdrawAsync()
+    private async Task SafeWithdrawAsync(Task previous)
     {
         try
         {
+            await previous.ConfigureAwait(false);
             await _notifications!.WithdrawAsync(ApprovalNotificationKey).ConfigureAwait(false);
         }
         catch (Exception ex)
@@ -217,19 +193,29 @@ public partial class ApprovalQueueItemViewModel : ViewModelBase
     public ToolApprovalRequest Request { get; }
     public string ConversationId { get; }
 
-    public string Title => Request.Summary;
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(ConversationLabel))]
+    private string? _conversationTitle;
 
-    public string ConversationIdLabel => string.IsNullOrEmpty(ConversationId)
+    public string Title => string.IsNullOrWhiteSpace(Request.Summary) ? Request.FunctionName : Request.Summary;
+
+    public string ConversationLabel => string.IsNullOrEmpty(ConversationId)
         ? _localize("Approval.ConversationUnknown", "Unknown conversation")
-        : string.Format(_localize("Approval.ConversationPrefix", "Conversation: {0}"), ConversationId);
+        : string.Format(_localize("Approval.ConversationPrefix", "Conversation: {0}"),
+            string.IsNullOrWhiteSpace(ConversationTitle) ? ConversationId : ConversationTitle);
 
-    public string RiskText => Request.IsDestructive
-        ? _localize("Approval.RiskHigh", "High risk")
-        : Request.Risk.ToString();
+    public string RiskText => Request.Risk switch
+    {
+        ToolRisk.ReadOnly => _localize("Dialog.ToolApproval.Risk.ReadOnly", "Read-only"),
+        ToolRisk.AdditiveWrite => _localize("Dialog.ToolApproval.Risk.AdditiveWrite", "New file only"),
+        ToolRisk.Sensitive => _localize("Dialog.ToolApproval.Risk.Sensitive", "Sensitive"),
+        ToolRisk.Destructive => _localize("Approval.RiskHigh", "High risk"),
+        _ => Request.Risk.ToString()
+    };
 
     public void RefreshLocalizedText()
     {
-        OnPropertyChanged(nameof(ConversationIdLabel));
+        OnPropertyChanged(nameof(ConversationLabel));
         OnPropertyChanged(nameof(RiskText));
     }
 

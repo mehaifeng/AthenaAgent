@@ -6,30 +6,20 @@
              x:Name="ApprovalRoot"
              x:DataType="vm:ToolApprovalSettingsViewModel">
     <UserControl.Styles>
-        <Style Selector="ListBox.approval-modes > ListBoxItem">
-            <Setter Property="Padding" Value="0"/>
-            <Setter Property="Background" Value="Transparent"/>
-            <Setter Property="BorderThickness" Value="0"/>
-            <Setter Property="Margin" Value="0,0,0,8"/>
-            <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
-        </Style>
-        <Style Selector="ListBox.approval-modes > ListBoxItem:pointerover /template/ ContentPresenter">
-            <Setter Property="Background" Value="Transparent"/>
-        </Style>
-        <Style Selector="ListBox.approval-modes > ListBoxItem:selected /template/ ContentPresenter">
-            <Setter Property="Background" Value="Transparent"/>
-        </Style>
-        <Style Selector="Border.mode-card">
+        <Style Selector="Button.mode-card">
             <Setter Property="Padding" Value="14,12"/>
+            <Setter Property="Margin" Value="0,0,0,8"/>
+            <Setter Property="HorizontalAlignment" Value="Stretch"/>
+            <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
             <Setter Property="Background" Value="{DynamicResource App.SectionBg}"/>
             <Setter Property="BorderBrush" Value="{DynamicResource SemiGreyLowBrush}"/>
             <Setter Property="BorderThickness" Value="1"/>
             <Setter Property="CornerRadius" Value="8"/>
         </Style>
-        <Style Selector="ListBox.approval-modes > ListBoxItem:pointerover Border.mode-card">
+        <Style Selector="Button.mode-card:pointerover">
             <Setter Property="Background" Value="{DynamicResource SemiGrey1}"/>
         </Style>
-        <Style Selector="ListBox.approval-modes > ListBoxItem:selected Border.mode-card">
+        <Style Selector="Button.mode-card.selected">
             <Setter Property="Background" Value="{DynamicResource App.SelectedBackground}"/>
             <Setter Property="BorderBrush" Value="{DynamicResource App.SelectedBorderBrush}"/>
         </Style>
@@ -49,21 +39,27 @@
                 <TextBlock Text="{loc:Loc Config.ToolApproval.Mode}"
                            FontSize="{DynamicResource App.FontSize.Title}"
                            FontWeight="SemiBold"/>
-                <ListBox Classes="approval-modes"
-                         ItemsSource="{Binding Modes}"
-                         SelectedItem="{Binding SelectedMode}">
-                    <ListBox.ItemTemplate>
+                <ItemsControl ItemsSource="{Binding ModePicker.Modes}">
+                    <ItemsControl.ItemTemplate>
                         <DataTemplate x:DataType="vm:ToolApprovalModeOption">
-                            <Border Classes="mode-card">
-                                <StackPanel Spacing="3">
-                                    <TextBlock Text="{Binding Title}" FontWeight="SemiBold"/>
-                                    <TextBlock Foreground="{DynamicResource App.TextMuted}" Text="{Binding Description}"
-                                               TextWrapping="Wrap"/>
-                                </StackPanel>
-                            </Border>
+                            <Button Classes="mode-card" Classes.selected="{Binding IsSelected}"
+                                    Command="{Binding SelectCommand}" CommandParameter="{Binding}"
+                                    AutomationProperties.Name="{Binding Title}"
+                                    AutomationProperties.HelpText="{Binding Description}">
+                                <Grid ColumnDefinitions="*,Auto" ColumnSpacing="10">
+                                    <StackPanel Spacing="3">
+                                        <TextBlock Text="{Binding Title}" FontWeight="SemiBold"/>
+                                        <TextBlock Foreground="{DynamicResource App.TextMuted}" Text="{Binding Description}"
+                                                   TextWrapping="Wrap"/>
+                                    </StackPanel>
+                                    <PathIcon Grid.Column="1" Data="{StaticResource AthenaIconConfirm}" Width="16" Height="16"
+                                              IsVisible="{Binding IsSelected}" VerticalAlignment="Center"
+                                              Foreground="{DynamicResource App.IconAccentForeground}"/>
+                                </Grid>
+                            </Button>
                         </DataTemplate>
-                    </ListBox.ItemTemplate>
-                </ListBox>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
                 <CheckBox Content="{loc:Loc Config.ToolApproval.SubAgentsInherit}"
                           IsChecked="{Binding State.Config.SubAgentsInheritApproval}"/>
                 <CheckBox Content="{loc:Loc Config.ToolApproval.JevShadow}"

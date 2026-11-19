@@ -17,9 +17,10 @@ internal static class ThemeResources
     // Images belong to the application lifetime; all palettes share these four decodes.
     private static readonly Dictionary<string, Bitmap> Images = new();
 
-    public static ResourceDictionary Create(AppPalettes.Palette palette, bool dark)
+    public static ResourceDictionary Create(AppPalettes.Scheme scheme, bool dark)
     {
         var result = new ResourceDictionary();
+        var palette = dark ? scheme.Dark : scheme.Light;
         var canvas = Color.Parse(palette.Canvas);
         var surface = Color.Parse(palette.Surface);
         var raised = Color.Parse(palette.Raised);
@@ -207,6 +208,8 @@ internal static class ThemeResources
         var mode = dark ? "Dark" : "Light";
         result["About.LogoImage"] = Image(mode + "Logo.webp");
         result["App.BackgroundImage"] = Image(mode + ".webp");
+        result.AddDeferred(EmptyConversationLogo.ResourceKey,
+            _ => EmptyConversationLogo.Create(scheme.Name == "Default" ? null : accent));
         return result;
     }
 

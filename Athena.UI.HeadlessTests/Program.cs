@@ -155,6 +155,12 @@ if (Environment.GetEnvironmentVariable("ATHENA_HEADLESS_ONLY") == "process-runs"
     TestToolCallEditorVisual(outputPath);
     Environment.Exit(0);
 }
+if (Environment.GetEnvironmentVariable("ATHENA_HEADLESS_ONLY") == "main-pages")
+{
+    TestMainWindowPagesAndInlineApproval(outputPath);
+    TestApprovalNotificationWiring();
+    Environment.Exit(0);
+}
 if (Environment.GetEnvironmentVariable("ATHENA_HEADLESS_ONLY") == "game-mode")
 {
     TestGameModeSwitchAndFailures();
@@ -302,6 +308,7 @@ TestSelfConfigurationSurface();
 TestOrcaRouterConnectEntryPoints(Path.GetDirectoryName(outputPath)!);
 TestNotificationPayloadEncoding();
 TestApprovalNotificationWiring();
+TestMainWindowPagesAndInlineApproval(outputPath);
 TestReplyFinishedNotification();
 TestProviderErrorFailsScheduledRun();
 TestLifecycle();
@@ -484,11 +491,11 @@ if (accentDuration != ShellMaterial.RowSelectionSettle)
     throw new InvalidOperationException($"ShellMaterial.RowSelectionSettle ({ShellMaterial.RowSelectionSettle}) must match the accent bar's {accentDuration} transition.");
 if (!conversationSwitchVeil.ClipToBounds)
     throw new InvalidOperationException("The veil must be clipped so nothing escapes the message area.");
-// 幕布内容：猫头鹰 + 三个加载点，沿用空会话占位的同一套处理。
-var veilOwl = mainConversationView.FindControl<Panel>("ConversationSwitchVeilOwl")
-              ?? throw new InvalidOperationException("The veil owl was not created.");
-if (!veilOwl.GetVisualDescendants().OfType<Image>().Any())
-    throw new InvalidOperationException("The veil owl must render the Athena logo image, like the empty-conversation placeholder does.");
+// 幕布内容：与新会话共享的标志和三个加载点。
+var veilLogo = mainConversationView.FindControl<Image>("ConversationSwitchVeilLogo")
+               ?? throw new InvalidOperationException("The veil logo was not created.");
+if (veilLogo.Source == null)
+    throw new InvalidOperationException("The veil logo must resolve its theme resource.");
 for (var veilDotIndex = 0; veilDotIndex < MainConversationView.VeilDotCount; veilDotIndex++)
 {
     var veilDot = mainConversationView.FindControl<Border>("ConversationSwitchVeilDot" + veilDotIndex)
@@ -514,11 +521,11 @@ mainConversationView.IsSwitching = true;
 Dispatcher.UIThread.RunJobs();
 if (!mainConversationView.TryStartVeilAnimations())
     throw new InvalidOperationException("The veil's composition visuals were unreachable, so its render-thread loading animation never started.");
-var veilOwlVisual = ElementComposition.GetElementVisual(veilOwl)
-                    ?? throw new InvalidOperationException("The veil owl has no composition visual.");
-if (Math.Abs(veilOwlVisual.CenterPoint.X - veilOwl.Width / 2) > 0.01
-    || Math.Abs(veilOwlVisual.CenterPoint.Y - veilOwl.Height / 2) > 0.01)
-    throw new InvalidOperationException("The owl's breath must scale about its centre; scaling about the top-left reads as a twitch.");
+var veilLogoVisual = ElementComposition.GetElementVisual(veilLogo)
+                     ?? throw new InvalidOperationException("The veil logo has no composition visual.");
+if (Math.Abs(veilLogoVisual.CenterPoint.X - veilLogo.Width / 2) > 0.01
+    || Math.Abs(veilLogoVisual.CenterPoint.Y - veilLogo.Height / 2) > 0.01)
+    throw new InvalidOperationException("The veil logo must scale about its centre.");
 mainConversationView.IsSwitching = false;
 Dispatcher.UIThread.RunJobs();
 if (conversationSwitchVeil.IsVisible)
@@ -941,25 +948,27 @@ window.Close();
     var imagePage = new ImageGenerationSettingsViewModel(connectorSession);
     var webPage = new WebSearchSettingsViewModel(connectorSession);
     var documentPage = new DocumentParserSettingsViewModel(connectorSession);
-    var connectorViewModel = new SkillsConnectorsWindowViewModel(
+    using var connectorViewModel = new SkillsConnectorsViewModel(
         skillsPage,
         mcpPage,
         speechPage,
         imagePage,
         webPage,
         documentPage);
-    var skillsWindow = new SkillsConnectorsWindow
+    var connectorsView = new SkillsConnectorsView { DataContext = connectorViewModel };
+    var skillsWindow = new Window
     {
-        DataContext = connectorViewModel,
+        Content = connectorsView,
+        MinWidth = 1000,
         Width = 1160,
         Height = 800
     };
     skillsWindow.Show();
     Dispatcher.UIThread.RunJobs();
 
-    var connectorNavigation = skillsWindow.FindControl<ListBox>("ConnectorNavigation")
+    var connectorNavigation = connectorsView.FindControl<ListBox>("ConnectorNavigation")
         ?? throw new InvalidOperationException("Skills/Connectors navigation host was not created.");
-    var connectorContentHost = skillsWindow.FindControl<ContentControl>("ConnectorContentHost")
+    var connectorContentHost = connectorsView.FindControl<ContentControl>("ConnectorContentHost")
         ?? throw new InvalidOperationException("Skills/Connectors must use one ContentControl host.");
     if (connectorNavigation.ItemCount != 6
         || skillsWindow.GetVisualDescendants().OfType<ContentControl>().Count(control => control.Name == "ConnectorContentHost") != 1)
@@ -1014,25 +1023,8 @@ window.Close();
 }
 
 {
-    var knowledgeViewModel = new KnowledgeBaseViewModel();
-    var knowledgeWindow = new KnowledgeBaseWindow(knowledgeViewModel);
-    knowledgeWindow.Show();
-    Dispatcher.UIThread.RunJobs();
-    var knowledgeView = knowledgeWindow.Content as KnowledgeBaseView
-        ?? throw new InvalidOperationException("Knowledge Base window did not host the semantic KnowledgeBaseView.");
-    if (knowledgeView.FindControl<Button>("RunKnowledgeMaintenanceButton") == null
-        || knowledgeView.FindControl<Button>("RebuildVectorIndexButton") == null
-        || !ReferenceEquals(knowledgeView.DataContext, knowledgeViewModel))
-        throw new InvalidOperationException("Knowledge Base must expose maintenance and vector-index rebuild commands.");
-    var featureWindowTypes = new[]
-    {
-        (Window: typeof(KnowledgeBaseWindow), ViewModel: typeof(KnowledgeBaseViewModel)),
-        (Window: typeof(TasksWindow), ViewModel: typeof(TasksViewModel)),
-        (Window: typeof(DetailedLogsWindow), ViewModel: typeof(LogsViewModel))
-    };
-    if (featureWindowTypes.Any(pair =>
-            pair.Window.GetConstructors().Single().GetParameters().First().ParameterType != pair.ViewModel))
-        throw new InvalidOperationException("Feature windows must expose one strongly typed view-model constructor.");
+    if (typeof(DetailedLogsWindow).GetConstructors().Single().GetParameters().First().ParameterType != typeof(LogsViewModel))
+        throw new InvalidOperationException("The detailed logs window must expose a strongly typed view-model constructor.");
     var semanticViewMappings = new (ViewModelBase ViewModel, Type View)[]
     {
         (new MainConversationViewModel(), typeof(MainConversationView)),
@@ -1044,9 +1036,7 @@ window.Close();
     var viewLocator = new ViewLocator();
     if (semanticViewMappings.Any(pair => viewLocator.Build(pair.ViewModel)?.GetType() != pair.View))
         throw new InvalidOperationException("Semantic view names no longer satisfy the ViewLocator naming convention.");
-    SaveWindowFrame(knowledgeWindow, Path.Combine(Path.GetDirectoryName(outputPath)!, "knowledge-base-window.png"));
-    Console.WriteLine("[PASS] semantic views satisfy ViewLocator naming and strongly typed feature windows own their content");
-    knowledgeWindow.Close();
+    Console.WriteLine("[PASS] semantic views satisfy ViewLocator naming and the logs window owns its content");
 }
 LocalizationBindingTests.Run();
 Task.Run(KnowledgeIndexTests.RunAsync).GetAwaiter().GetResult();
@@ -1464,7 +1454,7 @@ var taskEditor = archiveTreeViewModel.TasksViewModel.Editor;
 if (!taskEditor.AvailableWorkspaces.SequenceEqual(new[] { archiveWorkspace, backgroundWorkspace }))
     throw new InvalidOperationException("The task editor should receive the workspaces already read for the session tree.");
 taskEditor.SelectedWorkspace = backgroundWorkspace;
-PumpForCompletion(archiveTreeViewModel.OpenTasksCommand.ExecuteAsync(null), "open scheduled tasks");
+archiveTreeViewModel.OpenTasksCommand.Execute(null);
 if (!ReferenceEquals(taskEditor.SelectedWorkspace, backgroundWorkspace))
     throw new InvalidOperationException("Refreshing task editor options must preserve the selected workspace.");
 
@@ -2086,12 +2076,15 @@ Console.WriteLine("[PASS] the packaged asset list keeps runtime entry points and
 
         cronMainViewModel.SelectedConversation = cronOtherSession;
         cronNavigator.AttachTarget(cronMainViewModel);
+        cronMainViewModel.OpenTasksCommand.Execute(null);
         tasksViewModel.OpenRunConversationCommand.Execute(runItem);
         // 导航是异步命令：一次 RunJobs 只排空此刻已入队的作业，续体晚到就会误判；等到选中或超时。
         PumpUntil(() => ReferenceEquals(cronMainViewModel.SelectedConversation, cronBaselineSession) || !string.IsNullOrEmpty(tasksViewModel.StatusMessage), 5000,
             "Opening a run never finished navigating.");
         if (!ReferenceEquals(cronMainViewModel.SelectedConversation, cronBaselineSession))
             throw new InvalidOperationException($"Opening a run must navigate to the session that run created (status '{tasksViewModel.StatusMessage}', selected '{cronMainViewModel.SelectedConversation?.Title}', run history '{runItem.HistoryId}' conv '{runItem.ConversationId}' vs '{cronBaselineSession.HistoryId}' / '{cronBaselineSession.ConversationId}').");
+        if (!cronMainViewModel.IsConversationPageActive)
+            throw new InvalidOperationException("Opening a run must return to the conversation page.");
 
         // 记录里的会话已经不存在时，导航必须安全失败并给出提示，而不是抛异常。
         var orphanRun = new CronTaskRunItemViewModel(
@@ -3751,9 +3744,11 @@ static void TestConfigurationSession(string artifactDirectory)
     settingsLocalization.SwitchLanguage("zh-CN");
     var diagnosticsCatalog = new HeadlessMetadataCatalog();
     var diagnosticsInteraction = new HeadlessInteractionService(confirmResult: true);
-    var appSettings = new AppSettingsWindowViewModel(
+    using var modePicker = new ToolApprovalModePickerViewModel(session, diagnosticsInteraction, settingsLocalization);
+    var appSettings = new AppSettingsViewModel(
         session,
         new AboutViewModel(),
+        modePicker,
         localizationService: settingsLocalization,
         metadataCatalog: diagnosticsCatalog,
         userInteractionService: diagnosticsInteraction);
@@ -3904,21 +3899,27 @@ static void TestConfigurationSession(string artifactDirectory)
         throw new InvalidOperationException("App Settings pages must share one settings state and expose six semantic sections.");
     settingsLocalization.SwitchLanguage("en-US");
     if (appSettings.Sections[0].Title != "General"
-        || appSettings.ToolApproval.Modes[0].Title != "Balanced · Recommended")
+        || appSettings.ToolApproval.ModePicker.Modes[0].Title != "Balanced"
+        || appSettings.ToolApproval.ModePicker.Modes[^1].Title != "Allow all")
         throw new InvalidOperationException("App Settings semantic navigation and approval modes did not refresh after a language change.");
     settingsLocalization.SwitchLanguage("zh-CN");
     if (appSettings.Sections[0].Title != "通用"
-        || appSettings.ToolApproval.Modes[0].Title != "均衡 · 推荐")
+        || appSettings.ToolApproval.ModePicker.Modes[0].Title != "均衡"
+        || appSettings.ToolApproval.ModePicker.Modes[^1].Title != "完全允许")
         throw new InvalidOperationException("App Settings semantic navigation and approval modes did not return to Chinese.");
 
-    var appSettingsWindow = new AppSettingsWindow { DataContext = appSettings };
+    using var appShell = new MainWindowViewModel(null, null, null, null, null, settingsLocalization, null, null,
+        null, null, null, null, null, null, appSettingsFactory: () => appSettings);
+    var appSettingsWindow = new MainWindow { DataContext = appShell };
+    appShell.OpenAppSettingsCommand.Execute(null);
     appSettingsWindow.Show();
     Dispatcher.UIThread.RunJobs();
-    if (appSettingsWindow.DataContext is MainWindowViewModel
-        || appSettingsWindow.FindControl<ListBox>("SettingsNavigation") == null
-        || appSettingsWindow.FindControl<ContentControl>("SettingsContentHost") == null
-        || appSettingsWindow.GetVisualDescendants().OfType<Expander>().Any()
-        || appSettingsWindow.Content is not Grid)
+    var settingsView = appSettingsWindow.GetVisualDescendants().OfType<AppSettingsView>().Single();
+    if (!ReferenceEquals(settingsView.DataContext, appSettings)
+        || settingsView.FindControl<ListBox>("SettingsNavigation") == null
+        || settingsView.FindControl<ContentControl>("SettingsContentHost") == null
+        || settingsView.GetVisualDescendants().OfType<Expander>().Any()
+        || settingsView.Content is not Grid)
         throw new InvalidOperationException("App Settings must use one navigation surface, one content host, and page-owned scrolling.");
 
     var expectedViews = new[]
@@ -4016,6 +4017,7 @@ static void TestConfigurationSession(string artifactDirectory)
         throw new InvalidOperationException($"AppConfigurationApplier did not apply font scale on config change (Body={appliedBody}).");
     FontScaleService.Apply("Medium"); // 恢复基准字号，避免影响后续测试的硬编码字号断言。
 
+    appShell.ReturnToConversationCommand.Execute(null);
     appSettingsWindow.Close();
     var closedSettingsConfig = settingsState.Config;
     service.PublishExternal(new AppConfig());
@@ -4185,7 +4187,7 @@ static void TestNotificationPayloadEncoding()
     Console.WriteLine("[PASS] notification payloads survive each platform's own parser");
 }
 
-// 审批是三个通知场景里唯一会阻塞流程的：没人回应，这一轮就一直挂到超时。
+// 审批会阻塞当前轮次，等待用户作出选择或停止本轮。
 // 这里钉住三件事——后台才发、发的是 Critical、队列清空后撤回。
 static void TestApprovalNotificationWiring()
 {
@@ -4238,11 +4240,296 @@ static void TestApprovalNotificationWiring()
     var foregroundPending = foreground.PromptAsync(request, CancellationToken.None);
     PumpUntil(() => foreground.Pending.Count == 1, 5000, "The request should still be queued when the user is present.");
     if (foregroundNotifications.Shown.Count != 0)
-        throw new InvalidOperationException("The user is already looking at the approval window; a system notification is pure noise.");
+        throw new InvalidOperationException("The foreground app already presents pending approvals.");
     foreground.Pending[0].DenyCommand.Execute(null);
     PumpForCompletion(foregroundPending, "the foreground approval decision");
 
     Console.WriteLine("[PASS] approval notifications fire only when nobody is watching, and are withdrawn once answered");
+}
+
+static void TestMainWindowPagesAndInlineApproval(string outputPath)
+{
+    var localization = App.Services!.GetRequiredService<ILocalizationService>();
+    var previousLanguage = localization.CurrentLanguage;
+    var config = new AppConfig();
+    config.AiModels.Providers.Add(new OpenAiProviderConfiguration { DisplayName = "Example Provider" });
+    var configService = new HeadlessConfigService(config);
+    using var session = new AppConfigurationSession(configService);
+    var interaction = new HeadlessInteractionService();
+    using var modePicker = new ToolApprovalModePickerViewModel(session, interaction, localization);
+    var workspace = new WorkspaceProfile { Name = "示例工作区", DirectoryPath = "/tmp/visual-workspace" };
+    var accessor = new ConversationSessionAccessor();
+    var queue = new ApprovalQueueViewModel(accessor, Log.Logger, localization);
+    SkillsConnectorsViewModel CreateConnectors()
+    {
+        var skills = new SkillsViewModel();
+        skills.Initialize(session);
+        var mcp = new McpConnectionsViewModel();
+        mcp.Initialize(session);
+        return new SkillsConnectorsViewModel(skills, mcp, new SpeechSettingsViewModel(session),
+            new ImageGenerationSettingsViewModel(session), new WebSearchSettingsViewModel(session),
+            new DocumentParserSettingsViewModel(session), localization);
+    }
+
+    using var shell = new MainWindowViewModel(null, null, null, null, null, localization, null, null,
+        null, null, null, null, null, null,
+        workspaceService: new HeadlessWorkspaceService([workspace]),
+        approvalQueue: queue,
+        configurationSession: session,
+        skillsConnectorsFactory: CreateConnectors,
+        appSettingsFactory: () => new AppSettingsViewModel(session, new AboutViewModel(), modePicker, localizationService: localization),
+        contextPolicyProvider: new WorkspaceEditorContextPolicyProvider(config),
+        providerModelsFactory: () => new ProviderModelsViewModel(session, new HeadlessModelCatalogService()),
+        approvalModePicker: modePicker);
+    var window = new MainWindow { DataContext = shell, Width = 1180, Height = 720 };
+    try
+    {
+        localization.SwitchLanguage("zh-CN");
+        window.Show();
+        PumpUntil(() => !shell.IsConversationTreeLoading && shell.SelectedConversation != null && !shell.IsConversationSwitching);
+        var selected = shell.SelectedConversation!;
+        const string draft = "返回后仍能继续编辑";
+        selected.Chat.InputText = draft;
+        var chatGrid = window.FindControl<Grid>("MainShellGrid")!;
+        var chatView = window.FindControl<MainConversationView>("MainConversationView")!;
+        var petView = window.FindControl<VirtualPetView>("VirtualPet")!;
+        var petSurface = petView.FindControl<Border>("PetSurface")!;
+        var composer = chatView.FindControl<Border>("ComposerHost")!;
+        var composerCard = (Border)composer.Child!;
+        var composerBottom = composerCard.TranslatePoint(new Point(0, composerCard.Bounds.Height), window);
+        if (composerBottom is not { } bottom || window.ClientSize.Height - bottom.Y < 15)
+            throw new InvalidOperationException("输入卡片和窗体底部之间应保留至少 15 DIP。");
+        var modeButton = chatView.FindControl<Button>("ToolApprovalModeButton")!;
+        var modeLabel = chatView.FindControl<TextBlock>("ToolApprovalModeLabel")!;
+        if (!modeButton.IsEffectivelyVisible || modeLabel.Text != "均衡")
+            throw new InvalidOperationException("输入区应显示当前审批模式。");
+        var screenshotButton = chatView.FindControl<Control>("ScreenshotButton")!;
+        var controlGap = modeButton.Bounds.Left - screenshotButton.Bounds.Right;
+        if (!ReferenceEquals(modeButton.Parent, screenshotButton.Parent) || controlGap is < 0 or > 4)
+            throw new InvalidOperationException("审批模式按钮应紧挨在截图控件右侧。");
+        var approvalView = chatView.FindControl<ApprovalQueueView>("InlineApprovalQueue")!;
+        var pageHost = window.FindControl<Border>("MainPageHost")!;
+        var pageContent = window.FindControl<ContentControl>("MainPageContent")!;
+        var title = window.FindControl<TextBlock>("MainPageTitle")!;
+        var pendingStatus = window.FindControl<StackPanel>("PageApprovalStatus")!;
+        var back = window.FindControl<Button>("ReturnToConversationButton")!;
+        if (back.Content is not PathIcon { Data: not null })
+            throw new InvalidOperationException("返回按钮应使用纯图标。");
+        var initialSize = window.ClientSize;
+        var group = shell.ConversationGroups.Single(item => item.Workspace == workspace);
+
+        void RequirePetAbove(Control control)
+        {
+            PumpUntil(() =>
+                !petView.IsEffectivelyVisible
+                || (petSurface.TranslatePoint(new Point(0, petSurface.Bounds.Height), window) is { } petBottom
+                    && control.TranslatePoint(default, window) is { } controlTop
+                    && petBottom.Y <= controlTop.Y),
+                failureMessage: "宠物应留在消息区，输入和审批按钮必须可点击。");
+        }
+
+        void OpenFromChat(System.Windows.Input.ICommand command)
+        {
+            var launcher = chatGrid.GetVisualDescendants().OfType<Button>()
+                .Single(button => ReferenceEquals(button.Command, command) && button.IsEffectivelyVisible);
+            launcher.Command!.Execute(launcher.CommandParameter);
+        }
+
+        T RequirePage<T>(string expectedTitle) where T : UserControl
+        {
+            Dispatcher.UIThread.RunJobs();
+            if (!pageHost.IsEffectivelyVisible || chatGrid.IsEffectivelyVisible || !petView.IsSuppressed
+                || !back.IsEffectivelyVisible || !back.IsEffectivelyEnabled || title.Text != expectedTitle
+                || window.ClientSize != initialSize)
+                throw new InvalidOperationException($"主窗体页面 {expectedTitle} 必须占用原有窗口并显示统一返回按钮。");
+            return pageContent.GetVisualDescendants().OfType<T>().Single(view => view.IsEffectivelyVisible);
+        }
+
+        void Back()
+        {
+            back.Command!.Execute(null);
+            Dispatcher.UIThread.RunJobs();
+            if (pageHost.IsEffectivelyVisible || !chatGrid.IsEffectivelyVisible || petView.IsSuppressed
+                || !ReferenceEquals(shell.SelectedConversation, selected)
+                || !ReferenceEquals(chatView.DataContext, selected.Chat) || selected.Chat.InputText != draft)
+                throw new InvalidOperationException("返回必须恢复同一对话视图、选中会话和草稿。");
+        }
+
+        OpenFromChat(shell.OpenAppSettingsCommand);
+        var settingsView = RequirePage<AppSettingsView>("应用设置");
+        localization.SwitchLanguage("en-US");
+        RequirePage<AppSettingsView>("App Settings");
+        localization.SwitchLanguage("zh-CN");
+        Directory.CreateDirectory(Path.GetDirectoryName(outputPath)!);
+        SaveWindowFrame(window, Path.Combine(Path.GetDirectoryName(outputPath)!, "main-app-settings.png"));
+        var settings = (AppSettingsViewModel)settingsView.DataContext!;
+        settings.SelectedSection = settings.Sections.Single(section => ReferenceEquals(section.Content, settings.ToolApproval));
+        Dispatcher.UIThread.RunJobs();
+        var modeCards = settingsView.GetVisualDescendants().OfType<Button>().Where(button => button.Classes.Contains("mode-card")).ToList();
+        var allowAll = modePicker.Modes.Single(mode => mode.Mode == ToolApprovalMode.Off);
+        var allowAllCard = modeCards.Single(button => ReferenceEquals(button.CommandParameter, allowAll));
+        var dismiss = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        interaction.ConfirmationResponse = dismiss.Task;
+        allowAllCard.Command!.Execute(allowAllCard.CommandParameter);
+        if (interaction.ConfirmationCount != 1 || interaction.LastShowDontAskAgain != false
+            || interaction.LastConfirmationMessage?.Contains("删除", StringComparison.Ordinal) != true
+            || config.ToolApprovalMode != ToolApprovalMode.Balanced || allowAllCard.Classes.Contains("selected"))
+            throw new InvalidOperationException("设置页必须先警告，等待确认期间继续使用原模式。");
+        dismiss.SetResult(false);
+        PumpForCompletion(modePicker.SelectCommand.ExecutionTask!, "取消完全允许");
+        if (config.ToolApprovalMode != ToolApprovalMode.Balanced || allowAll.IsSelected)
+            throw new InvalidOperationException("取消警告后，设置页和配置都应保留原模式。");
+
+        var strictCard = modeCards.Single(button => button.CommandParameter is ToolApprovalModeOption { Mode: ToolApprovalMode.Strict });
+        strictCard.Command!.Execute(strictCard.CommandParameter);
+        PumpUntil(() => strictCard.Classes.Contains("selected") && config.ToolApprovalMode == ToolApprovalMode.Strict);
+        if (interaction.ConfirmationCount != 1)
+            throw new InvalidOperationException("切换到严格模式应立即生效。");
+        SaveWindowFrame(window, Path.Combine(Path.GetDirectoryName(outputPath)!, "main-approval-mode-settings.png"));
+        Back();
+        if (modeLabel.Text != "严格" || modeButton.Flyout is not MenuFlyout modeMenu)
+            throw new InvalidOperationException("输入区必须同步设置页选择的模式，并提供切换菜单。");
+
+        modeMenu.ShowAt(modeButton);
+        Dispatcher.UIThread.RunJobs();
+        var modeItems = GetOpenedMenuItems(modeMenu);
+        if (!modeItems.Select(item => AutomationProperties.GetName(item)).SequenceEqual(["均衡", "严格", "自动", "完全允许"])
+            || modeItems.Any(item => !item.GetVisualDescendants().OfType<TextBlock>()
+                .Any(text => text.Text == AutomationProperties.GetName(item))))
+            throw new InvalidOperationException("输入区菜单应提供全部四种审批模式。");
+        var allowAllItem = modeItems.Single(item => ReferenceEquals(item.CommandParameter, allowAll));
+        var confirm = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        interaction.ConfirmationResponse = confirm.Task;
+        allowAllItem.Command!.Execute(allowAllItem.CommandParameter);
+        modeMenu.Hide();
+        if (interaction.ConfirmationCount != 2 || config.ToolApprovalMode != ToolApprovalMode.Strict || modeLabel.Text != "严格")
+            throw new InvalidOperationException("输入区必须等待「完全允许」的二次确认。");
+        var savesBeforeConfirmation = configService.SaveCount;
+        confirm.SetResult(true);
+        PumpForCompletion(modePicker.SelectCommand.ExecutionTask!, "启用完全允许");
+        PumpUntil(() => modeLabel.Text == "完全允许" && configService.SaveCount > savesBeforeConfirmation);
+        if (configService.Load().ToolApprovalMode != ToolApprovalMode.Off || !allowAll.IsSelected)
+            throw new InvalidOperationException("确认后应保存新模式并同步显示。");
+        RequirePetAbove(composer);
+        SaveWindowFrame(window, Path.Combine(Path.GetDirectoryName(outputPath)!, "main-chat-approval-mode.png"));
+
+        OpenFromChat(shell.OpenAppSettingsCommand);
+        settingsView = RequirePage<AppSettingsView>("应用设置");
+        settings = (AppSettingsViewModel)settingsView.DataContext!;
+        if (!ReferenceEquals(settings.ToolApproval.ModePicker.SelectedMode, allowAll))
+            throw new InvalidOperationException("输入区更改模式后，重新打开设置页必须显示同一模式。");
+        var replacement = new AppConfig { ToolApprovalMode = ToolApprovalMode.Automatic, AiModels = config.AiModels };
+        configService.PublishExternal(replacement);
+        PumpUntil(() => settings.ToolApproval.ModePicker.SelectedMode.Mode == ToolApprovalMode.Automatic);
+        config.ToolApprovalMode = ToolApprovalMode.Balanced;
+        Back();
+        if (modeLabel.Text != "自动")
+            throw new InvalidOperationException("外部替换配置后，设置和输入区都应使用最新配置实例。");
+
+        OpenFromChat(shell.OpenKnowledgeBaseCommand);
+        var knowledge = RequirePage<KnowledgeBaseView>("知识库");
+        if (!ReferenceEquals(knowledge.DataContext, shell.KnowledgeBaseViewModel)
+            || knowledge.FindControl<Button>("RunKnowledgeMaintenanceButton")?.Command == null
+            || knowledge.FindControl<Button>("RebuildVectorIndexButton")?.Command == null)
+            throw new InvalidOperationException("主窗体知识库页面应保留知识整理与重建向量索引。");
+        localization.SwitchLanguage("en-US");
+        RequirePage<KnowledgeBaseView>("Knowledge base");
+        localization.SwitchLanguage("zh-CN");
+        SaveWindowFrame(window, Path.Combine(Path.GetDirectoryName(outputPath)!, "knowledge-base-window.png"));
+        Back();
+        OpenFromChat(shell.OpenKnowledgeBaseCommand);
+        if (!ReferenceEquals(RequirePage<KnowledgeBaseView>("知识库").DataContext, shell.KnowledgeBaseViewModel))
+            throw new InvalidOperationException("重新进入知识库应复用原有页面状态。");
+        Back();
+
+        OpenFromChat(shell.OpenProviderModelsCommand);
+        var provider = RequirePage<ProviderModelsView>("供应商与模型");
+        var deleteProvider = provider.GetVisualDescendants().OfType<Button>().Single(button => button.Classes.Contains("provider-item-delete"));
+        if (!ReferenceEquals(deleteProvider.Command, ((ProviderModelsViewModel)provider.DataContext!).DeleteProviderCommand))
+            throw new InvalidOperationException("供应商列表项必须从嵌入页面解析删除命令。");
+        Back();
+
+        OpenFromChat(shell.OpenSkillsConnectorsCommand);
+        RequirePage<SkillsConnectorsView>("技能与扩展");
+        Back();
+
+        group.RequestContextSettingsCommand.Execute(null);
+        var workspacePage = RequirePage<WorkspaceContextSettingsView>("Workspace 上下文设置");
+        var policy = (WorkspaceContextSettingsViewModel)workspacePage.DataContext!;
+        policy.OverrideWorkspaceKnowledgeBudget = true;
+        policy.WorkspaceKnowledgeCharBudget = 9000;
+        Back();
+        if (workspace.ContextPolicyOverride != null)
+            throw new InvalidOperationException("从工作区页面返回时，未保存的草稿不能写进工作区。");
+
+        group.RequestContextSettingsCommand.Execute(null);
+        policy = (WorkspaceContextSettingsViewModel)RequirePage<WorkspaceContextSettingsView>("Workspace 上下文设置").DataContext!;
+        policy.OverrideWorkspaceKnowledgeBudget = true;
+        policy.WorkspaceKnowledgeCharBudget = 12000;
+        PumpForCompletion(policy.SaveCommand.ExecuteAsync(null), "保存工作区上下文配置");
+        Dispatcher.UIThread.RunJobs();
+        if (!shell.IsConversationPageActive || workspace.ContextPolicyOverride?.WorkspaceKnowledgeCharBudget != 12000)
+            throw new InvalidOperationException("保存工作区后必须返回对话。");
+
+        OpenFromChat(shell.OpenTasksCommand);
+        RequirePage<TasksView>("定时消息");
+        if (approvalView.IsVisible || pendingStatus.IsVisible)
+            throw new InvalidOperationException("空审批队列不应占用布局空间。");
+
+        var background = new ConversationSessionItemViewModel(new MainConversationViewModel(), workspace, null) { Title = "文件整理" };
+        group.Conversations.Add(background);
+        var request = new ToolApprovalRequest
+        {
+            FunctionName = "move_workspace_file",
+            Summary = "移动 draft.md 到 archive 文件夹",
+            Risk = ToolRisk.Sensitive,
+            ApprovalScope = "/project/archive",
+            PrettyArguments = "{\n  \"source\": \"draft.md\",\n  \"destination\": \"archive/draft.md\"\n}"
+        };
+        Task<ToolApprovalScope> first;
+        using (accessor.Enter(background.ConversationId))
+            first = queue.PromptAsync(request, CancellationToken.None);
+        using var cancellation = new CancellationTokenSource();
+        Task<ToolApprovalScope> second;
+        using (accessor.Enter(selected.ConversationId))
+            second = queue.PromptAsync(request, cancellation.Token);
+        PumpUntil(() => queue.Pending.Count == 2 && pendingStatus.IsEffectivelyVisible);
+        if (!background.IsWaitingForApproval || !selected.IsWaitingForApproval || approvalView.IsEffectivelyVisible
+            || queue.Pending[0].ConversationTitle != background.Title)
+            throw new InvalidOperationException("功能页面应提示待审批，队列应保留每项请求所属的会话。");
+        Back();
+        if (!approvalView.IsEffectivelyVisible || approvalView.Bounds.Bottom > composer.Bounds.Top
+            || !approvalView.GetVisualDescendants().OfType<TextBox>().Any(box => box.IsReadOnly && box.Text == request.PrettyArguments))
+            throw new InvalidOperationException("待审批项必须在输入框上方展示，参数可以完整查阅。");
+        var allowOnce = approvalView.GetVisualDescendants().OfType<Button>()
+            .Single(button => ReferenceEquals(button.Command, queue.Pending[0].AllowOnceCommand));
+        allowOnce.RaiseEvent(new KeyEventArgs { RoutedEvent = InputElement.KeyDownEvent, Key = Key.Escape });
+        Dispatcher.UIThread.RunJobs();
+        if (queue.Pending.Count != 2 || first.IsCompleted || second.IsCompleted)
+            throw new InvalidOperationException("Escape 不能关闭审批队列或替用户决策。");
+        RequirePetAbove(approvalView);
+        SaveWindowFrame(window, Path.Combine(Path.GetDirectoryName(outputPath)!, "main-inline-approval.png"));
+
+        allowOnce.Command!.Execute(null);
+        if (PumpForResult(first, "处理第一个待审批工具") != ToolApprovalScope.AllowOnce
+            || queue.Pending.Count != 1 || !approvalView.IsEffectivelyVisible
+            || background.IsWaitingForApproval || !selected.IsWaitingForApproval)
+            throw new InvalidOperationException("处理一项不能影响其他会话的审批。");
+        var remaining = queue.Pending[0];
+        cancellation.Cancel();
+        remaining.AllowAlwaysCommand.Execute(null);
+        PumpUntil(() => second.IsCanceled && !approvalView.IsEffectivelyVisible);
+        if (selected.IsWaitingForApproval)
+            throw new InvalidOperationException("结束执行后，审批和等待标记应一起收起。");
+    }
+    finally
+    {
+        window.Close();
+        localization.SwitchLanguage(previousLanguage);
+    }
+
+    Console.WriteLine("[PASS] six main-window pages, icon-only return, composer spacing, and approval-mode confirmation from both surfaces");
+    Console.WriteLine("[PASS] draft preservation, workspace save and cancellable inline approval queue");
 }
 
 // 回合结束时的通知。三条规则各自都有一个具体的失败模式在后面顶着：
@@ -4444,15 +4731,11 @@ static void TestLifecycle()
         var image = new ImageGenerationSettingsViewModel(connectorSession);
         var web = new WebSearchSettingsViewModel(connectorSession);
         var document = new DocumentParserSettingsViewModel(connectorSession);
-        var connectorWindow = new SkillsConnectorsWindow
-        {
-            DataContext = new SkillsConnectorsWindowViewModel(skills, mcp, speech, image, web, document)
-        };
-
-        connectorWindow.Show();
-        Dispatcher.UIThread.RunJobs();
-        connectorWindow.Close();
-        Dispatcher.UIThread.RunJobs();
+        using var shell = new MainWindowViewModel(null, null, null, null, null, null, null, null,
+            null, null, null, null, null, null,
+            skillsConnectorsFactory: () => new SkillsConnectorsViewModel(skills, mcp, speech, image, web, document));
+        shell.OpenSkillsConnectorsCommand.Execute(null);
+        shell.ReturnToConversationCommand.Execute(null);
 
         var replacementConfig = new AppConfig();
         connectorConfigService.PublishExternal(replacementConfig);
@@ -4680,11 +4963,11 @@ static void TestGameModeSwitchAndFailures()
             throw new InvalidOperationException("游戏视图必须出现在中间区域。");
         if (messages.ItemsSource != null || window.GetVisualDescendants().OfType<Grid>().Any(g => g.Classes.Contains("message-row")))
             throw new InvalidOperationException("游戏模式下气泡树不建：消息列表的 ItemsSource 必须摘掉（隐藏换绑照样实体化整棵树）。");
-        // 2026-10-11：游戏占满标题栏以下的整个中间区域，连同输入框那一行；说话在城里的对话栏（发送仍走输入框的发送命令）
+        // 游戏填充消息区，自带对话栏，普通输入框收起。审批使用独立行。
         var composerHost = view.FindControl<Border>("ComposerHost")!;
-        if (Grid.GetRowSpan(polisView) != 2 || composerHost.IsEffectivelyVisible
+        if (Grid.GetRow(polisView) != 1 || Grid.GetRowSpan(polisView) != 1 || composerHost.IsEffectivelyVisible
             || window.GetVisualDescendants().OfType<TextBox>().Any(t => t.Name == "MessageInputTextBox" && t.IsEffectivelyVisible))
-            throw new InvalidOperationException($"游戏要盖住输入框那一行、输入框收起（RowSpan={Grid.GetRowSpan(polisView)}, composer={composerHost.IsEffectivelyVisible}）。");
+            throw new InvalidOperationException("游戏应填充消息区域，普通输入框应收起。");
         if (!pet.IsSuppressed || pet.Opacity != 0 || pet.IsHitTestVisible)
             throw new InvalidOperationException("进入游戏模式要把宠物收起来（原生 WebView 会盖住它）。");
         if (window.GetVisualDescendants().OfType<NativeWebView>().Any())
@@ -7185,7 +7468,7 @@ static void TestProviderMetadataUi(string outputPath)
     using var session = new AppConfigurationSession(configService);
     var metadataLocalization = new LocalizationService();
     metadataLocalization.SwitchLanguage("zh-CN");
-    var viewModel = new ProviderModelsViewModel(
+    using var viewModel = new ProviderModelsViewModel(
         session,
         new HeadlessModelCatalogService(),
         catalog,
@@ -7228,17 +7511,18 @@ static void TestProviderMetadataUi(string outputPath)
         throw new InvalidOperationException("Provider metadata search did not filter the 336-model inventory deterministically.");
     viewModel.MetadataSearchText = string.Empty;
 
-    var window = new ProviderModelsWindow
+    var providerView = new ProviderModelsView { DataContext = viewModel };
+    var window = new Window
     {
-        DataContext = viewModel,
+        Content = providerView,
         Width = 1280,
         Height = 820
     };
     window.Show();
     Dispatcher.UIThread.RunJobs();
-    var providerTypeEditor = window.FindControl<TextBox>("ProviderTypeEditor")
+    var providerTypeEditor = providerView.FindControl<TextBox>("ProviderTypeEditor")
                              ?? throw new InvalidOperationException("Provider type editor was not rendered.");
-    var providerDisplayNameEditor = window.FindControl<TextBox>("ProviderDisplayNameEditor")
+    var providerDisplayNameEditor = providerView.FindControl<TextBox>("ProviderDisplayNameEditor")
                                     ?? throw new InvalidOperationException("Provider display-name editor was not rendered.");
     if (providerTypeEditor.Parent is not Grid providerTypeRow
         || providerDisplayNameEditor.Parent is not Grid providerDisplayNameRow
@@ -7246,9 +7530,9 @@ static void TestProviderMetadataUi(string outputPath)
         || !ReferenceEquals(connectionPanel, providerDisplayNameRow.Parent)
         || connectionPanel.Children.IndexOf(providerTypeRow) >= connectionPanel.Children.IndexOf(providerDisplayNameRow))
         throw new InvalidOperationException("Provider type must be placed before the custom display name.");
-    window.FindControl<TabControl>("ProviderModelsTabs")!.SelectedIndex = 1;
+    providerView.FindControl<TabControl>("ProviderModelsTabs")!.SelectedIndex = 1;
     Dispatcher.UIThread.RunJobs();
-    var list = window.FindControl<ListBox>("MetadataModelList")
+    var list = providerView.FindControl<ListBox>("MetadataModelList")
                ?? throw new InvalidOperationException("Provider metadata list was not rendered.");
     var realized = list.GetVisualDescendants().OfType<ListBoxItem>().Count();
     if (realized <= 0 || realized >= 336)
@@ -7321,17 +7605,18 @@ static void TestOrcaRouterConnectEntryPoints(string outputDirectory)
             null,
             service);
 
-        var window = new ProviderModelsWindow { DataContext = viewModel, Width = 1280, Height = 820 };
+        var providerView = new ProviderModelsView { DataContext = viewModel };
+        var window = new Window { Content = providerView, Width = 1280, Height = 820 };
         window.Show();
         Dispatcher.UIThread.RunJobs();
 
         // 按钮被实际渲染且可用——绑定路径写错时命令为 null，这里就会失败。
-        var button = window.FindControl<Control>("OrcaRouterConnectButton")
-                     ?? throw new InvalidOperationException("供应商窗口没有渲染 OrcaRouter 接入按钮。");
+        var button = providerView.FindControl<Control>("OrcaRouterConnectButton")
+                     ?? throw new InvalidOperationException("供应商页面没有渲染 OrcaRouter 接入按钮。");
         if (!button.IsVisible || !button.IsEffectivelyEnabled)
             throw new InvalidOperationException("端点配置可用时 OrcaRouter 接入按钮必须可用。");
 
-        // 底色来自 Window.Styles 里的 orcarouter-connect 规则。选择器写歪时它会静默回落到主题默认值
+        // 底色来自页面里的 orcarouter-connect 规则。选择器写歪时它会静默回落到主题默认值
         // ——与左栏面板几乎同色，也就是当初那个「看不见的入口」。
         if (!button.TryFindResource("App.HoverOverlay", window.ActualThemeVariant, out var entryBackground)
             || !ReferenceEquals(((Avalonia.Controls.Primitives.TemplatedControl)button).Background, entryBackground))
@@ -7684,15 +7969,15 @@ static void TestWorkspaceContextSettingsVisual(string outputPath)
         Name = "Visual Workspace",
         DirectoryPath = "/tmp/visual-workspace"
     };
-    var viewModel = new WorkspaceContextSettingsViewModel(
+    using var viewModel = new WorkspaceContextSettingsViewModel(
         workspace,
         appConfig,
         new WorkspaceEditorContextPolicyProvider(appConfig),
         new HeadlessWorkspaceService([workspace]),
         new HeadlessLocalizationService());
-    var window = new WorkspaceContextSettingsWindow
+    var window = new Window
     {
-        DataContext = viewModel,
+        Content = new WorkspaceContextSettingsView { DataContext = viewModel },
         Width = 820,
         Height = 720
     };
@@ -10123,11 +10408,7 @@ static void TestComposerReasoningEffortPicker(string outputPath)
     SaveWindowFrame(window, effortShotPath);
     flyout.ShowAt(button);
     Dispatcher.UIThread.RunJobs();
-    // 弹出菜单在自己的 PopupRoot 里，不在窗口的视觉树下；从 flyout 的 Popup 往下找实际生成的菜单项。
-    var popup = (Avalonia.Controls.Primitives.Popup)typeof(Avalonia.Controls.Primitives.PopupFlyoutBase)
-        .GetProperty("Popup", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic)!
-        .GetValue(flyout)!;
-    var menuItems = popup.Child?.GetVisualDescendants().OfType<MenuItem>().ToList() ?? [];
+    var menuItems = GetOpenedMenuItems(flyout);
     var high = menuItems.FirstOrDefault(item => item.Header as string == "高（high）")
                ?? throw new InvalidOperationException($"弹出菜单里没有「高（high）」：{string.Join(",", menuItems.Select(i => i.Header))}");
     if (menuItems.Count != 5 || menuItems.Single(item => item.IsChecked).Header as string != "默认（high）")
@@ -12400,6 +12681,15 @@ static async Task TestWorkspaceGenerateCommitMessageAsync()
     }
 }
 
+static IReadOnlyList<MenuItem> GetOpenedMenuItems(MenuFlyout flyout)
+{
+    // The realized items are in a separate PopupRoot.
+    var popup = (Avalonia.Controls.Primitives.Popup)typeof(Avalonia.Controls.Primitives.PopupFlyoutBase)
+        .GetProperty("Popup", BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic)!
+        .GetValue(flyout)!;
+    return popup.Child?.GetVisualDescendants().OfType<MenuItem>().ToList() ?? [];
+}
+
 static IReadOnlyList<MenuItem> WaitForMenuItems(
     MenuFlyout flyout,
     IReadOnlyList<string> expectedHeaders,
@@ -14460,6 +14750,9 @@ sealed class HeadlessEmbeddingService : IEmbeddingService
 sealed class HeadlessInteractionService(bool confirmResult = false) : IUserInteractionService
 {
     public bool? LastShowDontAskAgain { get; private set; }
+    public string? LastConfirmationMessage { get; private set; }
+    public int ConfirmationCount { get; private set; }
+    public Task<bool>? ConfirmationResponse { get; set; }
 
     public Task<bool> ConfirmAsync(
         string title,
@@ -14468,8 +14761,10 @@ sealed class HeadlessInteractionService(bool confirmResult = false) : IUserInter
         string cancelText,
         bool showDontAskAgain = true)
     {
+        ConfirmationCount++;
         LastShowDontAskAgain = showDontAskAgain;
-        return Task.FromResult(confirmResult);
+        LastConfirmationMessage = message;
+        return ConfirmationResponse ?? Task.FromResult(confirmResult);
     }
     public Task<string?> PickFolderAsync(string title) => Task.FromResult<string?>(null);
     public Task<IReadOnlyList<string>> PickFilesAsync(string title, string displayName, IReadOnlyList<string> patterns, bool allowMultiple)

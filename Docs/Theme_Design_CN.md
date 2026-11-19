@@ -12,6 +12,8 @@
 
 正文使用 `App.TextPrimary`，描述使用 `App.TextSecondary`，时间戳和帮助文字使用 `App.TextMuted`。辅助文字不再额外设置控件透明度，否则最终颜色会随底色变化。强调色文字与实心强调按钮上的反色文字要分别使用 `App.EmphasisForeground` 和 `App.InverseForeground`。状态提示同时使用配套背景与前景。
 
+新会话页面和会话加载幕布共享同一份透明 PNG。Default 直接显示确认稿，其他主题从当前明暗版本的强调色提取色相，为中间调轻微染色。渲染保留羽毛的明暗层次和原有透明度。主题资源在首次使用时解码并缓存，两个位置的标志均随主题切换即时更新。
+
 终端组件会缓存颜色表，因此在实际配色或明暗变化时重建控件并重新绑定同一个会话模型；普通日志/终端标签切换不重建控件。Markdown 的 `Color` 类型资源与控件的画笔资源分别提供，避免资源类型不匹配。代码高亮通过 `Markdown.CodeTheme` 跟随明暗选择 LightPlus / DarkPlus，代码块使用编辑器底色；链接及已访问链接也使用主题前景色。代码样本的实际高亮文本同样参与对比度断言。编辑区按容器铺满并从顶部排版。
 
 ## 验证
@@ -28,6 +30,6 @@ ATHENA_HEADLESS_ONLY=themes bash Scripts/run-headless-tests.sh /tmp/athena-theme
 bash Scripts/run-headless-tests.sh /tmp/athena-headless/main.png
 ```
 
-`ThemeContrastTests` 对九套主题的明暗字典检查完整性，以及正文、辅助文字、强调文字、选中态、按钮、待处理状态、代码、终端和差异区等配色对。普通文字按 [WCAG 2.2 对比度规则](https://www.w3.org/WAI/WCAG22/Understanding/contrast-minimum.html) 的 4.5:1 阈值计算，不对临界值四舍五入后放行。另验证已显示控件的实时换色、终端、主题预览与正常/换位/折叠布局，并输出四套新增主题的窗口截图。
+`ThemeContrastTests` 对九套主题的明暗字典检查完整性，以及正文、辅助文字、强调文字、选中态、按钮、待处理状态、代码、终端和差异区等配色对。普通文字按 [WCAG 2.2 对比度规则](https://www.w3.org/WAI/WCAG22/Understanding/contrast-minimum.html) 的 4.5:1 阈值计算，不对临界值四舍五入后放行。另验证已显示控件的实时换色、终端、主题预览与正常/换位/折叠布局，并输出四套新增主题的窗口截图。新会话标志的用例检查所有明暗配色、像素透明度与着色后的明暗层次。
 
 数值断言针对指定的不透明颜色组合，不等于整款应用的无障碍认证。背景图片、玻璃透明度、位图内容和第三方 Office/网页预览仍需按最终合成效果检查；原有原生窗口及玻璃过渡机制保留。无头截图不能替代各操作系统原生窗口的实际使用验收。
