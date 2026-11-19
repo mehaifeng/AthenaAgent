@@ -1075,6 +1075,7 @@
     <system:String x:Key="MainWindow.Tip.AddWorkspace">添加工作区</system:String>
     <system:String x:Key="MainWindow.Tip.ExpandCollapse">展开/收起</system:String>
     <system:String x:Key="MainWindow.Tip.NewConversation">新建对话</system:String>
+    <system:String x:Key="MainWindow.Navigation.Conversation">对话</system:String>
     <system:String x:Key="MainWindow.Tip.GlobalMenu">全局对话菜单</system:String>
     <system:String x:Key="MainWindow.Tip.WorkspaceMenu">工作区菜单</system:String>
     <system:String x:Key="MainWindow.Tip.ConfirmRename">确认重命名</system:String>

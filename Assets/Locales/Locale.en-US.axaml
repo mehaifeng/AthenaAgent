@@ -1075,6 +1075,7 @@
     <system:String x:Key="MainWindow.Tip.AddWorkspace">Add workspace</system:String>
     <system:String x:Key="MainWindow.Tip.ExpandCollapse">Expand / collapse</system:String>
     <system:String x:Key="MainWindow.Tip.NewConversation">New conversation</system:String>
+    <system:String x:Key="MainWindow.Navigation.Conversation">Conversation</system:String>
     <system:String x:Key="MainWindow.Tip.GlobalMenu">Global chat menu</system:String>
     <system:String x:Key="MainWindow.Tip.WorkspaceMenu">Workspace menu</system:String>
     <system:String x:Key="MainWindow.Tip.ConfirmRename">Confirm rename</system:String>

@@ -1,16 +1,13 @@
-<Window xmlns="https://github.com/avaloniaui"
-        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        xmlns:u="https://irihi.tech/ursa"
-        xmlns:loc="using:Athena.UI.Markup"
-        xmlns:vm="using:Athena.UI.ViewModels"
-        xmlns:models="using:Athena.UI.Models"
-        x:Class="Athena.UI.Views.ProviderModelsWindow"
-        x:DataType="vm:ProviderModelsViewModel"
-        Title="{loc:Loc ProviderModels.Title}"
-        Width="1280" Height="820"
-        MinWidth="980" MinHeight="620"
-        WindowStartupLocation="CenterOwner">
-    <Window.Styles>
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:u="https://irihi.tech/ursa"
+             xmlns:loc="using:Athena.UI.Markup"
+             xmlns:views="using:Athena.UI.Views"
+             xmlns:vm="using:Athena.UI.ViewModels"
+             xmlns:models="using:Athena.UI.Models"
+             x:Class="Athena.UI.Views.ProviderModelsView"
+             x:DataType="vm:ProviderModelsViewModel">
+    <UserControl.Styles>
         <!-- OrcaRouter 入口在左栏是主动作之一，默认底色和面板几乎同色，等于没有入口。
              叠一层 overlay 而不是写死颜色：这两把刷子是主题变体数据，十套配色都跟得上。
              写成 Style 而不是内联 Background —— 内联是局部值，会盖掉主题自己的
@@ -21,7 +18,7 @@
         <Style Selector="u|IconButton.orcarouter-connect:pointerover">
             <Setter Property="Background" Value="{DynamicResource App.PressOverlay}"/>
         </Style>
-    </Window.Styles>
+    </UserControl.Styles>
     <Grid Margin="5" ColumnDefinitions="280,5,*">
         <!-- 固定宽度的供应商导航，操作按钮始终留在顶部。 -->
         <Border Background="{DynamicResource App.WorkspaceLeftBackground}"
@@ -126,7 +123,7 @@
                                             VerticalAlignment="Center"
                                             HorizontalAlignment="Right"
                                             Margin="8,0,0,0"
-                                            Command="{Binding $parent[Window].((vm:ProviderModelsViewModel)DataContext).DeleteProviderCommand}"
+                                            Command="{Binding $parent[views:ProviderModelsView].((vm:ProviderModelsViewModel)DataContext).DeleteProviderCommand}"
                                             CommandParameter="{Binding}"
                                             Background="Transparent"
                                             BorderThickness="0"
@@ -362,15 +359,15 @@
                                             <ScrollViewer VerticalScrollBarVisibility="Auto">
                                                 <StackPanel Margin="14" DataContext="{Binding SelectedMetadataModel}" Spacing="12">
                                                     <TextBlock Foreground="{DynamicResource App.TextMuted}" Text="{loc:Loc ProviderModels.Metadata.Empty}"
-                                                               IsVisible="{Binding $parent[Window].((vm:ProviderModelsViewModel)DataContext).HasNoSelectedMetadataModel}"/>
-                                                    <StackPanel Spacing="6" IsVisible="{Binding $parent[Window].((vm:ProviderModelsViewModel)DataContext).HasSelectedMetadataModel}">
+                                                               IsVisible="{Binding $parent[views:ProviderModelsView].((vm:ProviderModelsViewModel)DataContext).HasNoSelectedMetadataModel}"/>
+                                                    <StackPanel Spacing="6" IsVisible="{Binding $parent[views:ProviderModelsView].((vm:ProviderModelsViewModel)DataContext).HasSelectedMetadataModel}">
                                                         <TextBlock Text="{loc:Loc ProviderModels.Metadata.Identity}" FontWeight="SemiBold"/>
                                                         <Grid ColumnDefinitions="*,Auto" ColumnSpacing="6">
                                                             <SelectableTextBlock Text="{Binding ExternalModelId}" TextWrapping="Wrap"/>
                                                             <Button Grid.Column="1"
                                                                     ToolTip.Tip="{loc:Loc Common.Copy}"
                                                                     AutomationProperties.Name="{loc:Loc Common.Copy}"
-                                                                    Command="{Binding $parent[Window].((vm:ProviderModelsViewModel)DataContext).CopyMetadataTextCommand}"
+                                                                    Command="{Binding $parent[views:ProviderModelsView].((vm:ProviderModelsViewModel)DataContext).CopyMetadataTextCommand}"
                                                                     CommandParameter="{Binding ExternalModelId}">
                                                                 <PathIcon Data="{StaticResource AthenaIconCopy}" Width="12" Height="12"/>
                                                             </Button>
@@ -381,7 +378,7 @@
                                                         <TextBlock Text="{Binding MatchDetails}" TextWrapping="Wrap"/>
                                                     </StackPanel>
             
-                                                    <StackPanel Spacing="5" IsVisible="{Binding $parent[Window].((vm:ProviderModelsViewModel)DataContext).HasSelectedMetadataModel}">
+                                                    <StackPanel Spacing="5" IsVisible="{Binding $parent[views:ProviderModelsView].((vm:ProviderModelsViewModel)DataContext).HasSelectedMetadataModel}">
                                                         <TextBlock Text="{loc:Loc ProviderModels.Metadata.ResolvedFacts}" FontWeight="SemiBold"/>
                                                         <StackPanel Orientation="Horizontal" Spacing="5"><TextBlock Text="{loc:Loc ProviderModels.Metadata.ContextWindow}"/><TextBlock Text="{Binding ContextWindowText}" TextWrapping="Wrap"/></StackPanel>
                                                         <StackPanel Orientation="Horizontal" Spacing="5"><TextBlock Text="{loc:Loc ProviderModels.Metadata.MaxOutput}"/><TextBlock Text="{Binding MaxCompletionText}" TextWrapping="Wrap"/></StackPanel>
@@ -396,7 +393,7 @@
                                                                    Foreground="{DynamicResource SemiOrange5}"/>
                                                     </StackPanel>
             
-                                                    <StackPanel Spacing="7" IsVisible="{Binding $parent[Window].((vm:ProviderModelsViewModel)DataContext).HasSelectedMetadataModel}">
+                                                    <StackPanel Spacing="7" IsVisible="{Binding $parent[views:ProviderModelsView].((vm:ProviderModelsViewModel)DataContext).HasSelectedMetadataModel}">
                                                         <TextBlock Text="{loc:Loc ProviderModels.Metadata.Binding}" FontWeight="SemiBold"/>
                                                         <StackPanel Orientation="Horizontal" Spacing="8">
                                                             <Button Content="{loc:Loc ProviderModels.Metadata.Automatic}" Command="{Binding UseAutomaticMatchCommand}"/>
@@ -423,7 +420,7 @@
                                                         </ItemsControl>
                                                     </StackPanel>
             
-                                                    <StackPanel Spacing="7" IsVisible="{Binding $parent[Window].((vm:ProviderModelsViewModel)DataContext).HasSelectedMetadataModel}">
+                                                    <StackPanel Spacing="7" IsVisible="{Binding $parent[views:ProviderModelsView].((vm:ProviderModelsViewModel)DataContext).HasSelectedMetadataModel}">
                                                         <Grid ColumnDefinitions="*,Auto">
                                                             <TextBlock Text="{loc:Loc ProviderModels.Metadata.Overrides}" FontWeight="SemiBold"/>
                                                             <Button Grid.Column="1" Content="{loc:Loc ProviderModels.Metadata.ResetOverrides}"
@@ -456,7 +453,7 @@
                                                     <Expander Header="{loc:Loc ProviderModels.Metadata.RawJson}" IsVisible="{Binding HasRawOpenRouterJson}">
                                                         <StackPanel Spacing="6">
                                                             <Button HorizontalAlignment="Left"
-                                                                    Command="{Binding $parent[Window].((vm:ProviderModelsViewModel)DataContext).CopyMetadataTextCommand}"
+                                                                    Command="{Binding $parent[views:ProviderModelsView].((vm:ProviderModelsViewModel)DataContext).CopyMetadataTextCommand}"
                                                                     CommandParameter="{Binding RawOpenRouterJson}">
                                                                 <StackPanel Orientation="Horizontal" Spacing="6">
                                                                     <PathIcon Data="{StaticResource AthenaIconCopy}" Width="12" Height="12"
@@ -480,4 +477,4 @@
             </TabControl>
         </Border>
     </Grid>
-</Window>
+</UserControl>

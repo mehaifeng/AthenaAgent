@@ -141,6 +141,10 @@ internal static class ThemeContrastTests
         var window = new MainWindow { DataContext = vm, Width = 1440, Height = 900 };
         window.Show();
         Settle();
+        var chatView = window.FindControl<MainConversationView>("MainConversationView")!;
+        var composer = chatView.FindControl<Border>("ComposerHost")?.Child as Border
+            ?? throw new InvalidOperationException("The chat composer surface was not created.");
+        Check(composer.CornerRadius == new CornerRadius(5), "composer has four equal rounded corners");
         vm.DisplayedConversation.Messages.Add(new ChatMessage { Role = "user", Content = "请检查主题的文字与容器配色。" });
         vm.DisplayedConversation.Messages.Add(new ChatMessage { Role = "assistant", Content = "## 清晰的工作空间\n\n正文、**强调内容**与辅助信息使用同一套语义配色。\n\n> 浅色与深色模式均保持可读性。\n\n`theme.Apply()` · [查看文档](https://example.com)\n\n```csharp\nvar theme = \"Forest\";\nConsole.WriteLine(theme);\n```" });
         using var tab = new WorkspaceEditorTabViewModel { FullPath = "/example/theme.cs", RelativePath = "theme.cs", Mode = WorkspaceEditorMode.Edit };
@@ -170,6 +174,9 @@ internal static class ThemeContrastTests
                     config.MainLayout.PanelGlassEnabled = layout == 1;
                     config.MainLayout.PanelTransparency = layout == 2 ? 0.8 : 0;
                     Settle();
+                    var composerBottom = composer.TranslatePoint(new Point(0, composer.Bounds.Height), chatView);
+                    Check(composerBottom is { } bottom && Math.Abs(chatView.Bounds.Height - bottom.Y - 10) < 1,
+                        $"{scheme}/{variant.Key}/{layout}: composer must keep a 10 DIP bottom gap inside the chat");
                     var dict = variant == ThemeVariant.Dark ? App.GetColorSchemeDictionaries(scheme).Dark : App.GetColorSchemeDictionaries(scheme).Light;
                     var blocks = window.GetVisualDescendants().OfType<LiveMarkdown.Avalonia.CodeBlock>().ToList();
                     Check(blocks.Count > 0, "shell preview must include a real syntax-highlighted code block");

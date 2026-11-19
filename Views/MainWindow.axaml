@@ -342,7 +342,7 @@
         </Image>
         <Image x:Name="ThemeTransitionImage" Stretch="UniformToFill" Opacity="0" IsHitTestVisible="False"/>
 
-        <Grid x:Name="MainShellGrid" Margin="5">
+        <Grid x:Name="MainShellGrid" Margin="5" IsVisible="{Binding IsConversationPageActive}">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="292" MinWidth="260"/>
                 <ColumnDefinition Width="5" MinWidth="5"/>
@@ -678,9 +678,66 @@
                               ZIndex="60"
                               HorizontalAlignment="Left"
                               VerticalAlignment="Top"
-                              IsSuppressed="{Binding $parent[Window].((vm:MainWindowViewModel)DataContext).IsGameModeActive}"
-                              DataContext="{Binding MainConversationViewModel.Pet}"/>
+                              DataContext="{Binding MainConversationViewModel.Pet}">
+            <views:VirtualPetView.IsSuppressed>
+                <MultiBinding Converter="{x:Static BoolConverters.Or}">
+                    <Binding Path="$parent[Window].((vm:MainWindowViewModel)DataContext).IsGameModeActive"/>
+                    <Binding Path="!$parent[Window].((vm:MainWindowViewModel)DataContext).IsConversationPageActive"/>
+                </MultiBinding>
+            </views:VirtualPetView.IsSuppressed>
+        </views:VirtualPetView>
 
         </Grid>
+
+        <Border x:Name="MainPageHost"
+                Margin="5"
+                Background="{DynamicResource App.PanelVeilBrush}"
+                BorderBrush="{DynamicResource App.PanelBorderBrush}"
+                BorderThickness="1" CornerRadius="10"
+                ClipToBounds="True"
+                IsVisible="{Binding !IsConversationPageActive}">
+            <Grid RowDefinitions="Auto,*">
+                <Border Background="{DynamicResource App.SectionBg}"
+                        BorderBrush="{DynamicResource App.SurfaceBorder}"
+                        BorderThickness="0,0,0,1" Padding="14,10">
+                    <Grid ColumnDefinitions="Auto,*" ColumnSpacing="12">
+                        <Button x:Name="ReturnToConversationButton"
+                                Width="34" Height="34" Padding="0" CornerRadius="9"
+                                Command="{Binding ReturnToConversationCommand}"
+                                Theme="{StaticResource AccentButtonTheme}"
+                                ToolTip.Tip="{loc:Loc MainWindow.Navigation.Conversation}"
+                                AutomationProperties.Name="{loc:Loc MainWindow.Navigation.Conversation}">
+                            <PathIcon Data="{StaticResource AthenaIconConversation}" Width="17" Height="17"/>
+                        </Button>
+                        <TextBlock x:Name="MainPageTitle" Grid.Column="1"
+                                   VerticalAlignment="Center"
+                                   FontSize="{DynamicResource App.FontSize.PageTitle}" FontWeight="SemiBold"
+                                   Text="{Binding ActivePageTitle}" TextTrimming="CharacterEllipsis"/>
+                    </Grid>
+                </Border>
+                <ContentControl x:Name="MainPageContent" Grid.Row="1" Content="{Binding ActivePage}">
+                    <ContentControl.DataTemplates>
+                        <DataTemplate DataType="vm:AppSettingsViewModel">
+                            <views:AppSettingsView/>
+                        </DataTemplate>
+                        <DataTemplate DataType="vm:ProviderModelsViewModel">
+                            <views:ProviderModelsView/>
+                        </DataTemplate>
+                        <DataTemplate DataType="vm:SkillsConnectorsViewModel">
+                            <views:SkillsConnectorsView/>
+                        </DataTemplate>
+                        <DataTemplate DataType="vm:WorkspaceContextSettingsViewModel">
+                            <views:WorkspaceContextSettingsView/>
+                        </DataTemplate>
+                        <DataTemplate DataType="vm:TasksViewModel">
+                            <views:TasksView/>
+                        </DataTemplate>
+                        <DataTemplate DataType="vm:KnowledgeBaseViewModel">
+                            <views:KnowledgeBaseView/>
+                        </DataTemplate>
+                    </ContentControl.DataTemplates>
+                </ContentControl>
+            </Grid>
+        </Border>
     </Grid>
 </Window>

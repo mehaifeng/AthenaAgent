@@ -38,9 +38,9 @@
 
 ## 3. 应用设置与供应商模型
 
-![应用设置窗口](images/AppSettingsWindow.png)
+![应用设置](images/AppSettingsWindow.png)
 
-设置页为自动保存，不需要单独点击保存。
+应用设置、供应商模型、知识库、技能与扩展、工作区上下文设置和定时消息都在主窗体内打开。点击左上角的对话气泡图标回到原会话。应用设置会自动保存。
 
 ### 3.1 外观与交互偏好
 - 显示主题：仅影响界面外观。
@@ -76,9 +76,9 @@
 
 ## 4. Skills 与连接器
 
-![Skills 与连接器窗口](images/SkillsConnectorsWindow.png)
+![Skills 与连接器](images/SkillsConnectorsWindow.png)
 
-独立的 Skills 与连接器窗口包含六个持久页面：Skills、MCP、语音、图像生成、Web Search 和文档解析。切换页面不会重建页面 VM 或丢失正在编辑的状态，各项配置会自动保存。
+技能与扩展页包含 Skills、MCP、语音、图像生成、Web Search 和文档解析六个分区。切换分区会保留当前编辑状态，各项配置会自动保存。
 
 - **语音**：打开语音开关后，可配置服务商、API 端点、API 密钥、模型名和音色；可单独设置是否自动播放，并使用“诊断”检查配置是否可用。
 - **图像生成**：打开后，助手可通过 `generate_image` 生成图片；填写对应的 API 端点、API 密钥和模型名即可。
@@ -140,7 +140,7 @@ MCP（Model Context Protocol）让 Athena 连接外部服务器，并按需使�
 
 ## 8. 知识库与长期记忆
 
-![知识库窗口](images/KnowledgeBaseWindow.png)
+![知识库](images/KnowledgeBaseWindow.png)
 
 ### 8.1 知识库页面
 - 左侧为目录结构，可直接新建文件夹和 Markdown 文件，组织长期记忆（如 `user_preferences`、`user_profiles`）。

@@ -841,7 +841,7 @@ public partial class App : Application, IAsyncDisposable
                 sp.GetRequiredService<Athena.UI.Services.GameMode.IPolisDebateService>(),
                 sp.GetRequiredService<Athena.UI.Services.GameMode.PolisRelationStore>()));
         services.AddSingleton<AboutViewModel>();
-        services.AddTransient<AppSettingsWindowViewModel>();
+        services.AddTransient<AppSettingsViewModel>();
         services.AddTransient<ProviderModelsViewModel>();
         // 单例：单飞闸门归它所有，两个窗口不能各起一次授权（两个 state 会互相污染）。
         // 端点配置在组合根加载；缺失或被改坏时服务自报不可用，入口保持禁用。
@@ -876,7 +876,7 @@ public partial class App : Application, IAsyncDisposable
         services.AddTransient<ImageGenerationSettingsViewModel>();
         services.AddTransient<WebSearchSettingsViewModel>();
         services.AddTransient<DocumentParserSettingsViewModel>();
-        services.AddTransient<SkillsConnectorsWindowViewModel>();
+        services.AddTransient<SkillsConnectorsViewModel>();
 
         // Token 统计服务（单例，跨页面同步）
         services.AddSingleton<ITokenService, TokenService>();
@@ -1479,10 +1479,10 @@ public partial class App : Application, IAsyncDisposable
             var terminalPanelViewModel = sp.GetRequiredService<TerminalPanelViewModel>();
             var contextPolicyProvider = sp.GetRequiredService<IContextPolicyProvider>();
             _ = sp.GetRequiredService<AppConfigurationApplier>();
-            Func<SkillsConnectorsWindowViewModel> skillsConnectorsFactory =
-                () => sp.GetRequiredService<SkillsConnectorsWindowViewModel>();
-            Func<AppSettingsWindowViewModel> appSettingsFactory =
-                () => sp.GetRequiredService<AppSettingsWindowViewModel>();
+            Func<SkillsConnectorsViewModel> skillsConnectorsFactory =
+                () => sp.GetRequiredService<SkillsConnectorsViewModel>();
+            Func<AppSettingsViewModel> appSettingsFactory =
+                () => sp.GetRequiredService<AppSettingsViewModel>();
 
             return new MainWindowViewModel(
                 chatService,
@@ -1523,7 +1523,8 @@ public partial class App : Application, IAsyncDisposable
                 conversationNavigator,
                 sp.GetService<ISystemNotificationService>(),
                 sp.GetService<IAppForegroundProbe>(),
-                sp.GetRequiredService<Athena.UI.ViewModels.GameMode.GameModeViewModel>());
+                sp.GetRequiredService<Athena.UI.ViewModels.GameMode.GameModeViewModel>(),
+                () => sp.GetRequiredService<ProviderModelsViewModel>());
         });
 
         Log.Debug("Dependency injection services configured");

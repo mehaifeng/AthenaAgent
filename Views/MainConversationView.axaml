@@ -869,10 +869,12 @@
                 MaxWidth="{DynamicResource App.ContentMaxWidth}"
                 HorizontalAlignment="Stretch"
                 IsVisible="{Binding !#ConversationRoot.IsGameModeActive}">
-            <Border CornerRadius="0,0,5,5"
+            <Border Margin="0,0,0,10"
+                    CornerRadius="5"
                     BorderThickness="1"
                     BorderBrush="{DynamicResource SemiGreyLowBrush}"
                     Background="{DynamicResource App.SectionBg}"
+                    BoxShadow="0 2 6 0 #26000000"
                     Padding="8">
             <Grid RowDefinitions="Auto,Auto,Auto,Auto,Auto">
                 <!-- 仓库分支入口：名称打开工作区差异审查，菜单打开仓库级分支操作。 -->

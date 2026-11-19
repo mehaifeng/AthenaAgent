@@ -155,6 +155,11 @@ if (Environment.GetEnvironmentVariable("ATHENA_HEADLESS_ONLY") == "process-runs"
     TestToolCallEditorVisual(outputPath);
     Environment.Exit(0);
 }
+if (Environment.GetEnvironmentVariable("ATHENA_HEADLESS_ONLY") == "main-pages")
+{
+    TestMainWindowPages(outputPath);
+    Environment.Exit(0);
+}
 if (Environment.GetEnvironmentVariable("ATHENA_HEADLESS_ONLY") == "game-mode")
 {
     TestGameModeSwitchAndFailures();
@@ -302,6 +307,7 @@ TestSelfConfigurationSurface();
 TestOrcaRouterConnectEntryPoints(Path.GetDirectoryName(outputPath)!);
 TestNotificationPayloadEncoding();
 TestApprovalNotificationWiring();
+TestMainWindowPages(outputPath);
 TestReplyFinishedNotification();
 TestProviderErrorFailsScheduledRun();
 TestLifecycle();
@@ -941,25 +947,27 @@ window.Close();
     var imagePage = new ImageGenerationSettingsViewModel(connectorSession);
     var webPage = new WebSearchSettingsViewModel(connectorSession);
     var documentPage = new DocumentParserSettingsViewModel(connectorSession);
-    var connectorViewModel = new SkillsConnectorsWindowViewModel(
+    using var connectorViewModel = new SkillsConnectorsViewModel(
         skillsPage,
         mcpPage,
         speechPage,
         imagePage,
         webPage,
         documentPage);
-    var skillsWindow = new SkillsConnectorsWindow
+    var connectorsView = new SkillsConnectorsView { DataContext = connectorViewModel };
+    var skillsWindow = new Window
     {
-        DataContext = connectorViewModel,
+        Content = connectorsView,
+        MinWidth = 1000,
         Width = 1160,
         Height = 800
     };
     skillsWindow.Show();
     Dispatcher.UIThread.RunJobs();
 
-    var connectorNavigation = skillsWindow.FindControl<ListBox>("ConnectorNavigation")
+    var connectorNavigation = connectorsView.FindControl<ListBox>("ConnectorNavigation")
         ?? throw new InvalidOperationException("Skills/Connectors navigation host was not created.");
-    var connectorContentHost = skillsWindow.FindControl<ContentControl>("ConnectorContentHost")
+    var connectorContentHost = connectorsView.FindControl<ContentControl>("ConnectorContentHost")
         ?? throw new InvalidOperationException("Skills/Connectors must use one ContentControl host.");
     if (connectorNavigation.ItemCount != 6
         || skillsWindow.GetVisualDescendants().OfType<ContentControl>().Count(control => control.Name == "ConnectorContentHost") != 1)
@@ -1014,25 +1022,8 @@ window.Close();
 }
 
 {
-    var knowledgeViewModel = new KnowledgeBaseViewModel();
-    var knowledgeWindow = new KnowledgeBaseWindow(knowledgeViewModel);
-    knowledgeWindow.Show();
-    Dispatcher.UIThread.RunJobs();
-    var knowledgeView = knowledgeWindow.Content as KnowledgeBaseView
-        ?? throw new InvalidOperationException("Knowledge Base window did not host the semantic KnowledgeBaseView.");
-    if (knowledgeView.FindControl<Button>("RunKnowledgeMaintenanceButton") == null
-        || knowledgeView.FindControl<Button>("RebuildVectorIndexButton") == null
-        || !ReferenceEquals(knowledgeView.DataContext, knowledgeViewModel))
-        throw new InvalidOperationException("Knowledge Base must expose maintenance and vector-index rebuild commands.");
-    var featureWindowTypes = new[]
-    {
-        (Window: typeof(KnowledgeBaseWindow), ViewModel: typeof(KnowledgeBaseViewModel)),
-        (Window: typeof(TasksWindow), ViewModel: typeof(TasksViewModel)),
-        (Window: typeof(DetailedLogsWindow), ViewModel: typeof(LogsViewModel))
-    };
-    if (featureWindowTypes.Any(pair =>
-            pair.Window.GetConstructors().Single().GetParameters().First().ParameterType != pair.ViewModel))
-        throw new InvalidOperationException("Feature windows must expose one strongly typed view-model constructor.");
+    if (typeof(DetailedLogsWindow).GetConstructors().Single().GetParameters().First().ParameterType != typeof(LogsViewModel))
+        throw new InvalidOperationException("The detailed logs window must expose a strongly typed view-model constructor.");
     var semanticViewMappings = new (ViewModelBase ViewModel, Type View)[]
     {
         (new MainConversationViewModel(), typeof(MainConversationView)),
@@ -1044,9 +1035,7 @@ window.Close();
     var viewLocator = new ViewLocator();
     if (semanticViewMappings.Any(pair => viewLocator.Build(pair.ViewModel)?.GetType() != pair.View))
         throw new InvalidOperationException("Semantic view names no longer satisfy the ViewLocator naming convention.");
-    SaveWindowFrame(knowledgeWindow, Path.Combine(Path.GetDirectoryName(outputPath)!, "knowledge-base-window.png"));
-    Console.WriteLine("[PASS] semantic views satisfy ViewLocator naming and strongly typed feature windows own their content");
-    knowledgeWindow.Close();
+    Console.WriteLine("[PASS] semantic views satisfy ViewLocator naming and the logs window owns its content");
 }
 LocalizationBindingTests.Run();
 Task.Run(KnowledgeIndexTests.RunAsync).GetAwaiter().GetResult();
@@ -1464,7 +1453,7 @@ var taskEditor = archiveTreeViewModel.TasksViewModel.Editor;
 if (!taskEditor.AvailableWorkspaces.SequenceEqual(new[] { archiveWorkspace, backgroundWorkspace }))
     throw new InvalidOperationException("The task editor should receive the workspaces already read for the session tree.");
 taskEditor.SelectedWorkspace = backgroundWorkspace;
-PumpForCompletion(archiveTreeViewModel.OpenTasksCommand.ExecuteAsync(null), "open scheduled tasks");
+archiveTreeViewModel.OpenTasksCommand.Execute(null);
 if (!ReferenceEquals(taskEditor.SelectedWorkspace, backgroundWorkspace))
     throw new InvalidOperationException("Refreshing task editor options must preserve the selected workspace.");
 
@@ -2086,12 +2075,15 @@ Console.WriteLine("[PASS] the packaged asset list keeps runtime entry points and
 
         cronMainViewModel.SelectedConversation = cronOtherSession;
         cronNavigator.AttachTarget(cronMainViewModel);
+        cronMainViewModel.OpenTasksCommand.Execute(null);
         tasksViewModel.OpenRunConversationCommand.Execute(runItem);
         // 导航是异步命令：一次 RunJobs 只排空此刻已入队的作业，续体晚到就会误判；等到选中或超时。
         PumpUntil(() => ReferenceEquals(cronMainViewModel.SelectedConversation, cronBaselineSession) || !string.IsNullOrEmpty(tasksViewModel.StatusMessage), 5000,
             "Opening a run never finished navigating.");
         if (!ReferenceEquals(cronMainViewModel.SelectedConversation, cronBaselineSession))
             throw new InvalidOperationException($"Opening a run must navigate to the session that run created (status '{tasksViewModel.StatusMessage}', selected '{cronMainViewModel.SelectedConversation?.Title}', run history '{runItem.HistoryId}' conv '{runItem.ConversationId}' vs '{cronBaselineSession.HistoryId}' / '{cronBaselineSession.ConversationId}').");
+        if (!cronMainViewModel.IsConversationPageActive)
+            throw new InvalidOperationException("Opening a run must return to the conversation page.");
 
         // 记录里的会话已经不存在时，导航必须安全失败并给出提示，而不是抛异常。
         var orphanRun = new CronTaskRunItemViewModel(
@@ -3751,7 +3743,7 @@ static void TestConfigurationSession(string artifactDirectory)
     settingsLocalization.SwitchLanguage("zh-CN");
     var diagnosticsCatalog = new HeadlessMetadataCatalog();
     var diagnosticsInteraction = new HeadlessInteractionService(confirmResult: true);
-    var appSettings = new AppSettingsWindowViewModel(
+    var appSettings = new AppSettingsViewModel(
         session,
         new AboutViewModel(),
         localizationService: settingsLocalization,
@@ -3911,14 +3903,18 @@ static void TestConfigurationSession(string artifactDirectory)
         || appSettings.ToolApproval.Modes[0].Title != "均衡 · 推荐")
         throw new InvalidOperationException("App Settings semantic navigation and approval modes did not return to Chinese.");
 
-    var appSettingsWindow = new AppSettingsWindow { DataContext = appSettings };
+    using var appShell = new MainWindowViewModel(null, null, null, null, null, settingsLocalization, null, null,
+        null, null, null, null, null, null, appSettingsFactory: () => appSettings);
+    var appSettingsWindow = new MainWindow { DataContext = appShell };
+    appShell.OpenAppSettingsCommand.Execute(null);
     appSettingsWindow.Show();
     Dispatcher.UIThread.RunJobs();
-    if (appSettingsWindow.DataContext is MainWindowViewModel
-        || appSettingsWindow.FindControl<ListBox>("SettingsNavigation") == null
-        || appSettingsWindow.FindControl<ContentControl>("SettingsContentHost") == null
-        || appSettingsWindow.GetVisualDescendants().OfType<Expander>().Any()
-        || appSettingsWindow.Content is not Grid)
+    var settingsView = appSettingsWindow.GetVisualDescendants().OfType<AppSettingsView>().Single();
+    if (!ReferenceEquals(settingsView.DataContext, appSettings)
+        || settingsView.FindControl<ListBox>("SettingsNavigation") == null
+        || settingsView.FindControl<ContentControl>("SettingsContentHost") == null
+        || settingsView.GetVisualDescendants().OfType<Expander>().Any()
+        || settingsView.Content is not Grid)
         throw new InvalidOperationException("App Settings must use one navigation surface, one content host, and page-owned scrolling.");
 
     var expectedViews = new[]
@@ -4016,6 +4012,7 @@ static void TestConfigurationSession(string artifactDirectory)
         throw new InvalidOperationException($"AppConfigurationApplier did not apply font scale on config change (Body={appliedBody}).");
     FontScaleService.Apply("Medium"); // 恢复基准字号，避免影响后续测试的硬编码字号断言。
 
+    appShell.ReturnToConversationCommand.Execute(null);
     appSettingsWindow.Close();
     var closedSettingsConfig = settingsState.Config;
     service.PublishExternal(new AppConfig());
@@ -4245,6 +4242,154 @@ static void TestApprovalNotificationWiring()
     Console.WriteLine("[PASS] approval notifications fire only when nobody is watching, and are withdrawn once answered");
 }
 
+static void TestMainWindowPages(string outputPath)
+{
+    var localization = App.Services!.GetRequiredService<ILocalizationService>();
+    var previousLanguage = localization.CurrentLanguage;
+    var config = new AppConfig();
+    config.AiModels.Providers.Add(new OpenAiProviderConfiguration { DisplayName = "Example Provider" });
+    var configService = new HeadlessConfigService(config);
+    using var session = new AppConfigurationSession(configService);
+    var workspace = new WorkspaceProfile { Name = "示例工作区", DirectoryPath = "/tmp/visual-workspace" };
+    SkillsConnectorsViewModel CreateConnectors()
+    {
+        var skills = new SkillsViewModel();
+        skills.Initialize(session);
+        var mcp = new McpConnectionsViewModel();
+        mcp.Initialize(session);
+        return new SkillsConnectorsViewModel(skills, mcp, new SpeechSettingsViewModel(session),
+            new ImageGenerationSettingsViewModel(session), new WebSearchSettingsViewModel(session),
+            new DocumentParserSettingsViewModel(session), localization);
+    }
+
+    using var shell = new MainWindowViewModel(null, null, null, null, null, localization, null, null,
+        null, null, null, null, null, null,
+        workspaceService: new HeadlessWorkspaceService([workspace]),
+        configurationSession: session,
+        skillsConnectorsFactory: CreateConnectors,
+        appSettingsFactory: () => new AppSettingsViewModel(session, new AboutViewModel(), localizationService: localization),
+        contextPolicyProvider: new WorkspaceEditorContextPolicyProvider(config),
+        providerModelsFactory: () => new ProviderModelsViewModel(session, new HeadlessModelCatalogService()));
+    var window = new MainWindow { DataContext = shell, Width = 1180, Height = 720 };
+    try
+    {
+        localization.SwitchLanguage("zh-CN");
+        window.Show();
+        PumpUntil(() => !shell.IsConversationTreeLoading && shell.SelectedConversation != null && !shell.IsConversationSwitching);
+        var selected = shell.SelectedConversation!;
+        const string draft = "返回后仍能继续编辑";
+        selected.Chat.InputText = draft;
+        var chatGrid = window.FindControl<Grid>("MainShellGrid")!;
+        var chatView = window.FindControl<MainConversationView>("MainConversationView")!;
+        var petView = window.FindControl<VirtualPetView>("VirtualPet")!;
+        var composer = chatView.FindControl<Border>("ComposerHost")!;
+        var composerCard = (Border)composer.Child!;
+        var composerBottom = composerCard.TranslatePoint(new Point(0, composerCard.Bounds.Height), window);
+        if (composerBottom is not { } bottom || window.ClientSize.Height - bottom.Y < 15)
+            throw new InvalidOperationException("输入卡片和窗体底部之间应保留至少 15 DIP。");
+        var pageHost = window.FindControl<Border>("MainPageHost")!;
+        var pageContent = window.FindControl<ContentControl>("MainPageContent")!;
+        var title = window.FindControl<TextBlock>("MainPageTitle")!;
+        var back = window.FindControl<Button>("ReturnToConversationButton")!;
+        if (back.Content is not PathIcon { Data: not null })
+            throw new InvalidOperationException("返回按钮应使用纯图标。");
+        var initialSize = window.ClientSize;
+        var group = shell.ConversationGroups.Single(item => item.Workspace == workspace);
+
+        void OpenFromChat(System.Windows.Input.ICommand command)
+        {
+            var launcher = chatGrid.GetVisualDescendants().OfType<Button>()
+                .Single(button => ReferenceEquals(button.Command, command) && button.IsEffectivelyVisible);
+            launcher.Command!.Execute(launcher.CommandParameter);
+        }
+
+        T RequirePage<T>(string expectedTitle) where T : UserControl
+        {
+            Dispatcher.UIThread.RunJobs();
+            if (!pageHost.IsEffectivelyVisible || chatGrid.IsEffectivelyVisible || !petView.IsSuppressed
+                || !back.IsEffectivelyVisible || !back.IsEffectivelyEnabled || title.Text != expectedTitle
+                || window.ClientSize != initialSize)
+                throw new InvalidOperationException($"主窗体页面 {expectedTitle} 必须占用原有窗口并显示统一返回按钮。");
+            return pageContent.GetVisualDescendants().OfType<T>().Single(view => view.IsEffectivelyVisible);
+        }
+
+        void Back()
+        {
+            back.Command!.Execute(null);
+            Dispatcher.UIThread.RunJobs();
+            if (pageHost.IsEffectivelyVisible || !chatGrid.IsEffectivelyVisible || petView.IsSuppressed
+                || !ReferenceEquals(shell.SelectedConversation, selected)
+                || !ReferenceEquals(chatView.DataContext, selected.Chat) || selected.Chat.InputText != draft)
+                throw new InvalidOperationException("返回必须恢复同一对话视图、选中会话和草稿。");
+        }
+
+        OpenFromChat(shell.OpenAppSettingsCommand);
+        RequirePage<AppSettingsView>("应用设置");
+        localization.SwitchLanguage("en-US");
+        RequirePage<AppSettingsView>("App Settings");
+        localization.SwitchLanguage("zh-CN");
+        Directory.CreateDirectory(Path.GetDirectoryName(outputPath)!);
+        SaveWindowFrame(window, Path.Combine(Path.GetDirectoryName(outputPath)!, "main-app-settings.png"));
+        Back();
+
+        OpenFromChat(shell.OpenKnowledgeBaseCommand);
+        var knowledge = RequirePage<KnowledgeBaseView>("知识库");
+        if (!ReferenceEquals(knowledge.DataContext, shell.KnowledgeBaseViewModel)
+            || knowledge.FindControl<Button>("RunKnowledgeMaintenanceButton")?.Command == null
+            || knowledge.FindControl<Button>("RebuildVectorIndexButton")?.Command == null)
+            throw new InvalidOperationException("主窗体知识库页面应保留知识整理与重建向量索引。");
+        localization.SwitchLanguage("en-US");
+        RequirePage<KnowledgeBaseView>("Knowledge base");
+        localization.SwitchLanguage("zh-CN");
+        SaveWindowFrame(window, Path.Combine(Path.GetDirectoryName(outputPath)!, "knowledge-base-window.png"));
+        Back();
+        OpenFromChat(shell.OpenKnowledgeBaseCommand);
+        if (!ReferenceEquals(RequirePage<KnowledgeBaseView>("知识库").DataContext, shell.KnowledgeBaseViewModel))
+            throw new InvalidOperationException("重新进入知识库应复用原有页面状态。");
+        Back();
+
+        OpenFromChat(shell.OpenProviderModelsCommand);
+        var provider = RequirePage<ProviderModelsView>("供应商与模型");
+        var deleteProvider = provider.GetVisualDescendants().OfType<Button>().Single(button => button.Classes.Contains("provider-item-delete"));
+        if (!ReferenceEquals(deleteProvider.Command, ((ProviderModelsViewModel)provider.DataContext!).DeleteProviderCommand))
+            throw new InvalidOperationException("供应商列表项必须从嵌入页面解析删除命令。");
+        Back();
+
+        OpenFromChat(shell.OpenSkillsConnectorsCommand);
+        RequirePage<SkillsConnectorsView>("技能与扩展");
+        Back();
+
+        group.RequestContextSettingsCommand.Execute(null);
+        var workspacePage = RequirePage<WorkspaceContextSettingsView>("Workspace 上下文设置");
+        var policy = (WorkspaceContextSettingsViewModel)workspacePage.DataContext!;
+        policy.OverrideWorkspaceKnowledgeBudget = true;
+        policy.WorkspaceKnowledgeCharBudget = 9000;
+        Back();
+        if (workspace.ContextPolicyOverride != null)
+            throw new InvalidOperationException("从工作区页面返回时，未保存的草稿不能写进工作区。");
+
+        group.RequestContextSettingsCommand.Execute(null);
+        policy = (WorkspaceContextSettingsViewModel)RequirePage<WorkspaceContextSettingsView>("Workspace 上下文设置").DataContext!;
+        policy.OverrideWorkspaceKnowledgeBudget = true;
+        policy.WorkspaceKnowledgeCharBudget = 12000;
+        PumpForCompletion(policy.SaveCommand.ExecuteAsync(null), "保存工作区上下文配置");
+        Dispatcher.UIThread.RunJobs();
+        if (!shell.IsConversationPageActive || workspace.ContextPolicyOverride?.WorkspaceKnowledgeCharBudget != 12000)
+            throw new InvalidOperationException("保存工作区后必须返回对话。");
+
+        OpenFromChat(shell.OpenTasksCommand);
+        RequirePage<TasksView>("定时消息");
+        Back();
+    }
+    finally
+    {
+        window.Close();
+        localization.SwitchLanguage(previousLanguage);
+    }
+
+    Console.WriteLine("[PASS] six main-window pages, icon-only return, composer spacing, draft preservation, and workspace save");
+}
+
 // 回合结束时的通知。三条规则各自都有一个具体的失败模式在后面顶着：
 // 前台还发 = 对着正在看气泡的人弹提示；定时会话也发 = 一次 cron 触发弹两条；
 // 键不按会话分 = 两个会话各自回完，后一条把前一条顶掉。
@@ -4444,15 +4589,11 @@ static void TestLifecycle()
         var image = new ImageGenerationSettingsViewModel(connectorSession);
         var web = new WebSearchSettingsViewModel(connectorSession);
         var document = new DocumentParserSettingsViewModel(connectorSession);
-        var connectorWindow = new SkillsConnectorsWindow
-        {
-            DataContext = new SkillsConnectorsWindowViewModel(skills, mcp, speech, image, web, document)
-        };
-
-        connectorWindow.Show();
-        Dispatcher.UIThread.RunJobs();
-        connectorWindow.Close();
-        Dispatcher.UIThread.RunJobs();
+        using var shell = new MainWindowViewModel(null, null, null, null, null, null, null, null,
+            null, null, null, null, null, null,
+            skillsConnectorsFactory: () => new SkillsConnectorsViewModel(skills, mcp, speech, image, web, document));
+        shell.OpenSkillsConnectorsCommand.Execute(null);
+        shell.ReturnToConversationCommand.Execute(null);
 
         var replacementConfig = new AppConfig();
         connectorConfigService.PublishExternal(replacementConfig);
@@ -7185,7 +7326,7 @@ static void TestProviderMetadataUi(string outputPath)
     using var session = new AppConfigurationSession(configService);
     var metadataLocalization = new LocalizationService();
     metadataLocalization.SwitchLanguage("zh-CN");
-    var viewModel = new ProviderModelsViewModel(
+    using var viewModel = new ProviderModelsViewModel(
         session,
         new HeadlessModelCatalogService(),
         catalog,
@@ -7228,17 +7369,18 @@ static void TestProviderMetadataUi(string outputPath)
         throw new InvalidOperationException("Provider metadata search did not filter the 336-model inventory deterministically.");
     viewModel.MetadataSearchText = string.Empty;
 
-    var window = new ProviderModelsWindow
+    var providerView = new ProviderModelsView { DataContext = viewModel };
+    var window = new Window
     {
-        DataContext = viewModel,
+        Content = providerView,
         Width = 1280,
         Height = 820
     };
     window.Show();
     Dispatcher.UIThread.RunJobs();
-    var providerTypeEditor = window.FindControl<TextBox>("ProviderTypeEditor")
+    var providerTypeEditor = providerView.FindControl<TextBox>("ProviderTypeEditor")
                              ?? throw new InvalidOperationException("Provider type editor was not rendered.");
-    var providerDisplayNameEditor = window.FindControl<TextBox>("ProviderDisplayNameEditor")
+    var providerDisplayNameEditor = providerView.FindControl<TextBox>("ProviderDisplayNameEditor")
                                     ?? throw new InvalidOperationException("Provider display-name editor was not rendered.");
     if (providerTypeEditor.Parent is not Grid providerTypeRow
         || providerDisplayNameEditor.Parent is not Grid providerDisplayNameRow
@@ -7246,9 +7388,9 @@ static void TestProviderMetadataUi(string outputPath)
         || !ReferenceEquals(connectionPanel, providerDisplayNameRow.Parent)
         || connectionPanel.Children.IndexOf(providerTypeRow) >= connectionPanel.Children.IndexOf(providerDisplayNameRow))
         throw new InvalidOperationException("Provider type must be placed before the custom display name.");
-    window.FindControl<TabControl>("ProviderModelsTabs")!.SelectedIndex = 1;
+    providerView.FindControl<TabControl>("ProviderModelsTabs")!.SelectedIndex = 1;
     Dispatcher.UIThread.RunJobs();
-    var list = window.FindControl<ListBox>("MetadataModelList")
+    var list = providerView.FindControl<ListBox>("MetadataModelList")
                ?? throw new InvalidOperationException("Provider metadata list was not rendered.");
     var realized = list.GetVisualDescendants().OfType<ListBoxItem>().Count();
     if (realized <= 0 || realized >= 336)
@@ -7321,17 +7463,18 @@ static void TestOrcaRouterConnectEntryPoints(string outputDirectory)
             null,
             service);
 
-        var window = new ProviderModelsWindow { DataContext = viewModel, Width = 1280, Height = 820 };
+        var providerView = new ProviderModelsView { DataContext = viewModel };
+        var window = new Window { Content = providerView, Width = 1280, Height = 820 };
         window.Show();
         Dispatcher.UIThread.RunJobs();
 
         // 按钮被实际渲染且可用——绑定路径写错时命令为 null，这里就会失败。
-        var button = window.FindControl<Control>("OrcaRouterConnectButton")
-                     ?? throw new InvalidOperationException("供应商窗口没有渲染 OrcaRouter 接入按钮。");
+        var button = providerView.FindControl<Control>("OrcaRouterConnectButton")
+                     ?? throw new InvalidOperationException("供应商页面没有渲染 OrcaRouter 接入按钮。");
         if (!button.IsVisible || !button.IsEffectivelyEnabled)
             throw new InvalidOperationException("端点配置可用时 OrcaRouter 接入按钮必须可用。");
 
-        // 底色来自 Window.Styles 里的 orcarouter-connect 规则。选择器写歪时它会静默回落到主题默认值
+        // 底色来自页面里的 orcarouter-connect 规则。选择器写歪时它会静默回落到主题默认值
         // ——与左栏面板几乎同色，也就是当初那个「看不见的入口」。
         if (!button.TryFindResource("App.HoverOverlay", window.ActualThemeVariant, out var entryBackground)
             || !ReferenceEquals(((Avalonia.Controls.Primitives.TemplatedControl)button).Background, entryBackground))
@@ -7684,15 +7827,15 @@ static void TestWorkspaceContextSettingsVisual(string outputPath)
         Name = "Visual Workspace",
         DirectoryPath = "/tmp/visual-workspace"
     };
-    var viewModel = new WorkspaceContextSettingsViewModel(
+    using var viewModel = new WorkspaceContextSettingsViewModel(
         workspace,
         appConfig,
         new WorkspaceEditorContextPolicyProvider(appConfig),
         new HeadlessWorkspaceService([workspace]),
         new HeadlessLocalizationService());
-    var window = new WorkspaceContextSettingsWindow
+    var window = new Window
     {
-        DataContext = viewModel,
+        Content = new WorkspaceContextSettingsView { DataContext = viewModel },
         Width = 820,
         Height = 720
     };

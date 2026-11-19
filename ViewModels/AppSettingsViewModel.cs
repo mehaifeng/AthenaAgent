@@ -6,13 +6,13 @@ using System.Collections.Generic;
 
 namespace Athena.UI.ViewModels;
 
-public sealed partial class AppSettingsWindowViewModel : ViewModelBase, IDisposable
+public sealed partial class AppSettingsViewModel : ViewModelBase, IDisposable
 {
     private readonly AppSettingsState _state;
     private readonly ILocalizationService? _localizationService;
     private bool _disposed;
 
-    public AppSettingsWindowViewModel(
+    public AppSettingsViewModel(
         AppConfigurationSession configurationSession,
         AboutViewModel about,
         IHeadlessBrowserService? browserService = null,

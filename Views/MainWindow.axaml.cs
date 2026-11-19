@@ -93,18 +93,22 @@ public partial class MainWindow : Window
             _viewModel.PropertyChanged += OnMainViewModelPropertyChanged;
             ApplySavedLayout();
             ApplyShellPanelMaterial();
+            UpdateGameRenderVisibility();
         }
     }
 
-    /// <summary>窗口最小化 / 还原：游戏页面不可见时停止渲染（设计稿 12.6）。</summary>
     protected override void OnPropertyChanged(AvaloniaPropertyChangedEventArgs change)
     {
         base.OnPropertyChanged(change);
         if (change.Property == IsVisibleProperty && !change.GetNewValue<bool>())
             CancelOnboardingEntrance();
-        if (change.Property == WindowStateProperty)
-            _viewModel?.GameMode?.SetWindowVisible(change.GetNewValue<WindowState>() != WindowState.Minimized);
+        if (change.Property == WindowStateProperty || change.Property == IsVisibleProperty)
+            UpdateGameRenderVisibility();
     }
+
+    private void UpdateGameRenderVisibility()
+        => _viewModel?.GameMode?.SetWindowVisible(
+            IsVisible && WindowState != WindowState.Minimized && _viewModel.IsConversationPageActive);
 
     private void OnMainViewModelPropertyChanged(object? sender, PropertyChangedEventArgs e)
     {
@@ -112,6 +116,7 @@ public partial class MainWindow : Window
             or nameof(MainWindowViewModel.IsRightPanelCollapsed)) ApplySavedLayout();
         else if (e.PropertyName == nameof(MainWindowViewModel.ShellPanelOpacity)) ApplyShellPanelMaterial();
         else if (e.PropertyName == nameof(MainWindowViewModel.PanelGlassEnabled)) ApplyShellPanelMaterial();
+        else if (e.PropertyName == nameof(MainWindowViewModel.IsConversationPageActive)) UpdateGameRenderVisibility();
     }
 
     private void OnApplicationPropertyChanged(object? sender, PropertyChangedEventArgs e)
