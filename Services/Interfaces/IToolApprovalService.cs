@@ -12,7 +12,7 @@ public interface IToolApprovalService
 {
     /// <summary>
     /// 评估一次工具调用是否放行。内部完成：风险分级 → 配置/白名单/会话放行判定 →
-    /// 需交互时弹窗（仅 Interactive 模式）或按无人值守策略裁决 → 审计记录。
+    /// 需交互时请求人工确认（仅 Interactive 模式）或按无人值守策略裁决 → 审计记录。
     /// </summary>
     Task<ToolApprovalDecision> EvaluateAsync(string functionName, string argumentsJson, CancellationToken cancellationToken);
 }
@@ -24,11 +24,10 @@ public interface IAiToolApprovalEvaluator
 }
 
 /// <summary>
-/// 审批弹窗展示器（UI 层实现）。把服务层的策略与 UI 解耦：服务只依赖此接口，
-/// 具体在 UI 线程弹 <c>ToolApprovalDialog</c> 的实现由 ViewModels 层提供。
+/// 交互审批请求的 UI 接口。桌面端将请求交给主窗体的审批队列。
 /// </summary>
 public interface IToolApprovalPrompter
 {
-    /// <summary>在 UI 线程弹出审批窗并等待用户决策。返回用户选择的范围。</summary>
+    /// <summary>提交审批请求并等待用户选择。调用被取消时结束等待。</summary>
     Task<ToolApprovalScope> PromptAsync(ToolApprovalRequest request, CancellationToken cancellationToken);
 }

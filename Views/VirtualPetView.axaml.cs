@@ -184,6 +184,18 @@ public partial class VirtualPetView : UserControl
         _targetPanelOrigin = targetOrigin.Value;
         _targetPanelWidth = targetPanel.Bounds.Width;
         _targetPanelHeight = targetPanel.Bounds.Height;
+        if (targetPanel is MainConversationView chat)
+        {
+            var approval = chat.FindControl<ApprovalQueueView>("InlineApprovalQueue");
+            Control? actionArea = approval is { IsEffectivelyVisible: true }
+                ? approval : chat.FindControl<Border>("ComposerHost");
+            if (actionArea is { IsEffectivelyVisible: true }
+                && actionArea.TranslatePoint(default, chat) is { Y: > 0 } actionTop)
+            {
+                // Keep the composer and inline approval buttons outside the pet's hit area.
+                _targetPanelHeight = Math.Clamp(actionTop.Y - pet.GroundOffset - 4, 0, _targetPanelHeight);
+            }
+        }
 
         _motion.SetBounds(_targetPanelWidth, _targetPanelHeight, pet.ViewWidth, pet.ViewHeight, pet.RoamArea);
     }

@@ -553,6 +553,8 @@
                      套用真实气泡的几何，不必在这里复刻一份行高与边距。 -->
                 <views:MainConversationView x:Name="MainConversationView"
                                             Workbench="{Binding $parent[Window].((vm:MainWindowViewModel)DataContext).Workbench}"
+                                            ApprovalQueue="{Binding $parent[Window].((vm:MainWindowViewModel)DataContext).ApprovalQueue}"
+                                            ApprovalModePicker="{Binding $parent[Window].((vm:MainWindowViewModel)DataContext).ApprovalModePicker}"
                                             IsSwitching="{Binding $parent[Window].((vm:MainWindowViewModel)DataContext).IsConversationSwitching}"
                                             RightPanelToggleCommand="{Binding $parent[Window].((vm:MainWindowViewModel)DataContext).ToggleRightPanelCommand}"
                                             RightPanelToggleIconKey="{Binding $parent[Window].((vm:MainWindowViewModel)DataContext).RightPanelToggleIconKey}"
@@ -700,7 +702,7 @@
                 <Border Background="{DynamicResource App.SectionBg}"
                         BorderBrush="{DynamicResource App.SurfaceBorder}"
                         BorderThickness="0,0,0,1" Padding="14,10">
-                    <Grid ColumnDefinitions="Auto,*" ColumnSpacing="12">
+                    <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="12">
                         <Button x:Name="ReturnToConversationButton"
                                 Width="34" Height="34" Padding="0" CornerRadius="9"
                                 Command="{Binding ReturnToConversationCommand}"
@@ -713,6 +715,16 @@
                                    VerticalAlignment="Center"
                                    FontSize="{DynamicResource App.FontSize.PageTitle}" FontWeight="SemiBold"
                                    Text="{Binding ActivePageTitle}" TextTrimming="CharacterEllipsis"/>
+                        <StackPanel x:Name="PageApprovalStatus" Grid.Column="2" Orientation="Horizontal"
+                                    VerticalAlignment="Center" Spacing="6"
+                                    IsVisible="{Binding ApprovalQueue.HasPending, FallbackValue=False}">
+                            <PathIcon Data="{StaticResource AthenaIconToolApproval}" Width="14" Height="14"
+                                      Foreground="{DynamicResource App.WarningForeground}"/>
+                            <TextBlock Text="{loc:Loc Approval.Heading}"
+                                       Foreground="{DynamicResource App.WarningForeground}"/>
+                            <TextBlock Text="{Binding ApprovalQueue.Pending.Count}" FontWeight="SemiBold"
+                                       Foreground="{DynamicResource App.WarningForeground}"/>
+                        </StackPanel>
                     </Grid>
                 </Border>
                 <ContentControl x:Name="MainPageContent" Grid.Row="1" Content="{Binding ActivePage}">

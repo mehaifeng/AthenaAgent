@@ -74,6 +74,24 @@ public partial class MainConversationView : UserControl
         set => SetValue(WorkbenchProperty, value);
     }
 
+    public static readonly StyledProperty<ApprovalQueueViewModel?> ApprovalQueueProperty =
+        AvaloniaProperty.Register<MainConversationView, ApprovalQueueViewModel?>(nameof(ApprovalQueue));
+
+    public ApprovalQueueViewModel? ApprovalQueue
+    {
+        get => GetValue(ApprovalQueueProperty);
+        set => SetValue(ApprovalQueueProperty, value);
+    }
+
+    public static readonly StyledProperty<ToolApprovalModePickerViewModel?> ApprovalModePickerProperty =
+        AvaloniaProperty.Register<MainConversationView, ToolApprovalModePickerViewModel?>(nameof(ApprovalModePicker));
+
+    public ToolApprovalModePickerViewModel? ApprovalModePicker
+    {
+        get => GetValue(ApprovalModePickerProperty);
+        set => SetValue(ApprovalModePickerProperty, value);
+    }
+
     /// <summary>
     /// 会话切换幕布的开关，由外壳（MainWindow）驱动。
     ///

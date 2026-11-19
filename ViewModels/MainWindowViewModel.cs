@@ -131,6 +131,8 @@ public partial class MainWindowViewModel : ViewModelBase, IDisposable, ICronSess
     private ViewModelBase? _activePage;
     public ViewModelBase? ActivePage => _activePage;
     public bool IsConversationPageActive => ActivePage == null;
+    public ApprovalQueueViewModel? ApprovalQueue => _approvalQueue;
+    public ToolApprovalModePickerViewModel? ApprovalModePicker { get; }
 
     public string ActivePageTitle => ActivePage switch
     {
@@ -496,7 +498,8 @@ public partial class MainWindowViewModel : ViewModelBase, IDisposable, ICronSess
         ISystemNotificationService? notifications = null,
         IAppForegroundProbe? foregroundProbe = null,
         GameModeViewModel? gameMode = null,
-        Func<ProviderModelsViewModel>? providerModelsFactory = null)
+        Func<ProviderModelsViewModel>? providerModelsFactory = null,
+        ToolApprovalModePickerViewModel? approvalModePicker = null)
     {
         GameMode = gameMode;
         if (GameMode != null)
@@ -528,6 +531,7 @@ public partial class MainWindowViewModel : ViewModelBase, IDisposable, ICronSess
         if (Workbench != null) Workbench.RevealRequested += OnWorkbenchRevealRequested;
         _configurationSession = configurationSession;
         _approvalQueue = approvalQueue;
+        ApprovalModePicker = approvalModePicker;
         _logService = logService;
         _skillsConnectorsFactory = skillsConnectorsFactory;
         _appSettingsFactory = appSettingsFactory;
@@ -1640,9 +1644,13 @@ public partial class MainWindowViewModel : ViewModelBase, IDisposable, ICronSess
 
     private void RefreshApprovalStates()
     {
+        var byConversation = _approvalQueue?.Pending.ToLookup(item => item.ConversationId);
         foreach (var session in ConversationGroups.SelectMany(group => group.Conversations))
         {
-            session.IsWaitingForApproval = _approvalQueue?.Pending.Any(item => item.ConversationId == session.ConversationId) == true;
+            var pending = byConversation?[session.ConversationId];
+            session.IsWaitingForApproval = pending?.Any() == true;
+            if (pending == null) continue;
+            foreach (var item in pending) item.ConversationTitle = session.Title;
         }
     }
 

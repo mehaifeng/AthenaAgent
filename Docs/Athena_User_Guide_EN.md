@@ -62,6 +62,8 @@ Recommendation:
 ### 3.3 Runtime, approvals, and diagnostics
 App Settings owns context limits, automatic compression, workspace-knowledge budget, sub-agent concurrency, tool approval mode and allowlists, plus browser runtime/agent diagnostics.
 
+The shield button next to the screenshot control shows the current tool approval mode and opens its menu. The setting applies to every conversation. Enabling **Allow all** requires confirmation.
+
 Recommendation:
 - Keep the embedding model stable; frequent switching can hurt vector consistency.
 

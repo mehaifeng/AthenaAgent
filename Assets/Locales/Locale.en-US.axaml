@@ -665,14 +665,17 @@
     <system:String x:Key="ContextInspector.Raw.Failed">Failed to build RAW context: {0}</system:String>
     <system:String x:Key="Settings.Approval.Title">Tool approval</system:String>
     <system:String x:Key="Settings.Approval.Description">Choose when tool calls need confirmation and manage permanently allowed entries.</system:String>
-    <system:String x:Key="Settings.Approval.Balanced.Title">Balanced · Recommended</system:String>
+    <system:String x:Key="Settings.Approval.Balanced.Title">Balanced</system:String>
     <system:String x:Key="Settings.Approval.Balanced.Description">Run read-only tools automatically; confirm writes, deletes, and terminal commands.</system:String>
     <system:String x:Key="Settings.Approval.Strict.Title">Strict</system:String>
     <system:String x:Key="Settings.Approval.Strict.Description">Confirm every tool call.</system:String>
     <system:String x:Key="Settings.Approval.Automatic.Title">Automatic</system:String>
     <system:String x:Key="Settings.Approval.Automatic.Description">Let the automatic approval model evaluate calls not handled by static rules.</system:String>
-    <system:String x:Key="Settings.Approval.Off.Title">Approval off</system:String>
-    <system:String x:Key="Settings.Approval.Off.Description">Run every tool automatically in fully trusted environments.</system:String>
+    <system:String x:Key="Settings.Approval.Off.Title">Allow all</system:String>
+    <system:String x:Key="Settings.Approval.Off.Description">Allow tool calls automatically without asking for approval.</system:String>
+    <system:String x:Key="Settings.Approval.Off.ConfirmTitle">Enable Allow all?</system:String>
+    <system:String x:Key="Settings.Approval.Off.ConfirmMessage">Allow all skips approval for tool calls such as writing files, deleting data, and running terminal commands. This setting applies to every conversation.</system:String>
+    <system:String x:Key="Settings.Approval.Off.ConfirmAction">Enable Allow all</system:String>
     <system:String x:Key="Settings.Approval.AutoAllowedHint">These tools are permanently allowed. You can revoke them at any time.</system:String>
     <system:String x:Key="Settings.Approval.TerminalHint">Allowlisted terminal commands do not ask for repeated confirmation.</system:String>
     <system:String x:Key="Settings.Approval.JevShadowHint">When an approval prompt appears, the call (tool name, command line, file paths, URLs without query strings) and your last two messages are sent through OpenRouter to TypeSafe Jev in the background; the scores are logged next to your decision to judge whether Jev could pre-screen prompts. File contents and task instructions are sent as lengths only, and likely secrets are masked. It never changes an approval result and needs an OpenRouter connection with an API key.</system:String>
@@ -933,8 +936,8 @@
     <!-- Tool Approval Settings -->
     <system:String x:Key="Config.ToolApproval.Header">Tool approval</system:String>
     <system:String x:Key="Config.ToolApproval.Mode">Approval mode</system:String>
-    <system:String x:Key="Config.ToolApproval.Mode.Off">Off (auto-allow all)</system:String>
-    <system:String x:Key="Config.ToolApproval.Mode.Balanced">Balanced (confirm writes/deletes/terminal, recommended)</system:String>
+    <system:String x:Key="Config.ToolApproval.Mode.Off">Allow all (auto-allow tool calls)</system:String>
+    <system:String x:Key="Config.ToolApproval.Mode.Balanced">Balanced (confirm writes, deletes, and terminal commands)</system:String>
     <system:String x:Key="Config.ToolApproval.Mode.Strict">Strict (confirm every tool)</system:String>
     <system:String x:Key="Config.ToolApproval.Mode.Automatic">Automatic (approval model decides)</system:String>
     <system:String x:Key="Config.ToolApproval.ModeHint">In Balanced mode, read-only tools run automatically; write, delete, and terminal commands ask for confirmation before running.</system:String>
@@ -1087,9 +1090,7 @@
     <system:String x:Key="MainWindow.Section.Pinned">Pinned chats</system:String>
 
     <!-- Approval queue -->
-    <system:String x:Key="Approval.Window.Title">Tools awaiting approval</system:String>
     <system:String x:Key="Approval.Heading">Tools awaiting approval</system:String>
-    <system:String x:Key="Approval.Description">Conversations pause at the tool call; you can handle them in any order, and other conversations are unaffected.</system:String>
     <system:String x:Key="Approval.ConversationPrefix">Conversation: {0}</system:String>
     <system:String x:Key="Approval.ConversationUnknown">Unknown conversation</system:String>
     <system:String x:Key="Approval.RiskHigh">High risk</system:String>

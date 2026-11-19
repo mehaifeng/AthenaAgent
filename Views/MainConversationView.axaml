@@ -76,6 +76,9 @@
     </UserControl.KeyBindings>
 
     <UserControl.Styles>
+        <Style Selector="Button.approval-mode-picker.allow-all">
+            <Setter Property="Foreground" Value="{DynamicResource App.WarningForeground}"/>
+        </Style>
         <Style Selector="TextBlock.raw-role"><Setter Property="Foreground" Value="{DynamicResource App.TextMuted}"/></Style>
         <Style Selector="TextBlock.raw-role[Tag=system]"><Setter Property="Foreground" Value="{DynamicResource App.WarningForeground}"/></Style>
         <Style Selector="TextBlock.raw-role[Tag=user]"><Setter Property="Foreground" Value="{DynamicResource App.EmphasisForeground}"/></Style>
@@ -298,7 +301,7 @@
 
     </UserControl.Styles>
 
-    <Grid RowDefinitions="40,*,Auto">
+    <Grid RowDefinitions="40,*,Auto,Auto">
 
         <!-- 聊天区域头部：左上/右上圆角与外围 shell-panel（CornerRadius=10）一致，避免直角背景顶出外框圆角；
              左下/右下为直角与下方消息区衔接。 -->
@@ -846,24 +849,28 @@
             </StackPanel>
         </Border>
 
-        <!-- 游戏视图：占满标题栏以下的整个中间区域——消息列表那一行和输入框那一行（2026-10-11：游戏盖住输入框，
-             和雅典娜说话在城里的对话栏）。托付仍走输入框这一条发送路径：页面的 say 意图经 IPolisShell.SubmitInput
+        <!-- 游戏视图占据消息区域，普通输入框收起，待审批队列保留独立的一行。
+             托付仍走输入框这一条发送路径：页面的 say 意图经 IPolisShell.SubmitInput
              执行这个会话自己的 SendMessageCommand。盖在消息列表、空会话占位和切换幕布之上；上下文检查器（80）与
              猫头鹰村弹层（100）在游戏模式里不会打开。游戏模式下消息列表的 ItemsSource 被摘掉（见代码后台
              OnGameModeActiveChanged）：实测隐藏的列表换绑照样实体化整棵气泡树（可见 648 ms、隐藏 843 ms），
              所以不是藏起来，而是根本不建。 -->
         <gmv:PolisView x:Name="PolisView"
                        Grid.Row="1"
-                       Grid.RowSpan="2"
                        ZIndex="70"
                        DataContext="{Binding #ConversationRoot.GameMode}"
                        IsVisible="{Binding #ConversationRoot.IsGameModeActive}"/>
+
+        <views:ApprovalQueueView x:Name="InlineApprovalQueue" Grid.Row="2" ZIndex="110"
+                                 Margin="12,0,12,8" MaxWidth="{DynamicResource App.ContentMaxWidth}"
+                                 DataContext="{Binding #ConversationRoot.ApprovalQueue}"
+                                 IsVisible="{Binding #ConversationRoot.ApprovalQueue.HasPending, FallbackValue=False}"/>
 
         <!-- 输入区域：整体为一个大输入框，文本框在上、功能按钮工具栏在底部。
              左右 12px 与上面消息列表的 Margin="12" 同一条边：宽时两者都被 ContentMaxWidth 封顶、居中对齐；
              窄时（右栏收起且窗口最小宽度）没有这条边，输入框会直接顶到对话面板的左右边框上。
              游戏模式下收起（游戏占满这一行，说话在城里的对话栏）：收起而不只是被盖住，焦点和 Enter 键绑定才不会落到看不见的框里。 -->
-        <Border Grid.Row="2"
+        <Border Grid.Row="3"
                 x:Name="ComposerHost"
                 Margin="12,0"
                 MaxWidth="{DynamicResource App.ContentMaxWidth}"
@@ -1042,8 +1049,8 @@
                     </TextBox.KeyBindings>
                 </TextBox>
 
-                <!-- 底部功能工具栏：左侧功能按钮，右侧模型和发送/停止 -->
-                <Grid Grid.Row="4" ColumnDefinitions="*,Auto,Auto,50" ColumnSpacing="10" Margin="0,6,0,0">
+                <!-- 底部功能工具栏：左侧附件、截图和审批模式，右侧模型与发送/停止。 -->
+                <Grid Grid.Row="4" ColumnDefinitions="Auto,*,Auto,50" ColumnSpacing="8" Margin="0,6,0,0">
                     <StackPanel Grid.Column="0"
                                 Orientation="Horizontal"
                                 Spacing="2"
@@ -1056,7 +1063,7 @@
                                 AutomationProperties.Name="{loc:Loc Chat.Attach.Add}">
                             <PathIcon Data="{StaticResource AthenaIconAdd}" Width="18" Height="18"/>
                         </Button>
-                        <u:IconSplitButton IsEnabled="{Binding !IsSending}"
+                        <u:IconSplitButton x:Name="ScreenshotButton" IsEnabled="{Binding !IsSending}"
                                            Command="{Binding CaptureScreenshotCommand}"
                                            CommandParameter="keep"
                                            ToolTip.Tip="{loc:Loc Chat.Screenshot.Add}"
@@ -1072,15 +1079,54 @@
                                 </MenuFlyout>
                             </u:IconSplitButton.Flyout>
                         </u:IconSplitButton>
+                        <Button x:Name="ToolApprovalModeButton"
+                                x:DataType="vm:ToolApprovalModePickerViewModel"
+                                DataContext="{Binding #ConversationRoot.ApprovalModePicker}"
+                                IsVisible="{Binding #ConversationRoot.ApprovalModePicker, Converter={x:Static ObjectConverters.IsNotNull}}"
+                                Classes="approval-mode-picker" Classes.allow-all="{Binding SelectedMode.IsAllowAll}"
+                                CornerRadius="5" Padding="7,4" VerticalAlignment="Center"
+                                ToolTip.Tip="{Binding SelectedMode.Description}"
+                                AutomationProperties.Name="{Binding AccessibleName}">
+                            <StackPanel Orientation="Horizontal" Spacing="5">
+                                <PathIcon Data="{StaticResource AthenaIconToolApproval}" Width="13" Height="13" VerticalAlignment="Center"/>
+                                <TextBlock x:Name="ToolApprovalModeLabel" Text="{Binding SelectedMode.Title}" VerticalAlignment="Center"/>
+                                <PathIcon Data="{StaticResource AthenaIconChevronDown}" Width="8" Height="8" VerticalAlignment="Center"/>
+                            </StackPanel>
+                            <Button.Flyout>
+                                <MenuFlyout Placement="TopEdgeAlignedRight" ItemsSource="{Binding Modes}">
+                                    <MenuFlyout.ItemContainerTheme>
+                                        <ControlTheme TargetType="MenuItem" BasedOn="{StaticResource {x:Type MenuItem}}"
+                                                      x:DataType="vm:ToolApprovalModeOption">
+                                            <Setter Property="Header" Value="{Binding}"/>
+                                            <Setter Property="AutomationProperties.Name" Value="{Binding Title}"/>
+                                            <Setter Property="Command" Value="{Binding SelectCommand}"/>
+                                            <Setter Property="CommandParameter" Value="{Binding}"/>
+                                            <Setter Property="HeaderTemplate">
+                                                <DataTemplate x:DataType="vm:ToolApprovalModeOption">
+                                                    <Grid ColumnDefinitions="14,*" ColumnSpacing="8">
+                                                        <PathIcon Data="{StaticResource AthenaIconConfirm}" Width="12" Height="12"
+                                                                  IsVisible="{Binding IsSelected}"
+                                                                  Foreground="{DynamicResource App.IconAccentForeground}"/>
+                                                        <TextBlock Grid.Column="1" Text="{Binding Title}" VerticalAlignment="Center"/>
+                                                    </Grid>
+                                                </DataTemplate>
+                                            </Setter>
+                                        </ControlTheme>
+                                    </MenuFlyout.ItemContainerTheme>
+                                </MenuFlyout>
+                            </Button.Flyout>
+                        </Button>
                     </StackPanel>
 
                     <Border x:Name="ContextUsageStatus"
                             Grid.Column="1"
-                            VerticalAlignment="Center"
+                            HorizontalAlignment="Right" VerticalAlignment="Center"
+                            ClipToBounds="True"
                             ToolTip.Tip="{Binding ContextTokensInfo}">
-                        <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                        <DockPanel VerticalAlignment="Center">
                             <!-- 压缩刚提交时短暂出现：回答「刚才那段等待换来了什么」，4 秒后自动收起。 -->
                             <Border IsVisible="{Binding HasCompressionSavingBadge}"
+                                    DockPanel.Dock="Left" Margin="0,0,6,0"
                                     Background="{DynamicResource SemiGrey0}"
                                     CornerRadius="4"
                                     Padding="6,1"
@@ -1095,9 +1141,10 @@
                                 <TextBlock Text="{Binding TokenService.TokenUsageBarText}"
                                            FontFamily="Consolas, 'Courier New', monospace"
                                            FontSize="{DynamicResource App.FontSize.Caption}"
+                                           TextTrimming="CharacterEllipsis"
                                            VerticalAlignment="Center"/>
                             </Grid>
-                        </StackPanel>
+                        </DockPanel>
                     </Border>
 
                     <StackPanel Grid.Column="2"
@@ -1432,13 +1479,13 @@
         <!-- 猫头鹰"飞行层"：dispatch_subagents 时从助手气泡飞向 Sub-Agents 按钮的过场动画。
              覆盖全部行、不拦截交互；owl 图元由 code-behind 动态增删。 -->
         <Canvas x:Name="OwlFlightOverlay"
-                Grid.Row="0" Grid.RowSpan="3"
+                Grid.Row="0" Grid.RowSpan="4"
                 ZIndex="90"
                 IsHitTestVisible="False"
                 ClipToBounds="True"/>
 
         <!-- 子代理"小镇"居中弹窗（覆盖主对话） -->
-        <Grid Grid.Row="0" Grid.RowSpan="3" ZIndex="100" IsVisible="{Binding IsSubAgentPopupOpen}">
+        <Grid Grid.Row="0" Grid.RowSpan="4" ZIndex="100" IsVisible="{Binding IsSubAgentPopupOpen}">
             <!-- 遮罩：Border（无悬停态，不随光标变色）+ 点击关闭；同时挡住下层 hover -->
             <Border Background="#66000000" PointerPressed="OnSubAgentScrimPressed"/>
             <!-- 居中面板（内部几何已放大，字号不变） -->

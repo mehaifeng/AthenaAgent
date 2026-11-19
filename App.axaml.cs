@@ -841,6 +841,7 @@ public partial class App : Application, IAsyncDisposable
                 sp.GetRequiredService<Athena.UI.Services.GameMode.IPolisDebateService>(),
                 sp.GetRequiredService<Athena.UI.Services.GameMode.PolisRelationStore>()));
         services.AddSingleton<AboutViewModel>();
+        services.AddSingleton<ToolApprovalModePickerViewModel>();
         services.AddTransient<AppSettingsViewModel>();
         services.AddTransient<ProviderModelsViewModel>();
         // 单例：单飞闸门归它所有，两个窗口不能各起一次授权（两个 state 会互相污染）。
@@ -1205,7 +1206,7 @@ public partial class App : Application, IAsyncDisposable
             sp.GetRequiredService<IPlatformPathService>(), sp.GetRequiredService<Services.Ptc.AthenaPtcRunStore>(), Log.Logger));
 
         // Function Registry（单例）
-        // 工具审批弹窗展示器（UI 层）。服务层只依赖接口。
+        // 主窗体内的工具审批队列。服务层只依赖接口。
         services.AddSingleton<ApprovalQueueViewModel>(sp =>
             new ApprovalQueueViewModel(
                 sp.GetService<IConversationSessionAccessor>(),
@@ -1524,7 +1525,8 @@ public partial class App : Application, IAsyncDisposable
                 sp.GetService<ISystemNotificationService>(),
                 sp.GetService<IAppForegroundProbe>(),
                 sp.GetRequiredService<Athena.UI.ViewModels.GameMode.GameModeViewModel>(),
-                () => sp.GetRequiredService<ProviderModelsViewModel>());
+                () => sp.GetRequiredService<ProviderModelsViewModel>(),
+                sp.GetRequiredService<ToolApprovalModePickerViewModel>());
         });
 
         Log.Debug("Dependency injection services configured");

@@ -81,7 +81,7 @@ public partial class MainWindow : Window
         ApplyShellPanelMaterial();
         DataContextChanged += OnMainDataContextChanged;
         SizeChanged += (_, _) => ApplySavedLayout();
-
+        Activated += (_, _) => _viewModel?.ApprovalQueue?.WithdrawApprovalNotification();
     }
 
     private void OnMainDataContextChanged(object? sender, EventArgs e)
