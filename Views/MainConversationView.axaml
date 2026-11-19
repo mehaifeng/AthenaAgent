@@ -25,9 +25,6 @@
     </Design.DataContext>
 
     <UserControl.Resources>
-        <!-- 徽标 alpha 蒙版刷：按图片 alpha 裁剪染色层，只染徽标、不形成整块色板 -->
-        <ImageBrush x:Key="LogoMaskBrush" Source="avares://Athena.UI/Assets/AthenaLogo.webp" Stretch="Uniform"/>
-
         <!-- Markdown 超链接右键菜单：DataContext 由 LiveMarkdown 库设为当前 Link，
              按 HRef scheme 分显本地文件组与网络链接组，命令经 $parent 路由到会话 VM。 -->
         <ContextMenu x:Key="MarkdownLinkContextMenu">
@@ -764,56 +761,17 @@
             </ItemsControl>
         </ScrollViewer>
 
-        <!-- 空会话占位：新对话无消息时居中显示 Athena 徽标锁标。
-             图片上叠一层轻微透明度的蒙版 —— OpacityMask 按图片 alpha 裁剪，只染徽标、不形成整块色板；
-             蒙版颜色用聊天区容器背景色(SemiColorBackground0，即 shell-panel 的 Background)，
-             轻微染色(0.35)只为压柔和纯黑白的突兀感，仍保留原图轮廓。
-             图片底部平直，故下方配一条中置菱形装饰线与加粗宽字距 ATHENA 字标补全构图。 -->
-        <Border Grid.Row="1"
-                ZIndex="40"
-                IsHitTestVisible="False"
-                IsVisible="{Binding Messages.Count, Converter={StaticResource EmptyCountToBoolConverter}}">
-            <StackPanel MaxWidth="{DynamicResource App.ContentMaxWidth}"
-                        HorizontalAlignment="Center"
-                        VerticalAlignment="Center"
-                        Spacing="14">
-                <Panel Width="104" Height="104">
-                    <Image Source="avares://Athena.UI/Assets/AthenaLogo.webp" Stretch="Uniform"/>
-                    <Rectangle Fill="{DynamicResource SemiColorBackground0}" Opacity="0.6"
-                               OpacityMask="{StaticResource LogoMaskBrush}"/>
-                </Panel>
-
-                <!-- 装饰分隔线：细线 + 中置菱形，颜色与字标一致 -->
-                <Grid ColumnDefinitions="*,Auto,*" Width="200" VerticalAlignment="Center">
-                    <Rectangle Grid.Column="0" Height="1" VerticalAlignment="Center"
-                               Fill="{DynamicResource SemiColorText2}"/>
-                    <Border Grid.Column="1"
-                            Width="4" Height="4"
-                            CornerRadius="1"
-                            Margin="8,0"
-                            Background="{DynamicResource SemiColorText2}"
-                            RenderTransformOrigin="0.5,0.5">
-                        <Border.RenderTransform>
-                            <RotateTransform Angle="45"/>
-                        </Border.RenderTransform>
-                    </Border>
-                    <Rectangle Grid.Column="2" Height="1" VerticalAlignment="Center"
-                               Fill="{DynamicResource SemiColorText2}"/>
-                </Grid>
-
-                <TextBlock Text="ATHENA"
-                           FontSize="22"
-                           FontWeight="Bold"
-                           LetterSpacing="8"
-                           Foreground="{DynamicResource SemiColorText2}"
-                           HorizontalAlignment="Center"/>
-            </StackPanel>
-        </Border>
+        <Image x:Name="EmptyConversationLogo" Grid.Row="1" ZIndex="40"
+               Source="{DynamicResource App.EmptyConversationLogo}" Stretch="Uniform"
+               Width="176" Height="176" HorizontalAlignment="Center" VerticalAlignment="Center"
+               RenderOptions.BitmapInterpolationMode="HighQuality"
+               AutomationProperties.Name="AthenaAgent" IsHitTestVisible="False"
+               IsVisible="{Binding Messages.Count, Converter={StaticResource EmptyCountToBoolConverter}}"/>
 
         <!-- 会话切换幕布。它住在消息列表所在的这一格（Grid.Row=1），不是盖在整块面板上——
              这样它的宽高天然等于消息区，外壳那一层不必复刻「标题栏 40px、输入区多高」这类魔法数字。
 
-             内容是猫头鹰 + 一组加载点，沿用空会话占位的同一套处理（AthenaLogo + LogoMaskBrush）。
+             幕布复用新会话的主题标志，下方保留三个加载点。
              **动效由合成器驱动，不是 Style.Animations。** 这一条是整个幕布唯一真正难的地方：
              换绑那一拍 UI 线程要冻住 2~3 秒，而 Avalonia 的 Animation / Transition 全部由 UI 线程
              的动画时钟推进——写在这里的任何关键帧动画都会在那一刻定格在第一帧，"加载中"反而
@@ -829,11 +787,8 @@
             <StackPanel HorizontalAlignment="Center"
                         VerticalAlignment="Center"
                         Spacing="16">
-                <Panel x:Name="ConversationSwitchVeilOwl" Width="88" Height="88">
-                    <Image Source="avares://Athena.UI/Assets/AthenaLogo.webp" Stretch="Uniform"/>
-                    <Rectangle Fill="{DynamicResource SemiColorBackground0}" Opacity="0.6"
-                               OpacityMask="{StaticResource LogoMaskBrush}"/>
-                </Panel>
+                <Image x:Name="ConversationSwitchVeilLogo" Source="{DynamicResource App.EmptyConversationLogo}"
+                       Width="104" Height="104" Stretch="Uniform" RenderOptions.BitmapInterpolationMode="HighQuality"/>
 
                 <StackPanel Orientation="Horizontal" Spacing="7" HorizontalAlignment="Center">
                     <Border x:Name="ConversationSwitchVeilDot0" Classes="veil-dot"/>

@@ -491,11 +491,11 @@ if (accentDuration != ShellMaterial.RowSelectionSettle)
     throw new InvalidOperationException($"ShellMaterial.RowSelectionSettle ({ShellMaterial.RowSelectionSettle}) must match the accent bar's {accentDuration} transition.");
 if (!conversationSwitchVeil.ClipToBounds)
     throw new InvalidOperationException("The veil must be clipped so nothing escapes the message area.");
-// 幕布内容：猫头鹰 + 三个加载点，沿用空会话占位的同一套处理。
-var veilOwl = mainConversationView.FindControl<Panel>("ConversationSwitchVeilOwl")
-              ?? throw new InvalidOperationException("The veil owl was not created.");
-if (!veilOwl.GetVisualDescendants().OfType<Image>().Any())
-    throw new InvalidOperationException("The veil owl must render the Athena logo image, like the empty-conversation placeholder does.");
+// 幕布内容：与新会话共享的标志和三个加载点。
+var veilLogo = mainConversationView.FindControl<Image>("ConversationSwitchVeilLogo")
+               ?? throw new InvalidOperationException("The veil logo was not created.");
+if (veilLogo.Source == null)
+    throw new InvalidOperationException("The veil logo must resolve its theme resource.");
 for (var veilDotIndex = 0; veilDotIndex < MainConversationView.VeilDotCount; veilDotIndex++)
 {
     var veilDot = mainConversationView.FindControl<Border>("ConversationSwitchVeilDot" + veilDotIndex)
@@ -521,11 +521,11 @@ mainConversationView.IsSwitching = true;
 Dispatcher.UIThread.RunJobs();
 if (!mainConversationView.TryStartVeilAnimations())
     throw new InvalidOperationException("The veil's composition visuals were unreachable, so its render-thread loading animation never started.");
-var veilOwlVisual = ElementComposition.GetElementVisual(veilOwl)
-                    ?? throw new InvalidOperationException("The veil owl has no composition visual.");
-if (Math.Abs(veilOwlVisual.CenterPoint.X - veilOwl.Width / 2) > 0.01
-    || Math.Abs(veilOwlVisual.CenterPoint.Y - veilOwl.Height / 2) > 0.01)
-    throw new InvalidOperationException("The owl's breath must scale about its centre; scaling about the top-left reads as a twitch.");
+var veilLogoVisual = ElementComposition.GetElementVisual(veilLogo)
+                     ?? throw new InvalidOperationException("The veil logo has no composition visual.");
+if (Math.Abs(veilLogoVisual.CenterPoint.X - veilLogo.Width / 2) > 0.01
+    || Math.Abs(veilLogoVisual.CenterPoint.Y - veilLogo.Height / 2) > 0.01)
+    throw new InvalidOperationException("The veil logo must scale about its centre.");
 mainConversationView.IsSwitching = false;
 Dispatcher.UIThread.RunJobs();
 if (conversationSwitchVeil.IsVisible)

@@ -1,8 +1,7 @@
 #!/usr/bin/env python3
-"""Round the corners of the Athena app icon.
+"""Package the Athena app icon from a square source image.
 
-The artwork in Assets/AthenaAgent.png is a full-bleed square. Every desktop
-that shows it as an app icon expects a rounded silhouette instead:
+Desktop launchers use the silhouette supplied by the artwork:
 
   * GNOME paints the launcher PNG at whatever size the theme asks for and does
     no masking of its own, so a square reads as a hard tile next to every
@@ -12,13 +11,12 @@ that shows it as an app icon expects a rounded silhouette instead:
     artwork, so the dock must get the same silhouette as the app list or the
     two disagree.
 
-This script rebuilds all three shipped assets from one master:
+The script preserves a master with transparent corners. For an opaque master
+or when --radius is supplied, it applies a rounded corner mask before packaging.
 
-    Assets/AthenaAgent.png   1080px master, corners made transparent
-    Assets/Athena.ico        16..256, multi-frame (was a single 128 frame)
+    Assets/AthenaAgent.png   square PNG master
+    Assets/Athena.ico        16..256, multi-frame
     Assets/Athena.icns       the icns entry set iconutil would emit
-
-It is idempotent: re-running it re-applies the same mask and changes nothing.
 
 Usage:
     python3 Scripts/round-app-icon.py [--radius 0.28] [--report]
@@ -29,6 +27,7 @@ from __future__ import annotations
 import argparse
 import struct
 import sys
+from io import BytesIO
 from pathlib import Path
 
 from PIL import Image, ImageDraw
@@ -136,11 +135,10 @@ def write_icns(master: Image.Image) -> None:
     body = b""
     for code, size in ICNS_ENTRIES:
         frame = master.resize((size, size), Image.LANCZOS)
-        buf = Path("/tmp/athena-icns-frame.png")
-        frame.save(buf, format="PNG", optimize=True)
-        data = buf.read_bytes()
+        with BytesIO() as buffer:
+            frame.save(buffer, format="PNG", optimize=True)
+            data = buffer.getvalue()
         body += code + struct.pack(">I", len(data) + 8) + data
-        buf.unlink()
     payload = b"icns" + struct.pack(">I", len(body) + 8) + body
     ICNS.write_bytes(payload)
     print(f"wrote {ICNS.relative_to(REPO)} entries={len(ICNS_ENTRIES)} ({ICNS.stat().st_size:,} bytes)")
@@ -151,32 +149,37 @@ def main() -> int:
     ap.add_argument(
         "--radius",
         type=float,
-        default=0.28,
-        help="corner radius as a fraction of the edge (default 0.28)",
+        help="apply a corner mask with this radius as a fraction of the edge (0.28 for opaque masters by default)",
     )
     ap.add_argument("--report", action="store_true", help="print how much art the mask cuts")
     args = ap.parse_args()
 
-    if not 0.0 < args.radius < 0.5:
+    if args.radius is not None and not 0.0 < args.radius < 0.5:
         print("error: --radius must be between 0 and 0.5", file=sys.stderr)
         return 2
 
-    master = Image.open(MASTER)
+    with Image.open(MASTER) as source:
+        master = source.convert("RGBA")
     if master.width != master.height:
         print(f"error: {MASTER.name} is not square ({master.width}x{master.height})", file=sys.stderr)
         return 1
 
-    rounded = apply_rounding(master, args.radius)
+    edge = master.width - 1
+    corners = [(0, 0), (edge, 0), (0, edge), (edge, edge)]
+    if args.radius is not None or any(master.getpixel(point)[3] for point in corners):
+        radius = args.radius if args.radius is not None else 0.28
+        master = apply_rounding(master, radius)
+        if args.report:
+            report_corner_loss(master, radius)
+        write_png(master)
+    else:
+        print(f"preserved transparent master {MASTER.relative_to(REPO)}")
 
-    if args.report:
-        report_corner_loss(rounded, args.radius)
+    write_ico(master)
+    write_icns(master)
 
-    write_png(rounded)
-    write_ico(rounded)
-    write_icns(rounded)
-
-    corners = [rounded.getpixel(p) for p in [(0, 0), (1079, 0), (0, 1079), (1079, 1079)]]
-    print(f"corner pixels : {[c[3] for c in corners]} (alpha, 0 = transparent)")
+    corner_alpha = [master.getpixel(point)[3] for point in corners]
+    print(f"corner pixels : {corner_alpha} (alpha, 0 = transparent)")
     return 0
 
 

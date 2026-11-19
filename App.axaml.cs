@@ -638,7 +638,7 @@ public partial class App : Application, IAsyncDisposable
     {
         var scheme = Models.AppPalettes.Get(schemeName);
         if (_schemeDictionaries.TryGetValue(scheme.Name, out var cached)) return cached;
-        var pair = (Athena.UI.Styles.ThemeResources.Create(scheme.Dark, true), Athena.UI.Styles.ThemeResources.Create(scheme.Light, false));
+        var pair = (Athena.UI.Styles.ThemeResources.Create(scheme, true), Athena.UI.Styles.ThemeResources.Create(scheme, false));
         _schemeDictionaries[scheme.Name] = pair;
         return pair;
     }

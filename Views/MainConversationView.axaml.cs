@@ -259,7 +259,7 @@ public partial class MainConversationView : UserControl
     }
 
     /// <summary>
-    /// 幕布加载动效：猫头鹰呼吸 + 三点依次亮灭，全部走 **合成器动画**（渲染线程）。
+    /// 幕布加载动效：标志呼吸 + 三点依次亮灭，全部走 **合成器动画**（渲染线程）。
     ///
     /// 这一条是整个会话切换里唯一没有替代方案的地方。幕布存在的那 2~3 秒，UI 线程正冻在
     /// 气泡树的首次布局上；Avalonia 的 Animation / Transition 由 UI 线程的动画时钟推进，
@@ -279,21 +279,19 @@ public partial class MainConversationView : UserControl
 
     internal bool TryStartVeilAnimations()
     {
-        var owl = this.FindControl<Panel>("ConversationSwitchVeilOwl");
-        if (owl == null) return false;
-        var owlVisual = ElementComposition.GetElementVisual(owl);
-        if (owlVisual == null) return false;
-        var compositor = owlVisual.Compositor;
+        var logo = this.FindControl<Image>("ConversationSwitchVeilLogo");
+        if (logo == null || ElementComposition.GetElementVisual(logo) is not { } logoVisual) return false;
+        var compositor = logoVisual.Compositor;
 
         // 呼吸：缩放中心必须显式给到控件中点，否则围绕左上角缩放，读起来是"在抖"而不是"在呼吸"。
-        owlVisual.CenterPoint = new Vector3((float)owl.Width / 2f, (float)owl.Height / 2f, 0f);
+        logoVisual.CenterPoint = new Vector3((float)logo.Width / 2f, (float)logo.Height / 2f, 0f);
         var breath = compositor.CreateVector3KeyFrameAnimation();
         breath.InsertKeyFrame(0f, new Vector3(1f, 1f, 1f));
-        breath.InsertKeyFrame(0.5f, new Vector3(VeilOwlBreathScale, VeilOwlBreathScale, 1f));
+        breath.InsertKeyFrame(0.5f, new Vector3(VeilLogoBreathScale, VeilLogoBreathScale, 1f));
         breath.InsertKeyFrame(1f, new Vector3(1f, 1f, 1f));
-        breath.Duration = VeilOwlBreathDuration;
+        breath.Duration = VeilLogoBreathDuration;
         breath.IterationBehavior = AnimationIterationBehavior.Forever;
-        owlVisual.StartAnimation("Scale", breath);
+        logoVisual.StartAnimation("Scale", breath);
 
         for (var index = 0; index < VeilDotCount; index++)
         {
@@ -322,11 +320,11 @@ public partial class MainConversationView : UserControl
 
     private void StopVeilAnimations()
     {
-        var owl = this.FindControl<Panel>("ConversationSwitchVeilOwl");
-        if (owl != null && ElementComposition.GetElementVisual(owl) is { } owlVisual)
+        var logo = this.FindControl<Image>("ConversationSwitchVeilLogo");
+        if (logo != null && ElementComposition.GetElementVisual(logo) is { } logoVisual)
         {
-            owlVisual.StopAnimation("Scale");
-            owlVisual.Scale = new Vector3(1f, 1f, 1f);
+            logoVisual.StopAnimation("Scale");
+            logoVisual.Scale = new Vector3(1f, 1f, 1f);
         }
         for (var index = 0; index < VeilDotCount; index++)
         {
@@ -340,9 +338,9 @@ public partial class MainConversationView : UserControl
     }
 
     internal const int VeilDotCount = 3;
-    internal const float VeilOwlBreathScale = 1.07f;
+    internal const float VeilLogoBreathScale = 1.07f;
     internal const float VeilDotMinOpacity = 0.2f;
-    internal static readonly TimeSpan VeilOwlBreathDuration = TimeSpan.FromMilliseconds(2200);
+    internal static readonly TimeSpan VeilLogoBreathDuration = TimeSpan.FromMilliseconds(2200);
     internal static readonly TimeSpan VeilDotPulseDuration = TimeSpan.FromMilliseconds(1050);
 
     private ScrollViewer? _chatScrollViewer;

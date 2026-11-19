@@ -1,6 +1,7 @@
 using Athena.UI;
 using Athena.UI.Models;
 using Athena.UI.Services;
+using Athena.UI.Styles;
 using Athena.UI.ViewModels;
 using Athena.UI.Views;
 using Avalonia;
@@ -12,9 +13,11 @@ using Avalonia.Headless;
 using Avalonia.Media;
 using Avalonia.Media.Imaging;
 using Avalonia.Markup.Xaml.MarkupExtensions;
+using Avalonia.Platform;
 using Avalonia.Styling;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
+using System.Runtime.InteropServices;
 
 internal static class ThemeContrastTests
 {
@@ -27,6 +30,7 @@ internal static class ThemeContrastTests
         {
             VerifyPalettes();
             VerifyLiveControls();
+            VerifyEmptyConversationLogo(artifactDirectory);
             VerifySettingsGallery(artifactDirectory);
             VerifyShellLayouts(artifactDirectory);
             CaptureGallery(artifactDirectory);
@@ -122,6 +126,97 @@ internal static class ThemeContrastTests
         finally { window.Close(); }
     }
 
+    private static void VerifyEmptyConversationLogo(string directory)
+    {
+        using var chat = new MainConversationViewModel();
+        var view = new MainConversationView { DataContext = chat };
+        var window = new Window { Content = view, Width = 450, Height = 380 };
+        window.Show();
+        try
+        {
+            var logo = view.FindControl<Image>("EmptyConversationLogo")
+                ?? throw new InvalidOperationException("The empty conversation logo was not created.");
+            var veilLogo = view.FindControl<Image>("ConversationSwitchVeilLogo")
+                ?? throw new InvalidOperationException("The switch veil logo was not created.");
+            var original = (Bitmap)App.GetColorSchemeDictionaries("Default").Dark[EmptyConversationLogo.ResourceKey]!;
+            var originalPixels = ReadLogoPixels(original);
+            using var stream = AssetLoader.Open(new Uri("avares://Athena.UI/Assets/EmptyConversationLogo.png"));
+            using var decoded = WriteableBitmap.DecodeToWidth(stream, original.PixelSize.Width, BitmapInterpolationMode.HighQuality);
+            Check(originalPixels.AsSpan().SequenceEqual(ReadLogoPixels(decoded)), "Default must render the approved logo");
+
+            foreach (var scheme in AppPalettes.Names)
+            {
+                App.SetColorScheme(scheme);
+                foreach (var variant in new[] { ThemeVariant.Dark, ThemeVariant.Light })
+                {
+                    Application.Current!.RequestedThemeVariant = variant;
+                    Dispatcher.UIThread.RunJobs();
+                    var pair = App.GetColorSchemeDictionaries(scheme);
+                    var palette = variant == ThemeVariant.Dark ? pair.Dark : pair.Light;
+                    var current = logo.Source as Bitmap;
+                    var label = $"{scheme}/{variant.Key}";
+                    Check(logo.IsEffectivelyVisible && current != null
+                        && ReferenceEquals(current, palette[EmptyConversationLogo.ResourceKey]),
+                        $"{label}: the open conversation must follow the active logo resource");
+                    Check(ReferenceEquals(veilLogo.Source, current),
+                        $"{label}: the switch veil must share the current conversation logo");
+
+                    if (scheme is "Default" or "Forest" or "Rose" or "Solarized")
+                    {
+                        using var frame = window.CaptureRenderedFrame() ?? throw new InvalidOperationException("Missing logo capture");
+                        using var output = File.Create(Path.Combine(directory, $"empty-conversation-logo-{scheme}-{variant.Key}.png"));
+                        frame.Save(output, PngBitmapEncoderOptions.Default);
+                    }
+
+                    if (scheme == "Default")
+                        Check(ReferenceEquals(current, original), $"{label}: Default must share the original logo");
+                    else
+                        CheckLogoTint(originalPixels, ReadLogoPixels(current!), Colour(palette["App.EmphasisForeground"]), label);
+                }
+            }
+
+            chat.Messages.Add(new ChatMessage { Role = "user", Content = "开始对话" });
+            Dispatcher.UIThread.RunJobs();
+            Check(!logo.IsEffectivelyVisible, "the logo must hide once the conversation has messages");
+        }
+        finally { window.Close(); }
+        Console.WriteLine("[PASS] the shared conversation logo follows all 18 palette variants, keeps alpha, and preserves brightness");
+    }
+
+    private static byte[] ReadLogoPixels(Bitmap bitmap)
+    {
+        using var copy = new WriteableBitmap(bitmap.PixelSize, bitmap.Dpi, PixelFormat.Rgba8888, AlphaFormat.Unpremul);
+        using var frame = copy.Lock();
+        bitmap.CopyPixels(frame);
+        var width = frame.Size.Width * 4;
+        var pixels = new byte[width * frame.Size.Height];
+        for (var y = 0; y < frame.Size.Height; y++)
+            Marshal.Copy(IntPtr.Add(frame.Address, y * frame.RowBytes), pixels, y * width, width);
+        return pixels;
+    }
+
+    private static void CheckLogoTint(byte[] original, byte[] tinted, Color accent, string label)
+    {
+        Check(original.Length == tinted.Length, $"{label}: logo bounds changed");
+        var accentBrightness = 0.2126 * accent.R + 0.7152 * accent.G + 0.0722 * accent.B;
+        var hueAlignment = 0d;
+        for (var i = 0; i < original.Length; i += 4)
+        {
+            if (original[i + 3] != tinted[i + 3])
+                throw new InvalidOperationException($"{label}: tint altered the transparency gradient");
+            // The resized art is slightly translucent even in its most solid areas.
+            if (original[i + 3] < 240) continue;
+            var red = tinted[i] - original[i];
+            var green = tinted[i + 1] - original[i + 1];
+            var blue = tinted[i + 2] - original[i + 2];
+            if (Math.Abs(0.2126 * red + 0.7152 * green + 0.0722 * blue) > 2)
+                throw new InvalidOperationException($"{label}: tint altered the engraving brightness");
+            hueAlignment += red * (accent.R - accentBrightness)
+                + green * (accent.G - accentBrightness) + blue * (accent.B - accentBrightness);
+        }
+        Check(hueAlignment > 0, $"{label}: the logo must shift toward the palette's accent hue");
+    }
+
     private static void VerifyShellLayouts(string directory)
     {
         var config = new AppConfig();
@@ -204,6 +299,31 @@ internal static class ThemeContrastTests
                     }
                 }
             }
+
+            App.SetColorScheme("Forest");
+            Application.Current!.RequestedThemeVariant = ThemeVariant.Dark;
+            Dispatcher.UIThread.RunJobs();
+            var veilLogo = chatView.FindControl<Image>("ConversationSwitchVeilLogo")!;
+            var emptyLogo = chatView.FindControl<Image>("EmptyConversationLogo")!;
+            var existing = group.Conversations.First(item => !ReferenceEquals(item, vm.SelectedConversation));
+            vm.SelectConversationCommand.Execute(existing);
+            Check(veilLogo.IsEffectivelyVisible && ReferenceEquals(veilLogo.Source, emptyLogo.Source),
+                "selecting an existing conversation must show the shared theme logo while loading");
+            Settle();
+            Check(!veilLogo.IsEffectivelyVisible && ReferenceEquals(vm.DisplayedConversation, existing.Chat),
+                "the existing conversation must finish switching before creating a new one");
+
+            vm.CreateConversationCommand.Execute(group);
+            Check(veilLogo.IsEffectivelyVisible && ReferenceEquals(veilLogo.Source, emptyLogo.Source),
+                "creating a conversation must show the shared theme logo while loading");
+            using var veilFrame = window.CaptureRenderedFrame() ?? throw new InvalidOperationException("Missing switch veil capture");
+            Check(chatView.TryStartVeilAnimations(), "the new logo must support the compositor loading animation");
+            using var veilOutput = File.Create(Path.Combine(directory, "conversation-loading-Forest-Dark.png"));
+            veilFrame.Save(veilOutput, PngBitmapEncoderOptions.Default);
+            Settle();
+            Check(!veilLogo.IsEffectivelyVisible && emptyLogo.IsEffectivelyVisible,
+                "the new conversation must display its logo once the switch veil lowers");
+            Console.WriteLine("[PASS] selecting and creating conversations show the shared theme logo while loading");
         }
         finally { window.Close(); }
     }
