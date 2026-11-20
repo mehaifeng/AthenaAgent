@@ -19,6 +19,7 @@ using Athena.UI;
 using Athena.UI.Controls;
 using Athena.UI.Converters;
 using Athena.UI.Models;
+using Athena.UI.Models.Skills;
 using Athena.UI.Services;
 using Athena.UI.Services.Cron;
 using Athena.UI.Services.Interfaces;
@@ -159,6 +160,11 @@ if (Environment.GetEnvironmentVariable("ATHENA_HEADLESS_ONLY") == "main-pages")
 {
     TestMainWindowPagesAndInlineApproval(outputPath);
     TestApprovalNotificationWiring();
+    Environment.Exit(0);
+}
+if (Environment.GetEnvironmentVariable("ATHENA_HEADLESS_ONLY") == "skills-layout")
+{
+    TestSkillsConnectorPages(outputPath);
     Environment.Exit(0);
 }
 if (Environment.GetEnvironmentVariable("ATHENA_HEADLESS_ONLY") == "game-mode")
@@ -937,6 +943,9 @@ Console.WriteLine("[PASS] launcher sizing and file context-command placement");
 Console.WriteLine("[PASS] stacked navigation groups, pinned conversations, overflow menus, title-bar commands, and search spacing");
 window.Close();
 
+TestSkillsConnectorPages(outputPath);
+
+static void TestSkillsConnectorPages(string outputPath)
 {
     var connectorConfigService = new HeadlessConfigService(new AppConfig());
     using var connectorSession = new AppConfigurationSession(connectorConfigService);
@@ -1017,9 +1026,75 @@ window.Close();
     if (!ReferenceEquals(connectorContentHost.Content, skillsPage)
         || skillsPage.Status != "unsaved-characterization")
         throw new InvalidOperationException("Switching connector sections recreated a view model or reset page state.");
+    Directory.CreateDirectory(Path.GetDirectoryName(outputPath)!);
     SaveWindowFrame(skillsWindow, Path.Combine(Path.GetDirectoryName(outputPath)!, "skills-connectors-window.png"));
+
+    UserControl SelectSection(int section)
+    {
+        connectorViewModel.SelectedSection = connectorViewModel.Sections[section];
+        Dispatcher.UIThread.RunJobs();
+        return connectorContentHost.GetVisualDescendants().OfType<UserControl>()
+            .Single(control => control.GetType() == expectedViews[section]);
+    }
+
+    Rect ContentColumn(UserControl page)
+    {
+        var scroll = page.GetVisualDescendants().OfType<ScrollViewer>().First();
+        // MCP 的滚动区用一张卡片承载内容，边界取卡片外侧。
+        var content = scroll.Content is Grid grid ? grid.Children.Single() : (Control)scroll.Content!;
+        var origin = content.TranslatePoint(default, connectorContentHost)
+            ?? throw new InvalidOperationException("扩展页面的内容区必须挂载到宿主。");
+        return new Rect(origin, content.Bounds.Size);
+    }
+
+    for (var i = 1; i <= 24; i++)
+        skillsPage.Skills.Add(new SkillItemViewModel(new SkillDescriptor { Name = $"示例技能 {i}" }, _ => Task.CompletedTask));
+
+    var localization = App.Services!.GetRequiredService<ILocalizationService>();
+    var previousLanguage = localization.CurrentLanguage;
+    try
+    {
+        foreach (var language in new[] { "zh-CN", "en-US" })
+        {
+            localization.SwitchLanguage(language);
+            foreach (var width in new[] { skillsWindow.MinWidth, 1160, 1400 })
+            {
+                skillsWindow.Width = width;
+                var skillsView = SelectSection(0);
+                var titleOrigin = skillsView.FindControl<TextBlock>("SkillsPageTitle")!.TranslatePoint(default, skillsView);
+                var labelOrigin = skillsView.FindControl<TextBlock>("EnableSkillsLabel")!.TranslatePoint(default, skillsView);
+                if (titleOrigin is not { } header || labelOrigin is not { } label || Math.Abs(header.X - label.X) >= 1)
+                    throw new InvalidOperationException($"技能页标题与启用开关的文案必须左对齐：{language}，宽 {width}，{titleOrigin} / {labelOrigin}。");
+
+                var skillsColumn = ContentColumn(skillsView);
+                if (Math.Abs(skillsColumn.Width - 600) >= 1)
+                    throw new InvalidOperationException($"技能页内容列在窗宽 {width} 下应为 600 DIP，实际 {skillsColumn.Width}。");
+                for (var section = 1; section < expectedViews.Length; section++)
+                {
+                    var otherColumn = ContentColumn(SelectSection(section));
+                    if (Math.Abs(skillsColumn.X - otherColumn.X) >= 1 || Math.Abs(skillsColumn.Width - otherColumn.Width) >= 1)
+                        throw new InvalidOperationException($"技能页与 {expectedViews[section].Name} 的内容列应对齐：{language}，宽 {width}，{skillsColumn} / {otherColumn}。");
+                }
+            }
+        }
+
+        var scrollableSkillsView = SelectSection(0);
+        var title = scrollableSkillsView.FindControl<TextBlock>("SkillsPageTitle")!;
+        var skillsScroll = scrollableSkillsView.FindControl<ScrollViewer>("MainScrollViewer")!;
+        var pinnedTitleOrigin = title.TranslatePoint(default, scrollableSkillsView);
+        skillsScroll.Offset = new Vector(0, 100);
+        Dispatcher.UIThread.RunJobs();
+        if (skillsScroll.Offset.Y <= 0 || title.TranslatePoint(default, scrollableSkillsView) != pinnedTitleOrigin)
+            throw new InvalidOperationException("技能列表应独立滚动，不能带走页标题。");
+    }
+    finally
+    {
+        localization.SwitchLanguage(previousLanguage);
+        skillsWindow.Close();
+    }
+
     Console.WriteLine("[PASS] six connector page types share one content host and preserve page view models and state");
-    skillsWindow.Close();
+    Console.WriteLine("[PASS] Skills content matches all extension page widths in both languages and the aligned title stays fixed while scrolling");
 }
 
 {

@@ -29,7 +29,7 @@
         <Border Grid.Row="0"
                 CornerRadius="0,0,5,5"
                 Background="{DynamicResource App.WorkspaceRightBackground}">
-            <Grid MinWidth="600" MaxWidth="800" HorizontalAlignment="Center" Margin="0,18,0,0">
+            <Grid Margin="0,18,0,0">
                 <TextBlock Text="{loc:Loc Config.Mcp}" FontSize="{DynamicResource App.FontSize.PageTitle}" FontWeight="SemiBold"/>
             </Grid>
         </Border>
@@ -42,11 +42,8 @@
                     Background="{DynamicResource App.SectionBg}"
                     BorderThickness="1"
                     CornerRadius="8"
-                    Margin="16,0,16,60"
-                    Padding="16"
-                    MinWidth="600"
-                    MaxWidth="800"
-                    HorizontalAlignment="Center">
+                    Margin="0,0,0,60"
+                    Padding="16">
                     <StackPanel Spacing="16">
                         <Grid ColumnDefinitions="Auto,*" ColumnSpacing="20">
                             <TextBlock Foreground="{DynamicResource App.TextMuted}" Grid.Column="0" Text="{loc:Loc Config.Mcp.Enable}" VerticalAlignment="Center"/>

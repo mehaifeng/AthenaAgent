@@ -10,7 +10,7 @@
         <appconv:BoolToPlaybackIconConverter x:Key="BoolToPlaybackIcon"/>
     </UserControl.Resources>
     <ScrollViewer>
-        <StackPanel MinWidth="600" MaxWidth="820" HorizontalAlignment="Center" Margin="18" Spacing="10">
+        <StackPanel Margin="0,18" Spacing="10">
             <TextBlock Text="{loc:Loc Connectors.Speech.Title}" FontSize="{DynamicResource App.FontSize.PageTitle}" FontWeight="SemiBold"/>
             <StackPanel Orientation="Horizontal" Spacing="18">
                 <CheckBox Content="{loc:Loc Connectors.Speech.Enabled}" IsChecked="{Binding Config.ChatAudioEnabled}"/>
