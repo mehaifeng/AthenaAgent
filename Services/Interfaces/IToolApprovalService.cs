@@ -17,7 +17,7 @@ public interface IToolApprovalService
     Task<ToolApprovalDecision> EvaluateAsync(string functionName, string argumentsJson, CancellationToken cancellationToken);
 }
 
-/// <summary>Automatic 审批模式下，用无工具模型对一次调用作 fail-closed 裁决。</summary>
+/// <summary>自动评审模式下，用独立的无工具模型评审一次调用；证据不足或技术故障交由闸门处理。</summary>
 public interface IAiToolApprovalEvaluator
 {
     Task<ToolApprovalDecision> EvaluateAsync(ToolApprovalRequest request, CancellationToken cancellationToken);

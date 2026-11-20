@@ -40,7 +40,7 @@ public static class ToolApprovalKey
         public bool IsTerminal => CommandName != null;
     }
 
-    public static Result Build(string functionName, string? argumentsJson)
+    public static Result Build(string functionName, string? argumentsJson, Func<string, string?>? reviewTarget = null)
     {
         if (string.IsNullOrEmpty(functionName)) return new Result(string.Empty, null, null);
 
@@ -49,6 +49,10 @@ public static class ToolApprovalKey
             var command = SafeCommandName(argumentsJson);
             return new Result($"terminal:{command}", command, command);
         }
+
+        // A host-only or one-sided move/copy grant cannot cover both ends of a transfer.
+        if (reviewTarget != null && functionName is "fetch_url_to_file" or "move_system_file" or "copy_system_file")
+            return new Result(functionName, null, null);
 
         if (string.Equals(functionName, "fetch_url_to_file", StringComparison.OrdinalIgnoreCase))
         {
@@ -60,7 +64,7 @@ public static class ToolApprovalKey
 
         if (PathScopedTools.TryGetValue(functionName, out var argumentName))
         {
-            var directory = ExtractDirectory(argumentsJson, argumentName);
+            var directory = ExtractDirectory(argumentsJson, argumentName, reviewTarget);
             return directory is null
                 ? new Result(functionName, null, null)
                 : new Result($"{functionName}@{directory}", directory, null);
@@ -86,14 +90,15 @@ public static class ToolApprovalKey
     /// 取目标路径所在目录。相对路径按当前工作目录解析——归一化失败时返回 null，
     /// 退回按函数名聚合：这只会多问一次，绝不会少问一次。
     /// </summary>
-    private static string? ExtractDirectory(string? argumentsJson, string argumentName)
+    private static string? ExtractDirectory(string? argumentsJson, string argumentName, Func<string, string?>? reviewTarget)
     {
         var path = ReadStringArgument(argumentsJson, argumentName);
         if (string.IsNullOrWhiteSpace(path)) return null;
 
         try
         {
-            var full = Path.GetFullPath(path);
+            var full = reviewTarget == null ? Path.GetFullPath(path) : reviewTarget(path);
+            if (full == null || reviewTarget != null && !ApprovalReviewEvidence.IsPlainDocument(full)) return null;
             // 用父目录而非目标本身：文件写入按所在目录聚合，create_directory 按其父目录聚合，
             // 否则每建一个子目录都要重新授权一次。根目录没有父级时退回它自己。
             var directory = Path.GetDirectoryName(full);

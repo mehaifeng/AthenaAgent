@@ -143,7 +143,7 @@ public sealed class OpenAiModelRuntimeFactory
 
     private static int GetInternalMaxOutputTokens(AiModelRole role) => role switch
     {
-        AiModelRole.Approval => 256,
+        AiModelRole.Approval => 2048,
         AiModelRole.Embedding => 0,
         AiModelRole.KnowledgeMaintenance => 4096,
         AiModelRole.ImageRecognition => 4096,

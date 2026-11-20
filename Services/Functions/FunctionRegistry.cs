@@ -1062,6 +1062,7 @@ public class FunctionRegistry : IFunctionRegistry
             }
         }
 
+        Athena.UI.Services.SubAgents.ToolExecutionContext.CurrentCancellationToken.ThrowIfCancellationRequested();
         try
         {
             var result = await executor(arguments);

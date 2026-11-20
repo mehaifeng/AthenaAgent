@@ -7,7 +7,7 @@ author: Claude Sonnet 5.5 (Claude Code desktop session on the repo host). Not a 
 written: 2026-10-04 (UTC+8), evening
 audience: another, stronger model. You have NO access to the author's chat. Everything below is a CLAIM to be checked, not a fact.
 repo: /Users/haifengai/sources/AthenaAgent
-git_head: 60a64697923d2fa57be7f7090eb748f68f1edcec   # "Merge pull request #13 from mehaifeng/feat/approval-jev-shadow"
+git_head: 60a64697923d2fa57be7f7090eb748f68f1edcec
 working_tree: clean except submodule `Website` (pre-existing, unrelated). The investigation changed NO repo file. This document is the only addition (untracked).
 app_under_test: DEBUG build. bin/Debug/net10.0/Athena.UI.dll built 2026-10-04 21:38 local; process started 21:38.
 data_dir: /Users/haifengai/sources/AthenaAgent/bin/Debug/net10.0/AthenaData
@@ -489,7 +489,7 @@ Mutation checks: delete the truncation branch ⇒ T1 fails; restore the generic 
 `CLAUDE.md` and `AGENTS.md` (kept in sync), paragraph "Tool-Use Approval Gate": add that the judge is a classifier without reasoning, that truncation is a failure not a verdict, the typed failure, and the measured numbers (6.5% → 0/320).
 
 ### 9.8 Sweep the same hazard class (repo rule 3's "fix one, sweep the rest")
-`grep -rn "GetFirstOutputText\|Content\[0\].Text\|Content.FirstOrDefault" Services` and check each one-shot caller for truncation handling: `PetChatterService` (cap 256), `ConversationTitleGenerator` (fine, soft), knowledge-base maintenance, `ApprovalShadow`/`SystemOneClient`, image recognition, compression (non-stream path).
+`grep -rn "GetFirstOutputText\|Content\[0\].Text\|Content.FirstOrDefault" Services` and check each one-shot caller for truncation handling: `PetChatterService` (cap 256), `ConversationTitleGenerator` (fine, soft), knowledge-base maintenance, image recognition, compression (non-stream path).
 
 ### 9.9 Post-fix verification
 Re-run Appendix A `--mode e2e --n 200` on the incident configuration (v4-flash with its Max profile) and on flash: expect 0 `FAILED-CLOSED`, 0 `未返回裁决`. Re-run the probe with k≥30 and compare to the labelled history (V7).

@@ -1,3 +1,5 @@
+using System.Linq;
+using System.Collections.Generic;
 using Athena.UI.Models;
 using Athena.UI.Services.Interfaces;
 using Avalonia.Threading;
@@ -54,6 +56,23 @@ public sealed class ApprovalQueueViewModel : ViewModelBase, IToolApprovalPrompte
 
     public ObservableCollection<ApprovalQueueItemViewModel> Pending { get; } = new();
     public bool HasPending => Pending.Count > 0;
+    private string? _displayedConversationId;
+    public IReadOnlyList<ApprovalQueueItemViewModel> VisiblePending => Pending
+        .Where(item => item.Request.AllowsPersistentApproval || item.ConversationId == _displayedConversationId).ToArray();
+    public bool HasVisiblePending => VisiblePending.Count > 0;
+
+    internal void ShowConversation(string? id)
+    {
+        if (_displayedConversationId == id) return;
+        _displayedConversationId = id;
+        RefreshVisibleItems();
+    }
+
+    private void RefreshVisibleItems()
+    {
+        OnPropertyChanged(nameof(VisiblePending));
+        OnPropertyChanged(nameof(HasVisiblePending));
+    }
 
     private string L(string key, string fallback)
         => _localization?.GetString(key, fallback) ?? fallback;
@@ -101,6 +120,7 @@ public sealed class ApprovalQueueViewModel : ViewModelBase, IToolApprovalPrompte
     private void OnPendingChanged()
     {
         OnPropertyChanged(nameof(HasPending));
+        RefreshVisibleItems();
         if (HasPending && _foregroundProbe?.IsForeground != true) PostApprovalNotification();
         else WithdrawApprovalNotification();
     }

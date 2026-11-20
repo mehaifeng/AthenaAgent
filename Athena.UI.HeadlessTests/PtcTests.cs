@@ -169,6 +169,23 @@ internal static class PtcTests
             Check(!result.Success && !result.Message.Contains("用户拒绝", StringComparison.Ordinal), "judge refusal is not relabeled as a user refusal");
             Check(fixture.Files.Observations.IsEmpty, "outer denial executes no child");
         }
+        await using (var fixture = new Fixture())
+        {
+            fixture.Config.ToolApprovalMode = ToolApprovalMode.Automatic;
+            fixture.Judge.Decision = ToolApprovalDecision.AskUser("Confirm this operation");
+            const string read = "const r=await tools.call('read_system_file',{path:inputs.path}); text(r.success);";
+            fixture.Prompter.Decide = _ => ToolApprovalScope.Deny;
+            var denied = await fixture.ProgramAsync(read);
+            Check(!denied.Success && fixture.Files.Observations.IsEmpty, "a human denial after review never invokes the executor");
+            fixture.Prompter.Decide = _ => throw new OperationCanceledException();
+            var cancelled = await fixture.ProgramAsync(read);
+            Check(!cancelled.Success && fixture.Files.Observations.IsEmpty, "a cancelled handoff never invokes the executor");
+            fixture.Prompter.Decide = _ => ToolApprovalScope.AllowOnce;
+            var accepted = await fixture.ProgramAsync(read);
+            Check(accepted.Success && fixture.Files.Observations.Count == 1, "human confirmation executes exactly once");
+            Check(fixture.Prompter.Calls.All(item => !item.AllowsPersistentApproval && item.ReviewReason == "Confirm this operation"),
+                "each handoff carries the reason and single-call scope through the production registry");
+        }
     }
 
     private static async Task ParallelSessionsAsync()

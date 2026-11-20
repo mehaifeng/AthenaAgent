@@ -103,7 +103,7 @@ public sealed class SubAgentRunner
 
         // 子代理是无人值守路径：审批闸门绝不弹窗，敏感/破坏性工具按静态策略处理。
         // 必须显式进入非交互作用域，覆盖来自主对话（dispatch_subagents 调用点）的交互式环境。
-        using var approvalScope = Athena.UI.Services.ToolApprovalContext.EnterNonInteractive();
+        using var approvalScope = Athena.UI.Services.ToolApprovalContext.EnterNonInteractive(task.Instruction);
         _logger.Debug("SubAgentRunner entered NonInteractive approval scope: Title={Title}", task.Title);
 
         try

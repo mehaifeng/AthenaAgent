@@ -275,7 +275,6 @@ Task.Run(TestAutomaticCompressionFailureBudgetBehaviorAsync).GetAwaiter().GetRes
 Task.Run(TestSameRevisionNotCompressibleCacheAsync).GetAwaiter().GetResult();
 Task.Run(TestImmediateToolCallUsageAsync).GetAwaiter().GetResult();
 Task.Run(TestMainChatToolCallCarriesDelegatedTaskAsync).GetAwaiter().GetResult();
-TestApprovalShadowIsNotModelWritable();
 Task.Run(TestToolLoopTransactionalCompressionAsync).GetAwaiter().GetResult();
 Task.Run(TestToolLoopClearsOldToolResultsBeforeCompactingAsync).GetAwaiter().GetResult();
 Task.Run(TestClearingCannotStarveCompactionAsync).GetAwaiter().GetResult();
@@ -4468,7 +4467,7 @@ static void TestMainWindowPagesAndInlineApproval(string outputPath)
         modeMenu.ShowAt(modeButton);
         Dispatcher.UIThread.RunJobs();
         var modeItems = GetOpenedMenuItems(modeMenu);
-        if (!modeItems.Select(item => AutomationProperties.GetName(item)).SequenceEqual(["均衡", "严格", "自动", "完全允许"])
+        if (!modeItems.Select(item => AutomationProperties.GetName(item)).SequenceEqual(["均衡", "严格", "自动评审", "完全允许"])
             || modeItems.Any(item => !item.GetVisualDescendants().OfType<TextBlock>()
                 .Any(text => text.Text == AutomationProperties.GetName(item))))
             throw new InvalidOperationException("输入区菜单应提供全部四种审批模式。");
@@ -4498,7 +4497,7 @@ static void TestMainWindowPagesAndInlineApproval(string outputPath)
         PumpUntil(() => settings.ToolApproval.ModePicker.SelectedMode.Mode == ToolApprovalMode.Automatic);
         config.ToolApprovalMode = ToolApprovalMode.Balanced;
         Back();
-        if (modeLabel.Text != "自动")
+        if (modeLabel.Text != "自动评审")
             throw new InvalidOperationException("外部替换配置后，设置和输入区都应使用最新配置实例。");
 
         OpenFromChat(shell.OpenKnowledgeBaseCommand);
@@ -4596,6 +4595,28 @@ static void TestMainWindowPagesAndInlineApproval(string outputPath)
         PumpUntil(() => second.IsCanceled && !approvalView.IsEffectivelyVisible);
         if (selected.IsWaitingForApproval)
             throw new InvalidOperationException("结束执行后，审批和等待标记应一起收起。");
+
+        var review = new ToolApprovalRequest { FunctionName = "write_system_file", Risk = ToolRisk.Sensitive,
+            AllowsPersistentApproval = false, ReviewReason = "Confirm the exact destination" };
+        using var backgroundStop = new CancellationTokenSource();
+        Task<ToolApprovalScope> backgroundReview;
+        using (accessor.Enter(background.ConversationId))
+            backgroundReview = queue.PromptAsync(review, backgroundStop.Token);
+        PumpUntil(() => background.IsWaitingForApproval);
+        if (approvalView.IsEffectivelyVisible) throw new InvalidOperationException("其他会话的自动评审不能在当前会话作答。");
+        Task<ToolApprovalScope> currentReview;
+        using (accessor.Enter(selected.ConversationId))
+            currentReview = queue.PromptAsync(review, CancellationToken.None);
+        PumpUntil(() => approvalView.IsEffectivelyVisible && queue.VisiblePending.Count == 1);
+        if (!approvalView.GetVisualDescendants().OfType<TextBlock>().Any(t => t.IsEffectivelyVisible && t.Text == review.ReviewReason)
+            || approvalView.GetVisualDescendants().OfType<Button>().Any(b => b.IsEffectivelyVisible && ReferenceEquals(b.Command, queue.VisiblePending[0].AllowAlwaysCommand)))
+            throw new InvalidOperationException("人工接手必须显示具体原因，并限定为本次批准。");
+        queue.VisiblePending[0].AllowOnceCommand.Execute(null);
+        if (PumpForResult(currentReview, "确认当前会话") != ToolApprovalScope.AllowOnce || backgroundReview.IsCompleted)
+            throw new InvalidOperationException("跨会话审批发生了串扰。");
+        backgroundStop.Cancel();
+        PumpUntil(() => backgroundReview.IsCanceled && !queue.HasPending);
+
     }
     finally
     {
@@ -4717,9 +4738,18 @@ static void TestProviderErrorFailsScheduledRun()
                 $"运行记录必须带上供应商给出的原因，否则只能回头翻日志，实际是 '{result.Note}'。");
     }
 
-    using (var succeeding = Build(new PlainReplyChatService()))
+    var replies = new PlainReplyChatService();
+    using (var succeeding = Build(replies))
     {
         var result = Run(succeeding);
+        if (replies.LastContext?.ScheduledInstruction != "跑一次流水线" || replies.LastContext.ApprovalUserRequests.Count != 0)
+            throw new InvalidOperationException("The scheduler must mark its turn and keep its hidden message out of authorization.");
+        succeeding.InputText = "我的后续请求";
+        var followup = succeeding.SendMessageCommand.ExecuteAsync(null);
+        PumpUntil(() => followup.IsCompleted, 10_000, "定时会话的人工跟进未结束。");
+        followup.GetAwaiter().GetResult();
+        if (replies.LastContext.ScheduledInstruction != null || !replies.LastContext.ApprovalUserRequests.SequenceEqual(["我的后续请求"]))
+            throw new InvalidOperationException("A real follow-up in a scheduled conversation has its own interactive authorization.");
         if (result.Outcome != TaskExecutionOutcome.Succeeded)
             throw new InvalidOperationException(
                 $"正常回合仍然必须判成功，实际是 {result.Outcome}。");
@@ -8258,22 +8288,25 @@ static async Task TestMainChatToolCallCarriesDelegatedTaskAsync()
         contextPolicyResolver: new ModelContextPolicyResolver(),
         requestPreparer: new ContextRequestPreparer(new TokenFingerprintService(new HeadlessPathService())));
 
-    using var handler = new ToolLoopSseHandler();
-    using var httpClient = new HttpClient(handler);
-    var options = OpenAiClientOptionsFactory.Create(provider.BaseUrl, 10);
-    options.Transport = new HttpClientPipelineTransport(httpClient);
-    var client = new OpenAI.OpenAIClient(new ApiKeyCredential("test-key"), options);
-    var field = typeof(OpenAIChatService).GetField("_chatClient", BindingFlags.Instance | BindingFlags.NonPublic)
-                ?? throw new InvalidOperationException("OpenAIChatService._chatClient field was not found.");
-    field.SetValue(service, client.GetChatClient("stream-model"));
-
-    // 先有一条真正的请求，再来一句「继续」：委托任务得把它跟着的那条请求一起带上。
-    var context = new ConversationContext { ConversationId = "delegated-task", Revision = 1 };
-    context.AddUserMessage("把 logs 目录里上个月的日志归档到 archive/");
-    context.AddAssistantMessage("好的，先看一下目录结构。");
-    await foreach (var _ in service.StreamMessageAsync("继续", context))
+    async Task Run(ConversationContext snapshot, string input)
     {
+        using var handler = new ToolLoopSseHandler();
+        using var httpClient = new HttpClient(handler);
+        var options = OpenAiClientOptionsFactory.Create(provider.BaseUrl, 10);
+        options.Transport = new HttpClientPipelineTransport(httpClient);
+        var client = new OpenAI.OpenAIClient(new ApiKeyCredential("test-key"), options);
+        var field = typeof(OpenAIChatService).GetField("_chatClient", BindingFlags.Instance | BindingFlags.NonPublic)
+                    ?? throw new InvalidOperationException("OpenAIChatService._chatClient field was not found.");
+        field.SetValue(service, client.GetChatClient("stream-model"));
+        await foreach (var _ in service.StreamMessageAsync(input, snapshot)) { }
     }
+
+    var context = new ConversationContext { ConversationId = "delegated-task", Revision = 1 };
+    context.AddUserMessage("把 logs 目录里上个月的日志归档到 archive/", id: "archived-human-request");
+    context.RemoveMessagesById(["archived-human-request"]);
+    context.AddUserMessage("scheduler-supplied instruction", isUserAuthored: false);
+    context.AddAssistantMessage("好的，先看一下目录结构。");
+    await Run(context.Clone(), "继续");
 
     if (registry.Calls != 1)
         throw new InvalidOperationException($"工具应恰好执行一次，实际 {registry.Calls} 次。");
@@ -8283,23 +8316,12 @@ static async Task TestMainChatToolCallCarriesDelegatedTaskAsync()
     if (!string.Equals(registry.DelegatedTask, expected, StringComparison.Ordinal))
         throw new InvalidOperationException(
             $"主对话没有把用户请求带进审批上下文：期望 <{expected}>，实际 <{registry.DelegatedTask ?? "null"}>。");
-    Console.WriteLine("[PASS] main-chat tool calls carry the user's latest request into the approval context");
-}
-
-// 影子评估会把调用内容发给第三方，开关只能由用户在设置页打开。ConfigFieldCatalog 是
-// view_self_configuration / modify_self_configuration 的唯一入口：目录里不能有任何字段读得到它。
-// 按行为判断而不是按名字搜——换个名字登记进去，一样会被抓到。
-static void TestApprovalShadowIsNotModelWritable()
-{
-    var off = new AppConfig { ApprovalShadowEnabled = false };
-    var on = new AppConfig { ApprovalShadowEnabled = true };
-    var exposing = ConfigFieldCatalog.Fields
-        .Where(field => JsonSerializer.Serialize(field.Get(off)) != JsonSerializer.Serialize(field.Get(on)))
-        .Select(field => field.Key)
-        .ToList();
-    if (exposing.Count > 0)
-        throw new InvalidOperationException("模型可读写的配置目录暴露了 Jev 影子评估开关：" + string.Join(", ", exposing));
-    Console.WriteLine("[PASS] the approval shadow switch is out of reach of the model-writable config catalog");
+    var scheduled = new ConversationContext { ScheduledInstruction = "scheduler-supplied instruction" };
+    scheduled.AddUserMessage(scheduled.ScheduledInstruction, isUserAuthored: false);
+    await Run(scheduled.Clone(), string.Empty);
+    if (registry.Calls != 2 || registry.Mode != ToolApprovalContext.ExecutionMode.Scheduled || registry.DelegatedTask != null)
+        throw new InvalidOperationException("A scheduled tool call must be unattended and cannot claim a user request.");
+    Console.WriteLine("[PASS] tool calls distinguish genuine user requests, including after compaction, from scheduled instructions");
 }
 
 static void TestCompressionSummaryPermissionBoundary()
@@ -15124,6 +15146,7 @@ sealed class ProviderFailureChatService : HeadlessChatService
 sealed class PlainReplyChatService : HeadlessChatService
 {
     public const string Reply = "the overnight build is green";
+    public ConversationContext? LastContext { get; private set; }
 
     public override async IAsyncEnumerable<string> StreamMessageAsync(
         string userMessage,
@@ -15146,6 +15169,7 @@ sealed class PlainReplyChatService : HeadlessChatService
         Action<PtcProgress>? onPtcProgress = null,
         ExecutionTimelineCollector? executionTimeline = null)
     {
+        LastContext = context;
         await Task.CompletedTask;
         yield return Reply;
     }

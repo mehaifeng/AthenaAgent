@@ -34,24 +34,20 @@ public static class ToolApprovalContext
         /// （<see cref="TrustedRoutineGrant"/>）里的工具自动放行，文件路径由 FileSystemService
         /// 限定在授权目录内。
         /// </summary>
-        Trusted
+        Trusted,
+        /// <summary>定时触发的回合，其指令来自调度器。</summary>
+        Scheduled
     }
 
-    private static readonly AsyncLocal<ExecutionMode> _mode = new();
-    private static readonly AsyncLocal<string?> _delegatedTask = new();
-    private static readonly AsyncLocal<TrustedRoutineGrant?> _trustedGrant = new();
+    private sealed record State(ExecutionMode Mode, string? UserTask, string? WorkspaceDirectory,
+        string? AgentInstruction = null, TrustedRoutineGrant? Grant = null);
+    private static readonly AsyncLocal<State?> Current = new();
 
-    /// <summary>当前执行流的审批模式；未设置时为 <see cref="ExecutionMode.Unset"/>。</summary>
-    public static ExecutionMode CurrentMode => _mode.Value;
-
-    /// <summary>Trusted 作用域的授权；其它模式下为 null。</summary>
-    public static TrustedRoutineGrant? CurrentTrustedGrant => _trustedGrant.Value;
-
-    /// <summary>
-    /// 这次工具调用服务的任务。主对话里是用户最近的请求（见 <see cref="DescribeTask"/>），
-    /// 自动审批模型据此判断调用是否与任务相称；其它路径为 null。
-    /// </summary>
-    public static string? CurrentDelegatedTask => _delegatedTask.Value;
+    public static ExecutionMode CurrentMode => Current.Value?.Mode ?? ExecutionMode.Unset;
+    public static TrustedRoutineGrant? CurrentTrustedGrant => Current.Value?.Grant;
+    public static string? CurrentDelegatedTask => Current.Value?.UserTask;
+    public static string? CurrentWorkspaceDirectory => Current.Value?.WorkspaceDirectory;
+    public static string? CurrentAgentInstruction => Current.Value?.AgentInstruction;
 
     // 用户常整段粘贴日志或代码，审批只需要知道「要做什么」，所以两条各自截断。
     private const int LatestTaskMaxChars = 1000;
@@ -90,53 +86,37 @@ public static class ToolApprovalContext
     }
 
     /// <summary>进入交互式作用域（主对话循环）。Dispose 时恢复先前值。</summary>
-    public static IDisposable EnterInteractive(string? delegatedTask = null) => Enter(ExecutionMode.Interactive, delegatedTask);
+    public static IDisposable EnterInteractive(string? delegatedTask = null, string? workspaceDirectory = null) =>
+        Enter(new(ExecutionMode.Interactive, delegatedTask, workspaceDirectory));
 
-    /// <summary>进入无人值守作用域（并发子代理）。Dispose 时恢复先前值。</summary>
-    public static IDisposable EnterNonInteractive() => Enter(ExecutionMode.NonInteractive);
+    /// <summary>子任务继承用户授权的来源，派发模型编写的指令独立传递。</summary>
+    public static IDisposable EnterNonInteractive(string? instruction = null) =>
+        Enter(new(ExecutionMode.NonInteractive, CurrentDelegatedTask, CurrentWorkspaceDirectory, instruction));
 
-    /// <summary>
-    /// 进入受信任的第一方例程作用域（知识库定期整理）。必须带授权：信任只覆盖授权里的工具和目录，
-    /// 没有「只给信任、不给限定」的入口。Dispose 时恢复先前值。
-    /// </summary>
+    public static IDisposable EnterScheduled(string instruction, string? workspaceDirectory) =>
+        Enter(new(ExecutionMode.Scheduled, null, workspaceDirectory, instruction));
+
     public static IDisposable EnterTrusted(TrustedRoutineGrant grant)
     {
         ArgumentNullException.ThrowIfNull(grant);
-        return Enter(ExecutionMode.Trusted, delegatedTask: null, grant);
+        return Enter(new(ExecutionMode.Trusted, null, grant.ConfinementRoot, Grant: grant));
     }
 
-    private static IDisposable Enter(ExecutionMode mode, string? delegatedTask = null, TrustedRoutineGrant? grant = null)
+    private static IDisposable Enter(State state)
     {
-        var previous = _mode.Value;
-        var previousTask = _delegatedTask.Value;
-        var previousGrant = _trustedGrant.Value;
-        _mode.Value = mode;
-        _delegatedTask.Value = delegatedTask;
-        _trustedGrant.Value = grant;
-        return new Scope(previous, previousTask, previousGrant);
+        var previous = Current.Value;
+        Current.Value = state;
+        return new Scope(previous);
     }
 
-    private sealed class Scope : IDisposable
+    private sealed class Scope(State? previous) : IDisposable
     {
-        private readonly ExecutionMode _previous;
-        private readonly string? _previousTask;
-        private readonly TrustedRoutineGrant? _previousGrant;
         private bool _disposed;
-
-        public Scope(ExecutionMode previous, string? previousTask, TrustedRoutineGrant? previousGrant)
-        {
-            _previous = previous;
-            _previousTask = previousTask;
-            _previousGrant = previousGrant;
-        }
-
         public void Dispose()
         {
             if (_disposed) return;
             _disposed = true;
-            _mode.Value = _previous;
-            _delegatedTask.Value = _previousTask;
-            _trustedGrant.Value = _previousGrant;
+            Current.Value = previous;
         }
     }
 }

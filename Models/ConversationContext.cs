@@ -11,6 +11,16 @@ public class ConversationContext
 {
     private readonly List<ContextMessage> _messages = new();
     private string? _summary;
+    private readonly List<string> _approvalUserRequests = new(2);
+    internal IReadOnlyList<string> ApprovalUserRequests => _approvalUserRequests;
+    internal string? ScheduledInstruction { get; set; }
+
+    internal void RecordApprovalUserRequest(string content)
+    {
+        if (string.IsNullOrWhiteSpace(content)) return;
+        if (_approvalUserRequests.Count == 2) _approvalUserRequests.RemoveAt(0);
+        _approvalUserRequests.Add(content);
+    }
 
     public string ConversationId { get; set; } = Guid.NewGuid().ToString("N");
 
@@ -76,8 +86,10 @@ public class ConversationContext
         string content,
         DateTime? timestamp = null,
         IEnumerable<ChatAttachment>? attachments = null,
-        string? id = null)
+        string? id = null,
+        bool isUserAuthored = true)
     {
+        if (isUserAuthored) RecordApprovalUserRequest(content);
         _messages.Add(new ContextMessage
         {
             Id = string.IsNullOrWhiteSpace(id) ? Guid.NewGuid().ToString("N") : id,
@@ -129,7 +141,11 @@ public class ConversationContext
         });
     }
 
-    public void Clear() => _messages.Clear();
+    public void Clear()
+    {
+        _messages.Clear();
+        _approvalUserRequests.Clear();
+    }
 
     public bool RemoveMessagesById(IReadOnlyCollection<string> messageIds)
     {
@@ -143,7 +159,8 @@ public class ConversationContext
 
     public void Reset()
     {
-        _messages.Clear();
+        Clear();
+        ScheduledInstruction = null;
         _summary = null;
         Anchors = new List<ContextAnchorRecord>();
         ClearedToolResultIds = new List<string>();
@@ -160,6 +177,7 @@ public class ConversationContext
             ConversationId = ConversationId,
             Revision = Revision,
             WorkspaceId = WorkspaceId,
+            ScheduledInstruction = ScheduledInstruction,
             WorkspaceDirectoryPath = WorkspaceDirectoryPath,
             WorkspaceKnowledgeFilePath = WorkspaceKnowledgeFilePath,
             Anchors = new List<ContextAnchorRecord>(Anchors),
@@ -171,13 +189,14 @@ public class ConversationContext
         };
 
         clone.SetSummary(_summary);
+        clone._approvalUserRequests.AddRange(_approvalUserRequests);
 
         foreach (var message in _messages)
         {
             switch (message.Role)
             {
                 case "user":
-                    clone.AddUserMessage(message.Content, message.Timestamp, message.Attachments, message.Id);
+                    clone.AddUserMessage(message.Content, message.Timestamp, message.Attachments, message.Id, isUserAuthored: false);
                     break;
                 case "assistant":
                     clone.AddAssistantMessage(

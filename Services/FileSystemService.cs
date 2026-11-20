@@ -30,7 +30,26 @@ public class FileSystemService : IFileSystemService
         _logger = logger.ForContext<FileSystemService>();
     }
 
-    private string ExpandPath(string path)
+    private string ExpandPath(string path) => ExpandPath(path, _pathService);
+
+    internal static string? ResolveApprovalPath(string path, IPlatformPathService? paths)
+    {
+        if (string.IsNullOrWhiteSpace(path)) return null;
+        try
+        {
+            // Expanding an environment variable could put its secret value into a model request.
+            if (Environment.ExpandEnvironmentVariables(path) != path) return null;
+            var expanded = paths == null ? path : ExpandPath(path, paths);
+            return Path.IsPathFullyQualified(expanded) && TryResolveFully(Path.GetFullPath(expanded), out var target)
+                ? target : null;
+        }
+        catch (Exception ex) when (ex is ArgumentException or IOException or UnauthorizedAccessException or NotSupportedException)
+        {
+            return null;
+        }
+    }
+
+    private static string ExpandPath(string path, IPlatformPathService paths)
     {
         if (string.IsNullOrWhiteSpace(path)) return path;
         var expanded = Environment.ExpandEnvironmentVariables(path);
@@ -44,11 +63,11 @@ public class FileSystemService : IFileSystemService
         }
         else if (!Path.IsPathRooted(expanded) && !expanded.StartsWith("%"))
         {
-            var kbDir = _pathService.GetKnowledgeBaseDirectory();
+            var kbDir = paths.GetKnowledgeBaseDirectory();
             var kbPath = Path.GetFullPath(Path.Combine(kbDir, expanded));
             if (File.Exists(kbPath) || Directory.Exists(kbPath)) return kbPath;
 
-            var appDataDir = _pathService.GetAppDataDirectory();
+            var appDataDir = paths.GetAppDataDirectory();
             var appDataPath = Path.GetFullPath(Path.Combine(appDataDir, expanded));
             if (File.Exists(appDataPath) || Directory.Exists(appDataPath)) return appDataPath;
 

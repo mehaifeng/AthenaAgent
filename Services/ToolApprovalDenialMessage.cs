@@ -18,6 +18,8 @@ public static class ToolApprovalDenialMessage
         ToolApprovalSource.JudgeVerdict =>
             $"工具调用 '{functionName}' 未执行：{decision.Reason}。这是自动审批模型的判断，不是用户本人的决定。"
             + "请勿原样重试；改用其他方式，或向用户说明为何需要此操作——用户在对话中明确同意后，可以再次发起同一调用。",
+        ToolApprovalSource.JudgeNeedsUser =>
+            $"工具调用 '{functionName}' 未执行：需要用户确认（{decision.Reason}），当前没有可用的交互审批通道。",
         ToolApprovalSource.JudgeFailure => decision.FailureKind switch
         {
             ToolApprovalJudgeFailureKind.Output =>

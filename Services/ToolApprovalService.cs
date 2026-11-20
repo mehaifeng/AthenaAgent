@@ -22,7 +22,7 @@ public class ToolApprovalService : IToolApprovalService
     private readonly ILocalizationService? _localizationService;
     private readonly ILogger _logger;
     private readonly ConversationExecutionCoordinator? _executionCoordinator;
-    private readonly IApprovalShadow? _approvalShadow;
+    private readonly IPlatformPathService? _paths;
 
     // 会话内「始终允许」的去重键（AllowForSession）。键含当前对话 ID，做到每个对话独立——
     // 新开对话不会继承上一对话的会话放行。终端命令按命令名聚合。
@@ -37,7 +37,7 @@ public class ToolApprovalService : IToolApprovalService
         IAiToolApprovalEvaluator? aiEvaluator = null,
         ILocalizationService? localizationService = null,
         ConversationExecutionCoordinator? executionCoordinator = null,
-        IApprovalShadow? approvalShadow = null)
+        IPlatformPathService? paths = null)
     {
         _configService = configService;
         _prompter = prompter;
@@ -46,7 +46,7 @@ public class ToolApprovalService : IToolApprovalService
         _localizationService = localizationService;
         _logger = logger.ForContext<ToolApprovalService>();
         _executionCoordinator = executionCoordinator;
-        _approvalShadow = approvalShadow;
+        _paths = paths;
     }
 
     public async Task<ToolApprovalDecision> EvaluateAsync(string functionName, string argumentsJson, CancellationToken cancellationToken)
@@ -57,21 +57,29 @@ public class ToolApprovalService : IToolApprovalService
             functionName, argumentsJson, SensitiveLocations.From(config.FileSystemPolicy, _configService.ConfigFilePath));
         var mode = config.ToolApprovalMode;
         var execMode = ToolApprovalContext.CurrentMode;
+        // The existing manual approval modes also present scheduled calls in their conversation.
+        if (execMode == ToolApprovalContext.ExecutionMode.Scheduled && mode != ToolApprovalMode.Automatic)
+            execMode = ToolApprovalContext.ExecutionMode.Interactive;
+
+        if (cancellationToken.IsCancellationRequested)
+        {
+            var cancelled = ToolApprovalDecision.Cancelled("本轮已取消");
+            Audit(functionName, risk, execMode, cancelled);
+            return cancelled;
+        }
 
         // 审批键带作用域：终端按命令名、下载按主机名、写文件按目标目录聚合。
         // 「始终允许」因此不再等于全盘放行（见 ToolApprovalKey）。
-        var keyInfo = ToolApprovalKey.Build(functionName, argumentsJson);
-        var isTerminal = keyInfo.IsTerminal;
-        var commandName = keyInfo.CommandName;
-        var approvalKey = keyInfo.Key;
+        var keyInfo = ToolApprovalKey.Build(functionName, argumentsJson, mode == ToolApprovalMode.Automatic ? ResolveFilePath : null);
+
         // 会话放行键含当前对话 ID：不同对话互不影响。
-        var sessionKey = BuildSessionKey(approvalKey);
+        var sessionKey = BuildSessionKey(keyInfo.Key);
 
         _logger.Debug(
             "ToolApproval evaluation started: Function={Function}, Risk={Risk}, Reason={Reason}, Mode={Mode}, ExecMode={ExecMode}",
             functionName, risk, riskReason ?? "(none)", mode, execMode);
 
-        var decision = Decide(functionName, argumentsJson, risk, riskReason, mode, execMode, config, isTerminal, commandName, approvalKey, sessionKey);
+        var decision = Decide(functionName, risk, mode, execMode, config, keyInfo, sessionKey);
 
         // 交互模式下命中「需询问」分支会返回 null，交由弹窗流程处理。
         if (decision != null)
@@ -80,75 +88,78 @@ public class ToolApprovalService : IToolApprovalService
             return decision;
         }
 
-        var request = BuildRequest(functionName, argumentsJson, risk, riskReason, isTerminal, keyInfo);
+        var automaticMode = mode == ToolApprovalMode.Automatic;
+        var request = BuildRequest(functionName, argumentsJson, risk, riskReason, keyInfo, automaticMode);
+        var canPrompt = execMode == ToolApprovalContext.ExecutionMode.Interactive && _prompter != null;
 
-        if (mode == ToolApprovalMode.Automatic)
+        if (automaticMode && !ToolRiskClassifier.IsNeverUnattended(functionName))
         {
-            // 自动审批模型只顶替「人」，越不过两条对无人值守路径本来就成立的绝对拒绝：
-            // ① 只能由人批准的工具（IsNeverUnattended）——交互路径照常弹窗，无人值守路径静态拒绝；
-            // ② 子代理的破坏性调用——ResolveNonInteractive 一律拒绝，不因开了自动审批就改由模型判。
-            // 此前这个分支对所有执行模式一视同仁：审批模型可以批准 Security.ToolApprovalMode=Off，
-            // 也可以放行子代理的 delete_system_file，「一律拒绝」「不受任何开关影响」两条在这里都不成立。
-            var withheldFromModel = ToolRiskClassifier.IsNeverUnattended(functionName)
-                || (risk == ToolRisk.Destructive && execMode != ToolApprovalContext.ExecutionMode.Interactive);
-            if (!withheldFromModel)
+            ToolApprovalDecision review;
+            if (_aiEvaluator == null)
             {
-                ToolApprovalDecision automatic;
-                if (_aiEvaluator == null)
-                {
-                    _logger.Warning("Automatic approval mode is on but no approval evaluator is wired; failing closed for {Function}", functionName);
-                    automatic = ToolApprovalDecision.JudgeFailed(ToolApprovalJudgeFailureKind.Configuration, "自动审批模型不可用");
-                }
-                else
-                {
-                    automatic = await _aiEvaluator.EvaluateAsync(request, cancellationToken);
-                }
-                _logger.Information(
-                    "ToolApproval automatic-mode AI evaluation completed: Function={Function}, Approved={Approved}, Source={Source}, Reason={Reason}",
-                    functionName, automatic.Approved, automatic.Source, automatic.Reason);
-                Audit(functionName, risk, execMode, automatic);
-                return automatic;
+                _logger.Warning("Automatic approval model is unavailable for {Function}", functionName);
+                review = ToolApprovalDecision.JudgeFailed(ToolApprovalJudgeFailureKind.Configuration, "没有可用的自动审批模型");
             }
-
-            _logger.Information(
-                "ToolApproval automatic mode withheld the call from the approval model: Function={Function}, Risk={Risk}, ExecMode={ExecMode}",
-                functionName, risk, execMode);
+            else
+            {
+                try
+                {
+                    review = await _aiEvaluator.EvaluateAsync(request, cancellationToken);
+                }
+                catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+                {
+                    review = ToolApprovalDecision.Cancelled("本轮已取消");
+                }
+                catch (Exception ex)
+                {
+                    _logger.Warning("Approval reviewer could not complete for {Function}: {ErrorType}", functionName, ex.GetType().Name);
+                    review = ToolApprovalDecision.JudgeFailed(ToolApprovalJudgeFailureKind.Transport, "自动评审未能完成");
+                }
+            }
+            if (cancellationToken.IsCancellationRequested)
+                review = ToolApprovalDecision.Cancelled("本轮已取消");
+            _logger.Information("ToolApproval review: Function={Function}, Source={Source}, FailureKind={FailureKind}, Approved={Approved}",
+                functionName, review.Source, review.FailureKind, review.Approved);
+            if (!canPrompt || review.Source is not (ToolApprovalSource.JudgeNeedsUser or ToolApprovalSource.JudgeFailure))
+            {
+                Audit(functionName, risk, execMode, review);
+                return review;
+            }
+            request.ReviewReason = review.ReviewDetail;
         }
 
-        // —— 需要人工确认，但非交互式路径不能弹窗 ——
-        if (execMode != ToolApprovalContext.ExecutionMode.Interactive || _prompter == null)
+        if (!canPrompt)
         {
-            var nonInteractive = ResolveNonInteractive(functionName, risk, execMode, config);
-            _logger.Information(
-                "ToolApproval non-interactive path decision: Function={Function}, Risk={Risk}, ExecMode={ExecMode}, Approved={Approved}, Reason={Reason}",
-                functionName, risk, execMode, nonInteractive.Approved, nonInteractive.Reason);
-            Audit(functionName, risk, execMode, nonInteractive);
-            return nonInteractive;
+            var unattended = ResolveNonInteractive(functionName, risk, execMode, config);
+            Audit(functionName, risk, execMode, unattended);
+            return unattended;
         }
-
-        // 影子评估（默认关闭）：用户被询问的这一刻，让决策模型在后台给同一次调用打分，
-        // 分数和用户的选择写进同一条日志。它不参与裁决——这里既不等它，也不看它的结果。
-        var shadow = BeginShadow(config, functionName, argumentsJson, risk);
 
         ToolApprovalScope scope;
         try
         {
             scope = _executionCoordinator == null
-                ? await _prompter.PromptAsync(request, cancellationToken)
+                ? await _prompter!.PromptAsync(request, cancellationToken)
                 : await _executionCoordinator.RunWithoutModelSlotAsync(
                     _sessionAccessor?.CurrentConversationId,
-                    () => _prompter.PromptAsync(request, cancellationToken),
+                    () => _prompter!.PromptAsync(request, cancellationToken),
                     cancellationToken);
         }
         catch (OperationCanceledException)
         {
-            shadow?.Complete("Cancelled");
             var cancelled = ToolApprovalDecision.Cancelled("用户取消了本轮回复");
             _logger.Information("ToolApproval prompt cancelled by user: Function={Function}", functionName);
             Audit(functionName, risk, execMode, cancelled);
             return cancelled;
         }
-        shadow?.Complete(scope.ToString());
+        if (cancellationToken.IsCancellationRequested)
+        {
+            var cancelled = ToolApprovalDecision.Cancelled("本轮已取消");
+            Audit(functionName, risk, execMode, cancelled);
+            return cancelled;
+        }
+        if (!request.AllowsPersistentApproval && scope is ToolApprovalScope.AllowForSession or ToolApprovalScope.AllowAlways)
+            scope = ToolApprovalScope.AllowOnce;
 
         // 记忆用户的放行选择。
         if (scope == ToolApprovalScope.AllowForSession)
@@ -165,8 +176,8 @@ public class ToolApprovalService : IToolApprovalService
         {
             _logger.Information(
                 "ToolApproval user chose AllowAlways: Function={Function}, Key={Key}, IsTerminal={IsTerminal}",
-                functionName, approvalKey, isTerminal);
-            await PersistAlwaysAllowAsync(isTerminal, commandName, approvalKey);
+                functionName, keyInfo.Key, keyInfo.IsTerminal);
+            await PersistAlwaysAllowAsync(keyInfo.IsTerminal, keyInfo.CommandName, keyInfo.Key);
         }
 
         var userDecision = new ToolApprovalDecision
@@ -180,40 +191,11 @@ public class ToolApprovalService : IToolApprovalService
     }
 
     /// <summary>
-    /// 开关打开时开始影子评分。影子服务按约定不抛异常，这里仍兜一层：审批闸门不能因为一个实验失败。
-    /// </summary>
-    private IApprovalShadowRun? BeginShadow(AppConfig config, string functionName, string argumentsJson, ToolRisk risk)
-    {
-        if (!config.ApprovalShadowEnabled) return null;
-        if (_approvalShadow == null)
-        {
-            _logger.Warning("Approval shadow scoring is enabled but no shadow service is wired; nothing is recorded");
-            return null;
-        }
-
-        try
-        {
-            return _approvalShadow.Begin(new ApprovalShadowCall(
-                functionName,
-                argumentsJson,
-                risk,
-                ToolApprovalContext.CurrentDelegatedTask,
-                _sessionAccessor?.CurrentWorkspaceId));
-        }
-        catch (Exception ex)
-        {
-            _logger.Warning(ex, "Approval shadow scoring failed to start for {Function}", functionName);
-            return null;
-        }
-    }
-
-    /// <summary>
     /// 无需弹窗即可裁决的分支返回具体决策；返回 null 表示「需人工确认」。
     /// </summary>
     private ToolApprovalDecision? Decide(
-        string functionName, string argumentsJson, ToolRisk risk, string? riskReason,
-        ToolApprovalMode mode, ToolApprovalContext.ExecutionMode execMode, AppConfig config,
-        bool isTerminal, string? commandName, string approvalKey, string sessionKey)
+        string functionName, ToolRisk risk, ToolApprovalMode mode, ToolApprovalContext.ExecutionMode execMode,
+        AppConfig config, ToolApprovalKey.Result keyInfo, string sessionKey)
     {
         // 受信任的第一方例程（知识库定期整理）：只对授权里的工具自动放行，结论在这里定死——
         // Off 不放宽它，Automatic 也不把授权外的调用转交审批模型。
@@ -227,6 +209,14 @@ public class ToolApprovalService : IToolApprovalService
         {
             _logger.Debug("ToolApproval mode=Off auto-allow: Function={Function}", functionName);
             return ToolApprovalDecision.AllowOnce("审批模式=Off，全部放行");
+        }
+
+        if (mode == ToolApprovalMode.Automatic)
+        {
+            var interactive = execMode == ToolApprovalContext.ExecutionMode.Interactive;
+            if (!interactive && (risk == ToolRisk.Destructive || ToolRiskClassifier.IsNeverUnattended(functionName)))
+                return ResolveNonInteractive(functionName, risk, execMode, config);
+            if (ToolRiskClassifier.IsNeverUnattended(functionName)) return null;
         }
 
         // 只读工具在非严格模式下自动放行。
@@ -244,14 +234,22 @@ public class ToolApprovalService : IToolApprovalService
             return ToolApprovalDecision.AllowOnce("只增不改的写入自动放行（目标已存在时工具自身会失败）");
         }
 
+        // 自动模式下，单个命令名、裸工具名以及破坏性操作的目录授权都不足以覆盖本次副作用。
+        if (mode == ToolApprovalMode.Automatic
+            && (risk == ToolRisk.Destructive || keyInfo.IsTerminal || keyInfo.Scope is null))
+            return null;
+
+        var (approvalKey, _, commandName) = keyInfo;
+        var isTerminal = keyInfo.IsTerminal;
         // 用户已永久放行。同时匹配带作用域的新键与裸函数名——后者是本次改动之前写下的
         // 全局放行记录，用户当初是明确选择的，不能因为键的形态变了就悄悄失效。
-        if (config.AutoAllowedTools.Contains(approvalKey, StringComparer.OrdinalIgnoreCase))
+        var comparer = mode == ToolApprovalMode.Automatic && OperatingSystem.IsLinux() ? StringComparer.Ordinal : StringComparer.OrdinalIgnoreCase;
+        if (config.AutoAllowedTools.Contains(approvalKey, comparer))
         {
             _logger.Debug("ToolApproval hit permanent allowlist: Key={Key}", approvalKey);
             return ToolApprovalDecision.AllowOnce("命中永久放行清单");
         }
-        if (!isTerminal && config.AutoAllowedTools.Contains(functionName, StringComparer.OrdinalIgnoreCase))
+        if (mode != ToolApprovalMode.Automatic && !isTerminal && config.AutoAllowedTools.Contains(functionName, StringComparer.OrdinalIgnoreCase))
         {
             _logger.Debug("ToolApproval hit legacy unscoped allowlist entry: Function={Function}", functionName);
             return ToolApprovalDecision.AllowOnce("命中永久放行清单（历史的全局条目）");
@@ -268,7 +266,7 @@ public class ToolApprovalService : IToolApprovalService
         // 当前对话内已放行。
         lock (_sessionLock)
         {
-            if (_sessionAllowed.Contains(sessionKey))
+            if (_sessionAllowed.Contains(sessionKey, comparer))
             {
                 _logger.Debug("ToolApproval session-scoped allow hit: SessionKey={SessionKey}", sessionKey);
                 return ToolApprovalDecision.AllowOnce("本对话内已放行");
@@ -354,17 +352,22 @@ public class ToolApprovalService : IToolApprovalService
                 : "无审批交互通道，默认拒绝");
     }
 
+    private string? ResolveFilePath(string path) => FileSystemService.ResolveApprovalPath(path, _paths);
+
     private ToolApprovalRequest BuildRequest(
         string functionName, string argumentsJson, ToolRisk risk, string? riskReason,
-        bool isTerminal, ToolApprovalKey.Result keyInfo)
+        ToolApprovalKey.Result keyInfo, bool automaticMode)
     {
         return new ToolApprovalRequest
         {
             FunctionName = functionName,
+            ArgumentsJson = argumentsJson,
+            ResolveFilePath = ResolveFilePath,
             Risk = risk,
             Summary = ToolCallDisplay.Summarize(functionName, argumentsJson, _localizationService),
             PrettyArguments = ToolCallDisplay.PrettyArguments(argumentsJson),
-            CommandLine = isTerminal ? TerminalCommandRisk.BuildCommandLine(argumentsJson) : null,
+            AllowsPersistentApproval = !automaticMode,
+            CommandLine = keyInfo.IsTerminal ? TerminalCommandRisk.BuildCommandLine(argumentsJson) : null,
             RiskReason = riskReason,
             ApprovalKey = keyInfo.Key,
             ApprovalScope = keyInfo.Scope
@@ -406,8 +409,8 @@ public class ToolApprovalService : IToolApprovalService
     {
         // 审计日志：谁（模式）、放行/拒绝、工具、风险、原因。便于事后追溯。
         _logger.Information(
-            "ToolApproval | function={Function} risk={Risk} exec={ExecMode} decision={Scope} approved={Approved} reason={Reason}",
-            functionName, risk, execMode, decision.Scope, decision.Approved, decision.Reason);
+            "ToolApproval | function={Function} risk={Risk} exec={ExecMode} decision={Scope} approved={Approved} source={Source} failure={FailureKind} reason={Reason}",
+            functionName, risk, execMode, decision.Scope, decision.Approved, decision.Source, decision.FailureKind, decision.Reason);
     }
 
     /// <summary>

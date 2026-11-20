@@ -58,6 +58,8 @@ public sealed class ToolApprovalRequest
 {
     public required string FunctionName { get; init; }
     public required ToolRisk Risk { get; init; }
+    internal string? ArgumentsJson { get; init; }
+    internal Func<string, string?>? ResolveFilePath { get; init; }
 
     /// <summary>人类可读的一行摘要（复用 ToolCallDisplay.Summarize）。</summary>
     public string Summary { get; init; } = string.Empty;
@@ -73,6 +75,10 @@ public sealed class ToolApprovalRequest
 
     /// <summary>高危原因说明（如「删除操作不可逆」「命令包含 sudo」），可空。</summary>
     public string? RiskReason { get; init; }
+
+    /// <summary>交由当前会话确认的原因。自动模式只允许用户对这一次调用作答。</summary>
+    public string? ReviewReason { get; internal set; }
+    public bool AllowsPersistentApproval { get; init; } = true;
 
     public bool IsTerminal => !string.IsNullOrEmpty(CommandLine);
     public bool IsDestructive => Risk == ToolRisk.Destructive;
@@ -106,7 +112,9 @@ public enum ToolApprovalSource
     /// <summary>自动审批模型给出了放行或拒绝。</summary>
     JudgeVerdict,
     /// <summary>自动审批模型没能给出裁决，按安全策略拒绝。类别见 <see cref="ToolApprovalJudgeFailureKind"/>。</summary>
-    JudgeFailure
+    JudgeFailure,
+    /// <summary>需要用户补充授权或确认具体副作用。</summary>
+    JudgeNeedsUser
 }
 
 /// <summary>自动审批没能给出裁决的原因类别。它决定主模型该不该重试。</summary>
@@ -154,6 +162,11 @@ public sealed class ToolApprovalDecision
     /// <summary>仅当 <see cref="Source"/> 为 <see cref="ToolApprovalSource.JudgeFailure"/> 时不为 None。</summary>
     public ToolApprovalJudgeFailureKind FailureKind { get; init; }
 
+    public string? ReviewDetail { get; init; }
+
+    public static ToolApprovalDecision AskUser(string reason) =>
+        new() { Scope = ToolApprovalScope.Deny, Source = ToolApprovalSource.JudgeNeedsUser, Reason = reason, ReviewDetail = reason };
+
     public static ToolApprovalDecision Allow(ToolApprovalScope scope, string reason) =>
         new() { Scope = scope, Reason = reason };
 
@@ -184,6 +197,7 @@ public sealed class ToolApprovalDecision
             Scope = ToolApprovalScope.Deny,
             Source = ToolApprovalSource.JudgeFailure,
             FailureKind = kind,
+            ReviewDetail = detail,
             Reason = $"{JudgeFailurePrefix}（{detail}）"
         };
     }

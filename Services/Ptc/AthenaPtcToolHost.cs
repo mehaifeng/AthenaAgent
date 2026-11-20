@@ -59,7 +59,7 @@ public sealed class AthenaPtcToolHost : IPtcToolHost
         using var conversation = _sessions.Enter(_invocation.ConversationId ?? string.Empty);
         using var workspace = _sessions.EnterWorkspace(_invocation.WorkspaceId);
         using var tokenScope = ToolExecutionContext.Enter(cancellationToken);
-        using var approval = ToolApprovalContext.EnterInteractive(_invocation.DelegatedTask);
+        using var approval = ToolApprovalContext.EnterInteractive(_invocation.DelegatedTask, _invocation.WorkspaceDirectory);
         using var child = AthenaPtcInvocationScope.EnterChild(_invocation);
         var timeline = _invocation.Timeline?.Recorder;
         var childSpan = timeline?.EnsurePtcChild(call.CallId, call.Name, context.RunId) ?? 0;

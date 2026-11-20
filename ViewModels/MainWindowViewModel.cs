@@ -328,6 +328,7 @@ public partial class MainWindowViewModel : ViewModelBase, IDisposable, ICronSess
             var previousConversation = MainConversationViewModel;
             MainConversationViewModel = target.Chat;
             DisplayedConversation = target.Chat;
+            _approvalQueue?.ShowConversation(target.ConversationId);
             if (!ReferenceEquals(previousConversation, target.Chat)
                 && ConversationGroups.SelectMany(group => group.Conversations)
                     .All(session => !ReferenceEquals(session.Chat, previousConversation)))
@@ -551,6 +552,7 @@ public partial class MainWindowViewModel : ViewModelBase, IDisposable, ICronSess
             ?? new MainConversationViewModel(chatService, configService, promptService, functionRegistry, tokenService, localizationService, attachmentStoreService, systemAudioService, archiveService, imageGenerationSessionService, screenCaptureService, subAgentOrchestrator, workspaceService, conversationSessionAccessor, userInteractionService, executionCoordinator, contextPolicyProvider);
         // 中间面板的初始内容与 MainConversationViewModel 同源；此后由 BeginConversationSurfaceSwap 晚一帧跟进。
         _displayedConversation = _mainConversationViewModel;
+        _approvalQueue?.ShowConversation(_displayedConversation.ConversationId);
         _tasksViewModel = new TasksViewModel(
             cronTaskService,
             cronScheduleService ?? new Services.Cron.CronScheduleService(localizationService),
