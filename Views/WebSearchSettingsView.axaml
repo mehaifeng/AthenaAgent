@@ -6,7 +6,7 @@
              x:Class="Athena.UI.Views.WebSearchSettingsView"
              x:DataType="vm:WebSearchSettingsViewModel">
     <ScrollViewer>
-        <StackPanel MinWidth="600" MaxWidth="820" HorizontalAlignment="Center" Margin="18" Spacing="10">
+        <StackPanel Margin="0,18" Spacing="10">
             <TextBlock Text="{loc:Loc Connectors.WebSearch.Title}" FontSize="{DynamicResource App.FontSize.PageTitle}" FontWeight="SemiBold"/>
             <CheckBox Content="{loc:Loc Connectors.WebSearch.Enabled}" IsChecked="{Binding Config.WebSearchEnabled}"/>
             <ItemsControl ItemsSource="{Binding ProviderCards}">

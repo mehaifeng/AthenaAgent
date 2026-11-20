@@ -5,7 +5,7 @@
              x:Class="Athena.UI.Views.DocumentParserSettingsView"
              x:DataType="vm:DocumentParserSettingsViewModel">
     <ScrollViewer>
-        <StackPanel MinWidth="600" MaxWidth="820" HorizontalAlignment="Center" Margin="18" Spacing="10">
+        <StackPanel Margin="0,18" Spacing="10">
             <TextBlock Text="{loc:Loc Connectors.Document.Title}" FontSize="{DynamicResource App.FontSize.PageTitle}" FontWeight="SemiBold"/>
             <CheckBox Content="{loc:Loc Config.DocumentParserEnabled}" IsChecked="{Binding Config.DocumentParserEnabled}"/>
             <TextBlock Text="{loc:Loc Config.DocumentParserMode}"/>

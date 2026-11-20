@@ -16,108 +16,94 @@
         <appconv:BoolToExpandIconConverter x:Key="BoolToExpandIcon"/>
     </UserControl.Resources>
     <Grid RowDefinitions="40,*">
-        <Border Grid.Row="0" CornerRadius="0,0,5,5" Background="{DynamicResource App.WorkspaceRightBackground}">
-            <Grid MinWidth="600" MaxWidth="800" HorizontalAlignment="Center" Margin="0,18,0,0">
-                <TextBlock Text="{loc:Loc Skills.Title}" FontSize="{DynamicResource App.FontSize.PageTitle}" FontWeight="SemiBold"/>
-            </Grid>
-        </Border>
-        <ScrollViewer x:Name="MainScrollViewer" Grid.Row="1" Padding="0,5,0,5">
-            <Grid RowDefinitions="Auto" Width="{Binding #MainScrollViewer.Viewport.Width}" HorizontalAlignment="Stretch">
-                <Border Background="{DynamicResource App.SectionBg}"
-                        BorderThickness="1"
-                        CornerRadius="8"
-                        Margin="16,0,16,60"
-                        Padding="16"
-                        MinWidth="600"
-                        MaxWidth="800"
-                        HorizontalAlignment="Center">
-                <StackPanel Spacing="14">
-                    <Grid ColumnDefinitions="Auto,*,Auto,Auto,Auto,Auto" ColumnSpacing="10">
-                        <TextBlock Foreground="{DynamicResource App.TextMuted}" Grid.Column="0" Text="{loc:Loc Skills.Enable}" VerticalAlignment="Center"/>
-                        <ToggleSwitch Grid.Column="1" IsChecked="{Binding Config.EnableSkills}" HorizontalAlignment="Left"/>
-                        <Button Grid.Column="2" Command="{Binding RefreshSkillsCommand}">
-                            <StackPanel Orientation="Horizontal" Spacing="6">
-                                <PathIcon Data="{StaticResource AthenaIconRefresh}" Width="13" Height="13"
-                                          Foreground="{DynamicResource App.IconAccentForeground}"/>
-                                <TextBlock Text="{loc:Loc Skills.Refresh}" VerticalAlignment="Center"/>
-                            </StackPanel>
-                        </Button>
-                        <Button Grid.Column="3" Command="{Binding ImportArchiveCommand}">
-                            <StackPanel Orientation="Horizontal" Spacing="6">
-                                <PathIcon Data="{StaticResource AthenaIconFileArchive}" Width="13" Height="13"
-                                          Foreground="{DynamicResource App.IconAccentForeground}"/>
-                                <TextBlock Text="{loc:Loc Skills.ImportArchive}" VerticalAlignment="Center"/>
-                            </StackPanel>
-                        </Button>
-                        <Button Grid.Column="4" Command="{Binding ImportFolderCommand}">
-                            <StackPanel Orientation="Horizontal" Spacing="6">
-                                <PathIcon Data="{StaticResource AthenaIconFolder}" Width="13" Height="13"
-                                          Foreground="{DynamicResource App.IconAccentForeground}"/>
-                                <TextBlock Text="{loc:Loc Skills.ImportFolder}" VerticalAlignment="Center"/>
-                            </StackPanel>
-                        </Button>
-                        <Button Grid.Column="5" Command="{Binding OpenSkillsDirectoryCommand}">
-                            <StackPanel Orientation="Horizontal" Spacing="6">
-                                <PathIcon Data="{StaticResource AthenaIconFolderReveal}" Width="13" Height="13"
-                                          Foreground="{DynamicResource App.IconAccentForeground}"/>
-                                <TextBlock Text="{loc:Loc Skills.OpenFolder}" VerticalAlignment="Center"/>
-                            </StackPanel>
-                        </Button>
-                    </Grid>
-                    <TextBlock Foreground="{DynamicResource App.TextMuted}" Text="{loc:Loc Skills.Description}" FontSize="{DynamicResource App.FontSize.Body}" TextWrapping="Wrap"/>
-                    <StackPanel Orientation="Horizontal" Spacing="4">
-                        <TextBlock Foreground="{DynamicResource App.TextMuted}" Text="{loc:Loc Skills.MarketHint}" FontSize="{DynamicResource App.FontSize.Body}"/>
-                        <HyperlinkButton Content="{loc:Loc Skills.MarketLink}" NavigateUri="https://mcpservers.org/agent-skills" FontSize="{DynamicResource App.FontSize.Body}" Padding="0" MinHeight="0"/>
-                    </StackPanel>
-                    <TextBlock Foreground="{DynamicResource App.TextMuted}" Text="{Binding Status}" FontSize="{DynamicResource App.FontSize.Body}"/>
-                    <ItemsControl ItemsSource="{Binding Skills}">
-                        <ItemsControl.ItemTemplate>
-                            <DataTemplate x:DataType="vm:SkillItemViewModel">
-                                <Border BorderThickness="1" BorderBrush="{DynamicResource SemiColorBorder}" CornerRadius="4" Padding="10" Margin="0,0,0,8">
-                                    <StackPanel Spacing="7">
-                                        <Grid ColumnDefinitions="Auto,*,Auto,Auto" ColumnSpacing="8">
-                                            <Button Grid.Column="0" Command="{Binding #SkillsRoot.DataContext.ToggleExpandedCommand}" CommandParameter="{Binding}" Padding="4,0" MinWidth="0" Background="Transparent" BorderThickness="0">
-                                                <PathIcon Data="{Binding IsExpanded, Converter={StaticResource BoolToExpandIcon}}" Width="10" Height="10" Foreground="{DynamicResource App.IconMutedForeground}"/>
-                                            </Button>
-                                            <Button Grid.Column="1" Command="{Binding #SkillsRoot.DataContext.ToggleExpandedCommand}" CommandParameter="{Binding}" Background="Transparent" BorderThickness="0" Padding="0" HorizontalAlignment="Stretch" HorizontalContentAlignment="Left">
-                                                <StackPanel>
-                                                    <TextBlock Text="{Binding Skill.Name}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis"/>
-                                                    <TextBlock Foreground="{DynamicResource App.TextMuted}" Text="{Binding Skill.Description}" FontSize="{DynamicResource App.FontSize.Body}" TextTrimming="CharacterEllipsis" MaxWidth="450"/>
-                                                </StackPanel>
-                                            </Button>
-                                            <ToggleSwitch Grid.Column="2" IsChecked="{Binding IsEnabled}" VerticalAlignment="Center"/>
-                                            <Button Grid.Column="3" Command="{Binding #SkillsRoot.DataContext.DeleteSkillCommand}" CommandParameter="{Binding}" IsVisible="{Binding CanDelete}">
-                                                <PathIcon Data="{DynamicResource AthenaIconDelete}" Height="15" Width="15"/>
-                                            </Button>
-                                        </Grid>
-                                        <StackPanel IsVisible="{Binding IsExpanded}" Spacing="7" Margin="30,4,0,0">
-                                            <Grid ColumnDefinitions="100,*" ColumnSpacing="8">
-                                                <TextBlock Foreground="{DynamicResource App.TextMuted}" Grid.Column="0" Text="{loc:Loc Skills.Source}"/>
-                                                <TextBlock Grid.Column="1" Text="{Binding Skill.RootDirectory}" TextWrapping="Wrap" FontSize="{DynamicResource App.FontSize.Body}"/>
-                                            </Grid>
-                                            <Grid ColumnDefinitions="100,*" ColumnSpacing="8">
-                                                <TextBlock Foreground="{DynamicResource App.TextMuted}" Grid.Column="0" Text="{loc:Loc Skills.Compatibility}"/>
-                                                <TextBlock Grid.Column="1" Text="{Binding Skill.Compatibility}" TextWrapping="Wrap" FontSize="{DynamicResource App.FontSize.Body}"/>
-                                            </Grid>
-                                            <TextBlock Foreground="{DynamicResource App.TextMuted}" Text="{Binding Resources}" FontSize="{DynamicResource App.FontSize.Body}"/>
-                                            <TextBlock Text="{Binding Diagnostics}" IsVisible="{Binding Skill.HasDiagnostics}" FontSize="{DynamicResource App.FontSize.Body}" Foreground="{DynamicResource App.WarningForeground}" TextWrapping="Wrap"/>
-                                            <TextBlock Text="{Binding Skill.InstructionsPreview}" FontSize="{DynamicResource App.FontSize.Body}" TextWrapping="Wrap" MaxHeight="150"/>
-                                            <Button Command="{Binding #SkillsRoot.DataContext.OpenSkillFileCommand}" CommandParameter="{Binding}" HorizontalAlignment="Left">
-                                                <StackPanel Orientation="Horizontal" Spacing="6">
-                                                    <PathIcon Data="{StaticResource AthenaIconOpenFile}" Width="13" Height="13"
-                                                              Foreground="{DynamicResource App.IconAccentForeground}"/>
-                                                    <TextBlock Text="{loc:Loc Skills.OpenFile}" VerticalAlignment="Center"/>
-                                                </StackPanel>
-                                            </Button>
-                                        </StackPanel>
-                                    </StackPanel>
-                                </Border>
-                            </DataTemplate>
-                        </ItemsControl.ItemTemplate>
-                    </ItemsControl>
+        <TextBlock x:Name="SkillsPageTitle" Margin="0,18,0,0"
+                   Text="{loc:Loc Skills.Title}" FontSize="{DynamicResource App.FontSize.PageTitle}" FontWeight="SemiBold"/>
+        <ScrollViewer x:Name="MainScrollViewer" Grid.Row="1" Padding="0,22,0,5">
+            <StackPanel Margin="0,0,0,60" Spacing="14">
+                <Grid ColumnDefinitions="Auto,*,Auto,Auto,Auto,Auto" ColumnSpacing="10">
+                    <TextBlock x:Name="EnableSkillsLabel" Foreground="{DynamicResource App.TextMuted}" Grid.Column="0" Text="{loc:Loc Skills.Enable}" VerticalAlignment="Center"/>
+                    <ToggleSwitch Grid.Column="1" IsChecked="{Binding Config.EnableSkills}" HorizontalAlignment="Left"/>
+                    <Button Grid.Column="2" Command="{Binding RefreshSkillsCommand}">
+                        <StackPanel Orientation="Horizontal" Spacing="6">
+                            <PathIcon Data="{StaticResource AthenaIconRefresh}" Width="13" Height="13"
+                                      Foreground="{DynamicResource App.IconAccentForeground}"/>
+                            <TextBlock Text="{loc:Loc Skills.Refresh}" VerticalAlignment="Center"/>
+                        </StackPanel>
+                    </Button>
+                    <Button Grid.Column="3" Command="{Binding ImportArchiveCommand}">
+                        <StackPanel Orientation="Horizontal" Spacing="6">
+                            <PathIcon Data="{StaticResource AthenaIconFileArchive}" Width="13" Height="13"
+                                      Foreground="{DynamicResource App.IconAccentForeground}"/>
+                            <TextBlock Text="{loc:Loc Skills.ImportArchive}" VerticalAlignment="Center"/>
+                        </StackPanel>
+                    </Button>
+                    <Button Grid.Column="4" Command="{Binding ImportFolderCommand}">
+                        <StackPanel Orientation="Horizontal" Spacing="6">
+                            <PathIcon Data="{StaticResource AthenaIconFolder}" Width="13" Height="13"
+                                      Foreground="{DynamicResource App.IconAccentForeground}"/>
+                            <TextBlock Text="{loc:Loc Skills.ImportFolder}" VerticalAlignment="Center"/>
+                        </StackPanel>
+                    </Button>
+                    <Button Grid.Column="5" Command="{Binding OpenSkillsDirectoryCommand}">
+                        <StackPanel Orientation="Horizontal" Spacing="6">
+                            <PathIcon Data="{StaticResource AthenaIconFolderReveal}" Width="13" Height="13"
+                                      Foreground="{DynamicResource App.IconAccentForeground}"/>
+                            <TextBlock Text="{loc:Loc Skills.OpenFolder}" VerticalAlignment="Center"/>
+                        </StackPanel>
+                    </Button>
+                </Grid>
+                <TextBlock Foreground="{DynamicResource App.TextMuted}" Text="{loc:Loc Skills.Description}" FontSize="{DynamicResource App.FontSize.Body}" TextWrapping="Wrap"/>
+                <StackPanel Orientation="Horizontal" Spacing="4">
+                    <TextBlock Foreground="{DynamicResource App.TextMuted}" Text="{loc:Loc Skills.MarketHint}" FontSize="{DynamicResource App.FontSize.Body}"/>
+                    <HyperlinkButton Content="{loc:Loc Skills.MarketLink}" NavigateUri="https://mcpservers.org/agent-skills" FontSize="{DynamicResource App.FontSize.Body}" Padding="0" MinHeight="0"/>
                 </StackPanel>
-            </Border>
-            </Grid>
+                <TextBlock Foreground="{DynamicResource App.TextMuted}" Text="{Binding Status}" FontSize="{DynamicResource App.FontSize.Body}"/>
+                <ItemsControl ItemsSource="{Binding Skills}">
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate x:DataType="vm:SkillItemViewModel">
+                            <Border BorderThickness="1" BorderBrush="{DynamicResource SemiColorBorder}" CornerRadius="4" Padding="10" Margin="0,0,0,8">
+                                <StackPanel Spacing="7">
+                                    <Grid ColumnDefinitions="Auto,*,Auto,Auto" ColumnSpacing="8">
+                                        <Button Grid.Column="0" Command="{Binding #SkillsRoot.DataContext.ToggleExpandedCommand}" CommandParameter="{Binding}" Padding="4,0" MinWidth="0" Background="Transparent" BorderThickness="0">
+                                            <PathIcon Data="{Binding IsExpanded, Converter={StaticResource BoolToExpandIcon}}" Width="10" Height="10" Foreground="{DynamicResource App.IconMutedForeground}"/>
+                                        </Button>
+                                        <Button Grid.Column="1" Command="{Binding #SkillsRoot.DataContext.ToggleExpandedCommand}" CommandParameter="{Binding}" Background="Transparent" BorderThickness="0" Padding="0" HorizontalAlignment="Stretch" HorizontalContentAlignment="Left">
+                                            <StackPanel>
+                                                <TextBlock Text="{Binding Skill.Name}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis"/>
+                                                <TextBlock Foreground="{DynamicResource App.TextMuted}" Text="{Binding Skill.Description}" FontSize="{DynamicResource App.FontSize.Body}" TextTrimming="CharacterEllipsis" MaxWidth="450"/>
+                                            </StackPanel>
+                                        </Button>
+                                        <ToggleSwitch Grid.Column="2" IsChecked="{Binding IsEnabled}" VerticalAlignment="Center"/>
+                                        <Button Grid.Column="3" Command="{Binding #SkillsRoot.DataContext.DeleteSkillCommand}" CommandParameter="{Binding}" IsVisible="{Binding CanDelete}">
+                                            <PathIcon Data="{DynamicResource AthenaIconDelete}" Height="15" Width="15"/>
+                                        </Button>
+                                    </Grid>
+                                    <StackPanel IsVisible="{Binding IsExpanded}" Spacing="7" Margin="30,4,0,0">
+                                        <Grid ColumnDefinitions="100,*" ColumnSpacing="8">
+                                            <TextBlock Foreground="{DynamicResource App.TextMuted}" Grid.Column="0" Text="{loc:Loc Skills.Source}"/>
+                                            <TextBlock Grid.Column="1" Text="{Binding Skill.RootDirectory}" TextWrapping="Wrap" FontSize="{DynamicResource App.FontSize.Body}"/>
+                                        </Grid>
+                                        <Grid ColumnDefinitions="100,*" ColumnSpacing="8">
+                                            <TextBlock Foreground="{DynamicResource App.TextMuted}" Grid.Column="0" Text="{loc:Loc Skills.Compatibility}"/>
+                                            <TextBlock Grid.Column="1" Text="{Binding Skill.Compatibility}" TextWrapping="Wrap" FontSize="{DynamicResource App.FontSize.Body}"/>
+                                        </Grid>
+                                        <TextBlock Foreground="{DynamicResource App.TextMuted}" Text="{Binding Resources}" FontSize="{DynamicResource App.FontSize.Body}"/>
+                                        <TextBlock Text="{Binding Diagnostics}" IsVisible="{Binding Skill.HasDiagnostics}" FontSize="{DynamicResource App.FontSize.Body}" Foreground="{DynamicResource App.WarningForeground}" TextWrapping="Wrap"/>
+                                        <TextBlock Text="{Binding Skill.InstructionsPreview}" FontSize="{DynamicResource App.FontSize.Body}" TextWrapping="Wrap" MaxHeight="150"/>
+                                        <Button Command="{Binding #SkillsRoot.DataContext.OpenSkillFileCommand}" CommandParameter="{Binding}" HorizontalAlignment="Left">
+                                            <StackPanel Orientation="Horizontal" Spacing="6">
+                                                <PathIcon Data="{StaticResource AthenaIconOpenFile}" Width="13" Height="13"
+                                                          Foreground="{DynamicResource App.IconAccentForeground}"/>
+                                                <TextBlock Text="{loc:Loc Skills.OpenFile}" VerticalAlignment="Center"/>
+                                            </StackPanel>
+                                        </Button>
+                                    </StackPanel>
+                                </StackPanel>
+                            </Border>
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
+            </StackPanel>
         </ScrollViewer>
     </Grid>
 </UserControl>

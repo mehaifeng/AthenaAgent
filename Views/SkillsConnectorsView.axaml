@@ -42,6 +42,7 @@
                 BorderBrush="{DynamicResource SemiGreyLowBrush}"
                 CornerRadius="8">
             <ContentControl x:Name="ConnectorContentHost"
+                            MaxWidth="600" Margin="18,0"
                             Content="{Binding SelectedSection.Content}"/>
         </Border>
     </Grid>
