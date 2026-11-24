@@ -309,7 +309,7 @@ public static class ConfigFieldCatalog
                 "Sub-agent run timeout in seconds.", range: (30, 3600)),
             Field("SubAgents.InheritApproval", "SubAgents", ConfigFieldType.Boolean,
                 c => c.SubAgentsInheritApproval, (c, v) => c.SubAgentsInheritApproval = (bool)v!,
-                "Whether unattended sub-agents inherit the permanent-allow list. Destructive actions stay denied either way."),
+                "Whether unattended sub-agents inherit approval for sensitive calls in Balanced or Strict mode."),
 
             // —— DocumentParser ——
             Field("DocumentParser.Enabled", "DocumentParser", ConfigFieldType.Boolean,
@@ -328,7 +328,7 @@ public static class ConfigFieldCatalog
             Field("Security.ToolApprovalMode", "Security", ConfigFieldType.Enum,
                 c => c.ToolApprovalMode,
                 (c, v) => c.ToolApprovalMode = Enum.Parse<ToolApprovalMode>((string)v!, ignoreCase: true),
-                "Tool approval gate: Off auto-approves everything, Balanced asks for sensitive/destructive calls, Strict asks for every call.",
+                "Tool approval modes include Off for automatic allowance, Balanced or Strict for local policy, and Automatic for a model decision on each call.",
                 allowedValues: EnumNames<ToolApprovalMode>()),
             Field("Security.AutoAllowedTools", "Security", ConfigFieldType.StringList,
                 c => c.AutoAllowedTools.ToList(),

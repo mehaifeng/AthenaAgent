@@ -170,7 +170,7 @@ var tests = new (string Name, Func<Task> Run)[]
     ("approval: interactive prompt persists always-allow to config", TestApprovalPersistAlwaysAsync),
     ("approval: allow-for-session is isolated per conversation", TestApprovalSessionPerConversationAsync),
     ("approval: automatic mode delegates sensitive calls with task context", TestApprovalAutomaticModelAsync),
-    ("approval: the automatic-approval model never decides human-only or unattended-destructive calls", TestApprovalModelNeverDecidesHumanOnlyCallsAsync),
+    ("approval: automatic mode uses the model's verdict for every eligible call", TestAutomaticApprovalUsesModelForAllCallsAsync),
     ("approval: delegated task carries the latest two user messages, bounded", TestApprovalDelegatedTaskTextAsync),
     ("approval judge: replies become the model's verdict or a typed failure, never a fake refusal", TestApprovalJudgeRepliesAsync),
     ("approval: the reviewer sees only scoped, redacted evidence and never treats agent instructions as user consent", TestApprovalReviewEvidenceAsync),
@@ -252,7 +252,7 @@ var tests = new (string Name, Func<Task> Run)[]
     ("polis herald: cron results since the last visit, interrupted commissions and outside changes; the oracle's runs arrive as scrolls", TestPolisHeraldAsync),
     ("polis islands: one island per workspace in creation order around the sanctuary; running islands light up; an island picks its most recent session", TestPolisIslandsAsync),
     ("polis asset manifest: overrides are validated and anything unknown, unsafe or missing falls back to the procedural asset", TestPolisAssetManifestAsync),
-    ("polis oracle: the daily oracle is the workspace's task named for it, and create_task only ever reaches a person", TestPolisOracleGoesThroughApprovalAsync),
+    ("polis oracle: the daily oracle is the workspace's task named for it, and create_task follows the approval mode", TestPolisOracleGoesThroughApprovalAsync),
     ("polis intents (M2): placements, suggestions, islands and residents are checked against what C# published", TestPolisAccumulationIntentsAsync)
 };
 
@@ -6372,77 +6372,68 @@ static async Task TestApprovalAutomaticModelAsync()
     AssertEqual("Update the scoped project file", evaluator.DelegatedTask, "delegated Tool Agent task should flow to approval evaluation");
 }
 
-// 自动审批模型只顶替「人」：只能由人批准的工具（IsNeverUnattended）与子代理的破坏性调用都不交给它。
-// 一张表跑完再统一断言，没有修复时列出每一条越界，而不是停在第一条。
-static async Task TestApprovalModelNeverDecidesHumanOnlyCallsAsync()
+static async Task TestAutomaticApprovalUsesModelForAllCallsAsync()
 {
-    const string selfConfig = "{\"key\":\"Security.ToolApprovalMode\",\"value\":\"Off\"}";
-    const string task = "{\"intent\":\"summarize the inbox\",\"scheduledTime\":\"0 9 * * *\"}";
-    const ToolApprovalMode automatic = ToolApprovalMode.Automatic;
-    const ToolApprovalContext.ExecutionMode main = ToolApprovalContext.ExecutionMode.Interactive;
-    const ToolApprovalContext.ExecutionMode subAgent = ToolApprovalContext.ExecutionMode.NonInteractive;
-
-    var cases = new (string Name, ToolApprovalMode Mode, ToolApprovalContext.ExecutionMode Exec, string Function, string Args,
-        string? AlwaysAllowed, bool Evaluated, bool Prompted, bool Approved)[]
+    var document = Path.Combine(Path.GetTempPath(), "review-policy", "notes.md");
+    var config = new AppConfig { ToolApprovalMode = ToolApprovalMode.Automatic, SubAgentsInheritApproval = true };
+    config.AutoAllowedTools.Add("write_system_file@" + Path.GetDirectoryName(document));
+    config.AutoAllowedTools.Add("fetch_url_to_file@example.org");
+    config.AutoAllowedTools.Add("create_task");
+    config.TerminalAllowlist.Add("git");
+    var calls = new (string Function, string Arguments)[]
     {
-        // —— 修复：主对话里，只能由人批准的工具改为弹窗，模型不碰 ——
-        ("model must not switch approval off for the user", automatic, main, "modify_self_configuration", selfConfig, null, false, true, true),
-        ("model must not schedule work for the user", automatic, main, "create_task", task, null, false, true, true),
-        ("model must not rewrite a scheduled task", automatic, main, "update_task", "{\"taskId\":\"t1\"}", null, false, true, true),
-        ("model must not cancel a scheduled task", automatic, main, "cancel_task", "{\"taskId\":\"t1\"}", null, false, true, true),
-        ("model must not start a scheduled run", automatic, main, "run_task_now", "{\"taskId\":\"t1\"}", null, false, true, true),
-        ("model must not add an MCP server", automatic, main, "mcp_add_server", "{\"name\":\"x\",\"command\":\"npx\"}", null, false, true, true),
-        ("model must not remove an MCP server", automatic, main, "mcp_remove_server", "{\"name\":\"x\"}", null, false, true, true),
-        ("model must not import MCP servers", automatic, main, "mcp_import_json", "{\"json\":\"{}\"}", null, false, true, true),
-        // —— 修复：子代理路径上的绝对拒绝，不因开了自动审批就改由模型判 ——
-        ("sub-agent delete stays denied", automatic, subAgent, "delete_system_file", "{\"path\":\"a\"}", null, false, false, false),
-        ("sub-agent destructive command stays denied", automatic, subAgent, "execute_terminal_command", "{\"command\":\"rm\",\"arguments\":[\"-rf\",\"build\"]}", null, false, false, false),
-        ("sub-agent self-configuration stays denied", automatic, subAgent, "modify_self_configuration", selfConfig, null, false, false, false),
-        ("sub-agent scheduling stays denied", automatic, subAgent, "create_task", task, null, false, false, false),
-        ("old permission cannot skip human-only review", automatic, main, "create_task", task, "create_task", false, true, true),
-        ("old permission cannot allow unattended deletion", automatic, subAgent, "delete_system_file", "{\"path\":\"a\"}", "delete_system_file", false, false, false),
-        ("a terminal permission cannot pre-authorize destructive arguments", automatic, main, "execute_terminal_command",
-            """{"command":"rm","arguments":["-r","build"]}""", "terminal:rm", true, false, true),
-        ("a host-only grant does not cover a download destination", automatic, main, "fetch_url_to_file",
-            """{"url":"https://example.org/a","outputPath":"a.md","overwrite":true}""", "fetch_url_to_file@example.org", true, false, true),
-        ("a directory grant covers an ordinary document", automatic, main, "write_system_file",
-            JsonSerializer.Serialize(new { path = Path.Combine(Path.GetTempPath(), "review-policy", "notes.md"), content = "x" }),
-            "write_system_file@" + Path.Combine(Path.GetTempPath(), "review-policy"), false, false, true),
-        ("an instruction file needs review despite a directory grant", automatic, main, "write_system_file",
-            JsonSerializer.Serialize(new { path = Path.Combine(Path.GetTempPath(), "review-policy", "AGENTS.md"), content = "x" }),
-            "write_system_file@" + Path.Combine(Path.GetTempPath(), "review-policy"), true, false, true),
-        // —— 防误伤：其余行为不变 ——
-        ("ordinary sensitive call still goes to the model", automatic, main, "write_system_file", "{\"path\":\"notes.md\",\"content\":\"x\"}", null, true, false, true),
-        ("main-chat destructive call still goes to the model", automatic, main, "delete_system_file", "{\"path\":\"a\"}", null, true, false, true),
-        ("sub-agent sensitive call still goes to the model", automatic, subAgent, "write_system_file", "{\"path\":\"a\",\"content\":\"x\"}", null, true, false, true),
-        ("Off still allows everything", ToolApprovalMode.Off, main, "create_task", task, null, false, false, true),
-        ("the user's own always-allow still applies", ToolApprovalMode.Balanced, main, "create_task", task, "create_task", false, false, true),
-        ("Balanced still prompts", ToolApprovalMode.Balanced, main, "modify_self_configuration", selfConfig, null, false, true, true),
+        ("get_file_info", """{"path":"notes.md"}"""),
+        ("create_directory", """{"path":"new-notes"}"""),
+        ("write_system_file", JsonSerializer.Serialize(new { path = document, content = "sample" })),
+        ("fetch_url_to_file", """{"url":"https://example.org/report","outputPath":"report.md"}"""),
+        ("execute_terminal_command", """{"command":"git","arguments":["status"]}"""),
+        ("delete_system_file", """{"path":"fixture.txt"}"""),
+        ("create_task", """{"name":"Weekly summary","instruction":"Summarize notes","cronExpression":"0 9 * * 1"}"""),
+        ("modify_self_configuration", """{"key":"Security.ToolApprovalMode","value":"Balanced"}"""),
+        ("mcp_remove_server", """{"name":"fixture-server"}""")
     };
-
-    var failures = new List<string>();
-    foreach (var c in cases)
+    var contexts = new (string Name, Func<IDisposable?> Enter)[]
     {
-        var config = new AppConfig { ToolApprovalMode = c.Mode };
-        if (c.AlwaysAllowed is not null) config.AutoAllowedTools.Add(c.AlwaysAllowed);
-        var evaluator = new CapturingApprovalEvaluator();
-        var prompter = new FakeApprovalPrompter(ToolApprovalScope.AllowOnce);
-        var service = new ToolApprovalService(new TestConfigService(config), prompter, Log.Logger, aiEvaluator: evaluator);
-
-        using var scope = c.Exec == main
-            ? ToolApprovalContext.EnterInteractive("tidy up the project")
-            : ToolApprovalContext.EnterNonInteractive();
-        var decision = await service.EvaluateAsync(c.Function, c.Args, CancellationToken.None);
-        var evaluated = evaluator.Request is not null;
-        var prompted = prompter.CallCount > 0;
-        if (evaluated != c.Evaluated || prompted != c.Prompted || decision.Approved != c.Approved)
+        ("interactive", () => ToolApprovalContext.EnterInteractive("Organize the project notes")),
+        ("sub-agent", () => ToolApprovalContext.EnterNonInteractive("Organize the project notes")),
+        ("scheduled", () => ToolApprovalContext.EnterScheduled("Organize the project notes", null)),
+        ("unset", () => null)
+    };
+    foreach (var (name, enter) in contexts)
+    {
+        using var scope = enter();
+        foreach (var expected in new[] { ToolApprovalDecision.JudgeAllowed("allow"), ToolApprovalDecision.JudgeDenied("deny") })
         {
-            failures.Add($"{c.Name} ({c.Function}): evaluated {evaluated} (want {c.Evaluated}), " +
-                         $"prompted {prompted} (want {c.Prompted}), approved {decision.Approved} (want {c.Approved})");
+            var evaluator = new CapturingApprovalEvaluator(expected);
+            var prompter = new FakeApprovalPrompter(ToolApprovalScope.Deny) { ThrowIfCalled = true };
+            var service = new ToolApprovalService(new TestConfigService(config), prompter, Log.Logger, aiEvaluator: evaluator);
+            foreach (var (function, arguments) in calls)
+            {
+                var before = evaluator.CallCount;
+                var decision = await service.EvaluateAsync(function, arguments, CancellationToken.None, "Registered tool description");
+                AssertTrue(evaluator.CallCount == before + 1 && evaluator.Request?.FunctionName == function,
+                    $"{name}/{function} receives exactly one model review");
+                AssertTrue(evaluator.Request is { Risk: null, ToolDescription: "Registered tool description" },
+                    $"{name}/{function} gets the tool facts without a local risk classification");
+                AssertTrue(ReferenceEquals(expected, decision), $"{name}/{function} uses the model's verdict as returned");
+            }
         }
     }
 
-    AssertTrue(failures.Count == 0, $"{failures.Count} of {cases.Length} cases crossed the model boundary:\n  " + string.Join("\n  ", failures));
+    config.ToolApprovalMode = ToolApprovalMode.Strict;
+    var sessionPrompter = new FakeApprovalPrompter(ToolApprovalScope.AllowForSession);
+    var judge = new CapturingApprovalEvaluator(ToolApprovalDecision.JudgeDenied("user did not approve"));
+    var gate = new ToolApprovalService(new TestConfigService(config), sessionPrompter, Log.Logger, aiEvaluator: judge);
+    using (ToolApprovalContext.EnterInteractive("Review the project"))
+    {
+        const string args = """{"code":"text(1);"}""";
+        var manual = await gate.EvaluateAsync("execute_program", args, default);
+        AssertEqual(ToolApprovalScope.AllowForSession, manual.Scope, "strict mode can grant the current session");
+        config.ToolApprovalMode = ToolApprovalMode.Automatic;
+        var automatic = await gate.EvaluateAsync("execute_program", args, default);
+        AssertTrue(!automatic.Approved && automatic.Source == ToolApprovalSource.JudgeVerdict
+            && judge.CallCount == 1 && sessionPrompter.CallCount == 1, "a manual session grant cannot replace a model verdict");
+    }
 }
 
 static Task TestApprovalDelegatedTaskTextAsync()
@@ -6556,13 +6547,13 @@ static async Task TestApprovalJudgeRepliesAsync()
             true, verdict, none, ["narrow fetch for the task"]),
         ("reviewer requests human confirmation", responses, JudgeResponsesReply("completed",
             allowJson.Replace("\"allow\"", "\"ask_user\""), 30, 0), false, ToolApprovalSource.JudgeNeedsUser, none, ["narrow fetch"]),
-        ("low authorization cannot authorize an allow", chat, JudgeChatReply("stop",
-            allowJson.Replace("high", "low"), 30, 0), false, ToolApprovalSource.JudgeNeedsUser, none, ["尚未明确授权"]),
-        ("critical overrides a model allow", chat, JudgeChatReply("stop", allowJson.Replace("medium", "critical"), 30, 0),
-            false, verdict, none, ["严重风险"]),
-        ("high risk requires high authorization", responses, JudgeResponsesReply("completed",
+        ("the model's allow stands with low authorization metadata", chat, JudgeChatReply("stop",
+            allowJson.Replace("high", "low"), 30, 0), true, verdict, none, ["narrow fetch"]),
+        ("risk metadata does not override the model's outcome", chat, JudgeChatReply("stop", allowJson.Replace("medium", "critical"), 30, 0),
+            true, verdict, none, ["narrow fetch"]),
+        ("the model's allow stands with high risk and medium authorization metadata", responses, JudgeResponsesReply("completed",
             """{"risk_level":"high","user_authorization":"medium","outcome":"allow","rationale":"scoped"}""", 30, 0),
-            false, ToolApprovalSource.JudgeNeedsUser, none, ["高风险"]),
+            true, verdict, none, ["scoped"]),
         ("missing rationale is invalid", chat, JudgeChatReply("stop",
             """{"risk_level":"low","user_authorization":"high","outcome":"allow"}""", 30, 0), false, failed, output, ["评审字段"]),
         // —— Chat Completions 分支：同一套判读 ——
@@ -6639,6 +6630,21 @@ static async Task TestApprovalJudgeRepliesAsync()
 
     foreach (var protocol in new[] { responses, chat })
     {
+        var ptcReply = protocol == responses
+            ? JudgeResponsesReply("completed", allowJson, 30, 0)
+            : JudgeChatReply("stop", allowJson, 30, 0);
+        var ptc = await RunApprovalJudgeAsync(CreateApprovalJudgeConfig(protocol), ptcReply, HttpStatusCode.OK,
+            request: new ToolApprovalRequest
+            {
+                FunctionName = "execute_program",
+                ArgumentsJson = """{"code":"text('PRIVATE_PTC_SCRIPT');","inputs":{"value":"PRIVATE_PTC_INPUT"}}"""
+            });
+        var ptcRequest = ptc.Handler.RequestBodies.Single();
+        if (ptc.Decision is not { Approved: true, Source: verdict, ReviewRisk: "medium" }
+            || ptcRequest.Contains("PRIVATE_PTC_", StringComparison.Ordinal)
+            || !ptcRequest.Contains("[body omitted]", StringComparison.Ordinal))
+            failures.Add($"{protocol}: PTC must use the model's allow for a redacted script");
+
         var tokenHub = CreateApprovalJudgeConfig(protocol);
         var provider = tokenHub.AiModels.Providers[0];
         provider.BaseUrl = "https://tokenhub.tencentmaas.com/v1";
@@ -6683,47 +6689,53 @@ static Task TestApprovalReviewEvidenceAsync()
 {
     using var user = ToolApprovalContext.EnterInteractive("Prepare notes in the project", "/local/project");
     using var child = ToolApprovalContext.EnterNonInteractive("agent proposes a different destination");
-    ApprovalReviewEvidence Project(string name, string json) => ApprovalReviewEvidence.From(new ToolApprovalRequest
+    string Project(string name, string json, string? description = null) => ApprovalReviewEvidence.CreatePayload(new ToolApprovalRequest
     {
-        FunctionName = name, Risk = ToolRisk.Sensitive, ArgumentsJson = json,
+        FunctionName = name, ArgumentsJson = json, ToolDescription = description,
         ResolveFilePath = path => FileSystemService.ResolveApprovalPath(path, new TestPlatformPathService(Path.GetTempPath())),
         Summary = "PRIVATE_SUMMARY", CommandLine = "PRIVATE_COMMAND_DISPLAY", PrettyArguments = "PRIVATE_UI_JSON"
     });
     var ordinary = Project("write_system_file", """{"path":"notes.md","content":"PRIVATE_FILE_BODY"}""");
-    using var payload = JsonDocument.Parse(ordinary.Payload);
-    AssertTrue(ordinary.Complete && !ordinary.Payload.Contains("PRIVATE_", StringComparison.Ordinal), "local document input excludes body and display fields");
+    using var payload = JsonDocument.Parse(ordinary);
+    AssertTrue(!ordinary.Contains("PRIVATE_", StringComparison.Ordinal), "local document input excludes body and display fields");
+    AssertTrue(!payload.RootElement.TryGetProperty("local_risk", out _)
+        && !payload.RootElement.TryGetProperty("evidence_complete", out _), "the request carries evidence without a local judgment");
     AssertTrue(payload.RootElement.GetProperty("resolved_paths").GetProperty("path").GetString()!.EndsWith(Path.Combine("knowledge", "notes.md"), StringComparison.Ordinal), "review uses the same relative target as the file executor");
     AssertEqual("Prepare notes in the project", payload.RootElement.GetProperty("user_requests").GetString(), "only the parent user grants authority");
     AssertEqual("agent proposes a different destination", payload.RootElement.GetProperty("agent_instruction").GetString(), "agent instruction has distinct provenance");
     AssertEqual("/local/project", payload.RootElement.GetProperty("workspace_directory").GetString(), "workspace follows the delegated user context");
     var opaque = Project("mcp_call_tool", """{"serverName":"example","toolName":"send","arguments":{"headers":{"Authorization":"Bearer PRIVATE_HEADER"},"url":"https://someone:PRIVATE_PASSWORD@safe.invalid/target?key=PRIVATE_QUERY","content":"PRIVATE_MCP_BODY"}}""");
-    AssertTrue(!opaque.Complete && !opaque.Payload.Contains("PRIVATE_", StringComparison.Ordinal)
-        && opaque.Payload.Contains("safe.invalid/target", StringComparison.Ordinal), "hidden MCP effects require a human, all copies are redacted");
+    AssertTrue(!opaque.Contains("PRIVATE_", StringComparison.Ordinal)
+        && opaque.Contains("safe.invalid/target", StringComparison.Ordinal), "MCP headers, payload and URL credentials are redacted");
     var argv = Project("execute_terminal_command", """{"command":"test-cli","arguments":["--api-key","PRIVATE_ARGUMENT","https://safe.invalid/a?q=PRIVATE_QUERY","Authorization: Bearer PRIVATE_HEADER","--data=PRIVATE_BODY"]}""");
-    AssertTrue(!argv.Complete && !argv.Payload.Contains("PRIVATE_", StringComparison.Ordinal), "argv and URL secrets are hidden");
+    AssertTrue(!argv.Contains("PRIVATE_", StringComparison.Ordinal), "argv and URL secrets are hidden");
     var textCommand = Project("execute_terminal_command", """{"command":"printf","arguments":["%s","PRIVATE_TEXT"]}""");
-    AssertTrue(!textCommand.Complete && !textCommand.Payload.Contains("PRIVATE_TEXT", StringComparison.Ordinal), "freeform command bodies stay local");
-    AssertTrue(!Project("unclassified_operation", """{"path":"notes.md"}""").Complete, "unknown effects cannot be approved on their name alone");
+    AssertTrue(!textCommand.Contains("PRIVATE_TEXT", StringComparison.Ordinal), "freeform command bodies stay local");
+    using var childRead = JsonDocument.Parse(Project("get_file_info", """{"path":"notes.md"}""", "Reads file metadata."));
+    AssertEqual("Reads file metadata.", childRead.RootElement.GetProperty("effect").GetString(), "a new tool uses its registered description");
+    AssertTrue(childRead.RootElement.GetProperty("resolved_paths").TryGetProperty("path", out _), "file reads include their resolved target");
+    using var ptc = JsonDocument.Parse(Project("execute_program", """{"code":"PRIVATE_SCRIPT","inputs":{"secret":"PRIVATE_INPUT"}}"""));
+    AssertTrue(ptc.RootElement.GetProperty("effect").GetString()!.Contains("Each child call is reviewed", StringComparison.Ordinal),
+        "PTC evidence explains the host grant and separate child review");
+    AssertTrue(!ptc.RootElement.GetRawText().Contains("PRIVATE_", StringComparison.Ordinal), "PTC code and inputs stay local");
     var executable = Project("write_system_file", """{"path":"tool.sh","content":"PRIVATE_SCRIPT"}""");
-    AssertTrue(!executable.Complete && !executable.Payload.Contains("PRIVATE_SCRIPT", StringComparison.Ordinal), "omitted executable content affects the review");
+    AssertTrue(!executable.Contains("PRIVATE_SCRIPT", StringComparison.Ordinal), "executable content stays local");
     foreach (var policyFile in new[] { "AGENTS.md", "nested/SKILL.md", ".github/instructions/guide.md" })
     {
         var edit = Project("write_system_file", JsonSerializer.Serialize(new { path = policyFile, content = "PRIVATE_POLICY" }));
-        AssertTrue(!edit.Complete && !edit.Payload.Contains("PRIVATE_POLICY", StringComparison.Ordinal), "agent instruction file contents can change behavior");
+        AssertTrue(!edit.Contains("PRIVATE_POLICY", StringComparison.Ordinal), "agent instruction file contents stay local");
     }
-    var malformed = Project("write_system_file", """{"path":"a","path":"b"}""");
-    AssertTrue(!malformed.Complete, "duplicate input fields are ambiguous");
+    using var malformed = JsonDocument.Parse(Project("write_system_file", """{"path":"a","path":"b"}"""));
+    AssertEqual(JsonValueKind.Null, malformed.RootElement.GetProperty("arguments").ValueKind, "duplicate input fields are ambiguous");
     var reply = new ApprovalJudgeReply("""{"risk_level":"low","user_authorization":"medium","outcome":"allow","rationale":"routine"}""", null, "completed", true, false, 20, 0);
-    AssertEqual(ToolApprovalSource.JudgeNeedsUser, ApprovalJudgeOutput.Interpret(reply, ToolRisk.Destructive, true).Source, "local destructive floor survives a model downgrade");
-    AssertEqual(ToolApprovalSource.JudgeNeedsUser, ApprovalJudgeOutput.Interpret(reply, ToolRisk.Sensitive, false).Source, "an incomplete projection prevents an allow");
-    AssertEqual(ToolApprovalSource.JudgeFailure, ApprovalJudgeOutput.Interpret(reply with { Refusal = "refused" }, ToolRisk.Sensitive, true).Source, "mixed refusal and verdict cannot authorize");
+    AssertEqual(ToolApprovalSource.JudgeFailure, ApprovalJudgeOutput.Interpret(reply with { Refusal = "refused" }).Source, "mixed refusal and verdict cannot authorize");
     return Task.CompletedTask;
 }
 
 static async Task TestApprovalReviewHandoffAsync()
 {
     var config = new AppConfig { ToolApprovalMode = ToolApprovalMode.Automatic, SubAgentsInheritApproval = true };
-    foreach (var decision in new[] { ToolApprovalDecision.AskUser("verify destination"),
+    foreach (var decision in new[] { ToolApprovalDecision.AskUser("verify destination", "high"),
         ToolApprovalDecision.JudgeFailed(ToolApprovalJudgeFailureKind.Transport, "unavailable") })
     {
         var prompt = new FakeApprovalPrompter(ToolApprovalScope.AllowAlways);
@@ -6733,6 +6745,7 @@ static async Task TestApprovalReviewHandoffAsync()
             var answer = await gate.EvaluateAsync("write_system_file", """{"path":"a.md"}""", default);
             AssertTrue(answer.Approved && answer.Scope == ToolApprovalScope.AllowOnce && answer.Source == ToolApprovalSource.User, "human handoff grants only one operation");
             AssertTrue(prompt.Request?.ReviewReason == decision.ReviewDetail && prompt.Request?.AllowsPersistentApproval == false, "review cause reaches card");
+            AssertTrue(prompt.Request?.ReviewRisk == decision.ReviewRisk && prompt.Request?.Risk is null, "the card shows the model's risk assessment");
         }
         using (ToolApprovalContext.EnterNonInteractive())
         {
@@ -6743,9 +6756,8 @@ static async Task TestApprovalReviewHandoffAsync()
         {
             var answer = await gate.EvaluateAsync("write_system_file", """{"path":"a.md"}""", default);
             AssertTrue(!answer.Approved && answer.Source == decision.Source && prompt.CallCount == 1, "scheduled handoff stays unattended");
-            var projection = ApprovalReviewEvidence.From(new ToolApprovalRequest { FunctionName = "write_system_file", Risk = ToolRisk.Sensitive, PrettyArguments = "{}" });
-            using var data = JsonDocument.Parse(projection.Payload);
-            AssertTrue(!projection.Complete && data.RootElement.GetProperty("user_requests").ValueKind == JsonValueKind.Null
+            using var data = JsonDocument.Parse(ApprovalReviewEvidence.CreatePayload(new ToolApprovalRequest { FunctionName = "write_system_file", PrettyArguments = "{}" }));
+            AssertTrue(data.RootElement.GetProperty("user_requests").ValueKind == JsonValueKind.Null
                 && data.RootElement.GetProperty("agent_instruction").GetString() == "model-authored schedule text", "scheduled instructions never establish consent");
         }
     }
@@ -6906,12 +6918,13 @@ static AppConfig CreateApprovalJudgeConfig(ProviderProtocol protocol)
     return config;
 }
 
-// 经真实评估器裁决一次固定的 fetch_url_to_file 调用，网络换成预设响应；同时收集 Warning。
+// 经真实评估器裁决一次工具调用，网络换成预设响应，同时收集 Warning。
 static async Task<(ToolApprovalDecision Decision, JudgeHttpHandler Handler, IReadOnlyList<LogEvent> Warnings)> RunApprovalJudgeAsync(
     AppConfig config,
     string body,
     HttpStatusCode status,
-    CancellationToken cancellationToken = default)
+    CancellationToken cancellationToken = default,
+    ToolApprovalRequest? request = null)
 {
     var handler = new JudgeHttpHandler(status, body);
     var responses = config.AiModels.Providers.FirstOrDefault()?.Protocol == ProviderProtocol.Responses;
@@ -6925,10 +6938,9 @@ static async Task<(ToolApprovalDecision Decision, JudgeHttpHandler Handler, IRea
         new HttpClientPipelineTransport(httpClient));
 
     using var scope = ToolApprovalContext.EnterInteractive("Latest user message: 用ASCII码画一幅蒙娜丽莎");
-    var decision = await evaluator.EvaluateAsync(new ToolApprovalRequest
+    var decision = await evaluator.EvaluateAsync(request ?? new ToolApprovalRequest
     {
         FunctionName = "fetch_url_to_file",
-        Risk = ToolRisk.Sensitive,
         ResolveFilePath = path => FileSystemService.ResolveApprovalPath(path, new TestPlatformPathService(Path.GetTempPath())),
         Summary = "fetch_url_to_file · https://upload.wikimedia.org/wikipedia/commons/thumb/e/ec/Mona_Lisa.jpg",
         PrettyArguments = """{"url":"https://upload.wikimedia.org/wikipedia/commons/thumb/e/ec/Mona_Lisa.jpg","outputPath":"mona_a.jpg"}"""
@@ -12601,9 +12613,9 @@ static async Task TestPolisOracleGoesThroughApprovalAsync()
     oracle.RecentRuns.Add(new CronTaskRunRecord { RunId = "b", State = CronRunState.Succeeded, CompletedAt = DateTimeOffset.UnixEpoch.AddDays(4), ConversationId = "conv-b" });
     AssertEqual("conv-b", PolisOracle.LatestScroll(oracle)?.ConversationId ?? "", "最近一卷是最近一次成功的运行");
 
-    // 仪式就是那次批准（设计稿 7.3）：雅典娜调用 create_task 时，平衡、严格、自动审批三种模式下都弹给人，自动审批的模型碰不到它
+    // 均衡和严格模式交给用户，自动审批在模型要求确认时交给用户。
     var args = "{\"name\":\"每日神谕\",\"instruction\":\"回顾这个工作区最近一天的变化，写一卷晨报\",\"cronExpression\":\"" + PolisOracle.DefaultCronExpression + "\",\"workspaceId\":\"w1\"}";
-    foreach (var mode in new[] { ToolApprovalMode.Balanced, ToolApprovalMode.Strict, ToolApprovalMode.Automatic })
+    foreach (var mode in new[] { ToolApprovalMode.Balanced, ToolApprovalMode.Strict })
     {
         var evaluator = new CapturingApprovalEvaluator();
         var prompter = new FakeApprovalPrompter(ToolApprovalScope.AllowOnce);
@@ -12614,12 +12626,14 @@ static async Task TestPolisOracleGoesThroughApprovalAsync()
             $"{mode}：神谕的 create_task 由你在原生审批窗口里批准（prompted {prompter.CallCount}, model asked {evaluator.Request != null}）");
     }
     var denyPrompter = new FakeApprovalPrompter(ToolApprovalScope.Deny);
-    var denying = new ToolApprovalService(new TestConfigService(new AppConfig { ToolApprovalMode = ToolApprovalMode.Automatic }), denyPrompter, Log.Logger, aiEvaluator: new CapturingApprovalEvaluator());
+    var review = new CapturingApprovalEvaluator(ToolApprovalDecision.AskUser("确认设立神谕"));
+    var denying = new ToolApprovalService(new TestConfigService(new AppConfig { ToolApprovalMode = ToolApprovalMode.Automatic }),
+        denyPrompter, Log.Logger, aiEvaluator: review);
     using (ToolApprovalContext.EnterInteractive("请设立每日神谕"))
     {
-        AssertFalse((await denying.EvaluateAsync("create_task", args, CancellationToken.None)).Approved, "你不点头，神谕就不设立");
+        var decision = await denying.EvaluateAsync("create_task", args, CancellationToken.None);
+        AssertTrue(!decision.Approved && review.CallCount == 1 && denyPrompter.CallCount == 1, "自动审批转人工时，用户可以拒绝设立神谕");
     }
-    AssertTrue(ToolRiskClassifier.IsNeverUnattended("create_task"), "create_task 是只能由人批准的那一类");
 }
 
 static Task TestPolisAccumulationIntentsAsync()
@@ -13153,16 +13167,18 @@ sealed class CancellingApprovalPrompter : IToolApprovalPrompter
         Task.FromException<ToolApprovalScope>(new OperationCanceledException());
 }
 
-sealed class CapturingApprovalEvaluator : IAiToolApprovalEvaluator
+sealed class CapturingApprovalEvaluator(ToolApprovalDecision? decision = null) : IAiToolApprovalEvaluator
 {
     public ToolApprovalRequest? Request { get; private set; }
     public string? DelegatedTask { get; private set; }
+    public int CallCount { get; private set; }
 
     public Task<ToolApprovalDecision> EvaluateAsync(ToolApprovalRequest request, CancellationToken cancellationToken)
     {
+        CallCount++;
         Request = request;
         DelegatedTask = ToolApprovalContext.CurrentDelegatedTask;
-        return Task.FromResult(ToolApprovalDecision.AllowOnce("test evaluator"));
+        return Task.FromResult(decision ?? ToolApprovalDecision.JudgeAllowed("test evaluator"));
     }
 }
 

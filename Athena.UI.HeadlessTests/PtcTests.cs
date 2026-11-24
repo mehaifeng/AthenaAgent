@@ -31,6 +31,7 @@ using Serilog;
 
 internal static class PtcTests
 {
+    private const string ReviewModel = "ptc-approval-test";
     private static int _assertions;
     private static void Check(bool condition, string message)
     {
@@ -147,7 +148,9 @@ internal static class PtcTests
             var result = await fixture.ProgramAsync("const r=await tools.call('read_system_file',{path:inputs.path}); text(r.success);");
             Check(result.Success && Output(result)[0].GetBoolean(), "A04 approved program works under " + mode);
             Check(fixture.Prompter.Calls.Count == (mode == ToolApprovalMode.Balanced ? 1 : mode == ToolApprovalMode.Strict ? 2 : 0), "A04 outer and child prompt counts under " + mode);
-            Check(fixture.Judge.Calls.Count == (mode == ToolApprovalMode.Automatic ? 1 : 0), "A04 Automatic only judges the sensitive outer call");
+            Check(fixture.Judge.Calls.Select(request => request.FunctionName).SequenceEqual(
+                mode == ToolApprovalMode.Automatic ? ["execute_program", "read_system_file"] : Array.Empty<string>()),
+                "A04 Automatic reviews both outer and read-only child calls");
             var observation = fixture.Files.Observations.Single();
             Check(observation.Mode == ToolApprovalContext.ExecutionMode.Interactive && observation.Conversation == "conversation" && observation.Workspace == "workspace"
                 && observation.Task == "delegated task" && observation.Token.CanBeCanceled && observation.IsChild, "A05 explicitly restored scope under " + mode);
@@ -164,7 +167,7 @@ internal static class PtcTests
         await using (var fixture = new Fixture())
         {
             fixture.Config.ToolApprovalMode = ToolApprovalMode.Automatic;
-            fixture.Judge.Decision = ToolApprovalDecision.JudgeDenied("test judge refusal");
+            fixture.Judge.Decide = _ => ToolApprovalDecision.JudgeDenied("test judge refusal");
             var result = await fixture.ProgramAsync("text(1);");
             Check(!result.Success && !result.Message.Contains("用户拒绝", StringComparison.Ordinal), "judge refusal is not relabeled as a user refusal");
             Check(fixture.Files.Observations.IsEmpty, "outer denial executes no child");
@@ -172,7 +175,17 @@ internal static class PtcTests
         await using (var fixture = new Fixture())
         {
             fixture.Config.ToolApprovalMode = ToolApprovalMode.Automatic;
-            fixture.Judge.Decision = ToolApprovalDecision.AskUser("Confirm this operation");
+            fixture.Judge.Decide = request => request.FunctionName == "execute_program"
+                ? ToolApprovalDecision.JudgeAllowed("start the interpreter")
+                : ToolApprovalDecision.JudgeDenied("decline the file read");
+            var result = await fixture.ProgramAsync("text((await tools.call('read_system_file',{path:inputs.path})).errorCode);");
+            Check(result.Success && Output(result)[0].GetString() == "tool_denied" && fixture.Files.Observations.IsEmpty,
+                "the model's denial blocks a read-only PTC child");
+        }
+        await using (var fixture = new Fixture())
+        {
+            fixture.Config.ToolApprovalMode = ToolApprovalMode.Automatic;
+            fixture.Judge.Decide = _ => ToolApprovalDecision.AskUser("Confirm this operation", "high");
             const string read = "const r=await tools.call('read_system_file',{path:inputs.path}); text(r.success);";
             fixture.Prompter.Decide = _ => ToolApprovalScope.Deny;
             var denied = await fixture.ProgramAsync(read);
@@ -185,6 +198,8 @@ internal static class PtcTests
             Check(accepted.Success && fixture.Files.Observations.Count == 1, "human confirmation executes exactly once");
             Check(fixture.Prompter.Calls.All(item => !item.AllowsPersistentApproval && item.ReviewReason == "Confirm this operation"),
                 "each handoff carries the reason and single-call scope through the production registry");
+            Check(fixture.Prompter.Calls.All(item => item.Risk is null && item.ReviewRisk == "high" && item.IsHighRisk),
+                "handoffs display the model's risk assessment");
         }
     }
 
@@ -230,7 +245,8 @@ internal static class PtcTests
 
     private static async Task LoopbackAsync(ProviderProtocol protocol)
     {
-        await using var fixture = new Fixture();
+        await using var fixture = new Fixture(useRealApprovalModel: true);
+        fixture.Config.ToolApprovalMode = ToolApprovalMode.Automatic;
         await using var model = new LoopbackModel("const r=await tools.call('read_system_file',{path:inputs.path}); text({length:r.data.content.length});", fixture.File);
         var service = fixture.Chat(model.BaseUrl, protocol);
         var context = new ConversationContext { ConversationId = "loop-" + protocol, WorkspaceId = "loop-workspace" };
@@ -242,6 +258,21 @@ internal static class PtcTests
         Check(text.ToString() == "done", "A02 production SDK/main loop completes on " + protocol + ": " + text);
         Check(model.Requests.Count == 2, "exactly one tool round and final round on " + protocol);
         Check(fixture.Files.Observations.Count == 1, "A02 real production Registry reached the file service once on " + protocol);
+        var reviews = model.ReviewRequests.Select(request =>
+        {
+            var content = protocol == ProviderProtocol.Responses
+                ? request.GetProperty("input")[0].GetProperty("content")
+                : request.GetProperty("messages")[1].GetProperty("content");
+            return PtcJson.Parse((content.ValueKind == JsonValueKind.String
+                ? content.GetString() : content[0].GetProperty("text").GetString())!);
+        }).ToArray();
+        Check(reviews.Select(review => review.GetProperty("tool").GetString()).SequenceEqual(new[] { "execute_program", "read_system_file" })
+            && fixture.Prompter.Calls.IsEmpty, "the production reviewer approves the interpreter and child separately on " + protocol);
+        Check(reviews[0].GetProperty("arguments").GetProperty("code").GetString() == "[body omitted]"
+            && !reviews[0].TryGetProperty("evidence_complete", out _)
+            && reviews[1].GetProperty("resolved_paths").GetProperty("path").GetString()
+                == FileSystemService.ResolveApprovalPath(fixture.File, fixture.Paths),
+            "the review request projects the script and child arguments on " + protocol);
         var calls = observed.Where(item => !string.IsNullOrEmpty(item.ToolCallsJson)).SelectMany(item => JsonDocument.Parse(item.ToolCallsJson!).RootElement.EnumerateArray()).ToArray();
         Check(calls.Length == 1, "only outer assistant tool carrier exists");
         var tool = observed.Single(item => item.Role == "tool");
@@ -451,6 +482,7 @@ internal static class PtcTests
     private static async Task FileSafetyAsync()
     {
         await using var fixture = new Fixture();
+        fixture.Config.ToolApprovalMode = ToolApprovalMode.Automatic;
         var blocked = Path.Combine(fixture.Root, "blocked");
         Directory.CreateDirectory(blocked);
         var secret = Path.Combine(blocked, "synthetic-secret.txt");
@@ -601,7 +633,8 @@ internal static class PtcTests
         public IFunctionRegistry Registry => _provider.GetRequiredService<IFunctionRegistry>();
         public AthenaPtcRunStore Store => _provider.GetRequiredService<AthenaPtcRunStore>();
 
-        public Fixture(int maxTraceRunBytes = AthenaPtcRunStore.DefaultMaxRunBytes, long maxTraceStoreBytes = AthenaPtcRunStore.DefaultMaxStoreBytes)
+        public Fixture(int maxTraceRunBytes = AthenaPtcRunStore.DefaultMaxRunBytes,
+            long maxTraceStoreBytes = AthenaPtcRunStore.DefaultMaxStoreBytes, bool useRealApprovalModel = false)
         {
             Directory.CreateDirectory(Root);
             System.IO.File.WriteAllText(File, "synthetic data");
@@ -617,7 +650,7 @@ internal static class PtcTests
             services.AddSingleton<IFileSystemService>(Files);
             services.AddSingleton<IKnowledgeBaseService>(_ => new KnowledgeBaseService(Log.Logger, platformPathService: Paths));
             services.AddSingleton<IToolApprovalPrompter>(Prompter);
-            services.AddSingleton<IAiToolApprovalEvaluator>(Judge);
+            if (!useRealApprovalModel) services.AddSingleton<IAiToolApprovalEvaluator>(Judge);
             if (maxTraceRunBytes != AthenaPtcRunStore.DefaultMaxRunBytes || maxTraceStoreBytes != AthenaPtcRunStore.DefaultMaxStoreBytes)
                 services.AddSingleton(_ => new AthenaPtcRunStore(Paths, Log.Logger, maxTraceRunBytes, maxTraceStoreBytes));
             _provider = services.BuildServiceProvider();
@@ -652,9 +685,12 @@ internal static class PtcTests
         {
             var provider = new OpenAiProviderConfiguration { Id = Guid.NewGuid().ToString("N"), BaseUrl = endpoint, ApiKey = "ptc-test-key-not-real", Protocol = protocol, ProviderPreset = "Custom" };
             provider.Models.Add(new ProviderModelDescriptor { Id = "ptc-test", Capability = ModelCapability.Text });
+            provider.Models.Add(new ProviderModelDescriptor { Id = ReviewModel, Capability = ModelCapability.Text });
             Config.AiModels.Providers.Add(provider);
             Config.AiModels.MainConversation.ProviderId = provider.Id;
             Config.AiModels.MainConversation.Model = "ptc-test";
+            Config.AiModels.Approval.ProviderId = provider.Id;
+            Config.AiModels.Approval.Model = ReviewModel;
             return new OpenAIChatService(Config, new HeadlessPromptService(), functionRegistry: Registry, configService: ConfigService,
                 conversationSessionAccessor: Sessions, metadataResolver: new ModelMetadataResolver(new ModelIdentityMatcher()),
                 contextPolicyResolver: new ModelContextPolicyResolver(), requestPreparer: new ContextRequestPreparer(new TokenFingerprintService(Paths)));
@@ -687,9 +723,10 @@ internal static class PtcTests
     private sealed class Judge : IAiToolApprovalEvaluator
     {
         public ConcurrentQueue<ToolApprovalRequest> Calls { get; } = new();
-        public ToolApprovalDecision Decision { get; set; } = ToolApprovalDecision.JudgeAllowed("synthetic fixture");
+        public Func<ToolApprovalRequest, ToolApprovalDecision> Decide { get; set; } =
+            _ => ToolApprovalDecision.JudgeAllowed("synthetic fixture");
         public Task<ToolApprovalDecision> EvaluateAsync(ToolApprovalRequest request, CancellationToken cancellationToken)
-        { cancellationToken.ThrowIfCancellationRequested(); Calls.Enqueue(request); return Task.FromResult(Decision); }
+        { cancellationToken.ThrowIfCancellationRequested(); Calls.Enqueue(request); return Task.FromResult(Decide(request)); }
     }
 
     private sealed record Observation(string Name, string? Conversation, string? Workspace, string? Task,
@@ -747,6 +784,7 @@ internal static class PtcTests
         private readonly string _toolName;
         public string BaseUrl { get; }
         public ConcurrentQueue<JsonElement> Requests { get; } = new();
+        public ConcurrentQueue<JsonElement> ReviewRequests { get; } = new();
 
         public LoopbackModel(string code, string path, string toolName = "execute_program")
         {
@@ -771,12 +809,16 @@ internal static class PtcTests
                     var request = await _listener.GetContextAsync();
                     using var reader = new StreamReader(request.Request.InputStream, Encoding.UTF8);
                     var body = await reader.ReadToEndAsync(_stop.Token);
-                    Requests.Enqueue(PtcJson.Parse(body, 1024 * 1024, 64));
+                    var payload = PtcJson.Parse(body, 1024 * 1024, 64);
                     Check(request.Request.Headers["Authorization"] == "Bearer ptc-test-key-not-real", "only synthetic test credentials reach localhost");
                     var responses = request.Request.Url!.AbsolutePath.EndsWith("/responses", StringComparison.Ordinal);
-                    var sse = responses ? ResponsesBody(Requests.Count == 1) : ChatBody(Requests.Count == 1);
-                    var bytes = Encoding.UTF8.GetBytes(sse);
-                    request.Response.ContentType = "text/event-stream";
+                    var review = payload.GetProperty("model").GetString() == ReviewModel;
+                    var received = review ? ReviewRequests : Requests;
+                    received.Enqueue(payload);
+                    var reply = review ? ReviewBody(responses)
+                        : responses ? ResponsesBody(received.Count == 1) : ChatBody(received.Count == 1);
+                    var bytes = Encoding.UTF8.GetBytes(reply);
+                    request.Response.ContentType = review ? "application/json" : "text/event-stream";
                     request.Response.ContentLength64 = bytes.Length;
                     await request.Response.OutputStream.WriteAsync(bytes, _stop.Token);
                     request.Response.Close();
@@ -785,6 +827,28 @@ internal static class PtcTests
             catch (HttpListenerException) when (_stop.IsCancellationRequested) { }
             catch (ObjectDisposedException) when (_stop.IsCancellationRequested) { }
             catch (OperationCanceledException) when (_stop.IsCancellationRequested) { }
+        }
+
+        private static string ReviewBody(bool responses)
+        {
+            const string verdict = """{"risk_level":"low","user_authorization":"medium","outcome":"allow","rationale":"Authorized fixture read"}""";
+            if (!responses)
+                return JsonSerializer.Serialize(new
+                {
+                    id = "review-chat", @object = "chat.completion", created = 1785580000, model = ReviewModel,
+                    choices = new[] { new { index = 0, message = new { role = "assistant", content = verdict }, finish_reason = "stop" } }
+                });
+
+            var item = new
+            {
+                id = "review-output", type = "message", role = "assistant", status = "completed",
+                content = new[] { new { type = "output_text", text = verdict, annotations = Array.Empty<object>() } }
+            };
+            return JsonSerializer.Serialize(new
+            {
+                id = "review-response", @object = "response", created_at = 1785580000, model = ReviewModel,
+                status = "completed", output = new[] { item }
+            });
         }
 
         private static string Sse(object value) => "data: " + JsonSerializer.Serialize(value) + "\n\n";

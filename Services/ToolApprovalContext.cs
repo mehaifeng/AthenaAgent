@@ -23,11 +23,11 @@ public static class ToolApprovalContext
 {
     public enum ExecutionMode
     {
-        /// <summary>未显式设置。chokepoint 视为无人值守（fail-safe），敏感/破坏性默认拒绝。</summary>
+        /// <summary>未显式设置。审批入口视为无人值守。</summary>
         Unset,
         /// <summary>主对话循环。有 UI，可弹审批窗。</summary>
         Interactive,
-        /// <summary>并发子代理。无 UI；敏感工具按 SubAgentsInheritApproval 处理，破坏性一律拒绝。</summary>
+        /// <summary>并发子代理。没有交互审批渠道。</summary>
         NonInteractive,
         /// <summary>
         /// 第一方、用户已显式开启的后台例程（知识库定期整理）。审批闸门只对授权

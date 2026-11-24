@@ -85,7 +85,7 @@ internal static class ApprovalJudgeOutput
             completion.Usage?.OutputTokenDetails?.ReasoningTokenCount);
     }
 
-    public static ToolApprovalDecision Interpret(ApprovalJudgeReply reply, ToolRisk localRisk, bool evidenceComplete)
+    public static ToolApprovalDecision Interpret(ApprovalJudgeReply reply)
     {
         // 截断先于解析判断：截断的输出偶尔恰好停在一个完整对象之后（比如 JSON 写完后又补空白直到上限），
         // 但端点并没有确认那就是全部回答。截断的输出一律不当裁决。
@@ -141,15 +141,12 @@ internal static class ApprovalJudgeOutput
                 return Invalid("评审字段不完整、枚举无效或理由过长");
 
             reason = ApprovalReviewEvidence.Scrub(reason);
-            if (outcome == "deny") return ToolApprovalDecision.JudgeDenied(reason);
-            if (risk == "critical") return ToolApprovalDecision.JudgeDenied("操作属于严重风险。");
-            if (outcome == "ask_user") return ToolApprovalDecision.AskUser(reason);
-            if (!evidenceComplete) return ToolApprovalDecision.AskUser("可供评审的授权或操作参数不完整。");
-            if (authorization is "unknown" or "low")
-                return ToolApprovalDecision.AskUser("用户尚未明确授权此次操作的目标和副作用。");
-            if ((risk == "high" || localRisk == ToolRisk.Destructive) && authorization != "high")
-                return ToolApprovalDecision.AskUser("高风险操作需要用户对具体目标和副作用的明确授权。");
-            return ToolApprovalDecision.JudgeAllowed(reason);
+            return outcome switch
+            {
+                "allow" => ToolApprovalDecision.JudgeAllowed(reason, risk),
+                "deny" => ToolApprovalDecision.JudgeDenied(reason, risk),
+                _ => ToolApprovalDecision.AskUser(reason, risk)
+            };
         }
     }
 

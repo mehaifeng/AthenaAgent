@@ -35,7 +35,7 @@ public sealed partial class ToolApprovalModePickerViewModel : ViewModelBase, IDi
         [
             new(ToolApprovalMode.Balanced, "Balanced", "Confirm writes, deletes, and terminal commands.", localization, SelectCommand),
             new(ToolApprovalMode.Strict, "Strict", "Confirm every tool call.", localization, SelectCommand),
-            new(ToolApprovalMode.Automatic, "Automatic", "Review risk and authorization. Ask in the originating conversation when confirmation is needed.", localization, SelectCommand),
+            new(ToolApprovalMode.Automatic, "Automatic", "Review each tool call. Ask in the originating conversation when confirmation is needed.", localization, SelectCommand),
             new(ToolApprovalMode.Off, "Allow all", "Allow all tool calls without confirmation.", localization, SelectCommand)
         ];
         _observedConfig = configuration.Current;

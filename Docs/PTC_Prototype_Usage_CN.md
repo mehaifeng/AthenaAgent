@@ -50,7 +50,7 @@ text({ count: r.data.entries.length });
 
 本次回合工具快照与以下名单取交集：read_system_file、get_file_info、search_in_file、search_in_directory、list_system_directory。工具自身分页、文件读取配额、路径/软链接保护全部保留。“完整数据”只指该次工具实际返回的完整结果，不表示无限读取文件。
 
-不授权 terminal、MCP、配置、cron、浏览器、子代理或递归 execute_program。子代理和维护路径猜中名称也拒绝。外层 execute_program 为 Sensitive；其获批不代替子调用审批。Strict/Automatic 串行，Off/Balanced 仅对明确免弹窗的只读调用并发；等待期间策略变化会重新判断，并独立串行化子调用审批。
+PTC 的授权范围限于上述只读工具，且仅在交互会话中可用。均衡和严格模式把外层 `execute_program` 归为敏感调用。自动审批由模型分别裁决外层脚本启动和每个子调用，评审材料包含宿主的只读授权以及子调用的具体目标。Strict/Automatic 下调用串行，Off/Balanced 下明确免弹窗的只读调用可以并发。等待期间会重新检查审批模式。
 
 ## 预算、停止与记录
 

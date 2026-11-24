@@ -42,9 +42,10 @@
                                     <Grid ColumnDefinitions="*,Auto" ColumnSpacing="10">
                                         <TextBlock Text="{Binding Title}" FontWeight="SemiBold" TextWrapping="Wrap"/>
                                         <TextBlock Grid.Column="1" Classes="approval-risk"
-                                                   Classes.high-risk="{Binding Request.IsDestructive}"
+                                                   Classes.high-risk="{Binding Request.IsHighRisk}"
                                                    FontSize="{DynamicResource App.FontSize.Caption}" FontWeight="SemiBold"
-                                                   Text="{Binding RiskText}"/>
+                                                   Text="{Binding RiskText}"
+                                                   IsVisible="{Binding RiskText, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"/>
                                     </Grid>
                                     <TextBlock Text="{Binding ConversationLabel}" TextTrimming="CharacterEllipsis"
                                                ToolTip.Tip="{Binding ConversationLabel}"

@@ -224,13 +224,16 @@ public partial class ApprovalQueueItemViewModel : ViewModelBase
         : string.Format(_localize("Approval.ConversationPrefix", "Conversation: {0}"),
             string.IsNullOrWhiteSpace(ConversationTitle) ? ConversationId : ConversationTitle);
 
-    public string RiskText => Request.Risk switch
+    public string? RiskText => (Request.Risk, Request.ReviewRisk) switch
     {
-        ToolRisk.ReadOnly => _localize("Dialog.ToolApproval.Risk.ReadOnly", "Read-only"),
-        ToolRisk.AdditiveWrite => _localize("Dialog.ToolApproval.Risk.AdditiveWrite", "New file only"),
-        ToolRisk.Sensitive => _localize("Dialog.ToolApproval.Risk.Sensitive", "Sensitive"),
-        ToolRisk.Destructive => _localize("Approval.RiskHigh", "High risk"),
-        _ => Request.Risk.ToString()
+        (ToolRisk.ReadOnly, _) => _localize("Dialog.ToolApproval.Risk.ReadOnly", "Read-only"),
+        (ToolRisk.AdditiveWrite, _) => _localize("Dialog.ToolApproval.Risk.AdditiveWrite", "New file only"),
+        (ToolRisk.Sensitive, _) => _localize("Dialog.ToolApproval.Risk.Sensitive", "Sensitive"),
+        (ToolRisk.Destructive, _) or (_, "high") => _localize("Approval.RiskHigh", "High risk"),
+        (_, "low") => _localize("Dialog.ToolApproval.ReviewRisk.Low", "Low risk"),
+        (_, "medium") => _localize("Dialog.ToolApproval.ReviewRisk.Medium", "Medium risk"),
+        (_, "critical") => _localize("Dialog.ToolApproval.ReviewRisk.Critical", "Critical risk"),
+        _ => null
     };
 
     public void RefreshLocalizedText()

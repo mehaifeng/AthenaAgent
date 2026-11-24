@@ -25,6 +25,7 @@ public enum ToolRisk
 /// - Off：全部自动放行（老行为，给完全信任的用户）。
 /// - Balanced：ReadOnly 放行，Sensitive/Destructive 询问（默认，推荐）。
 /// - Strict：全部工具都询问（含只读）。
+/// - Automatic：审批模型裁决每次工具调用。
 /// </summary>
 public enum ToolApprovalMode
 {
@@ -57,8 +58,9 @@ public enum ToolApprovalScope
 public sealed class ToolApprovalRequest
 {
     public required string FunctionName { get; init; }
-    public required ToolRisk Risk { get; init; }
+    public ToolRisk? Risk { get; init; }
     internal string? ArgumentsJson { get; init; }
+    internal string? ToolDescription { get; init; }
     internal Func<string, string?>? ResolveFilePath { get; init; }
 
     /// <summary>人类可读的一行摘要（复用 ToolCallDisplay.Summarize）。</summary>
@@ -78,10 +80,11 @@ public sealed class ToolApprovalRequest
 
     /// <summary>交由当前会话确认的原因。自动模式只允许用户对这一次调用作答。</summary>
     public string? ReviewReason { get; internal set; }
+    public string? ReviewRisk { get; internal set; }
     public bool AllowsPersistentApproval { get; init; } = true;
 
     public bool IsTerminal => !string.IsNullOrEmpty(CommandLine);
-    public bool IsDestructive => Risk == ToolRisk.Destructive;
+    public bool IsHighRisk => Risk == ToolRisk.Destructive || ReviewRisk is "high" or "critical";
 
     /// <summary>
     /// 会话内 / 永久放行的去重键，由 ToolApprovalKey 构造并已带上作用域：
@@ -163,9 +166,14 @@ public sealed class ToolApprovalDecision
     public ToolApprovalJudgeFailureKind FailureKind { get; init; }
 
     public string? ReviewDetail { get; init; }
+    public string? ReviewRisk { get; init; }
 
-    public static ToolApprovalDecision AskUser(string reason) =>
-        new() { Scope = ToolApprovalScope.Deny, Source = ToolApprovalSource.JudgeNeedsUser, Reason = reason, ReviewDetail = reason };
+    public static ToolApprovalDecision AskUser(string reason, string? risk = null) =>
+        new()
+        {
+            Scope = ToolApprovalScope.Deny, Source = ToolApprovalSource.JudgeNeedsUser,
+            Reason = reason, ReviewDetail = reason, ReviewRisk = risk
+        };
 
     public static ToolApprovalDecision Allow(ToolApprovalScope scope, string reason) =>
         new() { Scope = scope, Reason = reason };
@@ -180,12 +188,20 @@ public sealed class ToolApprovalDecision
         new() { Scope = ToolApprovalScope.Deny, Source = ToolApprovalSource.Cancelled, Reason = reason };
 
     /// <summary>自动审批模型的放行。理由前缀是日志取证的分类键，不要改。</summary>
-    public static ToolApprovalDecision JudgeAllowed(string reason) =>
-        new() { Scope = ToolApprovalScope.AllowOnce, Source = ToolApprovalSource.JudgeVerdict, Reason = "自动审批模型放行：" + reason };
+    public static ToolApprovalDecision JudgeAllowed(string reason, string? risk = null) =>
+        new()
+        {
+            Scope = ToolApprovalScope.AllowOnce, Source = ToolApprovalSource.JudgeVerdict,
+            Reason = "自动审批模型放行：" + reason, ReviewRisk = risk
+        };
 
     /// <summary>自动审批模型的拒绝。理由前缀是日志取证的分类键，不要改。</summary>
-    public static ToolApprovalDecision JudgeDenied(string reason) =>
-        new() { Scope = ToolApprovalScope.Deny, Source = ToolApprovalSource.JudgeVerdict, Reason = "自动审批模型拒绝：" + reason };
+    public static ToolApprovalDecision JudgeDenied(string reason, string? risk = null) =>
+        new()
+        {
+            Scope = ToolApprovalScope.Deny, Source = ToolApprovalSource.JudgeVerdict,
+            Reason = "自动审批模型拒绝：" + reason, ReviewRisk = risk
+        };
 
     /// <summary>自动审批没能给出裁决：按安全策略拒绝，并记下是哪一类故障。</summary>
     public static ToolApprovalDecision JudgeFailed(ToolApprovalJudgeFailureKind kind, string detail)

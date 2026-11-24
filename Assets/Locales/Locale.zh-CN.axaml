@@ -670,7 +670,7 @@
     <system:String x:Key="Settings.Approval.Strict.Title">严格</system:String>
     <system:String x:Key="Settings.Approval.Strict.Description">每一次工具调用都需要确认。</system:String>
     <system:String x:Key="Settings.Approval.Automatic.Title">自动评审</system:String>
-    <system:String x:Key="Settings.Approval.Automatic.Description">由“自动审批”模型检查操作风险和用户授权。需要确认或模型不可用时，在发起调用的对话中询问。</system:String>
+    <system:String x:Key="Settings.Approval.Automatic.Description">逐次由自动审批模型裁决工具调用。需要确认或模型不可用时，在发起调用的对话中询问。</system:String>
     <system:String x:Key="Settings.Approval.Off.Title">完全允许</system:String>
     <system:String x:Key="Settings.Approval.Off.Description">工具调用自动放行，无需人工审批。</system:String>
     <system:String x:Key="Settings.Approval.Off.ConfirmTitle">启用「完全允许」？</system:String>
@@ -931,6 +931,9 @@
     <system:String x:Key="Dialog.ToolApproval.Risk.AdditiveWrite">仅新建</system:String>
     <system:String x:Key="Dialog.ToolApproval.Risk.Sensitive">敏感</system:String>
     <system:String x:Key="Dialog.ToolApproval.Risk.Destructive">破坏性</system:String>
+    <system:String x:Key="Dialog.ToolApproval.ReviewRisk.Low">低风险</system:String>
+    <system:String x:Key="Dialog.ToolApproval.ReviewRisk.Medium">中风险</system:String>
+    <system:String x:Key="Dialog.ToolApproval.ReviewRisk.Critical">严重风险</system:String>
 
     <!-- Tool Approval Settings -->
     <system:String x:Key="Config.ToolApproval.Header">工具授权</system:String>
@@ -940,7 +943,7 @@
     <system:String x:Key="Config.ToolApproval.Mode.Strict">严格（所有工具都需确认）</system:String>
     <system:String x:Key="Config.ToolApproval.Mode.Automatic">自动评审</system:String>
     <system:String x:Key="Config.ToolApproval.ModeHint">在平衡模式下，只读类工具自动放行；写入、删除、终端命令在执行前请求确认。</system:String>
-    <system:String x:Key="Config.ToolApproval.AutomaticHint">由“自动审批”模型检查操作风险和用户授权。需要确认或模型不可用时，在发起调用的对话中询问。</system:String>
+    <system:String x:Key="Config.ToolApproval.AutomaticHint">逐次由自动审批模型裁决工具调用。需要确认或模型不可用时，在发起调用的对话中询问。</system:String>
     <system:String x:Key="Config.ToolApproval.SubAgentsInherit">子代理沿用主对话授权</system:String>
     <system:String x:Key="Config.ToolApproval.AutoAllowed">始终允许的工具</system:String>
     <system:String x:Key="Config.ToolApproval.TerminalAllowlist">终端命令白名单</system:String>

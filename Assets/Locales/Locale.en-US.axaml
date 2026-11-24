@@ -670,7 +670,7 @@
     <system:String x:Key="Settings.Approval.Strict.Title">Strict</system:String>
     <system:String x:Key="Settings.Approval.Strict.Description">Confirm every tool call.</system:String>
     <system:String x:Key="Settings.Approval.Automatic.Title">Automatic review</system:String>
-    <system:String x:Key="Settings.Approval.Automatic.Description">The Automatic approval model checks risk and authorization. When confirmation is needed or the reviewer is unavailable, Athena asks in the originating conversation.</system:String>
+    <system:String x:Key="Settings.Approval.Automatic.Description">The Automatic approval model reviews each tool call. When confirmation is needed or the reviewer is unavailable, Athena asks in the originating conversation.</system:String>
     <system:String x:Key="Settings.Approval.Off.Title">Allow all</system:String>
     <system:String x:Key="Settings.Approval.Off.Description">Allow tool calls automatically without asking for approval.</system:String>
     <system:String x:Key="Settings.Approval.Off.ConfirmTitle">Enable Allow all?</system:String>
@@ -931,6 +931,9 @@
     <system:String x:Key="Dialog.ToolApproval.Risk.AdditiveWrite">New file only</system:String>
     <system:String x:Key="Dialog.ToolApproval.Risk.Sensitive">Sensitive</system:String>
     <system:String x:Key="Dialog.ToolApproval.Risk.Destructive">Destructive</system:String>
+    <system:String x:Key="Dialog.ToolApproval.ReviewRisk.Low">Low risk</system:String>
+    <system:String x:Key="Dialog.ToolApproval.ReviewRisk.Medium">Medium risk</system:String>
+    <system:String x:Key="Dialog.ToolApproval.ReviewRisk.Critical">Critical risk</system:String>
 
     <!-- Tool Approval Settings -->
     <system:String x:Key="Config.ToolApproval.Header">Tool approval</system:String>
@@ -940,7 +943,7 @@
     <system:String x:Key="Config.ToolApproval.Mode.Strict">Strict (confirm every tool)</system:String>
     <system:String x:Key="Config.ToolApproval.Mode.Automatic">Automatic review</system:String>
     <system:String x:Key="Config.ToolApproval.ModeHint">In Balanced mode, read-only tools run automatically; write, delete, and terminal commands ask for confirmation before running.</system:String>
-    <system:String x:Key="Config.ToolApproval.AutomaticHint">The Automatic approval model checks risk and authorization. When confirmation is needed or the reviewer is unavailable, Athena asks in the originating conversation.</system:String>
+    <system:String x:Key="Config.ToolApproval.AutomaticHint">The Automatic approval model reviews each tool call. When confirmation is needed or the reviewer is unavailable, Athena asks in the originating conversation.</system:String>
     <system:String x:Key="Config.ToolApproval.SubAgentsInherit">Sub-agents inherit primary chat approval</system:String>
     <system:String x:Key="Config.ToolApproval.AutoAllowed">Always-allowed tools</system:String>
     <system:String x:Key="Config.ToolApproval.TerminalAllowlist">Terminal command allowlist</system:String>

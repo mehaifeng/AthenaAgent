@@ -18,12 +18,12 @@ internal sealed class ApprovalReviewEvidence
         "path", "filePath", "directory", "directoryPath", "workingDirectory", "sourcePath", "destinationPath",
         "inputPath", "outputPath", "targetPath", "name", "url", "startUrl", "server", "serverName", "tool", "toolName",
         "command", "task", "goal", "instruction", "title", "agent_type", "method", "mode", "format",
-        "targetFormat", "operation", "type", "continuityMode"
+        "targetFormat", "operation", "type", "continuityMode", "taskId", "cronExpression", "workspaceId"
     };
     private static readonly HashSet<string> BodyFields = new(StringComparer.OrdinalIgnoreCase)
     {
         "content", "text", "oldText", "newText", "findText", "replaceText", "code", "script", "prompt",
-        "diffContent", "body", "data", "stdin", "headers"
+        "diffContent", "body", "data", "stdin", "headers", "inputs", "env", "json"
     };
 
     // Applies equally to intent, paths, argv, destinations, and the rationale returned to the caller.
@@ -35,58 +35,9 @@ internal sealed class ApprovalReviewEvidence
 
     private int _remainingNodes = 100;
     private int _remainingChars = 12000;
-    public bool Complete { get; private set; } = true;
-    public string Payload { get; private set; } = string.Empty;
-
-    public static ApprovalReviewEvidence From(ToolApprovalRequest request)
+    public static string CreatePayload(ToolApprovalRequest request)
     {
         var evidence = new ApprovalReviewEvidence();
-        var task = ToolApprovalContext.CurrentDelegatedTask;
-        if (string.IsNullOrWhiteSpace(task) || task.EndsWith('…') || task.Contains("…\nPrevious user message:", StringComparison.Ordinal))
-            evidence.Complete = false;
-        var fields = new JsonObject();
-        var resolvedPaths = new JsonObject();
-        try
-        {
-            var source = request.ArgumentsJson ?? request.PrettyArguments;
-            if (source.Length > 1024 * 1024) evidence.Complete = false;
-            else
-            {
-                using var doc = JsonDocument.Parse(source, StrictJson);
-                var args = doc.RootElement;
-                if (args.ValueKind != JsonValueKind.Object) evidence.Complete = false;
-                else
-                {
-                    string[] pathFields = request.FunctionName switch
-                    {
-                        "write_system_file" or "modify_system_file" or "delete_system_file" => ["path"],
-                        "copy_system_file" or "move_system_file" => ["sourcePath", "destinationPath"],
-                        "fetch_url_to_file" => ["outputPath"],
-                        _ => []
-                    };
-                    var plainDocument = false;
-                    foreach (var name in pathFields)
-                    {
-                        if (!args.TryGetProperty(name, out var value) || value.ValueKind != JsonValueKind.String)
-                        {
-                            evidence.Complete = false;
-                            continue;
-                        }
-                        var path = value.GetString()!;
-                        var target = request.ResolveFilePath != null ? request.ResolveFilePath(path) : FileSystemService.ResolveApprovalPath(path, null);
-                        if (target == null) evidence.Complete = false;
-                        else
-                        {
-                            resolvedPaths[name] = evidence.Text(target);
-                            if (name == "path" && request.FunctionName is "write_system_file" or "modify_system_file")
-                                plainDocument = IsPlainDocument(path) && IsPlainDocument(target);
-                        }
-                    }
-                    fields = evidence.ProjectObject(args, request.FunctionName == "execute_terminal_command", plainDocument);
-                }
-            }
-        }
-        catch (Exception ex) when (ex is JsonException or InvalidOperationException or ArgumentException) { evidence.Complete = false; }
         var effect = request.FunctionName switch
         {
             "write_system_file" => "Creates or completely replaces the target file.",
@@ -96,9 +47,7 @@ internal sealed class ApprovalReviewEvidence
             "move_system_file" => "Moves the source to the destination, removing its old entry.",
             "execute_terminal_command" => "Runs the specified executable with these arguments and working directory.",
             "fetch_url_to_file" => "Downloads a public resource and writes it at the destination.",
-            "get_document_outline" or "parse_office_document" when request.Risk == ToolRisk.Sensitive =>
-                "May upload the named document to the configured parsing service.",
-            "execute_program" => "Runs JavaScript with the granted read-only filesystem tools.",
+            "execute_program" => "Starts a bounded in-process JavaScript interpreter with a grant for read-only filesystem tools. Each child call is reviewed before execution.",
             "run_browser_task" => "A browser agent may navigate, submit forms or upload files.",
             "dispatch_subagents" => "Delegates these instructions to agents with their own tools.",
             "mcp_call_tool" => "Invokes the named tool on an external MCP server.",
@@ -107,60 +56,88 @@ internal sealed class ApprovalReviewEvidence
             "create_document" or "edit_document" or "convert_document" or "create_spreadsheet" or "edit_spreadsheet"
                 or "convert_spreadsheet" or "modify_spreadsheet_structure" or "create_presentation" or "edit_presentation"
                 => "Writes an Office document at the requested output path.",
-            _ => null
+            _ => request.ToolDescription
         };
-        if (effect == null) evidence.Complete = false;
         var input = new JsonObject
         {
-            ["user_requests"] = evidence.Text(task),
+            ["user_requests"] = evidence.Text(ToolApprovalContext.CurrentDelegatedTask),
             ["workspace_directory"] = evidence.Text(ToolApprovalContext.CurrentWorkspaceDirectory),
             ["process_directory"] = evidence.Text(Environment.CurrentDirectory),
             ["execution_mode"] = ToolApprovalContext.CurrentMode.ToString(),
             ["agent_instruction"] = evidence.Text(ToolApprovalContext.CurrentAgentInstruction),
             ["tool"] = evidence.Text(request.FunctionName),
-            ["effect"] = effect,
-            ["local_risk"] = request.Risk.ToString(),
-            ["local_risk_reason"] = evidence.Text(request.RiskReason),
-            ["arguments"] = fields,
-            ["resolved_paths"] = resolvedPaths,
-            ["evidence_complete"] = evidence.Complete
+            ["effect"] = evidence.Text(effect)
         };
-        evidence.Payload = input.ToJsonString();
-        return evidence;
+        var resolvedPaths = new JsonObject();
+        input["arguments"] = evidence.ProjectArguments(request, resolvedPaths);
+        input["resolved_paths"] = resolvedPaths;
+        return input.ToJsonString();
     }
 
-    private JsonObject ProjectObject(JsonElement obj, bool terminal, bool plainDocument)
+    private JsonObject? ProjectArguments(ToolApprovalRequest request, JsonObject resolvedPaths)
+    {
+        var source = request.ArgumentsJson ?? request.PrettyArguments;
+        if (source.Length > 1024 * 1024) return null;
+        try
+        {
+            using var doc = JsonDocument.Parse(source, StrictJson);
+            var args = doc.RootElement;
+            if (args.ValueKind != JsonValueKind.Object) return null;
+            string[] pathFields = request.FunctionName switch
+            {
+                "read_system_file" or "get_file_info" or "search_in_file" or "search_in_directory" or "list_system_directory"
+                    or "write_system_file" or "modify_system_file" or "delete_system_file" or "create_directory" or "get_document_outline" => ["path"],
+                "copy_system_file" or "move_system_file" => ["sourcePath", "destinationPath"],
+                "fetch_url_to_file" => ["outputPath"],
+                _ => []
+            };
+            foreach (var name in pathFields)
+            {
+                if (!args.TryGetProperty(name, out var value) || value.ValueKind != JsonValueKind.String) continue;
+                var path = value.GetString()!;
+                var target = request.ResolveFilePath != null
+                    ? request.ResolveFilePath(path)
+                    : FileSystemService.ResolveApprovalPath(path, null);
+                if (target != null) resolvedPaths[name] = Text(target);
+            }
+            var projected = ProjectObject(args, request.FunctionName == "execute_terminal_command");
+            if (request.FunctionName == "modify_self_configuration" && args.TryGetProperty("key", out var key) && key.ValueKind == JsonValueKind.String)
+            {
+                projected["key"] = Text(key.GetString());
+                if (string.Equals(key.GetString(), "Security.ToolApprovalMode", StringComparison.OrdinalIgnoreCase)
+                    && args.TryGetProperty("value", out var value) && value.ValueKind == JsonValueKind.String
+                    && Enum.TryParse<ToolApprovalMode>(value.GetString(), true, out var mode) && Enum.IsDefined(mode))
+                    projected["value"] = mode.ToString();
+            }
+            return projected;
+        }
+        catch (Exception ex) when (ex is JsonException or InvalidOperationException or ArgumentException)
+        {
+            return null;
+        }
+    }
+
+    private JsonObject ProjectObject(JsonElement obj, bool terminal)
     {
         var result = new JsonObject();
         foreach (var property in obj.EnumerateObject())
         {
-            if (--_remainingNodes < 0) { Complete = false; break; }
+            if (--_remainingNodes < 0) break;
             var name = property.Name;
             var value = property.Value;
             if (BodyFields.Contains(name))
-            {
-                // An inert local document's body is unnecessary to identify its destination and overwrite effect.
-                if (!(plainDocument && name is "content" or "oldText" or "newText" or "findText" or "replaceText" or "diffContent"))
-                    Complete = false;
                 result[name] = "[body omitted]";
-            }
             else if (terminal && name == "arguments" && value.ValueKind == JsonValueKind.Array)
             {
                 var command = obj.TryGetProperty("command", out var executable) && executable.ValueKind == JsonValueKind.String
                     ? Path.GetFileNameWithoutExtension(executable.GetString())?.ToLowerInvariant() : null;
                 if (command is "echo" or "printf" or "write-output")
-                {
                     result[name] = "[arguments contain text omitted from review]";
-                    Complete = false;
-                }
-                else result[name] = ProjectArguments(value);
+                else result[name] = ProjectCommandArguments(value);
             }
             else if (terminal && name == "command" && value.ValueKind == JsonValueKind.String
                 && !IsExecutableName(value.GetString()!))
-            {
                 result[name] = "[compound command omitted]";
-                Complete = false;
-            }
             else if (EffectFields.Contains(name) && value.ValueKind == JsonValueKind.String)
                 result[name] = Text(value.GetString());
             else if (name == "tasks" && value.ValueKind == JsonValueKind.Array)
@@ -168,52 +145,42 @@ internal sealed class ApprovalReviewEvidence
                 var tasks = new JsonArray();
                 foreach (var item in value.EnumerateArray())
                 {
-                    if (--_remainingNodes < 0 || item.ValueKind != JsonValueKind.Object) { Complete = false; break; }
-                    tasks.Add(ProjectObject(item, false, false));
+                    if (--_remainingNodes < 0 || item.ValueKind != JsonValueKind.Object) break;
+                    tasks.Add(ProjectObject(item, false));
                 }
                 result[name] = tasks;
             }
             else if (name == "arguments" && value.ValueKind == JsonValueKind.Object)
-                result[name] = ProjectObject(value, false, false);
+                result[name] = ProjectObject(value, false);
             else if (name == "arguments" && value.ValueKind == JsonValueKind.String)
             {
                 // The MCP dispatcher accepts both object arguments and a JSON-encoded object.
                 using var nested = JsonDocument.Parse(value.GetString()!, StrictJson);
                 if (nested.RootElement.ValueKind == JsonValueKind.Object)
-                    result[name] = ProjectObject(nested.RootElement, false, false);
-                else Complete = false;
+                    result[name] = ProjectObject(nested.RootElement, false);
             }
-            else if (name is "overwrite" or "recursive" or "waitForExit" or "timeoutSeconds" or "createDirectories" or "fuzzyMatch" or "replaceAll" or "maxSteps" or "somMaxElements"
+            else if (name is "overwrite" or "recursive" or "waitForExit" or "timeoutSeconds" or "createDirectories" or "fuzzyMatch"
+                or "replaceAll" or "maxSteps" or "somMaxElements" or "includeTextStatistics"
                 && value.ValueKind is JsonValueKind.True or JsonValueKind.False or JsonValueKind.Number)
                 result[name] = JsonNode.Parse(value.GetRawText());
-            else Complete = false; // Unknown fields may change the operation, including at an MCP server.
         }
         return result;
-    }
-
-    internal static bool IsPlainDocument(string path)
-    {
-        var segments = path.Replace('\\', '/').Split('/');
-        return Path.GetExtension(segments[^1]).ToLowerInvariant() is ".txt" or ".md"
-            && !segments.Any(segment => segment.Length > 0 && segment[0] == '.' && segment != ".")
-            && segments[^1].ToLowerInvariant() is not ("agents.md" or "claude.md" or "skill.md" or "gemini.md" or "copilot-instructions.md");
     }
 
     private static bool IsExecutableName(string value) =>
         value.Length > 0 && !value.Any(char.IsControl) &&
         value.IndexOfAny([';', '|', '&', '`', '$', '<', '>']) < 0 && (!value.Contains(' ') || Path.IsPathFullyQualified(value));
 
-    private JsonArray ProjectArguments(JsonElement args)
+    private JsonArray ProjectCommandArguments(JsonElement args)
     {
         var result = new JsonArray();
         bool omitNext = false;
         foreach (var item in args.EnumerateArray())
         {
-            if (--_remainingNodes < 0 || item.ValueKind != JsonValueKind.String) { Complete = false; break; }
+            if (--_remainingNodes < 0 || item.ValueKind != JsonValueKind.String) break;
             var arg = item.GetString()!;
             if (omitNext || arg.Contains('\n'))
             {
-                Complete = false;
                 result.Add("[argument omitted]");
                 omitNext = false;
                 continue;
@@ -227,7 +194,6 @@ internal sealed class ApprovalReviewEvidence
             if (takesPayload && equals >= 0 || arg.Length > 2 && arg[0] == '-' && "ceHu".Contains(arg[1]))
             {
                 result.Add("[argument omitted]");
-                Complete = false;
             }
             else
             {
@@ -242,14 +208,9 @@ internal sealed class ApprovalReviewEvidence
     {
         if (string.IsNullOrEmpty(value)) return value;
         if (value.Length > 4000 || value.Length > _remainingChars)
-        {
-            Complete = false;
             return "[text omitted]";
-        }
         _remainingChars -= value.Length;
-        var safe = Scrub(value);
-        if (!string.Equals(safe, value, StringComparison.Ordinal)) Complete = false;
-        return safe;
+        return Scrub(value);
     }
 
     internal static string Scrub(string value)
