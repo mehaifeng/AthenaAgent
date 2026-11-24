@@ -240,6 +240,8 @@ public class OpenAIChatService : IChatService
             userMessage?.Length ?? 0,
             attachments?.Count ?? 0);
 
+        // Snapshot user-authored evidence before compaction can remove messages during this turn.
+        var delegatedTask = ToolApprovalContext.DescribeTask(context.ApprovalUserRequests);
         var hasImageAttachments = context.Messages.Any(HasImageAttachment);
         var imageProjection = ImageRequestProjection.Full;
 
@@ -264,7 +266,7 @@ public class OpenAIChatService : IChatService
         // 外层 async 迭代器设置的 AsyncLocal 不能可靠穿过嵌套迭代器边界流入工具执行。
 
         Exception? streamFailure = null;
-        await using (var enumerator = ProcessStreamAsync(runtime, messages, contentBuilder, context, imageProjection, cancellationToken, onMessageAdded, onUsageReported, onToolCallArgumentsStreaming, onReasoningDelta, onCompressionTransition: onCompressionTransition, onContextWarning: onContextWarning, onAnchorObserved: onAnchorObserved, onCompressionProgress: onCompressionProgress, skipCompressionToken: skipCompressionToken, onProviderError: onProviderError, onProviderRetry: onProviderRetry, onToolResultsCleared: onToolResultsCleared, onPtcProgress: onPtcProgress, executionTimeline: executionTimeline)
+        await using (var enumerator = ProcessStreamAsync(runtime, messages, contentBuilder, context, delegatedTask, imageProjection, cancellationToken, onMessageAdded, onUsageReported, onToolCallArgumentsStreaming, onReasoningDelta, onCompressionTransition: onCompressionTransition, onContextWarning: onContextWarning, onAnchorObserved: onAnchorObserved, onCompressionProgress: onCompressionProgress, skipCompressionToken: skipCompressionToken, onProviderError: onProviderError, onProviderRetry: onProviderRetry, onToolResultsCleared: onToolResultsCleared, onPtcProgress: onPtcProgress, executionTimeline: executionTimeline)
                          .GetAsyncEnumerator(cancellationToken))
         {
             while (true)
@@ -344,7 +346,7 @@ public class OpenAIChatService : IChatService
                                                    runtime,
                                                    fallbackMessages,
                                                    contentBuilder,
-                                                   context,
+                                                   context, delegatedTask,
                                                    fallbackProjection,
                                                    cancellationToken,
                                                    onMessageAdded,
@@ -643,6 +645,7 @@ public class OpenAIChatService : IChatService
         List<OpenAI.Chat.ChatMessage> messages,
         StringBuilder contentBuilder,
         ConversationContext context,
+        string? delegatedTask,
         ImageRequestProjection imageProjection,
         [EnumeratorCancellation] CancellationToken cancellationToken,
         Action<Models.ChatMessage>? onMessageAdded = null,
@@ -1482,10 +1485,6 @@ public class OpenAIChatService : IChatService
             var completedToolCallIds = new HashSet<string>(StringComparer.Ordinal);
             var finishedPrograms = new System.Collections.Concurrent.ConcurrentDictionary<string, FunctionResult>(StringComparer.Ordinal);
             var attachmentNotifications = new HashSet<string>(StringComparer.Ordinal);
-            // 审批时让裁决者知道用户要的是什么。一轮算一次即可：工具回填只追加 tool 消息，用户消息在回合内不变。
-            var delegatedTask = ToolApprovalContext.DescribeTask(context.Messages
-                .Where(message => string.Equals(message.Role, "user", StringComparison.OrdinalIgnoreCase))
-                .Select(message => message.Content));
             try
             {
                 // 一次执行一个工具，携带工具执行所需的全部 AsyncLocal 作用域。
@@ -1518,10 +1517,10 @@ public class OpenAIChatService : IChatService
                     using var toolWorkspaceScope = _conversationSessionAccessor?.EnterWorkspace(context.WorkspaceId);
                     // 把主取消令牌经 AsyncLocal 透传给工具，长耗时工具（dispatch_subagents 等）据此响应"停止"。
                     using var toolCancelScope = ToolExecutionContext.Enter(cancellationToken);
-                    // 主对话是交互式路径：审批闸门在需要确认时可弹窗。必须在此处（工具调用点，紧邻 await，
-                    // 中间无 yield return）进入交互作用域——在外层 async 迭代器里设置的 AsyncLocal 不能可靠
-                    // 穿过嵌套迭代器边界流入工具执行，会被闸门误判为无人值守而直接拒绝。委托任务随同一个作用域进入，理由相同。
-                    using var toolApprovalScope = ToolApprovalContext.EnterInteractive(delegatedTask);
+                    // Enter at the actual tool call so the AsyncLocal crosses neither an iterator nor a yield.
+                    using var toolApprovalScope = context.ScheduledInstruction is { } instruction
+                        ? ToolApprovalContext.EnterScheduled(instruction, context.WorkspaceDirectoryPath)
+                        : ToolApprovalContext.EnterInteractive(delegatedTask, context.WorkspaceDirectoryPath);
                     void OnPtcEvent(PtcProgress item)
                     {
                         try { executionTimeline?.ObservePtc(item); }

@@ -48,11 +48,7 @@ public static class ToolRiskClassifier
         "create_directory"
     };
 
-    // 只能由人批准的工具：无人值守路径（子代理）永不继承，自动审批模型也不替用户裁决。
-    // 它们改的是应用自身的能力边界——尤其 modify_self_configuration 能写 Security.ToolApprovalMode，
-    // 让一个模型批准它，等于让模型自己关掉审批闸门，是一条实打实的提权路径。
-    // cron 四个工具同理：它们写的是「以后会自己跑什么」，一次放行换来的是此后每个触发点上的一整个自主会话。
-    // 开发版日志里的 72 次审批弹窗（2026-08）中，用户拒绝的 8 次里有 3 次 create_task、2 次 modify_self_configuration。
+    // 这些操作影响之后的调用能力。本地的无人值守规则和受信任例程授权都不继承这类权限。
     private static readonly HashSet<string> NeverUnattendedTools = new(StringComparer.OrdinalIgnoreCase)
     {
         "modify_self_configuration",
@@ -61,8 +57,7 @@ public static class ToolRiskClassifier
     };
 
     /// <summary>
-    /// 该工具是否只能由人批准：无人值守路径一律拒绝（无论 SubAgentsInheritApproval 如何设置），
-    /// Automatic 模式下也不交给自动审批模型，而是照常弹窗。
+    /// 本地策略是否在无人值守路径上拒绝此工具。受信任例程的固定授权也采用这个约束。
     /// </summary>
     public static bool IsNeverUnattended(string functionName) =>
         !string.IsNullOrEmpty(functionName) && NeverUnattendedTools.Contains(functionName);
@@ -183,7 +178,7 @@ public static class ToolRiskClassifier
 /// 完整命令行后，按「明确高危 / 常见只读 / 其余敏感」三类打分。
 /// 这是评审第一条「终端零校验」的补丁：审批弹窗本身就是终端的执行前闸门。
 ///
-/// 只读是终端唯一不弹窗的档位——均衡与自动模式都直接放行，连自动审批模型都看不到它，
+/// 均衡模式直接放行只读终端命令，
 /// 所以只读给得很窄：版本 / 帮助探测要求探测参数是唯一的参数；env / printenv / pbpaste 从不只读；
 /// find 带动作就不只读；只读命令的参数或工作目录落进受保护位置（<see cref="SensitiveLocations"/>）也不只读。
 /// </summary>

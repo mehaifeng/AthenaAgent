@@ -62,10 +62,6 @@
                 </ItemsControl>
                 <CheckBox Content="{loc:Loc Config.ToolApproval.SubAgentsInherit}"
                           IsChecked="{Binding State.Config.SubAgentsInheritApproval}"/>
-                <CheckBox Content="{loc:Loc Config.ToolApproval.JevShadow}"
-                          IsChecked="{Binding State.Config.ApprovalShadowEnabled}"/>
-                <TextBlock Foreground="{DynamicResource App.TextMuted}" Text="{loc:Loc Settings.Approval.JevShadowHint}"
-                           TextWrapping="Wrap"/>
                 <CheckBox Content="{loc:Loc Config.Ptc.Enabled}"
                           IsChecked="{Binding State.Config.PtcEnabled}"/>
                 <TextBlock Foreground="{DynamicResource App.TextMuted}" Text="{loc:Loc Config.Ptc.Hint}"

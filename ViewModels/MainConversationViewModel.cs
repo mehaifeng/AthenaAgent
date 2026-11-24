@@ -1913,7 +1913,7 @@ public partial class MainConversationViewModel : ViewModelBase, IDisposable
         UpdateConversationContext();
 
         // addToContext 为 false：上面已手动入列并刷新过上下文。
-        return await GetAiResponseAsync(string.Empty, addToContext: false);
+        return await GetAiResponseAsync(string.Empty, addToContext: false, scheduledInstruction: instruction);
     }
 
     /// <summary>
@@ -2025,7 +2025,7 @@ public partial class MainConversationViewModel : ViewModelBase, IDisposable
         return epoch == Volatile.Read(ref _conversationEpoch);
     }
 
-    private async Task<TaskExecutionResult> GetAiResponseAsync(string input, bool addToContext = true)
+    private async Task<TaskExecutionResult> GetAiResponseAsync(string input, bool addToContext = true, string? scheduledInstruction = null)
     {
         if (_chatService == null)
         {
@@ -2044,6 +2044,7 @@ public partial class MainConversationViewModel : ViewModelBase, IDisposable
         // 上一轮遗留的压缩提示不该冒充本轮的结论。
         CompressionStatusMessage = string.Empty;
         var requestContext = _currentContext.Clone();
+        requestContext.ScheduledInstruction = scheduledInstruction;
         requestContext.ConversationId = _conversationId;
         requestContext.Revision = _revision;
         var requestContentIdentityAtStart = _requestContentIdentity;
@@ -2807,11 +2808,16 @@ public partial class MainConversationViewModel : ViewModelBase, IDisposable
         foreach (var msg in Messages)
         {
             // 已被压缩归档的消息不再进入发送给大模型的 context.messages 列表
-            if (msg.IsCompressed) continue;
+            if (msg.IsCompressed)
+            {
+                if (msg.Role == "user" && !msg.IsHidden)
+                    _currentContext.RecordApprovalUserRequest(msg.Content);
+                continue;
+            }
 
             if (msg.Role == "user")
             {
-                _currentContext.AddUserMessage(msg.Content, msg.Timestamp, msg.Attachments, msg.Id);
+                _currentContext.AddUserMessage(msg.Content, msg.Timestamp, msg.Attachments, msg.Id, isUserAuthored: !msg.IsHidden);
             }
             else if (msg.Role == "assistant")
             {

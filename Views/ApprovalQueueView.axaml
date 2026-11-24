@@ -25,13 +25,13 @@
                               Foreground="{DynamicResource App.WarningForeground}"/>
                     <TextBlock Grid.Column="1" Text="{loc:Loc Approval.Heading}" FontWeight="SemiBold"
                                VerticalAlignment="Center"/>
-                    <TextBlock Grid.Column="2" Text="{Binding Pending.Count}" FontWeight="SemiBold"
+                    <TextBlock Grid.Column="2" Text="{Binding VisiblePending.Count}" FontWeight="SemiBold"
                                Foreground="{DynamicResource App.WarningForeground}" VerticalAlignment="Center"/>
                 </Grid>
             </Border>
 
             <ScrollViewer Grid.Row="1" MaxHeight="244" HorizontalScrollBarVisibility="Disabled">
-                <ItemsControl ItemsSource="{Binding Pending}" Margin="8,8,8,0">
+                <ItemsControl ItemsSource="{Binding VisiblePending}" Margin="8,8,8,0">
                     <ItemsControl.ItemTemplate>
                         <DataTemplate x:DataType="vm:ApprovalQueueItemViewModel">
                             <Border Background="{DynamicResource App.SectionBg}"
@@ -42,9 +42,10 @@
                                     <Grid ColumnDefinitions="*,Auto" ColumnSpacing="10">
                                         <TextBlock Text="{Binding Title}" FontWeight="SemiBold" TextWrapping="Wrap"/>
                                         <TextBlock Grid.Column="1" Classes="approval-risk"
-                                                   Classes.high-risk="{Binding Request.IsDestructive}"
+                                                   Classes.high-risk="{Binding Request.IsHighRisk}"
                                                    FontSize="{DynamicResource App.FontSize.Caption}" FontWeight="SemiBold"
-                                                   Text="{Binding RiskText}"/>
+                                                   Text="{Binding RiskText}"
+                                                   IsVisible="{Binding RiskText, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"/>
                                     </Grid>
                                     <TextBlock Text="{Binding ConversationLabel}" TextTrimming="CharacterEllipsis"
                                                ToolTip.Tip="{Binding ConversationLabel}"
@@ -53,6 +54,8 @@
                                     <TextBlock Text="{Binding Request.RiskReason}" TextWrapping="Wrap"
                                                Foreground="{DynamicResource App.DangerForeground}"
                                                IsVisible="{Binding Request.RiskReason, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"/>
+                                    <TextBlock Text="{Binding Request.ReviewReason}" TextWrapping="Wrap"
+                                               IsVisible="{Binding Request.ReviewReason, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"/>
                                     <TextBox x:Name="ApprovalArguments" Text="{Binding Request.PrettyArguments, Mode=OneWay}"
                                              IsVisible="{Binding Request.PrettyArguments, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
                                              IsReadOnly="True" AcceptsReturn="True" TextWrapping="Wrap" MaxHeight="88"
@@ -68,9 +71,9 @@
                                     <WrapPanel HorizontalAlignment="Right">
                                         <Button x:Name="DenyApprovalButton" Command="{Binding DenyCommand}"
                                                 Margin="0,0,6,0" Content="{loc:Loc Approval.Button.Deny}"/>
-                                        <Button Command="{Binding AllowSessionCommand}"
+                                        <Button IsVisible="{Binding Request.AllowsPersistentApproval}" Command="{Binding AllowSessionCommand}"
                                                 Margin="0,0,6,0" Content="{loc:Loc Approval.Button.AllowSession}"/>
-                                        <Button Command="{Binding AllowAlwaysCommand}"
+                                        <Button IsVisible="{Binding Request.AllowsPersistentApproval}" Command="{Binding AllowAlwaysCommand}"
                                                 Margin="0,0,6,0" Content="{loc:Loc Approval.Button.AllowAlways}"/>
                                         <Button x:Name="AllowOnceApprovalButton" Command="{Binding AllowOnceCommand}"
                                                 Content="{loc:Loc Approval.Button.AllowOnce}"

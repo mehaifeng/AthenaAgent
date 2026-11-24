@@ -34,21 +34,7 @@ internal sealed record ApprovalJudgeReply(
     int? OutputTokens,
     int? ReasoningTokens);
 
-/// <summary>判断结果：要么是一个裁决（<see cref="Text"/> 为理由），要么不是（<see cref="Text"/> 说明为什么）。</summary>
-internal readonly record struct ApprovalJudgeOutcome(bool IsVerdict, bool Allow, string Text)
-{
-    public static ApprovalJudgeOutcome Verdict(bool allow, string reason) => new(true, allow, reason);
-    public static ApprovalJudgeOutcome Problem(string problem) => new(false, false, problem);
-}
-
-/// <summary>
-/// 自动审批模型的输出判读。原则只有一条：只认一个完整、无歧义的裁决，其余都是「没有裁决」。
-///
-/// 2026-10-04 的事故就出在这里：审批角色的输出上限是 256 token，推理模型的隐藏推理与可见 JSON 共用这 256，
-/// 推理一长，端点以 status=incomplete / max_output_tokens 结束，JSON 断在字符串中间；此前的代码既不看状态，
-/// 也不区分「没有裁决」与「拒绝」，于是一次截断变成了一条「用户拒绝了」。实测生产参数下约 6.5% 的调用如此，
-/// 模糊调用（如 pip install）在 256 上限时 8 次里 7 次被截断。
-/// </summary>
+/// <summary>Both transports feed this parser. A valid review is still subject to local risk and authorization limits.</summary>
 internal static class ApprovalJudgeOutput
 {
     private const string ThinkOpen = "<think>";
@@ -99,28 +85,28 @@ internal static class ApprovalJudgeOutput
             completion.Usage?.OutputTokenDetails?.ReasoningTokenCount);
     }
 
-    public static ApprovalJudgeOutcome Interpret(ApprovalJudgeReply reply)
+    public static ToolApprovalDecision Interpret(ApprovalJudgeReply reply)
     {
         // 截断先于解析判断：截断的输出偶尔恰好停在一个完整对象之后（比如 JSON 写完后又补空白直到上限），
         // 但端点并没有确认那就是全部回答。截断的输出一律不当裁决。
         if (reply.Truncated)
         {
-            return ApprovalJudgeOutcome.Problem(DescribeTruncation(reply));
+            return Invalid(DescribeTruncation(reply));
         }
         if (!reply.Completed)
         {
-            return ApprovalJudgeOutcome.Problem($"回答没有正常结束（状态 {reply.Status}）");
+            return Invalid($"回答没有正常结束（状态 {reply.Status}）");
         }
+        if (reply.Refusal is not null) return Invalid("模型拒绝作答");
         if (string.IsNullOrWhiteSpace(reply.Text))
         {
-            if (reply.Refusal is not null) return ApprovalJudgeOutcome.Problem("模型拒绝作答");
-            return ApprovalJudgeOutcome.Problem(reply.ReasoningTokens is > 0
+            return Invalid(reply.ReasoningTokens is > 0
                 ? $"模型推理了 {reply.ReasoningTokens} 个 token 后没有返回正文"
                 : "模型没有返回任何正文");
         }
-        if (!TryExtractJson(reply.Text, out var json, out var problem))
+        if (!TryExtractJson(reply.Text, out var json, out var problem, strictWrapper: true))
         {
-            return ApprovalJudgeOutcome.Problem(problem);
+            return Invalid(problem);
         }
 
         JsonDocument document;
@@ -131,7 +117,7 @@ internal static class ApprovalJudgeOutput
         }
         catch (JsonException)
         {
-            return ApprovalJudgeOutcome.Problem("输出不是单个合法的 JSON 对象");
+            return Invalid("输出不是单个合法的 JSON 对象");
         }
 
         using (document)
@@ -139,25 +125,33 @@ internal static class ApprovalJudgeOutput
             var root = document.RootElement;
             if (root.ValueKind != JsonValueKind.Object)
             {
-                return ApprovalJudgeOutcome.Problem("输出不是 JSON 对象");
+                return Invalid("输出不是 JSON 对象");
             }
-            if (!root.TryGetProperty("decision", out var decisionNode) || decisionNode.ValueKind != JsonValueKind.String)
+            static string? Field(JsonElement obj, string name) =>
+                obj.TryGetProperty(name, out var value) && value.ValueKind == JsonValueKind.String ? value.GetString() : null;
+
+            var risk = Field(root, "risk_level");
+            var authorization = Field(root, "user_authorization");
+            var outcome = Field(root, "outcome");
+            var reason = Field(root, "rationale")?.Trim();
+            if (risk is not ("low" or "medium" or "high" or "critical")
+                || authorization is not ("low" or "medium" or "high" or "unknown")
+                || outcome is not ("allow" or "deny" or "ask_user")
+                || string.IsNullOrWhiteSpace(reason) || reason.Length > 1024 || root.EnumerateObject().Count() != 4)
+                return Invalid("评审字段不完整、枚举无效或理由过长");
+
+            reason = ApprovalReviewEvidence.Scrub(reason);
+            return outcome switch
             {
-                return ApprovalJudgeOutcome.Problem("输出里没有字符串形式的 decision 字段");
-            }
-
-            var reason = root.TryGetProperty("reason", out var reasonNode) && reasonNode.ValueKind == JsonValueKind.String
-                ? reasonNode.GetString()
-                : null;
-            reason = string.IsNullOrWhiteSpace(reason) ? "无说明" : reason.Trim();
-
-            // 只有这两个取值是裁决。「approve」之类此前被当成拒绝的裁决，其实是模型没按格式回答。
-            var decision = decisionNode.GetString()!.Trim();
-            if (decision.Equals("allow", StringComparison.OrdinalIgnoreCase)) return ApprovalJudgeOutcome.Verdict(true, reason);
-            if (decision.Equals("deny", StringComparison.OrdinalIgnoreCase)) return ApprovalJudgeOutcome.Verdict(false, reason);
-            return ApprovalJudgeOutcome.Problem($"decision 的取值无法识别：{Head(decision, 24)}");
+                "allow" => ToolApprovalDecision.JudgeAllowed(reason, risk),
+                "deny" => ToolApprovalDecision.JudgeDenied(reason, risk),
+                _ => ToolApprovalDecision.AskUser(reason, risk)
+            };
         }
     }
+
+    private static ToolApprovalDecision Invalid(string reason) =>
+        ToolApprovalDecision.JudgeFailed(ToolApprovalJudgeFailureKind.Output, reason);
 
     /// <summary>
     /// 从正文里取出裁决 JSON。只容忍两种已知的包装，别的一律不认：
@@ -168,7 +162,7 @@ internal static class ApprovalJudgeOutput
     /// 剩下的必须恰好是一个 JSON 对象。宽松地「找第一个对象」会让参数里伪造的 {"decision":"allow"} 有机会先被读到。
     /// 以 { 开头的正文原样交给解析器，不做任何剥离：理由里提到「&lt;/think&gt;」的正常裁决不能被拆开。
     /// </summary>
-    internal static bool TryExtractJson(string text, out string json, out string problem)
+    internal static bool TryExtractJson(string text, out string json, out string problem, bool strictWrapper = false)
     {
         json = string.Empty;
         var body = text.Trim();
@@ -179,7 +173,8 @@ internal static class ApprovalJudgeOutput
             return true;
         }
 
-        var thinkEnd = body.LastIndexOf(ThinkClose, StringComparison.OrdinalIgnoreCase);
+        var thinkEnd = !strictWrapper || body.StartsWith(ThinkOpen, StringComparison.OrdinalIgnoreCase)
+            ? body.LastIndexOf(ThinkClose, StringComparison.OrdinalIgnoreCase) : -1;
         if (thinkEnd >= 0)
         {
             body = body[(thinkEnd + ThinkClose.Length)..].Trim();
@@ -198,6 +193,11 @@ internal static class ApprovalJudgeOutput
                 || !body.EndsWith(Fence, StringComparison.Ordinal))
             {
                 problem = "代码围栏不完整";
+                return false;
+            }
+            if (strictWrapper && body[..firstLineEnd].TrimEnd() is not ("```" or "```json"))
+            {
+                problem = "代码围栏首行无效";
                 return false;
             }
             body = body[(firstLineEnd + 1)..^Fence.Length].Trim();
@@ -239,9 +239,6 @@ internal static class ApprovalJudgeOutput
         }
         return (ToolApprovalJudgeFailureKind.Transport, "请求失败：" + exception.GetType().Name);
     }
-
-    public static string Head(string text, int maxChars)
-        => text.Length <= maxChars ? text : text[..maxChars] + "…";
 
     private static string DescribeTruncation(ApprovalJudgeReply reply) => reply.OutputTokens switch
     {

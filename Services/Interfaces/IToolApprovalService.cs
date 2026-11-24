@@ -11,13 +11,13 @@ namespace Athena.UI.Services.Interfaces;
 public interface IToolApprovalService
 {
     /// <summary>
-    /// 评估一次工具调用是否放行。内部完成：风险分级 → 配置/白名单/会话放行判定 →
-    /// 需交互时请求人工确认（仅 Interactive 模式）或按无人值守策略裁决 → 审计记录。
+    /// 按当前审批模式裁决一次工具调用，必要时请求用户确认，并记录审计结果。
     /// </summary>
-    Task<ToolApprovalDecision> EvaluateAsync(string functionName, string argumentsJson, CancellationToken cancellationToken);
+    Task<ToolApprovalDecision> EvaluateAsync(
+        string functionName, string argumentsJson, CancellationToken cancellationToken, string? toolDescription = null);
 }
 
-/// <summary>Automatic 审批模式下，用无工具模型对一次调用作 fail-closed 裁决。</summary>
+/// <summary>自动评审模式下，由独立的无工具模型裁决一次调用。</summary>
 public interface IAiToolApprovalEvaluator
 {
     Task<ToolApprovalDecision> EvaluateAsync(ToolApprovalRequest request, CancellationToken cancellationToken);

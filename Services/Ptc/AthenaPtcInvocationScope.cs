@@ -31,6 +31,7 @@ public sealed class AthenaPtcInvocation
     public string? ConversationId { get; }
     public string? WorkspaceId { get; }
     public string? DelegatedTask { get; }
+    internal string? WorkspaceDirectory { get; init; }
     public ToolApprovalContext.ExecutionMode Mode { get; }
     public Action<PtcProgress>? Progress { get; }
     internal ExecutionTimelineScope.Context? Timeline { get; init; }
@@ -56,7 +57,7 @@ public static class AthenaPtcInvocationScope
             .Select(tool => new PtcToolDefinition(tool.FunctionName, tool.FunctionDescription,
                 PtcJson.Parse(tool.FunctionParameters.ToString()))).ToArray();
         return Enter(new AthenaPtcInvocation(parentToolCallId, definitions, conversationId, workspaceId,
-            delegatedTask, ToolApprovalContext.CurrentMode, progress) { Timeline = ExecutionTimelineScope.Current });
+            delegatedTask, ToolApprovalContext.CurrentMode, progress) { Timeline = ExecutionTimelineScope.Current, WorkspaceDirectory = ToolApprovalContext.CurrentWorkspaceDirectory });
     }
 
     public static IDisposable Enter(AthenaPtcInvocation invocation)

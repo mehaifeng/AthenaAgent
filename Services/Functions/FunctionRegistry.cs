@@ -834,7 +834,7 @@ public class FunctionRegistry : IFunctionRegistry
                 });
 
             RegisterFunction("mcp_remove_server", mcpManagementFunctions.RemoveServerAsync,
-                "Removes a configured MCP server by name and shuts down its process. Sensitive action; requires user approval.",
+                "Removes a configured MCP server by name and shuts down its process.",
                 new
                 {
                     type = "object",
@@ -1039,8 +1039,9 @@ public class FunctionRegistry : IFunctionRegistry
                 "approval", timeline.ParentSpanId) ?? 0;
             try
             {
+                var description = _tools.Find(tool => tool.FunctionName == functionName)?.FunctionDescription;
                 using (await AthenaPtcInvocationScope.AcquireChildApprovalAsync(approvalCt))
-                    decision = await _approvalService.EvaluateAsync(functionName, argumentsJson, approvalCt);
+                    decision = await _approvalService.EvaluateAsync(functionName, argumentsJson, approvalCt, description);
                 timeline?.Recorder.End(approvalSpan, approvalCt.IsCancellationRequested ? ExecutionTimelineState.Cancelled
                     : decision.Approved ? ExecutionTimelineState.Succeeded : ExecutionTimelineState.Denied);
             }
@@ -1062,6 +1063,7 @@ public class FunctionRegistry : IFunctionRegistry
             }
         }
 
+        Athena.UI.Services.SubAgents.ToolExecutionContext.CurrentCancellationToken.ThrowIfCancellationRequested();
         try
         {
             var result = await executor(arguments);

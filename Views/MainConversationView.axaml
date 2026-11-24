@@ -819,7 +819,7 @@
         <views:ApprovalQueueView x:Name="InlineApprovalQueue" Grid.Row="2" ZIndex="110"
                                  Margin="12,0,12,8" MaxWidth="{DynamicResource App.ContentMaxWidth}"
                                  DataContext="{Binding #ConversationRoot.ApprovalQueue}"
-                                 IsVisible="{Binding #ConversationRoot.ApprovalQueue.HasPending, FallbackValue=False}"/>
+                                 IsVisible="{Binding #ConversationRoot.ApprovalQueue.HasVisiblePending, FallbackValue=False}"/>
 
         <!-- 输入区域：整体为一个大输入框，文本框在上、功能按钮工具栏在底部。
              左右 12px 与上面消息列表的 Margin="12" 同一条边：宽时两者都被 ContentMaxWidth 封顶、居中对齐；

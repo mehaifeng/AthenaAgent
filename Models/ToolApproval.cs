@@ -25,6 +25,7 @@ public enum ToolRisk
 /// - Off：全部自动放行（老行为，给完全信任的用户）。
 /// - Balanced：ReadOnly 放行，Sensitive/Destructive 询问（默认，推荐）。
 /// - Strict：全部工具都询问（含只读）。
+/// - Automatic：审批模型裁决每次工具调用。
 /// </summary>
 public enum ToolApprovalMode
 {
@@ -57,7 +58,10 @@ public enum ToolApprovalScope
 public sealed class ToolApprovalRequest
 {
     public required string FunctionName { get; init; }
-    public required ToolRisk Risk { get; init; }
+    public ToolRisk? Risk { get; init; }
+    internal string? ArgumentsJson { get; init; }
+    internal string? ToolDescription { get; init; }
+    internal Func<string, string?>? ResolveFilePath { get; init; }
 
     /// <summary>人类可读的一行摘要（复用 ToolCallDisplay.Summarize）。</summary>
     public string Summary { get; init; } = string.Empty;
@@ -74,8 +78,13 @@ public sealed class ToolApprovalRequest
     /// <summary>高危原因说明（如「删除操作不可逆」「命令包含 sudo」），可空。</summary>
     public string? RiskReason { get; init; }
 
+    /// <summary>交由当前会话确认的原因。自动模式只允许用户对这一次调用作答。</summary>
+    public string? ReviewReason { get; internal set; }
+    public string? ReviewRisk { get; internal set; }
+    public bool AllowsPersistentApproval { get; init; } = true;
+
     public bool IsTerminal => !string.IsNullOrEmpty(CommandLine);
-    public bool IsDestructive => Risk == ToolRisk.Destructive;
+    public bool IsHighRisk => Risk == ToolRisk.Destructive || ReviewRisk is "high" or "critical";
 
     /// <summary>
     /// 会话内 / 永久放行的去重键，由 ToolApprovalKey 构造并已带上作用域：
@@ -106,7 +115,9 @@ public enum ToolApprovalSource
     /// <summary>自动审批模型给出了放行或拒绝。</summary>
     JudgeVerdict,
     /// <summary>自动审批模型没能给出裁决，按安全策略拒绝。类别见 <see cref="ToolApprovalJudgeFailureKind"/>。</summary>
-    JudgeFailure
+    JudgeFailure,
+    /// <summary>需要用户补充授权或确认具体副作用。</summary>
+    JudgeNeedsUser
 }
 
 /// <summary>自动审批没能给出裁决的原因类别。它决定主模型该不该重试。</summary>
@@ -154,6 +165,16 @@ public sealed class ToolApprovalDecision
     /// <summary>仅当 <see cref="Source"/> 为 <see cref="ToolApprovalSource.JudgeFailure"/> 时不为 None。</summary>
     public ToolApprovalJudgeFailureKind FailureKind { get; init; }
 
+    public string? ReviewDetail { get; init; }
+    public string? ReviewRisk { get; init; }
+
+    public static ToolApprovalDecision AskUser(string reason, string? risk = null) =>
+        new()
+        {
+            Scope = ToolApprovalScope.Deny, Source = ToolApprovalSource.JudgeNeedsUser,
+            Reason = reason, ReviewDetail = reason, ReviewRisk = risk
+        };
+
     public static ToolApprovalDecision Allow(ToolApprovalScope scope, string reason) =>
         new() { Scope = scope, Reason = reason };
 
@@ -167,12 +188,20 @@ public sealed class ToolApprovalDecision
         new() { Scope = ToolApprovalScope.Deny, Source = ToolApprovalSource.Cancelled, Reason = reason };
 
     /// <summary>自动审批模型的放行。理由前缀是日志取证的分类键，不要改。</summary>
-    public static ToolApprovalDecision JudgeAllowed(string reason) =>
-        new() { Scope = ToolApprovalScope.AllowOnce, Source = ToolApprovalSource.JudgeVerdict, Reason = "自动审批模型放行：" + reason };
+    public static ToolApprovalDecision JudgeAllowed(string reason, string? risk = null) =>
+        new()
+        {
+            Scope = ToolApprovalScope.AllowOnce, Source = ToolApprovalSource.JudgeVerdict,
+            Reason = "自动审批模型放行：" + reason, ReviewRisk = risk
+        };
 
     /// <summary>自动审批模型的拒绝。理由前缀是日志取证的分类键，不要改。</summary>
-    public static ToolApprovalDecision JudgeDenied(string reason) =>
-        new() { Scope = ToolApprovalScope.Deny, Source = ToolApprovalSource.JudgeVerdict, Reason = "自动审批模型拒绝：" + reason };
+    public static ToolApprovalDecision JudgeDenied(string reason, string? risk = null) =>
+        new()
+        {
+            Scope = ToolApprovalScope.Deny, Source = ToolApprovalSource.JudgeVerdict,
+            Reason = "自动审批模型拒绝：" + reason, ReviewRisk = risk
+        };
 
     /// <summary>自动审批没能给出裁决：按安全策略拒绝，并记下是哪一类故障。</summary>
     public static ToolApprovalDecision JudgeFailed(ToolApprovalJudgeFailureKind kind, string detail)
@@ -184,6 +213,7 @@ public sealed class ToolApprovalDecision
             Scope = ToolApprovalScope.Deny,
             Source = ToolApprovalSource.JudgeFailure,
             FailureKind = kind,
+            ReviewDetail = detail,
             Reason = $"{JudgeFailurePrefix}（{detail}）"
         };
     }
