@@ -9,12 +9,6 @@ using System.Diagnostics.CodeAnalysis;
 [assembly: SuppressMessage(
     "Reliability",
     "CA2000:Dispose objects before losing scope",
-    Justification = "Playwright pages are borrowed from and owned by the browser runtime session.",
-    Scope = "type",
-    Target = "~T:Athena.UI.Services.Browser.PlaywrightBrowserService")]
-[assembly: SuppressMessage(
-    "Reliability",
-    "CA2000:Dispose objects before losing scope",
     Justification = "Serilog takes ownership of configured sinks and disposes them with the logger.",
     Scope = "type",
     Target = "~T:Athena.UI.Services.SerilogConfiguration")]

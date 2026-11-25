@@ -49,7 +49,7 @@ public static class ToolCallDisplay
         // 外部能力
         "execute_terminal_command" => "AthenaIconTerminal",
         "generate_image" => "AthenaIconImageGeneration",
-        "run_browser_task" => "AthenaIconBrowserTask",
+        "run_computer_task" => "AthenaIconComputerUse",
         "dispatch_subagents" => "AthenaIconSubAgents",
         "activate_skill" or "read_skill_resource" => "AthenaIconSkills",
         "mcp_add_server" or "mcp_remove_server" or "mcp_list_tools"
@@ -94,7 +94,7 @@ public static class ToolCallDisplay
             "move_system_file" or "copy_system_file" => Str(args, "path"),
             "execute_terminal_command" => Str(args, "command"),
             "generate_image" => Str(args, "prompt"),
-            "run_browser_task" => Str(args, "instruction") ?? Str(args, "intent"),
+            "run_computer_task" => Str(args, "instruction"),
             "create_task" or "update_task" => Str(args, "name") ?? Str(args, "instruction"),
             "run_task_now" or "cancel_task" => Str(args, "taskId"),
             "create_new_memory" => Str(args, "content") ?? Str(args, "intent"),
@@ -201,7 +201,7 @@ public static class ToolCallDisplay
             "delete_system_file" => ("Tool.Name.DeleteFile", "Delete file"),
             "execute_terminal_command" => ("Tool.Name.ExecuteCommand", "Run command"),
             "generate_image" => ("Tool.Name.GenerateImage", "Generate image"),
-            "run_browser_task" => ("Tool.Name.BrowserTask", "Browser task"),
+            "run_computer_task" => ("ComputerUse.ToolName", "Computer Use"),
             "create_task" => ("Tool.Name.CreateTask", "Create task"),
             "update_task" => ("Tool.Name.UpdateTask", "Update task"),
             "list_tasks" => ("Tool.Name.ListTasks", "List tasks"),

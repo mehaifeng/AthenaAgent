@@ -328,7 +328,6 @@ public sealed class AppConfigurationSession : IDisposable
     private static void Normalize(AppConfig config)
     {
         AppConfigNormalizer.NormalizeContextPolicy(config);
-        AppConfigNormalizer.NormalizeBrowser(config);
         AppConfigNormalizer.NormalizeSecurity(config);
         AppConfigNormalizer.NormalizeProtocol(config);
         AppConfigNormalizer.NormalizeVirtualPet(config);
@@ -341,7 +340,6 @@ public sealed class AppConfigurationSession : IDisposable
         yield return models.ContextCompression;
         yield return models.Approval;
         yield return models.Embedding;
-        yield return models.BrowserAgent;
         yield return models.SubAgent;
         yield return models.KnowledgeMaintenance;
         yield return models.ImageRecognition;

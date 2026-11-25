@@ -1,4 +1,7 @@
 using Athena.UI.Services;
+using Athena.UI.Services.ComputerUse;
+using Athena.UI.Services.Interfaces;
+using Microsoft.Extensions.DependencyInjection;
 using Avalonia;
 using Avalonia.Animation;
 using Avalonia.Animation.Easings;
@@ -22,6 +25,30 @@ namespace Athena.UI.Views;
 
 public partial class MainWindow : Window
 {
+    [System.Diagnostics.CodeAnalysis.SuppressMessage("Reliability", "CA2000",
+        Justification = "The shown window is owned by the desktop lifetime and disposes itself when closed.")]
+    private void OnOpenComputerUse(object? sender, RoutedEventArgs e)
+    {
+        if (OwnedWindows.OfType<ComputerUseWindow>().FirstOrDefault(window => window.IsVisible) is { } active)
+        {
+            active.Activate();
+            return;
+        }
+
+        var services = App.Services!;
+        var window = new ComputerUseWindow(services.GetRequiredService<ComputerUseService>(),
+            services.GetRequiredService<ILocalizationService>());
+        try
+        {
+            window.Show(this);
+        }
+        catch
+        {
+            window.Dispose();
+            throw;
+        }
+    }
+
     private const double WindowBaseMinWidth = 1180;
     private const double ShellHorizontalMargin = 10;
     private const double LeftPanelMinWidth = 260;

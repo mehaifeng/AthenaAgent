@@ -51,64 +51,6 @@
                     </Border>
                 </StackPanel>
             </Border>
-
-            <Border Padding="18"
-                    Background="{DynamicResource App.SectionBg}"
-                    BorderThickness="1"
-                    BorderBrush="{DynamicResource SemiGreyLowBrush}"
-                    CornerRadius="10">
-                <StackPanel Spacing="14">
-                    <TextBlock Text="{loc:Loc Settings.Diagnostics.BrowserRuntime}"
-                               FontSize="{DynamicResource App.FontSize.Title}"
-                               FontWeight="SemiBold"/>
-                    <TextBlock Foreground="{DynamicResource App.TextMuted}" Text="{loc:Loc Settings.Diagnostics.BrowserRuntimeHint}"
-                               TextWrapping="Wrap"/>
-                    <WrapPanel>
-                        <u:IconButton x:Name="TestBrowserRuntimeButton"
-                                      Content="{loc:Loc Config.BrowserTestRuntime}"
-                                      Command="{Binding TestBrowserRuntimeCommand}"
-                                      IsLoading="{Binding IsTestingBrowserRuntime}"
-                                      Margin="0,0,8,0"/>
-                        <u:IconButton x:Name="InstallBrowserRuntimeButton"
-                                      Content="{loc:Loc Config.BrowserInstallRuntime}"
-                                      Command="{Binding InstallBrowserRuntimeCommand}"
-                                      IsLoading="{Binding IsInstallingBrowserRuntime}"/>
-                    </WrapPanel>
-                    <Border Padding="12"
-                            Background="{DynamicResource App.AssistantBubbleBg}"
-                            CornerRadius="8"
-                            IsVisible="{Binding HasBrowserRuntimeStatus}">
-                        <TextBlock Foreground="{DynamicResource App.TextMuted}" Text="{Binding BrowserRuntimeStatus}"
-                                   TextWrapping="Wrap"/>
-                    </Border>
-                </StackPanel>
-            </Border>
-
-            <Border Padding="18"
-                    Background="{DynamicResource App.SectionBg}"
-                    BorderThickness="1"
-                    BorderBrush="{DynamicResource SemiGreyLowBrush}"
-                    CornerRadius="10">
-                <StackPanel Spacing="14">
-                    <TextBlock Text="{loc:Loc Settings.Diagnostics.BrowserAgent}"
-                               FontSize="{DynamicResource App.FontSize.Title}"
-                               FontWeight="SemiBold"/>
-                    <TextBlock Foreground="{DynamicResource App.TextMuted}" Text="{loc:Loc Config.BrowserUnifiedModelHint}"
-                               TextWrapping="Wrap"/>
-                    <u:IconButton x:Name="TestBrowserAgentButton"
-                                  Content="{loc:Loc Config.BtnRunDiagnostics}"
-                                  Command="{Binding TestBrowserAgentCommand}"
-                                  IsLoading="{Binding IsTestingBrowserAgent}"
-                                  HorizontalAlignment="Left"/>
-                    <Border Padding="12"
-                            Background="{DynamicResource App.AssistantBubbleBg}"
-                            CornerRadius="8"
-                            IsVisible="{Binding HasBrowserAgentTestStatus}">
-                        <TextBlock Foreground="{DynamicResource App.TextMuted}" Text="{Binding BrowserAgentTestStatus}"
-                                   TextWrapping="Wrap"/>
-                    </Border>
-                </StackPanel>
-            </Border>
         </StackPanel>
     </ScrollViewer>
 </UserControl>

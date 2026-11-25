@@ -228,21 +228,7 @@ create_app_bundle() {
   mkdir -p "$app_bundle/Contents/MacOS"
   mkdir -p "$app_bundle/Contents/Resources"
 
-  # Copy all publish files into the MacOS directory. Note the "/." source
-  # form (NOT "/*"): a plain glob does not match dot-directories, which would
-  # silently drop the Playwright driver folder (.playwright) from the bundle
-  # and break the browser feature for DMG installs.
   cp -R "$package_dir"/. "$app_bundle/Contents/MacOS/"
-
-  # The Playwright driver (.playwright) contains a Mach-O node binary; codesign
-  # treats it as a nested code object and fails ("bundle format unrecognized")
-  # when it lives in Contents/MacOS. Ship it under Contents/Resources instead,
-  # where codesign seals it as plain data. The app points the Playwright driver
-  # search path at it via PLAYWRIGHT_DRIVER_SEARCH_PATH (see Program.cs).
-  if [ -d "$app_bundle/Contents/MacOS/.playwright" ]; then
-    mkdir -p "$app_bundle/Contents/Resources"
-    mv "$app_bundle/Contents/MacOS/.playwright" "$app_bundle/Contents/Resources/.playwright"
-  fi
 
   # Built-in Skills may contain standalone .NET project directories whose dotted
   # names (for example MiniMaxAIDocx.Cli) are mistaken by codesign --deep for

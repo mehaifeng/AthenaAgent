@@ -200,12 +200,6 @@ public class ConfigService : IConfigService
             };
         }
 
-        if (version < 8)
-        {
-            // v8 统一迁移旧浏览器默认设置，包括步数、登录态和 SoM 标注数。
-            AppConfigNormalizer.MigrateBrowserDefaults(config);
-        }
-
         NormalizeCurrentConfig(config);
         migrated = version < AppConfig.CurrentSchemaVersion || droppedLegacyCompressionKeys || droppedToolRoundLimits;
         return config;

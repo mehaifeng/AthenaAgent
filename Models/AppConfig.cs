@@ -112,54 +112,6 @@ public partial class AppConfig : ObservableObject
     [ObservableProperty]
     private ObservableCollection<ExtensionProviderSettings> _audioProviderSettings = [];
 
-    // 自动化浏览器采用内置的安全默认参数；常规 UI 不暴露这些实现细节。
-    [ObservableProperty]
-    private bool _browserEnabled = true;
-
-    [ObservableProperty]
-    private bool _browserHeadless = true;
-
-    [ObservableProperty]
-    private BrowserObservationMode _browserObservationMode = BrowserObservationMode.VisionWithSom;
-
-    [ObservableProperty]
-    private int _browserViewportWidth = 1280;
-
-    [ObservableProperty]
-    private int _browserViewportHeight = 900;
-
-    // 一步最多 5 个动作，但导航/点击之后按提示词要求必须收尾，实际大多数步只走 1–2 个
-    // 动作。12 步连"打开→登录→检索→取数"这种最普通的流程都跑不完。
-    [ObservableProperty]
-    private int _browserMaxSteps = 25;
-
-    [ObservableProperty]
-    private int _browserOperationTimeoutSeconds = 30;
-
-    [ObservableProperty]
-    private int _browserSessionTtlMinutes = 10;
-
-    // 默认开启：关掉意味着每个任务都从零登录态起步，凡是需要登录的站点必然卡在门口。
-    // 存的是 Playwright storage state（cookie + localStorage），落在 AthenaData 沙箱内。
-    [ObservableProperty]
-    private bool _browserPersistSession = true;
-
-    [ObservableProperty]
-    private bool _browserDownloadEnabled = false;
-
-    [ObservableProperty]
-    private double _browserScreenshotScale = 1.0;
-
-    [ObservableProperty]
-    private int _browserSomMaxElements = 150;
-
-    [ObservableProperty]
-    private bool _browserSomIncludeText = true;
-
-    // 浏览器 Agent 结构化输出策略：Auto 乐观启用 json_object 并在后端拒绝时自动降级。
-    [ObservableProperty]
-    private BrowserStructuredOutputMode _browserStructuredOutputMode = BrowserStructuredOutputMode.Auto;
-
     // 子代理配置（dispatch_subagents：主模型并行派生隔离上下文的子代理）
     [ObservableProperty]
     private bool _enableSubAgents = false;

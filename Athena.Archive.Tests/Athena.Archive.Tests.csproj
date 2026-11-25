@@ -90,7 +90,6 @@
     <Compile Include="../Services/WorkspaceDiffBuilder.cs" Link="Source/Services/WorkspaceDiffBuilder.cs" />
     <Compile Include="../Services/Preview/OfficePreviewCore.cs" Link="Source/Services/Preview/OfficePreviewCore.cs" />
     <Compile Include="../Services/Interfaces/IToolApprovalService.cs" Link="Source/Services/Interfaces/IToolApprovalService.cs" />
-    <Compile Include="../Models/BrowserModels.cs" Link="Source/Models/BrowserModels.cs" />
     <Compile Include="../Models/SubAgentModels.cs" Link="Source/Models/SubAgentModels.cs" />
     <Compile Include="../Models/KnowledgeMaintenanceModels.cs" Link="Source/Models/KnowledgeMaintenanceModels.cs" />
     <Compile Include="../Services/KnowledgeBaseMaintenanceRunner.cs" Link="Source/Services/KnowledgeBaseMaintenanceRunner.cs" />

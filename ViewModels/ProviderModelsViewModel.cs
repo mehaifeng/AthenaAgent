@@ -333,7 +333,6 @@ public partial class ProviderModelsViewModel : ViewModelBase, IDisposable
         AddRole(GetString("ProviderModels.Role.ContextCompression", "Context compression"), Config.AiModels.ContextCompression, ModelCapability.Text);
         AddRole(GetString("ProviderModels.Role.Approval", "Automatic approval"), Config.AiModels.Approval, ModelCapability.Text);
         AddRole("Embedding", Config.AiModels.Embedding, ModelCapability.Embedding);
-        AddRole(GetString("ProviderModels.Role.BrowserAgent", "Browser agent"), Config.AiModels.BrowserAgent, ModelCapability.Text);
         AddRole(GetString("ProviderModels.Role.SubAgent", "Sub-agent"), Config.AiModels.SubAgent, ModelCapability.Text);
         AddRole(GetString("ProviderModels.Role.KnowledgeMaintenance", "Knowledge maintenance"), Config.AiModels.KnowledgeMaintenance, ModelCapability.Text);
         AddRole(GetString("ProviderModels.Role.ImageRecognition", "Image recognition"), Config.AiModels.ImageRecognition, ModelCapability.Text);

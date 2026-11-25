@@ -1,0 +1,19 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:loc="using:Athena.UI.Markup"
+        x:Class="Athena.UI.Views.ComputerUseTargetWindow"
+        Title="{loc:Loc ComputerUse.DemoTarget}" Width="470" Height="285" CanResize="False"
+        WindowStartupLocation="Manual">
+    <StackPanel Margin="28" Spacing="16">
+        <TextBlock Text="{loc:Loc ComputerUse.DemoForm}" FontSize="23" FontWeight="SemiBold"/>
+        <StackPanel Spacing="6">
+            <TextBlock Text="{loc:Loc ComputerUse.DemoField}"/>
+            <TextBox Name="DemoField" AutomationProperties.Name="AthenaDemoField"
+                     PlaceholderText="{loc:Loc ComputerUse.DemoInputHint}"/>
+        </StackPanel>
+        <Button Name="DemoConfirm" Content="{loc:Loc ComputerUse.DemoConfirm}"
+                AutomationProperties.Name="AthenaDemoConfirm" Click="OnConfirm"/>
+        <TextBlock Name="ResultText" Text="{loc:Loc ComputerUse.DemoWaiting}"
+                   TextWrapping="Wrap" Foreground="{DynamicResource App.TextMuted}"/>
+    </StackPanel>
+</Window>

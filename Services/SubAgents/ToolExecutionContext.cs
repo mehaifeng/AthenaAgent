@@ -5,7 +5,7 @@ namespace Athena.UI.Services.SubAgents;
 
 /// <summary>
 /// 工具执行的环境上下文（AsyncLocal）。主对话循环在执行工具前写入主取消令牌，
-/// 长耗时工具（dispatch_subagents、run_browser_task 等）可读取它以响应"停止"。
+/// 长耗时工具（dispatch_subagents、run_computer_task 等）可读取它以响应"停止"。
 /// 通过 AsyncLocal 在 await 链中向下游传播，避免给每个工具签名都加 CancellationToken。
 /// </summary>
 public static class ToolExecutionContext

@@ -2,7 +2,7 @@
 // 建筑的每个子型、几种状态，橄榄的四个树龄，每个人物的每个动作一张连续帧（上一行游戏视距、下一行中景），
 // 每个人物的半身像（三种神情，大的看线条、小的是对话面板里的实际大小）；居民（M-B）一排排的长相、半身像与走路（--only citizen）。
 // 截图存进被忽略的 Tools/GameMode/.local/m2-gallery/。
-//   bin/Debug/net10.0/.playwright/node/darwin-arm64/node Tools/GameMode/web/test/gallery.mjs [--only building.] [--out <目录>] [--browser chromium]
+//   Athena.UI.HeadlessTests/bin/Debug/net10.0/.playwright/node/darwin-arm64/node Tools/GameMode/web/test/gallery.mjs [--only building.] [--out <目录>] [--browser chromium]
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';

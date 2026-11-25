@@ -28,8 +28,8 @@ The left pane owns workspaces and the conversation tree, the center permanently 
 
 ### 2.3 Tool calls and sub-agents
 - Tool executions show a visual status card (such as `dispatch_subagents` in the screenshot) while running and when finished; intermediate JSON messages stay in context but are hidden from the UI.
-- Sub-agents: the assistant can dispatch multiple parallel sub-tasks via `dispatch_subagents` (file operations, web search, browser tasks, and more). Each sub-agent runs independently and results are merged back into the main conversation; progress is visualized in the "Owl City" panel.
-- Browser tasks: `run_browser_task` runs a vision-guided browser agent that performs multi-step web operations.
+- Sub-agents: the assistant can dispatch multiple parallel sub-tasks via `dispatch_subagents` (file operations, web search, and more). Each sub-agent runs independently and results are merged back into the main conversation; progress is visualized in the "Owl City" panel.
+- Computer Use. Select an app or browser window in the Computer Use panel, then ask Athena in chat to act on it. The panel shows the window, cursor movement and a Stop button.
 
 ### 2.4 Context control
 - Top bar shows token usage (for example `9832 / 1280000 tokens`) so you can monitor context growth.
@@ -52,7 +52,7 @@ Recommendation:
 
 ### 3.2 Provider Models
 - Open **Provider Models** from the launcher to manage OpenAI-compatible providers, endpoints, API keys, and discovered model IDs.
-- Assign models independently to main conversation, title generation, context compression, approval, Embedding, browser automation, sub-agents, knowledge maintenance, and image recognition.
+- Assign models independently to main conversation, title generation, context compression, approval, Embedding, sub-agents, knowledge maintenance, and image recognition.
 - A compatibility section can retain an independent Embedding connection when required.
 
 Recommendation:
@@ -60,7 +60,7 @@ Recommendation:
 - Pick the most stable model for your real workload, not only by benchmark.
 
 ### 3.3 Runtime, approvals, and diagnostics
-App Settings owns context limits, automatic compression, workspace-knowledge budget, sub-agent concurrency, tool approval mode and allowlists, plus browser runtime/agent diagnostics.
+App Settings owns context limits, automatic compression, workspace-knowledge budget, sub-agent concurrency, tool approval mode and allowlists, plus model runtime diagnostics.
 
 The shield button next to the screenshot control shows the current tool approval mode and opens its menu. The setting applies to every conversation. Enabling **Allow all** requires confirmation.
 

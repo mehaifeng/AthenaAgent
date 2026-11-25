@@ -94,7 +94,9 @@
 - **请求组装** `BuildMessagesCore`（1249–1347）：合并 system（persona + 历史摘要信封 + MCP 目录 + Skill 目录 + 工作区知识）→ 逐消息映射（user 含图片二进制 / assistant 含 reasoning patch + tool_calls / tool）→ `SanitizeToolCallPairing`（清理失配的 tool_calls/tool 对，防 400 "insufficient tool messages"）。
 - **JSON Patch 三处**：读 `reasoning_content`（1053–1062）、写回 `$.reasoning_content`（1064–1074）、读 usage 明细 `image_tokens`/`text_tokens`（1104–1115）——全部是 Chat Completions 特有（官方/第三方 chat 端点的扩展字段），Responses 有原生等价物。
 
-### 3.3 非流式调用点清单（15 个，全为非流式 `CompleteChatAsync`）
+### 3.3 迁移前的非流式调用点清单
+
+此表记录当时的 Chat Completions 基线。当前 Computer Use 使用 `ComputerUsePlanner.DecideAsync`，按模型配置选择协议。
 
 | # | 文件:行号 | 角色 | 消息/选项要点 | 响应读取 | 备注 |
 |---|---|---|---|---|---|

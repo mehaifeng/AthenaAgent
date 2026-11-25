@@ -15,7 +15,7 @@
 //   聊天（2026-10-13）：卡片上的"聊几句"把对话栏借给他，回车只发 chat；他的话流式进他头顶的气泡，栏回到"你在写"，Esc 告辞；页面从不自己开口。
 //   辩论（M-E）：讲台前按 E 开讲台的卡片；议题与论点在借给辩论的对话栏里写，回车只发 debate-start / debate-say；判票时居民围过来，判完按票数挥手；"结束"与 Esc 发 debate-end。
 //   户与民居（M-D）：居民先到、民居后到时城一变就从民居门前重新出门；民居的名牌写户名；新立的一户雅典娜说一句；户名变了名牌跟着换。
-//   bin/Debug/net10.0/.playwright/node/darwin-arm64/node Tools/GameMode/web/test/smoke.mjs [chromium,webkit]
+//   Athena.UI.HeadlessTests/bin/Debug/net10.0/.playwright/node/darwin-arm64/node Tools/GameMode/web/test/smoke.mjs [chromium,webkit]
 import { readFileSync, mkdtempSync, writeFileSync, rmSync } from 'node:fs';
 import { deflateSync, crc32 } from 'node:zlib';
 import { tmpdir } from 'node:os';

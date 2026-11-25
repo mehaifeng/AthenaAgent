@@ -499,7 +499,7 @@ WebKit 的 `debateCheck.crowdReacts` 时好时坏（整套里没过，单跑过�
 node --test Tools/GameMode/web/test/*.test.mjs
 → tests 109, pass 109, fail 0
 
-PLAYWRIGHT_CORE=<主签出>/bin/Debug/net10.0/.playwright/package/ <主签出>/bin/Debug/net10.0/.playwright/node/darwin-arm64/node Tools/GameMode/web/test/smoke.mjs
+PLAYWRIGHT_CORE=<主签出>/Athena.UI.HeadlessTests/bin/Debug/net10.0/.playwright/package/ <主签出>/Athena.UI.HeadlessTests/bin/Debug/net10.0/.playwright/node/darwin-arm64/node Tools/GameMode/web/test/smoke.mjs
 → 连跑 6 次，每次 chromium 154、webkit 26.5 两种浏览器，9 组 128 条全部 true → 6 次 SMOKE PASSED
 ```
 
@@ -533,7 +533,7 @@ PLAYWRIGHT_CORE=<主签出>/bin/Debug/net10.0/.playwright/package/ <主签出>/b
 node --test Tools/GameMode/web/test/*.test.mjs
 → tests 109, pass 109, fail 0（新增 bind 5 条）
 
-bin/Debug/net10.0/.playwright/node/darwin-arm64/node Tools/GameMode/web/test/smoke.mjs
+Athena.UI.HeadlessTests/bin/Debug/net10.0/.playwright/node/darwin-arm64/node Tools/GameMode/web/test/smoke.mjs
 → chromium、webkit 全部 true（含 externalTextureLoaded、externalFigureOnProceduralRig）→ SMOKE PASSED
 
 ATHENA_ARCHIVE_ONLY=polis dotnet run --project Athena.Archive.Tests
@@ -570,10 +570,10 @@ ATHENA_ARCHIVE_ONLY=polis dotnet run --project Athena.Archive.Tests
 node --test Tools/GameMode/web/test/*.test.mjs
 → tests 104, pass 104, fail 0（新增 tools 2、collision 1；art 的拇指朝前对凿石头改成范围）
 
-bin/Debug/net10.0/.playwright/node/darwin-arm64/node Tools/GameMode/web/test/smoke.mjs
+Athena.UI.HeadlessTests/bin/Debug/net10.0/.playwright/node/darwin-arm64/node Tools/GameMode/web/test/smoke.mjs
 → chromium 154、webkit 26.5 全部 true → SMOKE PASSED
 
-bin/Debug/net10.0/.playwright/node/darwin-arm64/node Tools/GameMode/web/test/motion.mjs
+Athena.UI.HeadlessTests/bin/Debug/net10.0/.playwright/node/darwin-arm64/node Tools/GameMode/web/test/motion.mjs
 → 283 帧，光晕 / 旁白气泡 / 名牌 0.000 px；自由视角走路 90 帧 13.91 米 → PASSED
 ```
 
@@ -615,10 +615,10 @@ bin/Debug/net10.0/.playwright/node/darwin-arm64/node Tools/GameMode/web/test/mot
 node --test Tools/GameMode/web/test/*.test.mjs
 → tests 101, pass 101, fail 0（新增 cloth 2、tools 4、reader 3；art、collision、controls、live 的断言按新握法 / 新互动 / 新节点种类改写）
 
-bin/Debug/net10.0/.playwright/node/darwin-arm64/node Tools/GameMode/web/test/smoke.mjs
+Athena.UI.HeadlessTests/bin/Debug/net10.0/.playwright/node/darwin-arm64/node Tools/GameMode/web/test/smoke.mjs
 → chromium 154、webkit 26.5 全部 true（新增 clickingDoesNotInteract、approachAndPressEOpensTalk、nightFollowsTheme、longScrollReachesTheEnd；treeSelects、placesOnSlot 改成走近按 E）→ SMOKE PASSED
 
-bin/Debug/net10.0/.playwright/node/darwin-arm64/node Tools/GameMode/web/test/motion.mjs
+Athena.UI.HeadlessTests/bin/Debug/net10.0/.playwright/node/darwin-arm64/node Tools/GameMode/web/test/motion.mjs
 → 283 帧，光晕 / 旁白气泡 / 名牌 0.000 px（名牌按种类：public 3102、building 2256、resident 1128、prompt 282、lost 282、tree 141）；自由视角走路 90 帧 13.91 米 → PASSED
 
 ATHENA_HEADLESS_ONLY=game-mode Scripts/run-headless-tests.sh → 三项 [PASS]（含夜里的断言）
@@ -668,10 +668,10 @@ ATHENA_HEADLESS_ONLY=game-mode Scripts/run-headless-tests.sh → 三项 [PASS]�
 node --test Tools/GameMode/web/test/*.test.mjs
 → tests 92, pass 92, fail 0（新增 footprint 8、collision 4、animation 9、cloth 5）
 
-bin/Debug/net10.0/.playwright/node/darwin-arm64/node Tools/GameMode/web/test/smoke.mjs
+Athena.UI.HeadlessTests/bin/Debug/net10.0/.playwright/node/darwin-arm64/node Tools/GameMode/web/test/smoke.mjs
 → chromium 154、webkit 26.5：replay / live / accumulation / controls and talk bar 全部 true（含 runsWithShift、talksAtTheBar、closeUpWhileTalking、zoomRestoredAfterClose、neverInsideWalls）→ SMOKE PASSED
 
-bin/Debug/net10.0/.playwright/node/darwin-arm64/node Tools/GameMode/web/test/motion.mjs
+Athena.UI.HeadlessTests/bin/Debug/net10.0/.playwright/node/darwin-arm64/node Tools/GameMode/web/test/motion.mjs
 → 283 帧（她走路之后回放里的走 / 瞬移窗口变了），光晕 / 旁白气泡 / 名牌 0.000 px；自由视角走路 90 帧 14.59 米（6 米 / 秒，布料每帧 1/120 秒两步）→ PASSED
 ```
 
@@ -730,11 +730,11 @@ ATHENA_ARCHIVE_ONLY=doc … → doc citations 两项 [PASS]（CLAUDE.md / AGENTS
 node --test Tools/GameMode/web/test/*.test.mjs
 → tests 66, pass 66, fail 0（新增 controls.test.mjs 10 例；replay.test.mjs 的"点地块走到门前"换成"哪里能走"）
 
-bin/Debug/net10.0/.playwright/node/darwin-arm64/node Tools/GameMode/web/test/smoke.mjs
+Athena.UI.HeadlessTests/bin/Debug/net10.0/.playwright/node/darwin-arm64/node Tools/GameMode/web/test/smoke.mjs
 → chromium 154.0.8037.98、webkit 26.5：replay / live / accumulation / controls and talk bar 全部 true；WebGL 关掉时回报 failed（webgl）
 → SMOKE PASSED，exit=0
 
-bin/Debug/net10.0/.playwright/node/darwin-arm64/node Tools/GameMode/web/test/motion.mjs
+Athena.UI.HeadlessTests/bin/Debug/net10.0/.playwright/node/darwin-arm64/node Tools/GameMode/web/test/motion.mjs
 → chromium、webkit：208 帧，光晕 / 旁白气泡 / 名牌 0.000 px（名牌里有 104 次"和雅典娜说话"）；自由视角走路 90 帧 18.04 米，人在画面上最远 |NDC| 0.655
 → PASSED，exit=0；--nosync 对照 638.8 px；把自由视角的跟随关掉时人走到 |NDC| 1.26、自检 FAILED（这条检查咬得住）
 
@@ -1039,14 +1039,14 @@ c. 网页：
 ```
 node --test Tools/GameMode/web/test/*.test.mjs        （Node v22.22.3；live / orchestrator / replay 三个文件）
 → tests 39, pass 39, fail 0, exit=0
-bin/Debug/net10.0/.playwright/node/darwin-arm64/node Tools/GameMode/web/test/smoke.mjs        （Node v24.16.0）
+Athena.UI.HeadlessTests/bin/Debug/net10.0/.playwright/node/darwin-arm64/node Tools/GameMode/web/test/smoke.mjs        （Node v24.16.0）
 → chromium 154.0.8037.98 回放：ready / noPageErrors / noConsoleErrors / nonEmptyFrame（std 30.7、31 灰阶）/ animating / syntheticFixture 全 true
 → chromium 实时：readySent / cityLoaded / awaitsApproval / nonEmptyFrame / acceptSent / relocateSent / neverApproves / pausesWhenHidden /
   resumesWhenShown / readerIsText / voyageLandsWhenReady / voyageWaitsForPartial / noProblems 全 true；页面发回 ready、accept-delivery、relocate
 → chromium 关掉 WebGL：页面回报 failed（reason=webgl，带技术细节），没有发 ready
 → webkit 26.5 回放：同上全 true（std 31.6、30 灰阶）；实时：同上 13 项全 true
 → SMOKE PASSED，exit=0
-bin/Debug/net10.0/.playwright/node/darwin-arm64/node Tools/GameMode/web/test/motion.mjs
+Athena.UI.HeadlessTests/bin/Debug/net10.0/.playwright/node/darwin-arm64/node Tools/GameMode/web/test/motion.mjs
 → chromium 154.0.8037.98 与 webkit 26.5：各 118 帧（窗口 6000–9873 ms、42850–43670 ms），光晕 / 旁白气泡 / 建筑名牌最大偏差 0.000 / 0.000 / 0.000 px
 → 最大偏差 0.000 px，验收线 0.5 px：PASSED，exit=0
 （对照：--nosync 时 638.749 / 638.791 / 291.323 px——检查抓得住漂移）
@@ -1254,7 +1254,7 @@ node --test Tools/GameMode/web/test/*.test.mjs        （Node v22.22.3）
 c. Playwright 冒烟：
 
 ```
-bin/Debug/net10.0/.playwright/node/darwin-arm64/node Tools/GameMode/web/test/smoke.mjs
+Athena.UI.HeadlessTests/bin/Debug/net10.0/.playwright/node/darwin-arm64/node Tools/GameMode/web/test/smoke.mjs
 → chromium 154.0.8037.98：ready / noPageErrors / noConsoleErrors / nonEmptyFrame（std 33.9、32 灰阶）/ animating / syntheticFixture 全为 true
 → webkit 26.5：同上全为 true（std 31.7、31 灰阶）
 → SMOKE PASSED，exit=0
@@ -1263,7 +1263,7 @@ bin/Debug/net10.0/.playwright/node/darwin-arm64/node Tools/GameMode/web/test/smo
 d. 运动自检：
 
 ```
-bin/Debug/net10.0/.playwright/node/darwin-arm64/node Tools/GameMode/web/test/motion.mjs
+Athena.UI.HeadlessTests/bin/Debug/net10.0/.playwright/node/darwin-arm64/node Tools/GameMode/web/test/motion.mjs
 → chromium 154.0.8037.98：118 帧（窗口 6000–9873 ms 步行、42850–43670 ms 瞬移），最大偏差 光晕 0.000 px · 旁白气泡 0.000 px · 建筑名牌 0.000 px
 → webkit 26.5：同上，0.000 / 0.000 / 0.000 px
 → 最大偏差 0.000 px，验收线 0.5 px：PASSED，exit=0

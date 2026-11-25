@@ -408,7 +408,6 @@ public partial class SubAgentViewModel : ObservableObject, ISubAgentProgress
 
     private string RunningStatusLabel()
     {
-        if (CurrentAction.StartsWith("run_browser_task", StringComparison.Ordinal)) return L("SubAgent.Action.BrowserTask", "Browser task in progress");
         if (CurrentAction.StartsWith("web_search", StringComparison.Ordinal)) return L("SubAgent.Action.WebSearch", "Web search in progress");
         if (CurrentAction.StartsWith("recall_from_memory", StringComparison.Ordinal)) return L("SubAgent.Action.RecallMemory", "Recalling memory");
         if (CurrentAction.StartsWith("create_new_memory", StringComparison.Ordinal)) return L("SubAgent.Action.CreateMemory", "Writing memory");

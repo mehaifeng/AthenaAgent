@@ -104,7 +104,7 @@
     <!-- Tool-call categories (ToolCallDisplay.IconKey) -->
     <StaticResource x:Key="AthenaIconToolGeneric" ResourceKey="CoreIconSettings"/>
     <StaticResource x:Key="AthenaIconMemoryRecall" ResourceKey="CoreIconHistory"/>
-    <StaticResource x:Key="AthenaIconBrowserTask" ResourceKey="CoreIconGlobeAlt"/>
+    <StaticResource x:Key="AthenaIconComputerUse" ResourceKey="CoreIconGlobeAlt"/>
     <StaticResource x:Key="AthenaIconTaskList" ResourceKey="CoreIconList"/>
     <StaticResource x:Key="AthenaIconTaskCreate" ResourceKey="CoreIconAlarm"/>
     <StaticResource x:Key="AthenaIconSubAgents" ResourceKey="CoreIconGroup"/>

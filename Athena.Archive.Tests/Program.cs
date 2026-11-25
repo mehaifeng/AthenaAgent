@@ -68,7 +68,6 @@ var tests = new (string Name, Func<Task> Run)[]
     ("embedding requests ask for float vectors and read both response encodings", TestEmbeddingRequestsFloatEncodingAsync),
     ("config v5 default context values migrate to current schema without losing providers", TestConfigV5DefaultMigrationAsync),
     ("config v5 custom context values migrate as LegacyCustom", TestConfigV5CustomMigrationAsync),
-    ("saving current config preserves chosen browser settings on reload", TestCurrentConfigBrowserSettingsRoundTripAsync),
     ("legacy compression keys migrate to the full-compaction policy and are never written back", TestLegacyContextPolicyMigrationAsync),
     ("workspace knowledge budget migrates from tokens to characters (x3) and the old key is never written back", TestCharBudgetMigrationAsync),
     ("tool result clearing keeps a char-measured recent zone, clears everything older and only grows", TestToolResultClearingAsync),
@@ -216,7 +215,7 @@ var tests = new (string Name, Func<Task> Run)[]
     ("repeated identical tool failures are short-circuited instead of burning rounds", TestRepeatedToolFailureGuardAsync),
     ("only whitelisted fields reach the archive; derived and transient state never does", TestPersistedMessageFieldWhitelistAsync),
     ("only whitelisted fields reach config; derived provider metadata never does", TestPersistedProviderInventoryFieldWhitelistAsync),
-    ("an in-app update puts the Playwright driver back under Contents/Resources", TestUpdaterRestoresBundleDriverLayoutAsync),
+    ("recognizes a macOS bundle install directory", TestUpdaterResolvesBundleLayoutAsync),
     ("an in-app update writes the installed version into the bundle's Info.plist", TestUpdaterRewritesBundleVersionAsync),
     ("OrcaRouter PKCE material is S256-derived, url-safe and never reused", TestOrcaRouterPkceAsync),
     ("the shipped OrcaRouter endpoints parse, and a foreign host or plaintext url does not", TestOrcaRouterEndpointsAsync),
@@ -334,10 +333,6 @@ static async Task TestConfigV5DefaultMigrationAsync()
     var service = new ConfigService(harness.PathService);
     var migrated = await service.LoadAsync();
     AssertEqual(8, migrated.ConfigSchemaVersion, "v5 should migrate all the way to the current schema");
-    // v5 的配置早于浏览器智能体的新默认值，迁移必须一路走到最新版，而不是停在中间某一版。
-    AssertEqual(25, migrated.BrowserMaxSteps, "v5 config should pick up the v7 browser step budget");
-    AssertTrue(migrated.BrowserPersistSession, "v5 config should pick up the v7 browser session persistence");
-    AssertEqual(150, migrated.BrowserSomMaxElements, "v5 config should pick up the v8 Set-of-Marks budget");
     AssertEqual(ContextPolicyMode.Auto, migrated.ContextPolicy.Mode, "historical 128K/64K defaults should become Auto");
     AssertEqual<long?>(null, migrated.ContextPolicy.CustomCapTokens, "auto migration should not retain a cap");
     AssertEqual(1_000_000, migrated.MaxContextTokens, "compatibility mirror should follow unknown-model 1M default");
@@ -362,22 +357,6 @@ static async Task TestConfigV5CustomMigrationAsync()
     AssertFalse(migrated.ContextPolicy.AutoCompress, "legacy auto-compress setting should be preserved");
     AssertEqual(AppContextPolicy.DefaultSummaryMaxTokens, migrated.ContextPolicy.SummaryMaxTokens,
         "a v5 config starts from the default summary cap; the legacy keep-rounds setting is dropped");
-}
-
-static async Task TestCurrentConfigBrowserSettingsRoundTripAsync()
-{
-    using var harness = new TestHarness();
-    var config = new AppConfig { BrowserMaxSteps = 12, BrowserPersistSession = false, BrowserSomMaxElements = 80 };
-    var service = new ConfigService(harness.PathService);
-    await service.SaveAsync(config);
-
-    using var document = JsonDocument.Parse(File.ReadAllText(service.ConfigFilePath));
-    AssertEqual(AppConfig.CurrentSchemaVersion, document.RootElement.GetProperty("configSchemaVersion").GetInt32(),
-        "saving should write the schema already used on load");
-    var reopened = await new ConfigService(harness.PathService).LoadAsync();
-    AssertEqual(12, reopened.BrowserMaxSteps, "an explicitly chosen step limit should survive reopening");
-    AssertFalse(reopened.BrowserPersistSession, "choosing not to retain browser sessions should survive reopening");
-    AssertEqual(80, reopened.BrowserSomMaxElements, "an explicitly chosen annotation limit should survive reopening");
 }
 
 static async Task TestLegacyContextPolicyMigrationAsync()
@@ -9316,7 +9295,7 @@ static void AssertPersistedFields(JsonElement element, string[] expected, string
         + "白名单跟 CloneMessage 对齐——真丢了数据，比多写几个字节严重得多。");
 }
 
-static Task TestUpdaterRestoresBundleDriverLayoutAsync()
+static Task TestUpdaterResolvesBundleLayoutAsync()
 {
     var root = Path.Combine(Path.GetTempPath(), "athena-bundle-" + Guid.NewGuid().ToString("N"));
     try
@@ -9348,54 +9327,6 @@ static Task TestUpdaterRestoresBundleDriverLayoutAsync()
         AssertTrue(
             Athena.Updater.MacAppBundle.ResolveBundleRoot(Path.Combine(bundle, "Contents", "Frameworks")) == null,
             "Contents 下的其它目录不是可执行目录，不该被当成安装目录");
-
-        // —— 归位：更新写进 MacOS 的新驱动覆盖 Resources 里的旧驱动 ——
-        static void WriteDriver(string parent, string marker)
-        {
-            var pkg = Path.Combine(parent, ".playwright", "package");
-            Directory.CreateDirectory(pkg);
-            File.WriteAllText(Path.Combine(pkg, "package.json"), marker);
-        }
-
-        WriteDriver(resources, "old-from-dmg");
-        WriteDriver(macOs, "new-from-update");
-
-        AssertTrue(Athena.Updater.MacAppBundle.RelocatePlaywrightDriver(macOs), "应报告完成了一次归位");
-        AssertFalse(
-            Directory.Exists(Path.Combine(macOs, ".playwright")),
-            "Contents/MacOS 下留着驱动，codesign 会把它的 node 二进制当成嵌套代码对象而拒签整个 .app，"
-            + "而且 128MB 驱动会存两份");
-        AssertEqual(
-            "new-from-update",
-            File.ReadAllText(Path.Combine(resources, ".playwright", "package", "package.json")),
-            "归位必须保留随包更新的新驱动。反过来（删掉 MacOS 那份、留 Resources 的旧驱动）"
-            + "会让浏览器自动化悄悄退回旧驱动");
-        AssertEqual(
-            0,
-            Directory.GetDirectories(resources, ".playwright.retired-*").Length,
-            "退役的旧驱动副本必须删干净，否则省下的 128MB 又占回去了");
-
-        // 归位后正是 Athena.UI/Program.cs 判定"改指 Resources"的条件。
-        AssertTrue(
-            Directory.Exists(Path.Combine(resources, ".playwright"))
-            && !Directory.Exists(Path.Combine(macOs, ".playwright")),
-            "归位后的形状必须与 DMG 全新安装一致，否则 PLAYWRIGHT_DRIVER_SEARCH_PATH 不会指向 Resources");
-
-        // —— 幂等：没有待归位的驱动就什么都不做 ——
-        AssertFalse(
-            Athena.Updater.MacAppBundle.RelocatePlaywrightDriver(macOs),
-            "MacOS 下没有驱动时不该报告归位");
-        AssertEqual(
-            "new-from-update",
-            File.ReadAllText(Path.Combine(resources, ".playwright", "package", "package.json")),
-            "空跑一次不得动已经归位好的驱动");
-
-        // —— 平铺安装：驱动就该留在应用目录下 ——
-        WriteDriver(flat, "flat-install");
-        AssertFalse(Athena.Updater.MacAppBundle.RelocatePlaywrightDriver(flat), "平铺安装不该发生归位");
-        AssertTrue(
-            Directory.Exists(Path.Combine(flat, ".playwright")),
-            "平铺安装的驱动被搬走就再也找不到了");
 
         return Task.CompletedTask;
     }

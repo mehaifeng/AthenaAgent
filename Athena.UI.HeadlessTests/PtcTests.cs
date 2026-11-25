@@ -128,7 +128,7 @@ internal static class PtcTests
         Check(result.Success, "business denial can be handled explicitly by script");
         Check(Output(result)[0].GetProperty("errorCode").GetString() == "tool_not_available", "A03 global Registry name is not in the run snapshot grant");
         Check(fixture.Files.Observations.IsEmpty, "snapshot denial causes no real read");
-        foreach (var name in new[] { "execute_terminal_command", "modify_self_configuration", "dispatch_subagents", "run_browser_task", "mcp_call_tool", "create_task", "execute_program" })
+        foreach (var name in new[] { "execute_terminal_command", "modify_self_configuration", "dispatch_subagents", "run_computer_task", "mcp_call_tool", "create_task", "execute_program" })
         {
             result = await fixture.ProgramAsync("text(await tools.call(inputs.name,{}));", inputs: new { name });
             Check(Output(result)[0].GetProperty("errorCode").GetString() == "tool_not_available", "A03 V0 denies " + name);
@@ -621,7 +621,7 @@ internal static class PtcTests
     {
         public string Root { get; } = Path.Combine(Directory.Exists("/tmp/opencode") ? "/tmp/opencode" : Path.GetTempPath(), "athena-ptc-" + Guid.NewGuid().ToString("N"));
         public string File => Path.Combine(Root, "fixture.txt");
-        public AppConfig Config { get; } = new() { PtcEnabled = true, ToolApprovalMode = ToolApprovalMode.Balanced, ImageGenerationEnabled = false, BrowserEnabled = false, EnableSkills = false, EnableMcp = false };
+        public AppConfig Config { get; } = new() { PtcEnabled = true, ToolApprovalMode = ToolApprovalMode.Balanced, ImageGenerationEnabled = false, EnableSkills = false, EnableMcp = false };
         public IConfigService ConfigService { get; }
         public TemporaryPathService Paths { get; }
         public IConversationSessionAccessor Sessions { get; } = new ConversationSessionAccessor();

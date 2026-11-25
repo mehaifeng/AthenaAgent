@@ -16,8 +16,6 @@ public sealed partial class AppSettingsViewModel : ViewModelBase, IDisposable
         AppConfigurationSession configurationSession,
         AboutViewModel about,
         ToolApprovalModePickerViewModel approvalModePicker,
-        IHeadlessBrowserService? browserService = null,
-        IBrowserVisionService? browserVisionService = null,
         ILocalizationService? localizationService = null,
         IOpenRouterModelMetadataCatalog? metadataCatalog = null,
         IModelMetadataResolver? metadataResolver = null,
@@ -37,9 +35,6 @@ public sealed partial class AppSettingsViewModel : ViewModelBase, IDisposable
         ToolApproval = new ToolApprovalSettingsViewModel(_state, approvalModePicker);
         AgentRuntime = new AgentRuntimeSettingsViewModel(_state);
         RuntimeDiagnostics = new RuntimeDiagnosticsViewModel(
-            _state,
-            browserService,
-            browserVisionService,
             localizationService,
             metadataCatalog,
             userInteractionService);

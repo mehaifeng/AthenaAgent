@@ -16,7 +16,7 @@ using Athena.UI.Services.Interfaces;
 using Athena.UI.Services.Functions;
 using Athena.UI.Services.Preview;
 using Athena.UI.Services.SubAgents;
-using Athena.UI.Services.Browser;
+using Athena.UI.Services.ComputerUse;
 using Athena.UI.Services.Notifications;
 using Athena.UI.Services.Platform;
 using Athena.UI.Services.Skills;
@@ -267,6 +267,29 @@ public partial class App : Application, IAsyncDisposable
             // 首次引导走 OnboardingWindow 时不会触发它）。
             SetColorScheme(config.ColorScheme);
 
+            if (desktop.Args is ["--computer-use-target", var x, var y]
+                && int.TryParse(x, out var left) && int.TryParse(y, out var top))
+            {
+                var localization = Services.GetRequiredService<ILocalizationService>();
+                desktop.ShutdownRequested += OnShutdownRequested;
+                desktop.MainWindow = new ComputerUseTargetWindow
+                {
+                    Position = new PixelPoint(left, top),
+                    ConfirmationLabel = localization.GetString("ComputerUse.DemoRecorded", "Confirmed")
+                };
+                base.OnFrameworkInitializationCompleted();
+                return;
+            }
+
+            if (desktop.Args?.Contains("--computer-use-demo", StringComparer.Ordinal) == true)
+            {
+                desktop.ShutdownRequested += OnShutdownRequested;
+                desktop.MainWindow = new ComputerUseWindow(Services.GetRequiredService<ComputerUseService>(),
+                    Services.GetRequiredService<ILocalizationService>(), demoOnly: true);
+                base.OnFrameworkInitializationCompleted();
+                return;
+            }
+
             // 元数据目录先同步发布磁盘 last-known-good/内置 seed；网络刷新后台执行，不阻塞首屏。
             var metadataCatalog = Services.GetService<IOpenRouterModelMetadataCatalog>();
             if (metadataCatalog != null)
@@ -459,7 +482,7 @@ public partial class App : Application, IAsyncDisposable
         // macOS Dock 右键退出时，确保真正退出
         IsQuitting = true;
 
-        // 首次关闭请求先暂停退出，异步释放 DI 容器内的 Browser/MCP 等服务。
+        // 首次关闭请求先暂停退出，异步释放 DI 容器内的 Computer Use/MCP 等服务。
         // 释放完成后的第二次 Shutdown 会直接放行并触发 Exit。
         if (_shutdownCleanupCompleted) return;
         e.Cancel = true;
@@ -1071,45 +1094,6 @@ public partial class App : Application, IAsyncDisposable
             return new OpenAIImageGenerationService(configService, attachmentStoreService, logger);
         });
 
-        // Headless Browser 服务
-        services.AddSingleton<IBrowserSessionManager>(sp =>
-        {
-            var logger = Log.ForContext<BrowserSessionManager>();
-            return new BrowserSessionManager(logger);
-        });
-
-        services.AddSingleton<ISomAnnotator>(sp =>
-        {
-            var pathService = sp.GetRequiredService<IPlatformPathService>();
-            var logger = Log.ForContext<SomAnnotator>();
-            return new SomAnnotator(pathService, logger);
-        });
-
-        services.AddSingleton<IHeadlessBrowserService>(sp =>
-        {
-            var sessionManager = sp.GetRequiredService<IBrowserSessionManager>();
-            var somAnnotator = sp.GetRequiredService<ISomAnnotator>();
-            var logger = Log.ForContext<PlaywrightBrowserService>();
-            return new PlaywrightBrowserService(sessionManager, somAnnotator, logger);
-        });
-
-        services.AddSingleton<IBrowserVisionService>(sp =>
-        {
-            var configService = sp.GetRequiredService<IConfigService>();
-            var logger = Log.ForContext<BrowserVisionService>();
-            var localizationService = sp.GetService<ILocalizationService>();
-            return new BrowserVisionService(configService, logger, localizationService);
-        });
-
-        services.AddSingleton<IBrowserAgentService>(sp =>
-        {
-            var browserService = sp.GetRequiredService<IHeadlessBrowserService>();
-            var browserVisionService = sp.GetRequiredService<IBrowserVisionService>();
-            var configService = sp.GetRequiredService<IConfigService>();
-            var logger = Log.ForContext<BrowserAgentService>();
-            return new BrowserAgentService(browserService, browserVisionService, configService, logger);
-        });
-
         services.AddSingleton<WebSearchFunctions>(sp =>
         {
             var webSearchService = sp.GetRequiredService<IWebSearchService>();
@@ -1139,12 +1123,9 @@ public partial class App : Application, IAsyncDisposable
             return new ImageGenerationFunctions(imageGenerationService, imageGenerationSessionService, conversationSessionAccessor, logger);
         });
 
-        services.AddSingleton<BrowserTaskFunctions>(sp =>
-        {
-            var browserAgentService = sp.GetRequiredService<IBrowserAgentService>();
-            var logger = Log.ForContext<BrowserTaskFunctions>();
-            return new BrowserTaskFunctions(browserAgentService, logger);
-        });
+        services.AddSingleton(sp => new ComputerUseService(sp.GetRequiredService<IConfigService>(),
+            sp.GetRequiredService<OpenAiModelRuntimeFactory>(), Log.ForContext<ComputerUseService>()));
+        services.AddSingleton<ComputerUseFunctions>();
 
         // 猫头鹰呈现对象的工厂：实现挂在 ViewModels 层，编排器只认 ISubAgentPresenterFactory。
         // 依赖方向由此变成 ViewModels → Services，服务层不再 new 任何 ViewModel。
@@ -1284,7 +1265,7 @@ public partial class App : Application, IAsyncDisposable
             var webSearchFunctions = sp.GetRequiredService<WebSearchFunctions>();
             var webFetchFunctions = sp.GetRequiredService<WebFetchFunctions>();
             var imageGenerationFunctions = sp.GetRequiredService<ImageGenerationFunctions>();
-            var browserTaskFunctions = sp.GetRequiredService<BrowserTaskFunctions>();
+            var computerUseFunctions = sp.GetRequiredService<ComputerUseFunctions>();
             var subAgentFunctions = sp.GetRequiredService<SubAgentFunctions>();
             var documentParserFunctions = sp.GetRequiredService<DocumentParserFunctions>();
             var spreadsheetFunctions = sp.GetRequiredService<SpreadsheetFunctions>();
@@ -1297,7 +1278,7 @@ public partial class App : Application, IAsyncDisposable
             var skillFunctions = sp.GetService<SkillFunctions>();
             var logger = Log.ForContext<FunctionRegistry>();
 
-            return new FunctionRegistry(cronTaskFunctions, knowledgeFunctions, configFunctions, fileSystemFunctions, cliFunctions, webSearchFunctions, webFetchFunctions, imageGenerationFunctions, browserTaskFunctions, subAgentFunctions, documentParserFunctions, spreadsheetFunctions, documentFunctions, presentationFunctions, sp.GetRequiredService<PtcFunctions>(), configService, logger, approvalService, mcpDiscoveryFunctions, mcpManagementFunctions, skillFunctions);
+            return new FunctionRegistry(cronTaskFunctions, knowledgeFunctions, configFunctions, fileSystemFunctions, cliFunctions, webSearchFunctions, webFetchFunctions, imageGenerationFunctions, computerUseFunctions, subAgentFunctions, documentParserFunctions, spreadsheetFunctions, documentFunctions, presentationFunctions, sp.GetRequiredService<PtcFunctions>(), configService, logger, approvalService, mcpDiscoveryFunctions, mcpManagementFunctions, skillFunctions);
         });
 
         // 知识库整理 headless Agent 运行器（惰性解析 IFunctionRegistry 以断开构造环）

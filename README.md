@@ -8,12 +8,12 @@ Athena is a sophisticated, highly autonomous desktop AI assistant built with **.
 
 ## ✨ Key Features
 
-- **🧠 Unified Provider and Model Roles**: One OpenAI SDK-compatible provider owns shared connection details; main chat, titles, compression, automatic approval, embeddings, browser work, and sub-agents select independent models. TTS and image generation keep their own Extension connections.
+- **🧠 Unified Provider and Model Roles**: One OpenAI SDK-compatible provider owns shared connection details; main chat, titles, compression, automatic approval, embeddings, image recognition, and sub-agents select independent models. TTS and image generation keep their own Extension connections.
 - **🛠️ Direct Tool Calling**: The main conversation invokes built-in and MCP tools through one schema-validation, approval and result-budget gate; real calls remain visible in grouped, expandable cards. Main conversation and sub-agent tool rounds are unlimited.
 - **🧩 Optional PTC Prototype**: Default-off, bounded in-process JavaScript orchestration of five read-only file tools, with per-call approval, child progress, immutable audit records and small model projections. Not a strong sandbox. See [PTC usage and limitations](Docs/PTC_Prototype_Usage_CN.md) and [implementation evidence](Libraries/Ptc/IMPLEMENTATION.md).
 - **📊 Optional Execution Timeline**: Inspect main-model attempts, direct and PTC tool calls, script lifetime, approvals and waits in a per-reply multi-lane timeline. Disabled by default; timing metadata stays local.
 - **🦉 Parallel Sub-Agents**: Fans out batches of isolated sub-agents for concurrent work, visualized as an animated "owl village" overview.
-- **🌐 Browser Automation**: Runs vision-guided, isolated browser sessions (Playwright + Set-of-Marks) to inspect web pages, click visible controls, fill simple forms, upload local files, and extract page evidence.
+- **Computer Use** operates a selected app or browser window through Cua Driver. Athena shows recent window frames and an animated AI cursor.
 - **📚 Local Knowledge Base**: A vector-powered semantic memory stored locally in Markdown files with hybrid retrieval (vectors + BM25/FTS) and optional background maintenance.
 - **📄 Document Parsing**: MinerU-backed extraction of outlines and content from attached documents.
 - **🎨 Image Generation & Audio**: Inline image generation with cross-turn continuity, plus TTS audio playback.
@@ -21,7 +21,7 @@ Athena is a sophisticated, highly autonomous desktop AI assistant built with **.
 - **🌿 Workspace Git branches**: Switch or create branches above the composer; inspect local and remote snapshots, upstream status and worktree occupancy. Manage branches with patch comparison, local rename and confirmed safe deletion. Checkout checks the entire repository, and branch mutations exclude live assistant turns.
 - **⏰ Cron Scheduling**: Standard five-field cron tasks. Every firing opens its own brand-new session instead of interrupting the chat you are looking at, so a task can run while you keep working.
 - **🌍 Modern Cross-Platform UI**: Built with Avalonia UI and the Semi Design aesthetic, supporting both light/dark modes and multi-lingual interfaces (English & Chinese).
-- **🛡️ Security-First Design**: Tool calls follow approval and file-access policies. Browser sessions use isolated contexts.
+- **🛡️ Security-First Design**: Tool calls follow approval and file-access policies. Computer Use targets a window you select.
 
 ## 🖼️ Interface Preview
 
@@ -71,10 +71,16 @@ Athena is a sophisticated, highly autonomous desktop AI assistant built with **.
 - **UI Themes**: Semi.Avalonia, Irihi.Ursa.Themes.Semi
 - **AI SDK**: OpenAI SDK 2.x (Chat, Embeddings, Image Generation, Audio/TTS, Tool Calling; shared retry and timeout policy)
 - **Markdown**: LiveMarkdown.Avalonia (streaming output with inline images, math, and native Mermaid diagrams)
-- **Browser Automation**: Microsoft.Playwright
+- **Computer Use** uses the Cua Driver native SDK.
 - **Audio**: Provider TTS and platform player commands
 - **Database**: SQLite (for vector storage)
 - **Logging**: Serilog (File + Console sinks)
+
+## Computer Use prototype
+
+Run `bash Scripts/run-computer-use-demo.sh` on Linux x64 to open the preview and its demo form. The scripted demonstration clicks and enters text through Cua Driver and verifies it using the target form. The script downloads the pinned SDK and checks its checksum. Set `ATHENA_CUA_DRIVER_LIBRARY` to use a local SDK library.
+
+Pass `--app` to the same script for the normal Athena window. Open Computer Use, select a visible target, and ask Athena in chat to perform the task. Configure an image-capable model under Image Recognition or use a vision-capable main model.
 
 ## 📄 License
 

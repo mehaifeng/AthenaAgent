@@ -64,11 +64,12 @@ public static class PolisResidents
             "write_system_file", "modify_system_file", "delete_system_file", "create_directory", "move_system_file",
             "copy_system_file", "create_document", "edit_document", "convert_document", "create_presentation", "edit_presentation");
         Add(PolisResidentKind.Smith, "execute_terminal_command");
-        Add(PolisResidentKind.Sailor, "web_search", "fetch_url_to_file", "run_browser_task");
+        Add(PolisResidentKind.Sailor, "web_search", "fetch_url_to_file");
         Add(PolisResidentKind.Librarian, "recall_from_memory", "create_new_memory");
         Add(PolisResidentKind.Herald, "create_task", "update_task", "cancel_task", "list_tasks", "run_task_now");
         Add(PolisResidentKind.Painter, "generate_image");
         Add(PolisResidentKind.Artisan,
+            "run_computer_task",
             "view_self_configuration", "modify_self_configuration", "activate_skill", "read_skill_resource", "execute_program",
             "mcp_list_tools", "mcp_get_tool_schema", "mcp_call_tool", "mcp_add_server", "mcp_remove_server", "mcp_import_json",
             // 黄金侍女拿掉之后（2026-10-13），派发子代理也算"把城外的帮手接进来"

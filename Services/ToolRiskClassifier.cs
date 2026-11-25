@@ -51,7 +51,7 @@ public static class ToolRiskClassifier
     // 这些操作影响之后的调用能力。本地的无人值守规则和受信任例程授权都不继承这类权限。
     private static readonly HashSet<string> NeverUnattendedTools = new(StringComparer.OrdinalIgnoreCase)
     {
-        "modify_self_configuration",
+        "modify_self_configuration", "run_computer_task",
         "mcp_add_server", "mcp_remove_server", "mcp_import_json",
         "create_task", "update_task", "cancel_task", "run_task_now"
     };
@@ -68,7 +68,7 @@ public static class ToolRiskClassifier
         "write_system_file", "modify_system_file", "move_system_file", "copy_system_file",
         "create_new_memory", "modify_self_configuration",
         // cron 任务写的是"以后会自动跑什么"，包括 run_task_now 这个立刻开出一个自主会话的按钮。
-        "run_browser_task", "generate_image", "create_task", "update_task", "cancel_task", "run_task_now",
+        "run_computer_task", "generate_image", "create_task", "update_task", "cancel_task", "run_task_now",
         "parse_office_document", "dispatch_subagents",
         "execute_program",
         // 单次 GET 落盘：能力上界被工具本身锁死（公网地址、非可执行、限额），但仍是写盘 + 出网。

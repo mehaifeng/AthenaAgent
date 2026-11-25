@@ -1,4 +1,4 @@
-// 应用自带的 Playwright 驱动（bin/Debug/net10.0/.playwright/package）。不装 npm 包、不下载 Chromium：
+// 开发测试用的 Playwright 驱动（Athena.UI.HeadlessTests/bin/Debug/net10.0/.playwright/package）。不装 npm 包、不下载 Chromium：
 // Chromium 一侧用本机 Chrome（channel: 'chrome'），WebKit 用 Playwright 自带的 WebKit（~/Library/Caches/ms-playwright）。
 // 不用 `chrome --headless --screenshot`：新版无头模式在 macOS 上拿不到显示链路，截图会一直等一帧等不到。
 import { createRequire } from 'node:module';
@@ -6,7 +6,7 @@ import { fileURLToPath } from 'node:url';
 
 const require = createRequire(import.meta.url);
 const driver = process.env.PLAYWRIGHT_CORE
-  ?? fileURLToPath(new URL('../../../../bin/Debug/net10.0/.playwright/package/', import.meta.url));
+  ?? fileURLToPath(new URL('../../../../Athena.UI.HeadlessTests/bin/Debug/net10.0/.playwright/package/', import.meta.url));
 
 export const { chromium, webkit } = require(driver);
 

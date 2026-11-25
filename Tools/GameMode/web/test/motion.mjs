@@ -1,7 +1,7 @@
 // 运动自检（设计稿 12.7）：跟着雅典娜走、跑，再在自由视角里按住 W + D 走一段。镜头同时按脚本绕转、推拉、平移。
 // 比较旁白气泡、名牌和互动提示这一帧用的屏幕位置
 // 与当帧真实投影的最大偏差。验收线 0.5 像素（设备像素）；自由视角里走路时你必须一直在画面里（|NDC| < 1）。
-//   bin/Debug/net10.0/.playwright/node/darwin-arm64/node Tools/GameMode/web/test/motion.mjs [chromium,webkit] [--nosync]
+//   Athena.UI.HeadlessTests/bin/Debug/net10.0/.playwright/node/darwin-arm64/node Tools/GameMode/web/test/motion.mjs [chromium,webkit] [--nosync]
 // --nosync 故意跳过"渲染前对齐矩阵"，用来确认这项检查确实抓得住打样里那种漂移（预期远大于 0.5 像素）。
 import { startServer } from './serve.mjs';
 import { launch, openPage } from './playwright.mjs';

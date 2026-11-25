@@ -492,7 +492,7 @@
                     <!-- 外壳控制都在这一排：全局对话、左右对调、主题、设置。
                          窗口用系统标题栏后，原自定义标题栏上的主题与设置挪到这里；
                          工作台收起/展开去了对话标题栏右端（MainConversationView.RightPanelToggleButton）。 -->
-                    <Grid Grid.Row="4" Margin="10,7" ColumnDefinitions="*,Auto,Auto,Auto" ColumnSpacing="4">
+                    <Grid Grid.Row="4" Margin="10,7" ColumnDefinitions="*,Auto,Auto,Auto,Auto" ColumnSpacing="4">
                         <Button x:Name="GlobalConversationButton" HorizontalAlignment="Stretch"
                                 Command="{Binding CreateConversationCommand}" CommandParameter="{Binding GlobalConversationGroup}">
                             <StackPanel Orientation="Horizontal" Spacing="7">
@@ -520,8 +520,13 @@
                                           IsVisible="{Binding MainConversationViewModel.ThemeIcon, Converter={StaticResource ThemeTagToVisibilityConverter}, ConverterParameter=Sun}"/>
                             </Panel>
                         </Button>
+                        <Button Grid.Column="3" Classes="icon-plain" Click="OnOpenComputerUse" ToolTip.Tip="Computer Use"
+                                AutomationProperties.Name="Computer Use">
+                            <PathIcon Data="{StaticResource AthenaIconComputerUse}" Width="16" Height="16"
+                                      Foreground="{DynamicResource App.IconAccentForeground}"/>
+                        </Button>
                         <Button x:Name="ShellSettingsButton"
-                                Grid.Column="3"
+                                Grid.Column="4"
                                 Classes="icon-plain"
                                 Command="{Binding OpenAppSettingsCommand}"
                                 ToolTip.Tip="{loc:Loc Settings.Window.Title}">

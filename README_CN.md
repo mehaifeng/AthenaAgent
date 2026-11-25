@@ -13,7 +13,7 @@ Athena 是一款高度自主的桌面 AI 助手，基于 **.NET 10** 和 **Avalo
 - **🧩 可选 PTC 原型**：默认关闭的、有预算限制的进程内 JavaScript 编排，仅开放五个只读文件工具，保留逐项审批、子调用进度、不可变审计记录和小体量模型投影。不是强沙箱。见[使用与限制](Docs/PTC_Prototype_Usage_CN.md)及[实施证据](Libraries/Ptc/IMPLEMENTATION.md)。
 - **📊 可选执行时间线**：在每条助手回复中查看主模型调用、直接及 PTC 工具调用、脚本生命周期、审批和等待。默认关闭，时间元数据仅存本地。
 - **🦉 并行子代理**：批量派发相互隔离的子代理并发处理任务，以动画化的"猫头鹰之城"总览呈现进度。
-- **🌐 浏览器自动化**：在隔离浏览器会话中以视觉引导（Playwright + Set-of-Marks）观察网页、点击可见控件、填写简单表单、上传本地文件并提取页面证据。
+- **Computer Use** 通过 Cua Driver 操作已选择的应用或浏览器窗口。在 Athena 里可以看到真实窗口画面、光标移动和点击反馈。
 - **📚 本地知识库**：基于向量检索的语义记忆系统，以 Markdown 格式本地存储，支持混合检索（向量 + BM25/FTS）与可选后台维护。
 - **📄 文档解析**：基于 MinerU 从附件文档中提取大纲与正文内容。
 - **🎨 图像生成与语音**：支持跨轮次连贯的内联图像生成，以及 TTS 语音播放。
@@ -71,10 +71,16 @@ Athena 是一款高度自主的桌面 AI 助手，基于 **.NET 10** 和 **Avalo
 - **UI 主题**：Semi.Avalonia、Irihi.Ursa.Themes.Semi
 - **AI SDK**：OpenAI SDK 2.x（对话、嵌入、图像生成、Audio/TTS、工具调用；统一重试与超时策略）
 - **Markdown**：LiveMarkdown.Avalonia（流式输出、内联图片、数学公式与原生 Mermaid 图表）
-- **浏览器自动化**：Microsoft.Playwright
+- **Computer Use** 使用 Cua Driver 原生 SDK。
 - **音频**：供应商语音合成和平台播放器命令
 - **数据库**：SQLite（向量存储）
 - **日志**：Serilog（文件 + 控制台）
+
+## Computer Use 原型
+
+Linux x64 下执行 `bash Scripts/run-computer-use-demo.sh`，会打开操作预览和独立演示表单。演示通过 Cua Driver 录入中文、点击确认，并核验表单结果。脚本下载固定版本的 SDK 并检查哈希，已有 SDK 也可用 `ATHENA_CUA_DRIVER_LIBRARY` 指定库路径。
+
+同一脚本加 `--app` 可启动完整 Athena。打开 Computer Use 面板，选中一个窗口，再在聊天中说明任务。任务使用「图片识别」模型，未配置时使用支持图片输入的主对话模型。
 
 ## 📄 开源协议
 

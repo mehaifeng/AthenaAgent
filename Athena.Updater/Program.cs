@@ -36,7 +36,7 @@ internal static class Program
 
             await WaitForProcessExitAsync(session.MainProcessId, timeoutSeconds: 60);
             ApplyUpdate(session);
-            RestoreBundleLayout(session);
+            UpdateBundleVersion(session);
             StartMainApp(session);
             return 0;
         }
@@ -121,37 +121,8 @@ internal static class Program
         }
     }
 
-    // An update package is the flat publish output, so it carries .playwright at its root
-    // and ApplyUpdate lands it in Contents/MacOS — where release.sh's create_app_bundle
-    // deliberately does not keep it. Put it back under Contents/Resources so an updated
-    // bundle has the same layout as a fresh DMG install: signable, and storing the 128 MB
-    // driver once instead of twice.
-    //
-    // create_app_bundle relocates AthenaData/Skills as well, but that one needs nothing
-    // here: AthenaData is in the session's preserve paths, so ApplyUpdate never touches
-    // the symlink pointing into Contents/Resources.
-    private static void RestoreBundleLayout(UpdateSession session)
+    private static void UpdateBundleVersion(UpdateSession session)
     {
-        try
-        {
-            if (MacAppBundle.RelocatePlaywrightDriver(session.InstallDirectory))
-            {
-                Console.WriteLine("Relocated the Playwright driver into Contents/Resources.");
-            }
-        }
-        catch (Exception ex)
-        {
-            // Every file is already updated by this point, and the app runs off the
-            // Contents/MacOS copy when the relocation does not happen. Failing here would
-            // cost the user their restart to fix a layout problem, so report and continue.
-            Console.Error.WriteLine($"Could not relocate the Playwright driver: {ex.Message}");
-        }
-
-        // ApplyUpdate only writes inside Contents/MacOS, so the bundle otherwise keeps
-        // advertising the version its DMG shipped — measured on a real install: running
-        // 1.8.2 with CFBundleShortVersionString still reading 1.6.6. Must stay after the
-        // relocation and before any future re-signing step: Info.plist is sealed into the
-        // signature, so editing it afterwards would invalidate the signature again.
         try
         {
             var version = !string.IsNullOrWhiteSpace(session.Version)

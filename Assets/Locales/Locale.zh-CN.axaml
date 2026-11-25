@@ -154,7 +154,6 @@
     <system:String x:Key="Config.ModelRole.Browser">自动浏览器</system:String>
     <system:String x:Key="Config.SubAgentParameters">子代理参数</system:String>
     <system:String x:Key="Config.KnowledgeMaintenance">知识库整理</system:String>
-    <system:String x:Key="Config.BrowserUnifiedModelHint">自动浏览器使用“设置 → 供应商与业务模型”中的自动浏览器角色。</system:String>
     <system:String x:Key="Config.ModelRole.SubAgent">子代理</system:String>
     <system:String x:Key="Config.ModelRole.Maintenance">知识库整理</system:String>
     <system:String x:Key="Config.SectionSecondaryAI">辅助模型</system:String>
@@ -511,7 +510,6 @@
     <system:String x:Key="ProviderModels.Role.TitleGeneration">标题生成</system:String>
     <system:String x:Key="ProviderModels.Role.ContextCompression">上下文压缩</system:String>
     <system:String x:Key="ProviderModels.Role.Approval">自动审批</system:String>
-    <system:String x:Key="ProviderModels.Role.BrowserAgent">自动化浏览器</system:String>
     <system:String x:Key="ProviderModels.Role.SubAgent">子代理</system:String>
     <system:String x:Key="ProviderModels.Role.KnowledgeMaintenance">知识整理</system:String>
     <system:String x:Key="ProviderModels.Role.ImageRecognition">图像识别</system:String>
@@ -704,9 +702,6 @@
     <system:String x:Key="Settings.Diagnostics.MetadataCacheCleared">已清除下载的元数据缓存；内置种子仍可用。</system:String>
     <system:String x:Key="Settings.Diagnostics.ClearFailed">清除失败：{0}</system:String>
     <system:String x:Key="Settings.Diagnostics.MetadataSummary">Revision {0} · {1:N0} 个模型 · 获取于 {2:g} · {3}</system:String>
-    <system:String x:Key="Settings.Diagnostics.BrowserRuntime">浏览器运行时</system:String>
-    <system:String x:Key="Settings.Diagnostics.BrowserRuntimeHint">自动浏览器需要本地 Chromium 运行时；缺失时可在这里安装。</system:String>
-    <system:String x:Key="Settings.Diagnostics.BrowserAgent">自动浏览器模型</system:String>
 
     <system:String x:Key="About.Header">关于 Athena</system:String>
     <system:String x:Key="About.Subtitle">Athena — 智能桌面助手</system:String>
@@ -830,34 +825,9 @@
     <system:String x:Key="Connectors.Provider.Description.WebSearch.Baidu">使用百度智能 Web Search，需要 API Key 和 App ID。</system:String>
 
     <!-- Headless Browser -->
-    <system:String x:Key="Config.Browser">浏览器自动化</system:String>
-    <system:String x:Key="Config.BrowserDescription">启用后，Athena 可在隔离会话中查看并操作网页。底层操作不进入主对话上下文。</system:String>
-    <system:String x:Key="Config.BrowserEnabled">启用浏览器操作：</system:String>
-    <system:String x:Key="Config.BrowserObservationMode">观察方式：</system:String>
-    <system:String x:Key="Config.BrowserStructuredOutputMode">结构化输出：</system:String>
-    <system:String x:Key="Config.BrowserStructuredOutputModeHint">Auto：优先要求模型返回 JSON 对象，后端不支持时自动降级。JsonObject：强制要求（不支持则报错）。PromptOnly：仅靠提示词约束，兼容任意后端。</system:String>
-    <system:String x:Key="Config.BrowserHeadless">无头模式：</system:String>
-    <system:String x:Key="Config.BrowserDiagnostics">运行诊断</system:String>
-    <system:String x:Key="Config.BrowserRuntimeStatus">浏览器运行时：</system:String>
-    <system:String x:Key="Config.BrowserTestRuntime">测试运行时</system:String>
-    <system:String x:Key="Config.BrowserInstallRuntime">安装 Chromium</system:String>
-    <system:String x:Key="Config.BrowserRuntime">运行时</system:String>
-    <system:String x:Key="Config.BrowserViewportWidth">视口宽度：</system:String>
-    <system:String x:Key="Config.BrowserViewportHeight">视口高度：</system:String>
-    <system:String x:Key="Config.BrowserOperationTimeout">单步超时（秒）：</system:String>
-    <system:String x:Key="Config.BrowserMaxSteps">最大步数：</system:String>
-    <system:String x:Key="Config.BrowserSessionPolicy">会话策略</system:String>
-    <system:String x:Key="Config.BrowserSessionTtl">会话保留时间（分钟）：</system:String>
-    <system:String x:Key="Config.BrowserPersistSession">保留会话状态：</system:String>
-    <system:String x:Key="Config.BrowserDownloadEnabled">允许下载：</system:String>
-    <system:String x:Key="Config.BrowserElementMap">元素标注</system:String>
-    <system:String x:Key="Config.BrowserSomMaxElements">最大标注元素数：</system:String>
-    <system:String x:Key="Config.BrowserSomIncludeText">包含元素文本：</system:String>
-    <system:String x:Key="Config.BrowserScreenshotScale">截图缩放：</system:String>
     <system:String x:Key="Config.CredentialSource">API Key 来源：</system:String>
     <system:String x:Key="Config.CredentialSourceInherit">与主对话模型相同</system:String>
     <system:String x:Key="Config.CredentialSourceCustom">自定义</system:String>
-    <system:String x:Key="Config.BrowserVisionCapabilityHint">当前为视觉标注（SoM）模式，浏览器模型必须支持图像理解：若选「与主对话模型相同」，请确认主模型支持视觉；否则请在下方选择一个支持视觉的模型。可点下方「测试」按钮验证（会发送一张测试图）。</system:String>
 
     <!-- 子代理 -->
     <system:String x:Key="Config.SubAgents">并行子代理</system:String>
@@ -876,7 +846,6 @@
     <system:String x:Key="Status.EnableAudioOutputFirst">请先启用语音播报</system:String>
     <system:String x:Key="Status.EnableWebSearchFirst">请先启用网络搜索</system:String>
     <system:String x:Key="Status.EnableBrowserFirst">请先启用浏览器自动化</system:String>
-    <system:String x:Key="Status.InstallingBrowserRuntime">正在安装浏览器运行时…</system:String>
 
     <!-- Tool Execution Status -->
     <system:String x:Key="Tool.Calling">正在调用工具：{0}…</system:String>
@@ -901,7 +870,6 @@
     <system:String x:Key="Tool.Name.DeleteFile">删除文件</system:String>
     <system:String x:Key="Tool.Name.ExecuteCommand">执行命令</system:String>
     <system:String x:Key="Tool.Name.GenerateImage">生成图片</system:String>
-    <system:String x:Key="Tool.Name.BrowserTask">浏览器任务</system:String>
     <system:String x:Key="Tool.Name.CreateTask">创建任务</system:String>
     <system:String x:Key="Tool.Name.ListTasks">查看任务</system:String>
     <system:String x:Key="Tool.Name.CancelTask">取消任务</system:String>
@@ -1228,7 +1196,6 @@
     <system:String x:Key="SubAgent.Status.MaxSteps">超过最大步数</system:String>
     <system:String x:Key="SubAgent.Status.Failed">执行失败</system:String>
     <system:String x:Key="SubAgent.Status.Cancelled">已取消</system:String>
-    <system:String x:Key="SubAgent.Action.BrowserTask">浏览器任务中</system:String>
     <system:String x:Key="SubAgent.Action.WebSearch">网页搜索中</system:String>
     <system:String x:Key="SubAgent.Action.RecallMemory">记忆检索中</system:String>
     <system:String x:Key="SubAgent.Action.CreateMemory">记忆写入中</system:String>
@@ -1881,4 +1848,35 @@
     <x:String x:Key="Timeline.State.NotStarted">未开始</x:String>
     <x:String x:Key="Timeline.State.OutcomeUnknown">结果未知</x:String>
     <x:String x:Key="Timeline.State.Incomplete">不完整</x:String>
+
+    <!-- Computer Use -->
+    <x:String x:Key="ComputerUse.PreviewHint">窗口画面与 AI 光标</x:String>
+    <x:String x:Key="ComputerUse.PlayDemo">运行演示</x:String>
+    <x:String x:Key="ComputerUse.Stop">停止</x:String>
+    <x:String x:Key="ComputerUse.Target">目标窗口</x:String>
+    <x:String x:Key="ComputerUse.SelectTarget">选择要操作的窗口</x:String>
+    <x:String x:Key="ComputerUse.Refresh">刷新</x:String>
+    <x:String x:Key="ComputerUse.EmptyPreview">窗口画面会在任务开始后显示</x:String>
+    <x:String x:Key="ComputerUse.Ready">就绪</x:String>
+    <x:String x:Key="ComputerUse.TargetReady">已选中窗口。可以在聊天中让 Athena 操作它。</x:String>
+    <x:String x:Key="ComputerUse.Unavailable">Computer Use 暂不可用</x:String>
+    <x:String x:Key="ComputerUse.Observing">正在观察窗口</x:String>
+    <x:String x:Key="ComputerUse.Moving">AI 光标正在移动</x:String>
+    <x:String x:Key="ComputerUse.Clicking">已执行点击</x:String>
+    <x:String x:Key="ComputerUse.Typing">正在录入文字</x:String>
+    <x:String x:Key="ComputerUse.OtherAction">已发送输入</x:String>
+    <x:String x:Key="ComputerUse.Completed">已完成</x:String>
+    <x:String x:Key="ComputerUse.Stopped">已停止</x:String>
+    <x:String x:Key="ComputerUse.Failed">Computer Use 未完成</x:String>
+    <x:String x:Key="ComputerUse.DemoTarget">Athena · CU 演示目标</x:String>
+    <x:String x:Key="ComputerUse.DemoForm">演示表单</x:String>
+    <x:String x:Key="ComputerUse.DemoField">标题</x:String>
+    <x:String x:Key="ComputerUse.DemoInputHint">等待 Athena 填写</x:String>
+    <x:String x:Key="ComputerUse.DemoConfirm">确认</x:String>
+    <x:String x:Key="ComputerUse.DemoWaiting">等待录入和确认</x:String>
+    <x:String x:Key="ComputerUse.DemoRecorded">已确认</x:String>
+    <x:String x:Key="ComputerUse.DemoSuccess">目标窗已确认 Cua Driver 录入的文字。</x:String>
+    <x:String x:Key="ComputerUse.DemoUnverified">目标窗未确认录入内容。</x:String>
+    <x:String x:Key="ComputerUse.DemoWindowMissing">驱动未找到演示目标窗口。</x:String>
+    <x:String x:Key="ComputerUse.ToolName">电脑操作</x:String>
 </ResourceDictionary>

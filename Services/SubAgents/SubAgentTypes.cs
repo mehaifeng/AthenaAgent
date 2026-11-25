@@ -31,13 +31,13 @@ public static class SubAgentTypes
 
     private static readonly string[] ResearchTools =
     {
-        "web_search", "run_browser_task", "recall_from_memory", "get_file_info", "search_in_file",
+        "web_search", "recall_from_memory", "get_file_info", "search_in_file",
         "search_in_directory", "get_document_outline", "read_system_file", "list_system_directory"
     };
 
     private static readonly string[] GeneralTools =
     {
-        "web_search", "run_browser_task", "recall_from_memory", "create_new_memory",
+        "web_search", "recall_from_memory", "create_new_memory",
         "get_file_info", "search_in_file", "search_in_directory", "get_document_outline", "read_system_file",
         "write_system_file", "modify_system_file", "list_system_directory", "create_directory",
         "move_system_file", "copy_system_file", "execute_terminal_command", "generate_image"

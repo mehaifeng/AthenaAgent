@@ -1,0 +1,50 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:controls="using:Athena.UI.Controls"
+        xmlns:vm="using:Athena.UI.ViewModels"
+        xmlns:computer="using:Athena.UI.Services.ComputerUse"
+        xmlns:loc="using:Athena.UI.Markup"
+        x:Class="Athena.UI.Views.ComputerUseWindow"
+        x:DataType="vm:ComputerUseViewModel"
+        Title="Athena · Computer Use"
+        Width="950" Height="650" MinWidth="600" MinHeight="440"
+        WindowStartupLocation="CenterScreen">
+    <Grid Margin="22" RowDefinitions="Auto,Auto,*,Auto" RowSpacing="14">
+        <Grid ColumnDefinitions="*,Auto" ColumnSpacing="14">
+            <StackPanel Spacing="4">
+                <TextBlock Text="Computer Use" FontSize="24" FontWeight="SemiBold"/>
+                <TextBlock Text="{loc:Loc ComputerUse.PreviewHint}" Foreground="{DynamicResource App.TextMuted}"/>
+            </StackPanel>
+            <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                <Button Name="DemoButton" Content="{loc:Loc ComputerUse.PlayDemo}" Click="OnDemo"/>
+                <Button Name="StopButton" Content="{loc:Loc ComputerUse.Stop}" Click="OnStop" IsEnabled="{Binding Busy}"/>
+            </StackPanel>
+        </Grid>
+        <Grid Name="Targets" Grid.Row="1" ColumnDefinitions="Auto,*,Auto" ColumnSpacing="10">
+            <TextBlock Text="{loc:Loc ComputerUse.Target}" VerticalAlignment="Center"/>
+            <ComboBox Grid.Column="1" ItemsSource="{Binding Windows}" SelectedItem="{Binding SelectedWindow}"
+                      HorizontalAlignment="Stretch" IsEnabled="{Binding !Busy}"
+                      PlaceholderText="{loc:Loc ComputerUse.SelectTarget}">
+                <ComboBox.ItemTemplate>
+                    <DataTemplate x:DataType="computer:ComputerUseTarget">
+                        <TextBlock Text="{Binding DisplayName}" TextTrimming="CharacterEllipsis"/>
+                    </DataTemplate>
+                </ComboBox.ItemTemplate>
+            </ComboBox>
+            <Button Grid.Column="2" Content="{loc:Loc ComputerUse.Refresh}" Click="OnRefresh" IsEnabled="{Binding !Busy}"/>
+        </Grid>
+        <Border Grid.Row="2" CornerRadius="12" ClipToBounds="True" Background="{DynamicResource App.PanelBackgroundBrush}"
+                BorderBrush="{DynamicResource SemiGreyLowBrush}" BorderThickness="1">
+            <Panel>
+                <TextBlock VerticalAlignment="Center" HorizontalAlignment="Center"
+                           Text="{loc:Loc ComputerUse.EmptyPreview}" Foreground="{DynamicResource App.TextMuted}"
+                           IsVisible="{Binding !HasFrame}"/>
+                <controls:ComputerUsePreview Name="Preview" IsHitTestVisible="False"/>
+            </Panel>
+        </Border>
+        <StackPanel Grid.Row="3" Spacing="4">
+            <TextBlock Text="{Binding Status}" FontSize="15" FontWeight="SemiBold"/>
+            <TextBlock Text="{Binding Detail}" TextWrapping="Wrap" Foreground="{DynamicResource App.TextMuted}"/>
+        </StackPanel>
+    </Grid>
+</Window>

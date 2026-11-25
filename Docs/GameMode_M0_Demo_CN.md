@@ -19,7 +19,7 @@ M0 的通过标准（设计稿第 14 节）：**给两三个不懂技术的人�
 node Tools/GameMode/web/test/serve.mjs 8766
 ```
 
-没有自己的 Node 时，构建过应用的机器上有一份：`bin/Debug/net10.0/.playwright/node/<平台>/node`。
+没有自己的 Node 时，构建过应用的机器上有一份：`Athena.UI.HeadlessTests/bin/Debug/net10.0/.playwright/node/<平台>/node`。
 
 然后在浏览器打开：
 

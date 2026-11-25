@@ -201,9 +201,6 @@ public partial class AiModelConfiguration : ObservableObject
     private ModelRoleSettings _embedding = new();
 
     [ObservableProperty]
-    private ModelRoleSettings _browserAgent = new();
-
-    [ObservableProperty]
     private ModelRoleSettings _subAgent = new();
 
     [ObservableProperty]
@@ -227,7 +224,6 @@ public enum AiModelRole
     ContextCompression,
     Approval,
     Embedding,
-    BrowserAgent,
     SubAgent,
     KnowledgeMaintenance,
     ImageRecognition,

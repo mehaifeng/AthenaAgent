@@ -27,7 +27,6 @@ using Athena.UI.Services.Context;
 using Athena.UI.Services.ModelMetadata;
 using Athena.UI.Services.Notifications;
 using Athena.UI.Services.OrcaRouter;
-using Athena.UI.Services.Browser;
 using Athena.UI.Services.ConfigSurface;
 using Athena.UI.Services.Functions;
 using Athena.UI.Services.Preview;
@@ -184,7 +183,7 @@ if (Environment.GetEnvironmentVariable("ATHENA_OWL_TEST_ONLY") == "1")
     Environment.Exit(0);
 }
 TestMermaidMarkdownRendering();
-TestBrowserAgentHardening();
+TestComputerUseToolPolicy();
 TestVirtualPetStateMachine();
 TestVirtualPetProgression();
 TestVirtualPetInteractionSurface();
@@ -2425,100 +2424,19 @@ static T PumpForResult<T>(Task<T> task, string what, int timeoutMs = 20000)
     return task.GetAwaiter().GetResult();
 }
 
-static void TestBrowserAgentHardening()
+static void TestComputerUseToolPolicy()
 {
-    // —— 并行：子代理侧的浏览器闸必须已撤除 ——
-    // 那把闸挡的从来不是浏览器本身：每个会话拿的是独立 BrowserContext，本就能并发。
-    if (SubAgentToolGates.Category("run_browser_task") != ToolGateCategory.None)
-        throw new InvalidOperationException("run_browser_task 仍在工具闸里排队：每个任务独占隔离的 BrowserContext，不应再互斥。");
-    if (SubAgentToolGates.Category("write_system_file") != ToolGateCategory.Write)
-        throw new InvalidOperationException("写工具闸不应被一并撤掉。");
-
-    var sensitiveLocations = SensitiveLocations.From(new FileSystemPolicyConfig(), configFilePath: null);
-    // Off 档全程不弹窗，浏览器任务可成批；Balanced 会弹窗，必须退回串行。
-    if (!ToolCallParallelism.IsParallelSafe("run_browser_task", "{}", ToolApprovalMode.Off, sensitiveLocations))
-        throw new InvalidOperationException("Off 档下浏览器任务应可并发。");
-    if (ToolCallParallelism.IsParallelSafe("run_browser_task", "{}", ToolApprovalMode.Balanced, sensitiveLocations))
-        throw new InvalidOperationException("Balanced 档下浏览器任务会弹窗，不得并发。");
-    if (ToolCallParallelism.IsParallelSafe("write_system_file", "{}", ToolApprovalMode.Off, sensitiveLocations))
-        throw new InvalidOperationException("写工具不得因浏览器例外被一并放行。");
-
-    // —— 默认值 ——
-    var defaults = new AppConfig();
-    if (defaults.BrowserMaxSteps != 25)
-        throw new InvalidOperationException("浏览器步数默认值应为 25：12 步跑不完一个真实流程。");
-    if (!defaults.BrowserPersistSession)
-        throw new InvalidOperationException("默认应保留浏览器登录态，否则每个任务都从零登录态起步。");
-    if (defaults.BrowserSomMaxElements != 150)
-        throw new InvalidOperationException("SoM 标注上限默认值应为 150：80 个盖不住一个真实页面的可交互元素。");
-
-    // —— 旧默认值的一次性迁移（v6 → v7 的步数/登录态，v7 → v8 的标注上限）——
-    var legacy = new AppConfig { BrowserMaxSteps = 12, BrowserPersistSession = false, BrowserSomMaxElements = 80 };
-    AppConfigNormalizer.MigrateBrowserDefaults(legacy);
-    if (legacy.BrowserMaxSteps != 25 || !legacy.BrowserPersistSession || legacy.BrowserSomMaxElements != 150)
-        throw new InvalidOperationException("旧的浏览器默认值未在迁移中归位。");
-
-    // 用户自己填的标注上限同样不该被迁移改写。
-    var chosenMarks = new AppConfig { BrowserSomMaxElements = 60 };
-    AppConfigNormalizer.MigrateBrowserDefaults(chosenMarks);
-    if (chosenMarks.BrowserSomMaxElements != 60)
-        throw new InvalidOperationException("迁移覆盖了用户显式设置的标注上限。");
-
-    // 上界抬到 300：模型可以在单次任务里要更多标记，钳制区间必须跟着放开。
-    var greedy = new AppConfig { BrowserSomMaxElements = 500 };
-    AppConfigNormalizer.NormalizeBrowser(greedy);
-    if (greedy.BrowserSomMaxElements != 300)
-        throw new InvalidOperationException("标注上限的钳制区间应为 10~300。");
-
-    // 用户自己填过的步数不属于"旧默认"，迁移必须放过——否则每次保存都会跟用户较劲。
-    var chosen = new AppConfig { BrowserMaxSteps = 40 };
-    AppConfigNormalizer.MigrateBrowserDefaults(chosen);
-    if (chosen.BrowserMaxSteps != 40)
-        throw new InvalidOperationException("迁移覆盖了用户显式设置的浏览器步数预算。");
-
-    // 每次保存都会跑的归一化不得做一次性迁移。
-    var stable = new AppConfig { BrowserMaxSteps = 12, BrowserPersistSession = false };
-    AppConfigNormalizer.NormalizeBrowser(stable);
-    if (stable.BrowserMaxSteps != 12 || stable.BrowserPersistSession)
-        throw new InvalidOperationException("NormalizeBrowser 属于每次保存路径，不得做一次性迁移。");
-
-    // —— 配置面：不再暴露对 PNG 无效的图片质量旋钮 ——
-    var surface = new ConfigSurfaceService();
-    var browserFields = JsonSerializer.SerializeToNode(surface.BuildView(new AppConfig(), "Browser"))!
-        ["sections"]!.AsArray()
-        .First(section => section!["name"]!.GetValue<string>() == "Browser")!["fields"]!.AsArray()
-        .Select(field => field!["key"]!.GetValue<string>())
-        .ToList();
-    if (browserFields.Contains("Browser.ImageQuality"))
-        throw new InvalidOperationException("Browser.ImageQuality 是空旋钮（PNG 编码器忽略 quality 参数），不应再出现在配置面。");
-    if (!browserFields.Contains("Browser.MaxSteps"))
-        throw new InvalidOperationException("配置面缺少 Browser.MaxSteps。");
-
-    // —— send_keys 键名归一化 ——
-    // 模型写的是自然语言里的键名。原样透传给 Playwright 换来的是 Unknown key，
-    // 一次拼写差异就烧掉一整步，而那一步往往正是"提交表单"。
-    foreach (var (raw, expected) in new[]
-             {
-                 ("ENTER", "Enter"), ("enter", "Enter"), ("Return", "Enter"),
-                 ("esc", "Escape"), ("TAB", "Tab"), ("pageup", "PageUp"),
-                 ("down", "ArrowDown"), ("arrow_up", "ArrowUp"),
-                 ("ctrl+a", "Control+a"), ("CMD+Shift+P", "Meta+Shift+P"),
-                 ("f12", "F12"), (" Enter ", "Enter")
-             })
-    {
-        var actual = BrowserKeyNames.Normalize(raw);
-        if (actual != expected)
-            throw new InvalidOperationException($"键名归一化错误：{raw} → {actual}，应为 {expected}。");
-    }
-
-    // 单字符是字面量，大小写在 Playwright 里有语义，不能被"顺手规范化"掉。
-    if (BrowserKeyNames.Normalize("a") != "a" || BrowserKeyNames.Normalize("A") != "A")
-        throw new InvalidOperationException("单字符键必须原样传递。");
-    // 认不出来的键名交给 Playwright 报错，不要在这里猜。
-    if (BrowserKeyNames.Normalize("MediaTrackNext") != "MediaTrackNext")
-        throw new InvalidOperationException("未知键名不应被改写。");
-
-    Console.WriteLine("[PASS] Browser agent hardening: gate lifted, batching allowed under Off, legacy defaults migrated, key names normalized, dead knob retired");
+    const string tool = "run_computer_task";
+    var locations = SensitiveLocations.From(new AppConfig().FileSystemPolicy, null);
+    if (ToolRiskClassifier.Classify(tool, "{}", locations).Risk != ToolRisk.Sensitive
+        || !ToolRiskClassifier.IsNeverUnattended(tool))
+        throw new InvalidOperationException("Computer Use must remain approval-gated and interactive.");
+    if (ToolCallParallelism.IsParallelSafe(tool, "{}", ToolApprovalMode.Off, locations))
+        throw new InvalidOperationException("Computer Use must run serially even with approvals off.");
+    if (SubAgentTypes.Resolve("general").AllowedTools.Contains(tool)
+        || SubAgentTypes.Resolve("researcher").AllowedTools.Contains(tool))
+        throw new InvalidOperationException("Desktop input must not be granted to parallel sub-agents.");
+    Console.WriteLine("[PASS] Computer Use is sensitive, interactive, and serial");
 }
 
 static void TestVirtualPetStateMachine()
@@ -3889,11 +3807,6 @@ static void TestConfigurationSession(string artifactDirectory)
     if (session.Current.TerminalAllowlist.Contains("characterization-command"))
         throw new InvalidOperationException("App Settings did not revoke the terminal allowlist entry.");
 
-    diagnosticsPage.TestBrowserRuntimeCommand.ExecuteAsync(null).GetAwaiter().GetResult();
-    diagnosticsPage.TestBrowserAgentCommand.ExecuteAsync(null).GetAwaiter().GetResult();
-    if (string.IsNullOrWhiteSpace(diagnosticsPage.BrowserRuntimeStatus)
-        || string.IsNullOrWhiteSpace(diagnosticsPage.BrowserAgentTestStatus))
-        throw new InvalidOperationException("App Settings browser diagnostics did not surface unavailable-service status.");
     if (string.IsNullOrWhiteSpace(diagnosticsPage.MetadataDiagnosticsStatus))
         throw new InvalidOperationException("App Settings did not surface structured metadata diagnostics.");
     diagnosticsPage.ClearMetadataCacheCommand.ExecuteAsync(null).GetAwaiter().GetResult();
@@ -3968,8 +3881,7 @@ static void TestConfigurationSession(string artifactDirectory)
     if (appSettings.Sections.Count != 6
         || !ReferenceEquals(appSettings.General.State, appSettings.ConversationContext.State)
         || !ReferenceEquals(appSettings.General.State, appSettings.ToolApproval.State)
-        || !ReferenceEquals(appSettings.General.State, appSettings.AgentRuntime.State)
-        || !ReferenceEquals(appSettings.General.State, appSettings.RuntimeDiagnostics.State))
+        || !ReferenceEquals(appSettings.General.State, appSettings.AgentRuntime.State))
         throw new InvalidOperationException("App Settings pages must share one settings state and expose six semantic sections.");
     settingsLocalization.SwitchLanguage("en-US");
     if (appSettings.Sections[0].Title != "General"
@@ -4108,7 +4020,7 @@ static void TestConfigurationSession(string artifactDirectory)
     Console.WriteLine("[PASS] external configuration replacement reaches every settings page as one shared instance");
     Console.WriteLine("[PASS] document parser mode controls precision-token availability");
     Console.WriteLine("[PASS] Web Search and audio diagnostics expose success, failure, and playback cancellation");
-    Console.WriteLine("[PASS] App Settings page VMs own approval-list revocation and browser diagnostics");
+    Console.WriteLine("[PASS] App Settings page VMs own approval-list revocation and metadata diagnostics");
     Console.WriteLine("[PASS] App Settings uses six semantic pages, shared state, and a single content host");
     Console.WriteLine("[PASS] App Settings navigation follows live localization changes");
     Console.WriteLine("[PASS] font-size selector persists the level, scales resources, and follows config changes");
@@ -7846,7 +7758,7 @@ static void TestSelfConfigurationSurface()
     var view = JsonSerializer.SerializeToNode(surface.BuildView(config, null))!;
     var sections = view["sections"]!.AsArray();
     var names = sections.Select(section => section!["name"]!.GetValue<string>()).ToList();
-    if (!names.Contains("AI") || !names.Contains("Context") || !names.Contains("Browser")
+    if (!names.Contains("AI") || !names.Contains("Context")
         || !names.Contains("Security") || !names.Contains("Runtime"))
         throw new InvalidOperationException($"View must expose the full section list, got: {string.Join(", ", names)}");
     var aiFields = sections.First(section => section!["name"]!.GetValue<string>() == "AI")!["fields"]!.AsArray();
@@ -7864,8 +7776,10 @@ static void TestSelfConfigurationSurface()
         || providers[0]!["apiKeySet"]!.GetValue<bool>() != true)
         throw new InvalidOperationException("Summary must list providers with id and key-presence, never the key itself.");
     var roleBindings = view["summary"]!["roleBindings"]!.AsArray();
-    if (roleBindings.Count != 9 || roleBindings[0]!["role"]!.GetValue<string>() != "MainConversation")
-        throw new InvalidOperationException("Summary must enumerate all nine role bindings.");
+    string[] expectedRoles = ["MainConversation", "TitleGeneration", "ContextCompression", "Approval",
+        "Embedding", "SubAgent", "KnowledgeMaintenance", "ImageRecognition"];
+    if (!roleBindings.Select(binding => binding!["role"]!.GetValue<string>()).SequenceEqual(expectedRoles))
+        throw new InvalidOperationException("Summary must enumerate the active model role bindings.");
 
     // 旧分区名别名
     var memoryView = JsonSerializer.SerializeToNode(surface.BuildView(config, "Memory"))!;
@@ -7901,9 +7815,6 @@ static void TestSelfConfigurationSurface()
 
     Apply("Theme", "Light", true);
     if (config.Theme != "Light") throw new InvalidOperationException("Theme apply did not stick.");
-    Apply("Browser.MaxSteps", "7", true);
-    if (config.BrowserMaxSteps != 7) throw new InvalidOperationException("Browser.MaxSteps apply did not stick.");
-    Apply("Browser.MaxSteps", "999", false);
     Apply("Theme", "Neon", false);
     Apply("NoSuchKey", "1", false);
     Apply("Runtime.ConfigSchemaVersion", "9", false);
@@ -7924,10 +7835,6 @@ static void TestSelfConfigurationSurface()
     if (config.ToolApprovalMode != ToolApprovalMode.Strict) throw new InvalidOperationException("ToolApprovalMode enum apply did not stick.");
     Apply("MainConversation.Model", "deepseek-v4-pro", true);
     if (config.AiModels.MainConversation.Model != "deepseek-v4-pro") throw new InvalidOperationException("Role model apply did not stick.");
-    Apply("Browser.ScreenshotScale", "1.5", true);
-    if (Math.Abs(config.BrowserScreenshotScale - 1.5) > 1e-9) throw new InvalidOperationException("Number apply did not stick.");
-    Apply("Browser.ScreenshotScale", "3.0", false);
-
     Console.WriteLine("[PASS] Self-configuration surface is declarative: projection redacts secrets; modify enforces types, ranges, aliases");
 }
 
@@ -9406,7 +9313,6 @@ static void TestAuxiliaryRolesSendNoTemperature()
             AiModelRole.ContextCompression => config.AiModels.ContextCompression,
             AiModelRole.Approval => config.AiModels.Approval,
             AiModelRole.Embedding => config.AiModels.Embedding,
-            AiModelRole.BrowserAgent => config.AiModels.BrowserAgent,
             AiModelRole.SubAgent => config.AiModels.SubAgent,
             AiModelRole.KnowledgeMaintenance => config.AiModels.KnowledgeMaintenance,
             AiModelRole.ImageRecognition => config.AiModels.ImageRecognition,

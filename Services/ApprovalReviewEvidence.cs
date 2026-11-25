@@ -48,7 +48,7 @@ internal sealed class ApprovalReviewEvidence
             "execute_terminal_command" => "Runs the specified executable with these arguments and working directory.",
             "fetch_url_to_file" => "Downloads a public resource and writes it at the destination.",
             "execute_program" => "Starts a bounded in-process JavaScript interpreter with a grant for read-only filesystem tools. Each child call is reviewed before execution.",
-            "run_browser_task" => "A browser agent may navigate, submit forms or upload files.",
+            "run_computer_task" => "A computer-use agent can view and act on the selected desktop window.",
             "dispatch_subagents" => "Delegates these instructions to agents with their own tools.",
             "mcp_call_tool" => "Invokes the named tool on an external MCP server.",
             "generate_image" => "Sends a generation request to the configured image service.",

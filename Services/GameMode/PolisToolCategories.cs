@@ -15,7 +15,7 @@ public enum PolisActionCategory
     Write,
     /// <summary>执行终端命令：在锻炉前锻打。</summary>
     Terminal,
-    /// <summary>网页搜索、抓取、浏览器任务：从港口放船出海。</summary>
+    /// <summary>网页搜索和抓取：从港口放船出海。</summary>
     Web,
     /// <summary>读写记忆：去图书馆放入或取出卷轴。</summary>
     Memory,
@@ -72,7 +72,6 @@ public static class PolisToolCategories
         // 港口
         ["web_search"] = PolisActionCategory.Web,
         ["fetch_url_to_file"] = PolisActionCategory.Web,
-        ["run_browser_task"] = PolisActionCategory.Web,
 
         // 图书馆
         ["recall_from_memory"] = PolisActionCategory.Memory,
@@ -81,7 +80,8 @@ public static class PolisToolCategories
         // 黄金侍女
         ["dispatch_subagents"] = PolisActionCategory.SubAgents,
 
-        // 工坊：配置、定时任务、图像、技能、MCP 管理与调用
+        // 工坊：电脑操作、配置、定时任务、图像、技能、MCP 管理与调用
+        ["run_computer_task"] = PolisActionCategory.Workshop,
         ["view_self_configuration"] = PolisActionCategory.Workshop,
         ["execute_program"] = PolisActionCategory.Workshop,
         ["modify_self_configuration"] = PolisActionCategory.Workshop,

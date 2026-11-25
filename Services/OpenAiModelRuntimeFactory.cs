@@ -104,7 +104,6 @@ public sealed class OpenAiModelRuntimeFactory
         AiModelRole.ContextCompression => config.AiModels.ContextCompression,
         AiModelRole.Approval => config.AiModels.Approval,
         AiModelRole.Embedding => config.AiModels.Embedding,
-        AiModelRole.BrowserAgent => config.AiModels.BrowserAgent,
         AiModelRole.SubAgent => config.AiModels.SubAgent,
         AiModelRole.KnowledgeMaintenance => config.AiModels.KnowledgeMaintenance,
         AiModelRole.ImageRecognition => config.AiModels.ImageRecognition,

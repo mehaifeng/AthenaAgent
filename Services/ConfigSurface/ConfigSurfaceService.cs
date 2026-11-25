@@ -136,7 +136,6 @@ public sealed class ConfigSurfaceService : IConfigSurfaceService
             "ContextCompression" => config.AiModels.ContextCompression,
             "Approval" => config.AiModels.Approval,
             "Embedding" => config.AiModels.Embedding,
-            "BrowserAgent" => config.AiModels.BrowserAgent,
             "SubAgent" => config.AiModels.SubAgent,
             "KnowledgeMaintenance" => config.AiModels.KnowledgeMaintenance,
             "ImageRecognition" => config.AiModels.ImageRecognition,
@@ -164,7 +163,6 @@ public sealed class ConfigSurfaceService : IConfigSurfaceService
                 ("ContextCompression", config.AiModels.ContextCompression),
                 ("Approval", config.AiModels.Approval),
                 ("Embedding", config.AiModels.Embedding),
-                ("BrowserAgent", config.AiModels.BrowserAgent),
                 ("SubAgent", config.AiModels.SubAgent),
                 ("KnowledgeMaintenance", config.AiModels.KnowledgeMaintenance),
                 ("ImageRecognition", config.AiModels.ImageRecognition)

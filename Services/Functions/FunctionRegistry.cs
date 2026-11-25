@@ -26,6 +26,7 @@ public class FunctionRegistry : IFunctionRegistry
     private readonly IConfigService? _configService;
     private readonly IToolApprovalService? _approvalService;
     private readonly PtcFunctions _ptcFunctions;
+    private readonly ComputerUseFunctions _computerUseFunctions;
 
     public bool HasFunctions => _tools.Count > 0;
 
@@ -38,7 +39,7 @@ public class FunctionRegistry : IFunctionRegistry
         WebSearchFunctions webSearchFunctions,
         WebFetchFunctions webFetchFunctions,
         ImageGenerationFunctions imageGenerationFunctions,
-        BrowserTaskFunctions browserTaskFunctions,
+        ComputerUseFunctions computerUseFunctions,
         SubAgentFunctions subAgentFunctions,
         DocumentParserFunctions documentParserFunctions,
         SpreadsheetFunctions spreadsheetFunctions,
@@ -52,6 +53,7 @@ public class FunctionRegistry : IFunctionRegistry
         McpManagementFunctions? mcpManagementFunctions = null,
         SkillFunctions? skillFunctions = null)
     {
+        _computerUseFunctions = computerUseFunctions;
         _configService = configService;
         _approvalService = approvalService;
         _logger = logger.ForContext<FunctionRegistry>();
@@ -439,18 +441,16 @@ public class FunctionRegistry : IFunctionRegistry
                 required = new[] { "prompt" }
             });
 
-        // --- Headless Browser (high-level entry only) ---
-        RegisterFunction("run_browser_task", browserTaskFunctions.RunBrowserTaskAsync,
-            "Runs an isolated visual Chromium task for interactive or JavaScript-driven pages: navigation, visible-page inspection, clicking, form entry, or file upload. Prefer web_search for ordinary public-information research. Browser and Browser Vision must be configured.",
+        RegisterFunction("run_computer_task", computerUseFunctions.RunComputerTaskAsync,
+            "Uses screenshots and Cua Driver to operate the user's selected desktop window, including browser windows. "
+            + "Ask the user to select the intended window from Athena's Computer Use panel before calling. Prefer web_search for ordinary public research.",
             new
             {
                 type = "object",
                 properties = new
                 {
-                    instruction = new { type = "string", minLength = 1, maxLength = 8000, description = "Self-contained browser goal, constraints, and stopping condition." },
-                    startUrl = new { type = "string", minLength = 1, maxLength = 4096, pattern = "^https?://", description = "Optional initial HTTP(S) URL." },
-                    maxSteps = new { type = "integer", minimum = 1, maximum = 50, description = "Optional hard step limit. If omitted, the current Browser.MaxSteps setting is used." },
-                    somMaxElements = new { type = "integer", minimum = 10, maximum = 300, description = "Optional cap on how many interactive elements each screenshot numbers (Set-of-Marks). If omitted, the current Browser.SomMaxElements setting is used. Raise it for dense pages such as long tables, dashboards, or admin consoles where the target control may fall outside the default budget; lower it for simple pages to keep the screenshot uncluttered." }
+                    instruction = new { type = "string", minLength = 1, maxLength = 4000,
+                        description = "The user's goal, scope, and observable completion condition for the selected window." }
                 },
                 required = new[] { "instruction" }
             });
@@ -1147,8 +1147,8 @@ public class FunctionRegistry : IFunctionRegistry
                 continue;
             }
 
-            if (string.Equals(chatTool.FunctionName, "run_browser_task", StringComparison.OrdinalIgnoreCase)
-                && config?.BrowserEnabled != true)
+            if (string.Equals(chatTool.FunctionName, "run_computer_task", StringComparison.OrdinalIgnoreCase)
+                && !_computerUseFunctions.IsAvailable)
             {
                 continue;
             }

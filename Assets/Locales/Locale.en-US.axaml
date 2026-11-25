@@ -154,7 +154,6 @@
     <system:String x:Key="Config.ModelRole.Browser">Automatic browser</system:String>
     <system:String x:Key="Config.SubAgentParameters">Sub-agent parameters</system:String>
     <system:String x:Key="Config.KnowledgeMaintenance">Knowledge maintenance</system:String>
-    <system:String x:Key="Config.BrowserUnifiedModelHint">Automatic browser uses the Automatic browser role under Settings → Providers and model roles.</system:String>
     <system:String x:Key="Config.ModelRole.SubAgent">Sub-agent</system:String>
     <system:String x:Key="Config.ModelRole.Maintenance">Knowledge maintenance</system:String>
     <system:String x:Key="Config.SectionSecondaryAI">Secondary model</system:String>
@@ -511,7 +510,6 @@
     <system:String x:Key="ProviderModels.Role.TitleGeneration">Title generation</system:String>
     <system:String x:Key="ProviderModels.Role.ContextCompression">Context compression</system:String>
     <system:String x:Key="ProviderModels.Role.Approval">Automatic approval</system:String>
-    <system:String x:Key="ProviderModels.Role.BrowserAgent">Browser agent</system:String>
     <system:String x:Key="ProviderModels.Role.SubAgent">Sub-agent</system:String>
     <system:String x:Key="ProviderModels.Role.KnowledgeMaintenance">Knowledge maintenance</system:String>
     <system:String x:Key="ProviderModels.Role.ImageRecognition">Image recognition</system:String>
@@ -704,9 +702,6 @@
     <system:String x:Key="Settings.Diagnostics.MetadataCacheCleared">Downloaded metadata cache was cleared; bundled seed remains available.</system:String>
     <system:String x:Key="Settings.Diagnostics.ClearFailed">Clear failed: {0}</system:String>
     <system:String x:Key="Settings.Diagnostics.MetadataSummary">Revision {0} · {1:N0} models · fetched {2:g} · {3}</system:String>
-    <system:String x:Key="Settings.Diagnostics.BrowserRuntime">Browser runtime</system:String>
-    <system:String x:Key="Settings.Diagnostics.BrowserRuntimeHint">Automatic browser needs a local Chromium runtime. Install it here when missing.</system:String>
-    <system:String x:Key="Settings.Diagnostics.BrowserAgent">Automatic browser model</system:String>
 
     <system:String x:Key="About.Header">About Athena</system:String>
     <system:String x:Key="About.Subtitle">Athena — AI desktop assistant</system:String>
@@ -830,34 +825,9 @@
     <system:String x:Key="Connectors.Provider.Description.WebSearch.Baidu">Baidu intelligent Web Search using an API key and App ID.</system:String>
 
     <!-- Headless Browser -->
-    <system:String x:Key="Config.Browser">Browser automation</system:String>
-    <system:String x:Key="Config.BrowserDescription">When enabled, Athena can view and operate web pages inside an isolated session. Underlying operations do not enter the main chat context.</system:String>
-    <system:String x:Key="Config.BrowserEnabled">Enable browser automation:</system:String>
-    <system:String x:Key="Config.BrowserObservationMode">Observation mode:</system:String>
-    <system:String x:Key="Config.BrowserStructuredOutputMode">Structured output:</system:String>
-    <system:String x:Key="Config.BrowserStructuredOutputModeHint">Auto: ask the model for a JSON object, downgrading automatically if the backend rejects it. JsonObject: force it (errors if unsupported). PromptOnly: rely on prompt wording only, compatible with any backend.</system:String>
-    <system:String x:Key="Config.BrowserHeadless">Headless mode:</system:String>
-    <system:String x:Key="Config.BrowserDiagnostics">Runtime diagnostics</system:String>
-    <system:String x:Key="Config.BrowserRuntimeStatus">Browser runtime:</system:String>
-    <system:String x:Key="Config.BrowserTestRuntime">Test runtime</system:String>
-    <system:String x:Key="Config.BrowserInstallRuntime">Install Chromium</system:String>
-    <system:String x:Key="Config.BrowserRuntime">Runtime</system:String>
-    <system:String x:Key="Config.BrowserViewportWidth">Viewport width:</system:String>
-    <system:String x:Key="Config.BrowserViewportHeight">Viewport height:</system:String>
-    <system:String x:Key="Config.BrowserOperationTimeout">Step timeout (sec):</system:String>
-    <system:String x:Key="Config.BrowserMaxSteps">Max steps:</system:String>
-    <system:String x:Key="Config.BrowserSessionPolicy">Session policy</system:String>
-    <system:String x:Key="Config.BrowserSessionTtl">Session retention (min):</system:String>
-    <system:String x:Key="Config.BrowserPersistSession">Keep session state:</system:String>
-    <system:String x:Key="Config.BrowserDownloadEnabled">Allow downloads:</system:String>
-    <system:String x:Key="Config.BrowserElementMap">Element markup</system:String>
-    <system:String x:Key="Config.BrowserSomMaxElements">Max marked elements:</system:String>
-    <system:String x:Key="Config.BrowserSomIncludeText">Include element text:</system:String>
-    <system:String x:Key="Config.BrowserScreenshotScale">Screenshot scale:</system:String>
     <system:String x:Key="Config.CredentialSource">API Key source:</system:String>
     <system:String x:Key="Config.CredentialSourceInherit">Same as primary</system:String>
     <system:String x:Key="Config.CredentialSourceCustom">Custom</system:String>
-    <system:String x:Key="Config.BrowserVisionCapabilityHint">Currently in vision-marked (SoM) mode. The browser model must support image understanding: if "Same as primary", make sure the primary model is vision-capable; otherwise select a vision-capable model below. Click "Test" to verify (a probe image is sent).</system:String>
 
     <!-- Sub-Agents -->
     <system:String x:Key="Config.SubAgents">Parallel sub-agents</system:String>
@@ -876,7 +846,6 @@
     <system:String x:Key="Status.EnableAudioOutputFirst">Please enable voice first</system:String>
     <system:String x:Key="Status.EnableWebSearchFirst">Please enable web search first</system:String>
     <system:String x:Key="Status.EnableBrowserFirst">Please enable browser automation first</system:String>
-    <system:String x:Key="Status.InstallingBrowserRuntime">Installing browser runtime…</system:String>
 
     <!-- Tool Execution Status -->
     <system:String x:Key="Tool.Calling">Calling tool: {0}…</system:String>
@@ -901,7 +870,6 @@
     <system:String x:Key="Tool.Name.DeleteFile">Delete file</system:String>
     <system:String x:Key="Tool.Name.ExecuteCommand">Run command</system:String>
     <system:String x:Key="Tool.Name.GenerateImage">Generate image</system:String>
-    <system:String x:Key="Tool.Name.BrowserTask">Browser task</system:String>
     <system:String x:Key="Tool.Name.CreateTask">Create task</system:String>
     <system:String x:Key="Tool.Name.ListTasks">List tasks</system:String>
     <system:String x:Key="Tool.Name.CancelTask">Cancel task</system:String>
@@ -1228,7 +1196,6 @@
     <system:String x:Key="SubAgent.Status.MaxSteps">Exceeded max steps</system:String>
     <system:String x:Key="SubAgent.Status.Failed">Failed</system:String>
     <system:String x:Key="SubAgent.Status.Cancelled">Cancelled</system:String>
-    <system:String x:Key="SubAgent.Action.BrowserTask">Browser task in progress</system:String>
     <system:String x:Key="SubAgent.Action.WebSearch">Web search in progress</system:String>
     <system:String x:Key="SubAgent.Action.RecallMemory">Recalling memory</system:String>
     <system:String x:Key="SubAgent.Action.CreateMemory">Writing memory</system:String>
@@ -1881,4 +1848,35 @@
     <x:String x:Key="Timeline.State.NotStarted">Not started</x:String>
     <x:String x:Key="Timeline.State.OutcomeUnknown">Outcome unknown</x:String>
     <x:String x:Key="Timeline.State.Incomplete">Incomplete</x:String>
+
+    <!-- Computer Use -->
+    <x:String x:Key="ComputerUse.PreviewHint">Window preview and AI cursor</x:String>
+    <x:String x:Key="ComputerUse.PlayDemo">Run demo</x:String>
+    <x:String x:Key="ComputerUse.Stop">Stop</x:String>
+    <x:String x:Key="ComputerUse.Target">Target window</x:String>
+    <x:String x:Key="ComputerUse.SelectTarget">Select a window to operate</x:String>
+    <x:String x:Key="ComputerUse.Refresh">Refresh</x:String>
+    <x:String x:Key="ComputerUse.EmptyPreview">The window appears here when a task starts</x:String>
+    <x:String x:Key="ComputerUse.Ready">Ready</x:String>
+    <x:String x:Key="ComputerUse.TargetReady">Window selected. Ask Athena to operate it in chat.</x:String>
+    <x:String x:Key="ComputerUse.Unavailable">Computer Use unavailable</x:String>
+    <x:String x:Key="ComputerUse.Observing">Observing window</x:String>
+    <x:String x:Key="ComputerUse.Moving">Moving the AI cursor</x:String>
+    <x:String x:Key="ComputerUse.Clicking">Clicked</x:String>
+    <x:String x:Key="ComputerUse.Typing">Entering text</x:String>
+    <x:String x:Key="ComputerUse.OtherAction">Input sent</x:String>
+    <x:String x:Key="ComputerUse.Completed">Completed</x:String>
+    <x:String x:Key="ComputerUse.Stopped">Stopped</x:String>
+    <x:String x:Key="ComputerUse.Failed">Computer Use could not finish</x:String>
+    <x:String x:Key="ComputerUse.DemoTarget">Athena · CU Demo Target</x:String>
+    <x:String x:Key="ComputerUse.DemoForm">Demo form</x:String>
+    <x:String x:Key="ComputerUse.DemoField">Title</x:String>
+    <x:String x:Key="ComputerUse.DemoInputHint">Waiting for Athena</x:String>
+    <x:String x:Key="ComputerUse.DemoConfirm">Confirm</x:String>
+    <x:String x:Key="ComputerUse.DemoWaiting">Waiting for input and confirmation</x:String>
+    <x:String x:Key="ComputerUse.DemoRecorded">Confirmed</x:String>
+    <x:String x:Key="ComputerUse.DemoSuccess">The target window confirmed the text entered by Cua Driver.</x:String>
+    <x:String x:Key="ComputerUse.DemoUnverified">The target window did not confirm the entered text.</x:String>
+    <x:String x:Key="ComputerUse.DemoWindowMissing">The driver did not find the demo window.</x:String>
+    <x:String x:Key="ComputerUse.ToolName">Computer Use</x:String>
 </ResourceDictionary>

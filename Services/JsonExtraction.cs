@@ -1,6 +1,6 @@
 using System.Text.Json;
 
-namespace Athena.UI.Services.Browser;
+namespace Athena.UI.Services;
 
 /// <summary>
 /// 从可能夹带围栏/前后散文的模型输出里，安全提取"第一个配平的顶层 JSON 对象"。
