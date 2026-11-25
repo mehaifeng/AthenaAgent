@@ -21,6 +21,7 @@ using Athena.UI.Converters;
 using Athena.UI.Models;
 using Athena.UI.Models.Skills;
 using Athena.UI.Services;
+using Athena.UI.Services.ComputerUse;
 using Athena.UI.Services.Cron;
 using Athena.UI.Services.Interfaces;
 using Athena.UI.Services.Context;
@@ -175,6 +176,13 @@ if (Environment.GetEnvironmentVariable("ATHENA_HEADLESS_ONLY") == "game-mode")
     TestGameModeDebate();
     Environment.Exit(0);
 }
+if (Environment.GetEnvironmentVariable("ATHENA_HEADLESS_ONLY") == "computer-use")
+{
+    TestComputerUseToolPolicy();
+    TestComputerUseBrowserTarget();
+    TestEmbeddedBrowserPane(Environment.GetEnvironmentVariable("ATHENA_BROWSER_SMOKE") == "1", args.Length == 0 ? null : outputPath);
+    Environment.Exit(0);
+}
 OnboardingEntranceTests.Run(outputPath);
 GitBranchTests.Run(outputPath);
 OwlAnimationTests.Run(outputPath);
@@ -184,6 +192,8 @@ if (Environment.GetEnvironmentVariable("ATHENA_OWL_TEST_ONLY") == "1")
 }
 TestMermaidMarkdownRendering();
 TestComputerUseToolPolicy();
+TestComputerUseBrowserTarget();
+TestEmbeddedBrowserPane(runChrome: false);
 TestVirtualPetStateMachine();
 TestVirtualPetProgression();
 TestVirtualPetInteractionSurface();
@@ -2437,6 +2447,277 @@ static void TestComputerUseToolPolicy()
         || SubAgentTypes.Resolve("researcher").AllowedTools.Contains(tool))
         throw new InvalidOperationException("Desktop input must not be granted to parallel sub-agents.");
     Console.WriteLine("[PASS] Computer Use is sensitive, interactive, and serial");
+}
+
+static void TestComputerUseBrowserTarget()
+{
+    var target = ComputerUseTarget.FromBrowserAddress("https://www.wikipedia.org/");
+    if (target?.BrowserUri?.Host != "www.wikipedia.org"
+        || ComputerUseTarget.FromBrowserAddress("file:///etc/passwd") is not null
+        || ComputerUseTarget.FromBrowserAddress("https://user:pass@example.org") is not null)
+        throw new InvalidOperationException("Browser targets must use HTTP or HTTPS without embedded credentials.");
+
+    var frame = new ComputerUseFrame([], "image/png", 1200, 800, "", null,
+        [new ComputerUseElement(1, "", "button", "Search", 800, 250)], CursorInPage: true);
+    if (ComputerUseService.ResolveActionPoint(frame, new ComputerUseAction("click", 2, 4, Element: 1)) != (800, 250)
+        || ComputerUseService.ResolveActionPoint(frame, new ComputerUseAction("click", 2, 4)) != (2, 4)
+        || ComputerUseService.ResolveActionPoint(frame, new ComputerUseAction("scroll", Direction: "down")) != (600, 400)
+        || ComputerUseService.ResolveActionPoint(frame, new ComputerUseAction("press_key", Key: "Home")) != (600, 400))
+        throw new InvalidOperationException("Browser input must use the observed control or a pixel from the current screenshot.");
+
+    var config = new AppConfig();
+    config.AiModels.Providers.Add(new OpenAiProviderConfiguration
+    {
+        BaseUrl = "https://api.deepseek.com.example.org", ApiKey = "proxy-key"
+    });
+    config.AiModels.Providers.Add(new OpenAiProviderConfiguration
+    {
+        BaseUrl = "https://api.deepseek.com/v1", ApiKey = "official-key"
+    });
+    var model = ComputerUsePlanner.ResolveBrowserModel(config);
+    if (model is not { BaseUrl: "https://api.deepseek.com", Model: "deepseek-flash",
+            ApiKey: "official-key", Protocol: ProviderProtocol.Responses })
+        throw new InvalidOperationException("Browser Computer Use must resolve the configured official Flash connection.");
+
+    var factory = new OpenAiModelRuntimeFactory(new HeadlessConfigService(config));
+    var planner = new ComputerUsePlanner(config, factory, "Check two articles.", browser: true);
+    var firstPage = frame with { BrowserUri = new Uri("https://example.org/article-a") };
+    var secondPage = frame with { BrowserUri = new Uri("https://example.org/article-b"), Tree = "Article B" };
+    planner.RememberProgress(firstPage, new ComputerUseAction("click", Summary: "Article A confirmed the date."));
+    planner.RememberProgress(secondPage, new ComputerUseAction("scroll", Summary: "Article B confirmed the location."));
+    planner.RememberProgress(secondPage, new ComputerUseAction("scroll"));
+    var nextReport = planner.BuildObservationReport(secondPage, "Page opened.", 3);
+    if (!nextReport.Contains("https://example.org/article-a: Article A confirmed the date.", StringComparison.Ordinal)
+        || !nextReport.Contains("Progress from previous observations: Article B confirmed the location.", StringComparison.Ordinal)
+        || new ComputerUsePlanner(config, factory, "Start a second task.", browser: true)
+            .BuildObservationReport(frame, "", 0).Contains("Article A", StringComparison.Ordinal))
+        throw new InvalidOperationException("Browser Computer Use must retain evidence across pages within the same task.");
+    Console.WriteLine("[PASS] Browser Computer Use uses the selected webpage, observed points, official DeepSeek Flash, and remembered progress");
+}
+
+static void TestEmbeddedBrowserPane(bool runChrome, string? previewPath = null)
+{
+    var config = new AppConfig();
+    config.MainLayout.RightPanelCollapsed = true;
+    config.ContextPolicy.AutoCompress = false;
+    config.ToolApprovalMode = ToolApprovalMode.Off;
+    var provider = new OpenAiProviderConfiguration
+    {
+        Id = "browser-chat-test", BaseUrl = "https://browser-chat.invalid",
+        ApiKey = "browser-chat-test-key", ProviderPreset = "Custom", Protocol = ProviderProtocol.Responses
+    };
+    provider.Models.Add(new ProviderModelDescriptor { Id = "test-main", Capability = ModelCapability.Text });
+    config.AiModels.Providers.Add(provider);
+    config.AiModels.Providers.Add(new() { BaseUrl = "https://api.deepseek.com", ApiKey = "browser-planner-test-key" });
+    config.AiModels.MainConversation.ProviderId = provider.Id;
+    config.AiModels.MainConversation.Model = "test-main";
+    var configService = new HeadlessConfigService(config);
+    var host = new EmbeddedBrowser();
+    using var models = new BrowserConversationModelFixture();
+    using var http = new HttpClient(models, disposeHandler: false);
+    var transport = new HttpClientPipelineTransport(http);
+    var computerUse = new ComputerUseService(configService, new OpenAiModelRuntimeFactory(configService), Log.Logger, host, transport);
+    var external = new BrowserTestUrlOpener();
+    var localization = new LocalizationService();
+    using var browser = new EmbeddedBrowserViewModel(host, computerUse, localization, external);
+    using var session = new AppConfigurationSession(configService);
+    var fixtureRoot = Directory.CreateTempSubdirectory("athena-browser-conversation-");
+    var paths = new TemporaryPathService(fixtureRoot.FullName);
+    var services = new ServiceCollection();
+    typeof(App).GetMethod("ConfigureServices", BindingFlags.NonPublic | BindingFlags.Static)!.Invoke(null, [services]);
+    services.AddSingleton<IConfigService>(configService);
+    services.AddSingleton<IPlatformPathService>(paths);
+    services.AddSingleton(computerUse);
+    services.AddSingleton(browser);
+    services.AddSingleton<IAppForegroundProbe>(new StubForegroundProbe { IsForeground = true });
+    var prompts = new HeadlessPromptService();
+    services.AddSingleton<IPromptService>(prompts);
+    services.AddSingleton<IChatService>(sp =>
+    {
+        var service = new OpenAIChatService(config, prompts, localization, configService: configService,
+            functionRegistry: sp.GetRequiredService<IFunctionRegistry>(), metadataResolver: new ModelMetadataResolver(new ModelIdentityMatcher()),
+            contextPolicyResolver: new ModelContextPolicyResolver(), requestPreparer: new ContextRequestPreparer(new TokenFingerprintService(paths)));
+        var effective = OpenAiModelRuntimeFactory.Resolve(config, AiModelRole.MainConversation);
+        typeof(OpenAIChatService).GetField("_responsesClient", BindingFlags.Instance | BindingFlags.NonPublic)!
+            .SetValue(service, ResponsesCallHelpers.CreateResponsesClient(effective, 12, transport));
+        return service;
+    });
+    var appProvider = services.BuildServiceProvider();
+    var chatFactory = runChrome ? appProvider.GetRequiredService<ChatSessionFactory>() : null;
+    using var shell = new MainWindowViewModel(null, configService, prompts, null, null, localization, null, paths,
+        null, new TokenService(), null, null, null, null, chatSessionFactory: chatFactory, configurationSession: session, browser: browser);
+    var window = new MainWindow { DataContext = shell, Width = 1440, Height = 900 };
+    window.Show();
+    try
+    {
+        var pane = window.FindControl<EmbeddedBrowserView>("EmbeddedBrowserPane")!;
+        var conversationView = window.FindControl<MainConversationView>("MainConversationView")!;
+        var opener = conversationView.FindControl<Button>("RevealBrowserButton")!;
+        var close = pane.FindControl<Button>("CloseBrowserButton")!;
+        var preview = pane.FindControl<Image>("BrowserImage")!;
+        PumpUntil(() => !shell.IsConversationSwitching && ReferenceEquals(conversationView.DataContext, shell.SelectedConversation?.Chat));
+        var chat = (MainConversationViewModel)conversationView.DataContext!;
+        var linkedPage = new Uri("https://example.org/");
+        chat.OpenMarkdownLinkInSystemBrowserCommand.Execute(linkedPage);
+        chat.OpenMarkdownLinkInSystemBrowserCommand.Execute(new Uri("file:///tmp/athena-browser-test"));
+        if (external.LastAddress != linkedPage.AbsoluteUri || shell.ShowEmbeddedBrowser)
+            throw new InvalidOperationException("Only the explicit HTTP(S) action should open a system browser.");
+        opener.Command!.Execute(null);
+        PumpUntil(() => pane.IsVisible && pane.PreviewEnabled && !config.MainLayout.RightPanelCollapsed);
+        close.Command!.Execute(null);
+        PumpUntil(() => !pane.IsVisible && !pane.PreviewEnabled && !config.MainLayout.RightPanelCollapsed);
+        Console.WriteLine("[PASS] The conversation opens the browser tool and closing it restores the right tools");
+
+        if (!runChrome) return;
+        using var probe = new System.Net.Sockets.TcpListener(IPAddress.Loopback, 0);
+        probe.Start();
+        var site = new Uri($"http://127.0.0.1:{((IPEndPoint)probe.LocalEndpoint).Port}/");
+        probe.Stop();
+        using var listener = new HttpListener();
+        listener.Prefixes.Add(site.AbsoluteUri);
+        listener.Start();
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(40));
+        _ = ServeBrowserFixtureAsync(listener, timeout.Token);
+        var manualPage = new Uri(site, "browse");
+        var startPage = new Uri(site, "start");
+        var destination = new Uri(site, "task");
+        models.StartingUrl = startPage.AbsoluteUri;
+        models.Destination = destination.AbsoluteUri;
+        config.MainLayout.RightPanelCollapsed = true;
+        PumpForCompletion(chat.OpenMarkdownLinkUriCommand.ExecuteAsync(manualPage), "opening an embedded chat link");
+        PumpUntil(() => preview.Source is not null);
+        var browsing = host.BrowsingPage!;
+        if (browser.SelectedTab != 0 || browsing.Address != manualPage || external.LastAddress != linkedPage.AbsoluteUri)
+            throw new InvalidOperationException("A normal chat link must navigate the embedded browsing page.");
+        PumpUntil(() =>
+        {
+            var page = PumpForResult(browsing.Driver.CallAsync("Runtime.evaluate",
+                new { expression = "document.querySelector('a') !== null", returnByValue = true }, timeout.Token),
+                "waiting for the browser fixture");
+            return page.GetProperty("result").TryGetProperty("value", out var ready) && ready.GetBoolean();
+        });
+        using (window.CaptureRenderedFrame()) { }
+        var linkPoint = preview.TranslatePoint(new Point(60, 42), window)
+            ?? throw new InvalidOperationException("The embedded page must provide a pointer target.");
+        window.MouseMove(linkPoint);
+        window.MouseDown(linkPoint, MouseButton.Left);
+        window.MouseUp(linkPoint, MouseButton.Left);
+        var nextAddress = new Uri(site, "more").AbsoluteUri;
+        PumpUntil(() => browser.Address == nextAddress, 5000, "Clicking inside the embedded page did not follow its link.");
+        PumpForCompletion(browser.BackCommand.ExecuteAsync(null), "going back in the embedded browser");
+        PumpUntil(() => browser.Address == manualPage.AbsoluteUri);
+        PumpForCompletion(browser.ForwardCommand.ExecuteAsync(null), "going forward in the embedded browser");
+        PumpUntil(() => browser.Address == nextAddress);
+        config.MainLayout.RightPanelCollapsed = true;
+        PumpUntil(() => preview.Source is null && !pane.PreviewEnabled);
+
+        chat.InputText = $"点击地址栏，导航到 {destination}，填写标题并提交表单";
+        var run = chat.SendMessageCommand.ExecuteAsync(null);
+        PumpUntil(() => models.WaitingToSubmit.Task.IsCompleted && chat.IsSending && browser.IsTask
+            && pane.PreviewEnabled && preview.Source is not null, 15000, "The running task never appeared in the browser pane.");
+        var addressBox = pane.FindControl<TextBox>("TaskAddressBox")!;
+        if (!addressBox.IsReadOnly || addressBox.Text != destination.AbsoluteUri)
+            throw new InvalidOperationException("The task pane must show the navigated address in a read-only field.");
+        if (previewPath is not null)
+        {
+            using var snapshot = window.CaptureRenderedFrame() ?? throw new InvalidOperationException("No browser preview was rendered.");
+            using var output = File.Create(previewPath);
+            snapshot.Save(output, PngBitmapEncoderOptions.Default);
+        }
+        var taskPage = host.TaskPage!;
+        window.Width = 1180;
+        config.MainLayout.RightPanelCollapsed = true;
+        PumpUntil(() => preview.Source is null && !pane.PreviewEnabled);
+        opener.Command!.Execute(null);
+        PumpUntil(() => pane.PreviewEnabled && preview.Source is not null);
+        close.Command!.Execute(null);
+        PumpUntil(() => preview.Source is null && !pane.PreviewEnabled);
+        models.AllowSubmit.TrySetResult();
+        PumpForCompletion(run, "the model's reply after hidden form submission");
+        if (browser.IsOpen || !ReferenceEquals(taskPage, host.TaskPage) || chat.IsSending || models.ChatRequests != 2
+            || !chat.Messages.Any(message => message.Role == "assistant" && message.Content == "done")
+            || !chat.Messages.Any(message => message.Role == "tool" && message.ToolName == "run_computer_task"
+                && message.Content!.Contains("Received Athena verified", StringComparison.Ordinal)))
+            throw new InvalidOperationException("The completed browser task must return to the same chat without reopening the preview.");
+
+        opener.Command!.Execute(null);
+        PumpUntil(() => pane.PreviewEnabled && preview.Source is not null);
+        browser.SelectedTab = 0;
+        PumpUntil(() => preview.Source is not null && ReferenceEquals(browser.CurrentPage, browsing));
+        if (browsing.ContextId == taskPage.ContextId || browsing.Address.AbsoluteUri != nextAddress)
+            throw new InvalidOperationException("The task must keep its page separate from the user's browsing session.");
+        Console.WriteLine("[PASS] Chrome address-bar navigation, live preview, hidden form submission, and the result returning to the main model");
+
+        models.WaitForStop = true;
+        chat.InputText = "在浏览器中执行一个可以停止的任务";
+        var interruptedRun = chat.SendMessageCommand.ExecuteAsync(null);
+        PumpUntil(() => models.WaitingToStop.Task.IsCompleted && chat.IsSending);
+        var stop = conversationView.GetVisualDescendants().OfType<Button>()
+            .Single(button => ReferenceEquals(button.Command, chat.StopResponseCommand));
+        if (!stop.IsVisible || !stop.Command!.CanExecute(null))
+            throw new InvalidOperationException("The composer must offer Stop while the browser task owns the chat turn.");
+        using (window.CaptureRenderedFrame()) { }
+        var stopPoint = stop.TranslatePoint(new Point(stop.Bounds.Width / 2, stop.Bounds.Height / 2), window)
+            ?? throw new InvalidOperationException("The composer stop button must be clickable.");
+        window.MouseDown(stopPoint, MouseButton.Left);
+        window.MouseUp(stopPoint, MouseButton.Left);
+        PumpForCompletion(interruptedRun, "stopping the task from the chat composer");
+        if (!models.DecisionCancelled.Task.IsCompleted || chat.IsSending || models.ChatRequests != 3
+            || !chat.Messages.Any(message => message.Role == "tool" && message.ToolName == "run_computer_task"
+                && message.Content!.Contains("interrupted", StringComparison.OrdinalIgnoreCase)))
+            throw new InvalidOperationException("Stopping the chat must cancel the browser decision and record the interrupted tool call.");
+        Console.WriteLine("[PASS] The composer stop button cancels the running browser task and keeps the tool call paired");
+    }
+    finally
+    {
+        window.Close();
+        shell.Dispose();
+        PumpForCompletion(computerUse.DisposeAsync().AsTask(), "stopping Computer Use");
+        PumpForCompletion(host.DisposeAsync().AsTask(), "closing Chrome");
+        PumpForCompletion(appProvider.DisposeAsync().AsTask(), "disposing browser test services");
+        fixtureRoot.Delete(recursive: true);
+    }
+}
+
+static async Task ServeBrowserFixtureAsync(HttpListener listener, CancellationToken token)
+{
+    try
+    {
+        while (!token.IsCancellationRequested)
+        {
+            var request = await listener.GetContextAsync().WaitAsync(token).ConfigureAwait(false);
+            var html = request.Request.Url?.AbsolutePath switch
+            {
+                "/start" => "<title>Starting page</title><p>Navigate via the browser address bar.</p>",
+                "/task" => """
+                    <title>Browser task</title>
+                    <style>
+                        body { margin:0; background:#edf5f6; color:#16353a; font:22px system-ui,sans-serif }
+                        form { background:white; margin:80px 68px; padding:36px; border-radius:16px }
+                        label, input { display:block }
+                        input, button { font:inherit; padding:8px 12px; margin-top:10px }
+                    </style>
+                    <form action="/result">
+                        <h1>任务验证</h1>
+                        <label>Title<input name="title"></label>
+                        <button>Submit</button>
+                    </form>
+                    """,
+                "/result" => "<title>Task result</title><p>Received " + WebUtility.HtmlEncode(request.Request.QueryString["title"]) + "</p>",
+                "/browse" => """
+                    <title>Manual browsing</title>
+                    <a href="/more" target="_blank" style="position:absolute;left:12px;top:12px;padding:20px;display:block">Continue</a>
+                    """,
+                _ => "<title>Manual browsing</title><p>Browsing remains available.</p>"
+            };
+            var bytes = Encoding.UTF8.GetBytes(html);
+            using var response = request.Response;
+            response.ContentType = "text/html; charset=utf-8";
+            response.ContentLength64 = bytes.Length;
+            await response.OutputStream.WriteAsync(bytes, token).ConfigureAwait(false);
+        }
+    }
+    catch (Exception exception) when (exception is OperationCanceledException or HttpListenerException or ObjectDisposedException) { }
 }
 
 static void TestVirtualPetStateMachine()
@@ -13151,6 +13432,17 @@ sealed class TemporaryPathService(string root) : IPlatformPathService
     public string GetVectorStoreFilePath() => Path.Combine(root, "vectors.db");
     public string GetWorkspacesDirectory() => Path.Combine(root, "workspaces");
     public string GetWorkspaceKnowledgeDirectory(string workspaceId) => Path.Combine(root, workspaceId);
+}
+
+sealed class BrowserTestUrlOpener : IExternalUrlOpener
+{
+    public string? LastAddress { get; private set; }
+
+    public bool TryOpen(string url)
+    {
+        LastAddress = url;
+        return true;
+    }
 }
 
 sealed class HeadlessConfigService(AppConfig initial) : IConfigService

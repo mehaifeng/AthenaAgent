@@ -1,0 +1,66 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:Athena.UI.ViewModels"
+             xmlns:loc="using:Athena.UI.Markup"
+             x:Class="Athena.UI.Views.EmbeddedBrowserView"
+             x:DataType="vm:EmbeddedBrowserViewModel">
+    <Border CornerRadius="8" ClipToBounds="True" BorderThickness="1"
+            BorderBrush="{DynamicResource App.PanelBorderBrush}"
+            Background="{DynamicResource App.PanelBackgroundBrush}">
+        <Grid RowDefinitions="Auto,Auto,*,Auto">
+            <Grid Margin="9,7,9,0" ColumnDefinitions="*,Auto,Auto" ColumnSpacing="4">
+                <TabControl x:Name="BrowserTabs" SelectedIndex="{Binding SelectedTab}">
+                    <TabItem Header="{loc:Loc Browser.Browse}"/>
+                    <TabItem Header="{loc:Loc Browser.Task}"/>
+                </TabControl>
+                <Button Grid.Column="1" Classes="icon-plain" Command="{Binding OpenInSystemBrowserCommand}"
+                        ToolTip.Tip="{loc:Loc Browser.OpenExternal}" AutomationProperties.Name="{loc:Loc Browser.OpenExternal}">
+                    <PathIcon Width="14" Height="14" Data="{StaticResource CoreIconExternalLink}"/>
+                </Button>
+                <Button x:Name="CloseBrowserButton" Grid.Column="2" Classes="icon-plain" Command="{Binding CloseCommand}"
+                        ToolTip.Tip="{loc:Loc Browser.Close}" AutomationProperties.Name="{loc:Loc Browser.Close}">
+                    <PathIcon Width="14" Height="14" Data="{StaticResource AthenaIconClose}"/>
+                </Button>
+            </Grid>
+            <Panel Grid.Row="1" Margin="9,6">
+                <Grid ColumnDefinitions="Auto,Auto,Auto,*" ColumnSpacing="4" IsVisible="{Binding CanBrowse}">
+                    <Button Classes="icon-plain" Content="‹" Command="{Binding BackCommand}"
+                            ToolTip.Tip="{loc:Loc Browser.Back}" AutomationProperties.Name="{loc:Loc Browser.Back}"/>
+                    <Button Grid.Column="1" Classes="icon-plain" Content="›" Command="{Binding ForwardCommand}"
+                            ToolTip.Tip="{loc:Loc Browser.Forward}" AutomationProperties.Name="{loc:Loc Browser.Forward}"/>
+                    <Button Grid.Column="2" Classes="icon-plain" Command="{Binding ReloadCommand}"
+                            ToolTip.Tip="{loc:Loc Browser.Reload}" AutomationProperties.Name="{loc:Loc Browser.Reload}">
+                        <PathIcon Width="14" Height="14" Data="{StaticResource AthenaIconRefresh}"/>
+                    </Button>
+                    <TextBox x:Name="AddressBox" Grid.Column="3"
+                             PlaceholderText="{loc:Loc Browser.Address}" Text="{Binding Address}">
+                        <TextBox.KeyBindings>
+                            <KeyBinding Gesture="Enter" Command="{Binding NavigateCommand}"/>
+                        </TextBox.KeyBindings>
+                    </TextBox>
+                </Grid>
+                <TextBox x:Name="TaskAddressBox" IsVisible="{Binding IsTask}" Text="{Binding TaskAddress, Mode=OneWay}"
+                         IsReadOnly="True" PlaceholderText="{loc:Loc Browser.Address}"
+                         AutomationProperties.Name="{loc:Loc Browser.Address}"/>
+            </Panel>
+            <Border x:Name="BrowserSurface" Grid.Row="2" Focusable="True" ClipToBounds="True"
+                    Background="{DynamicResource App.PanelBackgroundBrush}">
+                <Panel>
+                    <Panel IsVisible="{Binding !HasPage}" HorizontalAlignment="Center" VerticalAlignment="Center" Margin="16">
+                        <TextBlock IsVisible="{Binding CanBrowse}" TextWrapping="Wrap" TextAlignment="Center"
+                                   Foreground="{DynamicResource App.TextMuted}" Text="{loc:Loc Browser.Empty}"/>
+                        <TextBlock IsVisible="{Binding IsTask}" TextWrapping="Wrap" TextAlignment="Center"
+                                   Foreground="{DynamicResource App.TextMuted}" Text="{loc:Loc Browser.TaskEmpty}"/>
+                    </Panel>
+                    <Image x:Name="BrowserImage" VerticalAlignment="Top" Stretch="Uniform" IsHitTestVisible="False"/>
+                </Panel>
+            </Border>
+            <Panel Grid.Row="3" Margin="9,5">
+                <TextBlock IsVisible="{Binding IsTask}" Text="{Binding TaskStatus}" TextWrapping="Wrap" MaxLines="3"
+                           TextTrimming="CharacterEllipsis" Foreground="{DynamicResource App.TextMuted}"/>
+                <TextBlock IsVisible="{Binding CanBrowse}" Text="{Binding BrowseStatus}" TextWrapping="Wrap" MaxLines="2"
+                           TextTrimming="CharacterEllipsis" Foreground="{DynamicResource App.TextMuted}"/>
+            </Panel>
+        </Grid>
+    </Border>
+</UserControl>

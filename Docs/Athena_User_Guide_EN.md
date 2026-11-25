@@ -29,7 +29,7 @@ The left pane owns workspaces and the conversation tree, the center permanently 
 ### 2.3 Tool calls and sub-agents
 - Tool executions show a visual status card (such as `dispatch_subagents` in the screenshot) while running and when finished; intermediate JSON messages stay in context but are hidden from the UI.
 - Sub-agents: the assistant can dispatch multiple parallel sub-tasks via `dispatch_subagents` (file operations, web search, and more). Each sub-agent runs independently and results are merged back into the main conversation; progress is visualized in the "Owl City" panel.
-- Computer Use. Select an app or browser window in the Computer Use panel, then ask Athena in chat to act on it. The panel shows the window, cursor movement and a Stop button.
+- Computer Use. For desktop tasks, select a window from the Desktop computer use launcher and describe the task in chat. For browser tasks, give Athena the URL and goal in chat. The right-hand Task tab shows the page and cursor. Use Stop next to the chat input to end the current reply and task. [Prototype design, setup, and tests (Chinese)](ComputerUse_Prototype_CN.md)
 
 ### 2.4 Context control
 - Top bar shows token usage (for example `9832 / 1280000 tokens`) so you can monitor context growth.

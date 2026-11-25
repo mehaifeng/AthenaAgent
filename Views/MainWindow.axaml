@@ -520,8 +520,9 @@
                                           IsVisible="{Binding MainConversationViewModel.ThemeIcon, Converter={StaticResource ThemeTagToVisibilityConverter}, ConverterParameter=Sun}"/>
                             </Panel>
                         </Button>
-                        <Button Grid.Column="3" Classes="icon-plain" Click="OnOpenComputerUse" ToolTip.Tip="Computer Use"
-                                AutomationProperties.Name="Computer Use">
+                        <Button Grid.Column="3" Classes="icon-plain" Click="OnOpenComputerUse"
+                                ToolTip.Tip="{loc:Loc ComputerUse.DesktopTitle}"
+                                AutomationProperties.Name="{loc:Loc ComputerUse.DesktopTitle}">
                             <PathIcon Data="{StaticResource AthenaIconComputerUse}" Width="16" Height="16"
                                       Foreground="{DynamicResource App.IconAccentForeground}"/>
                         </Button>
@@ -561,6 +562,7 @@
                                             ApprovalQueue="{Binding $parent[Window].((vm:MainWindowViewModel)DataContext).ApprovalQueue}"
                                             ApprovalModePicker="{Binding $parent[Window].((vm:MainWindowViewModel)DataContext).ApprovalModePicker}"
                                             IsSwitching="{Binding $parent[Window].((vm:MainWindowViewModel)DataContext).IsConversationSwitching}"
+                                            RevealBrowserCommand="{Binding $parent[Window].((vm:MainWindowViewModel)DataContext).Browser.RevealCommand}"
                                             RightPanelToggleCommand="{Binding $parent[Window].((vm:MainWindowViewModel)DataContext).ToggleRightPanelCommand}"
                                             RightPanelToggleIconKey="{Binding $parent[Window].((vm:MainWindowViewModel)DataContext).RightPanelToggleIconKey}"
                                             RightPanelToggleTip="{Binding $parent[Window].((vm:MainWindowViewModel)DataContext).RightPanelToggleTip}"
@@ -594,20 +596,29 @@
                     </Grid.RowDefinitions>
                     <!-- IsVisible 照旧独占布局；Classes.shown 只驱动那一次进场动画。
                          打开一个文件时右上窗格从"凭空出现"变成"淡着抬起来"。 -->
-                    <views:WorkspaceWorkbenchView x:Name="WorkspaceWorkbench"
-                                                  DataContext="{Binding Workbench}"
-                                                  IsVisible="{Binding ShowWorkbenchPane}"
-                                                  Classes.shown="{Binding ShowWorkbenchPane}"/>
+                    <Panel IsVisible="{Binding !ShowEmbeddedBrowser}">
+                        <views:WorkspaceWorkbenchView x:Name="WorkspaceWorkbench"
+                                                      DataContext="{Binding Workbench}"
+                                                      IsVisible="{Binding ShowWorkbenchPane}"
+                                                      Classes.shown="{Binding ShowWorkbenchPane}"/>
+                    </Panel>
                     <GridSplitter Grid.Row="1"
                                   Classes="layout-splitter"
                                   Height="5"
-                                  IsVisible="{Binding Workbench.ShowRowSplitter}"
                                   ResizeDirection="Rows"
                                   ResizeBehavior="PreviousAndNext"
                                   ShowsPreview="False"
-                                  DragCompleted="OnRightRowSplitterDragCompleted"/>
+                                  DragCompleted="OnRightRowSplitterDragCompleted">
+                        <GridSplitter.IsVisible>
+                            <MultiBinding Converter="{x:Static BoolConverters.And}">
+                                <Binding Path="!ShowEmbeddedBrowser"/>
+                                <Binding Path="Workbench.ShowRowSplitter"/>
+                            </MultiBinding>
+                        </GridSplitter.IsVisible>
+                    </GridSplitter>
                     <Border Grid.Row="{Binding Workbench.LogGridRow}"
                             Grid.RowSpan="{Binding Workbench.LogGridRowSpan}"
+                            IsVisible="{Binding !ShowEmbeddedBrowser}"
                             BorderThickness="1"
                             BorderBrush="{DynamicResource App.PanelBorderBrush}"
                             BoxShadow="{DynamicResource App.PanelShadow}"
@@ -676,6 +687,10 @@
                             </TabItem>
                         </TabControl>
                     </Border>
+                    <views:EmbeddedBrowserView x:Name="EmbeddedBrowserPane" Grid.RowSpan="3"
+                                               IsVisible="{Binding $parent[Window].((vm:MainWindowViewModel)DataContext).ShowEmbeddedBrowser}"
+                                               PreviewEnabled="{Binding $parent[Window].((vm:MainWindowViewModel)DataContext).IsBrowserPreviewActive}"
+                                               DataContext="{Binding $parent[Window].((vm:MainWindowViewModel)DataContext).Browser}"/>
                 </Grid>
 
         <!-- 窗口级宠物覆盖层：根据漫游区域锚定到不同面板的底部。

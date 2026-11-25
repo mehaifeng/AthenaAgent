@@ -1,6 +1,7 @@
 using Athena.UI.Services.Interfaces;
 using Serilog;
 using System;
+using System.ClientModel.Primitives;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -10,28 +11,41 @@ using System.Threading.Tasks;
 
 namespace Athena.UI.Services.ComputerUse;
 
-public sealed record ComputerUseTarget(int Pid, long WindowId, string Title, string App)
+public sealed record ComputerUseTarget(int Pid, long WindowId, string Title, string App, Uri? BrowserUri = null)
 {
     public string DisplayName => string.IsNullOrWhiteSpace(App) ? Title : $"{Title} · {App}";
+
+    public static ComputerUseTarget? FromBrowserAddress(string address) =>
+        Uri.TryCreate(address.Trim(), UriKind.Absolute, out var uri) && EmbeddedBrowser.IsPageUri(uri)
+            ? new ComputerUseTarget(0, 0, uri.Host, "Chrome", uri) : null;
 }
 
 public sealed record ComputerUseFrame(byte[] Image, string MimeType, int Width, int Height, string Tree,
-    string? CaptureId, IReadOnlyList<ComputerUseElement> Elements);
+    string? CaptureId, IReadOnlyList<ComputerUseElement> Elements, bool CursorInPage = false, Uri? BrowserUri = null);
 
-public sealed record ComputerUseElement(int Index, string Token, string Role, string Label);
+public sealed record ComputerUseElement(int Index, string Token, string Role, string Label, double? X = null, double? Y = null);
 
 public sealed record ComputerUseAction(string Action, double? X = null, double? Y = null,
     int? Element = null, string? Text = null, string? Key = null, string? Direction = null,
-    bool Success = false, string? Summary = null);
+    bool Success = false, string? Summary = null, string? Url = null);
 
-public enum ComputerUsePhase { Observing, Moving, Clicking, Typing, OtherAction, Completed, Stopped, Failed }
+public enum ComputerUsePhase { Observing, Moving, Clicking, Typing, Navigating, OtherAction, Completed, Stopped, Failed }
 
 public sealed record ComputerUseProgress(ComputerUsePhase Phase, ComputerUseFrame? Frame = null,
-    double? X = null, double? Y = null, string? Detail = null);
+    double? X = null, double? Y = null, string? Detail = null, bool InBrowser = false,
+    Uri? Address = null);
 
-public sealed class ComputerUseService(IConfigService config, OpenAiModelRuntimeFactory models, ILogger logger) : IAsyncDisposable
+internal interface IComputerUseSession
 {
-    private const int MaxSteps = 16;
+    Task<ComputerUseFrame> ObserveAsync(CancellationToken token);
+    Task<string> ActAsync(ComputerUseFrame frame, ComputerUseAction action, double x, double y, CancellationToken token);
+    Task EndAsync(CancellationToken token);
+}
+
+public sealed class ComputerUseService(IConfigService config, OpenAiModelRuntimeFactory models, ILogger logger,
+    EmbeddedBrowser browser, PipelineTransport? browserModelTransport = null) : IAsyncDisposable
+{
+    private const int MaxWindowSteps = 16;
     private const int MaxImageDimension = 1440;
     private static readonly HashSet<string> NavigationKeys = new(StringComparer.Ordinal)
     {
@@ -43,20 +57,29 @@ public sealed class ComputerUseService(IConfigService config, OpenAiModelRuntime
     private readonly object _gate = new();
     private CancellationTokenSource? _activeRun;
     private TaskCompletionSource? _runEnded;
+    private bool _activeRunInBrowser;
     private bool _disposed;
     private ComputerUseTarget? _selectedTarget;
 
     public event Action<ComputerUseProgress>? ProgressChanged;
-    public bool IsAvailable => File.Exists(CuaDriverNative.LibraryPath);
+    public bool IsDesktopAvailable => File.Exists(CuaDriverNative.LibraryPath);
+    public bool IsAvailable => IsDesktopAvailable || EmbeddedBrowser.IsAvailable;
     public ComputerUseTarget? SelectedTarget
     {
         get => Volatile.Read(ref _selectedTarget);
         set => Volatile.Write(ref _selectedTarget, value);
     }
 
+    internal ComputerUseTarget? CurrentBrowserTarget =>
+        (browser.BrowsingPage ?? browser.TaskPage)?.Address is { } address
+            ? ComputerUseTarget.FromBrowserAddress(address.AbsoluteUri)
+            : null;
+
     public async Task<IReadOnlyList<ComputerUseTarget>> ListWindowsAsync(
         CancellationToken cancellationToken, int? pid = null)
     {
+        if (!IsDesktopAvailable)
+            return [];
         var arguments = new Dictionary<string, object> { ["on_screen_only"] = true };
         if (pid is not null)
             arguments["pid"] = pid.Value;
@@ -71,7 +94,7 @@ public sealed class ComputerUseService(IConfigService config, OpenAiModelRuntime
 
     public Task<FunctionResult> RunAsync(ComputerUseTarget target, string goal, CancellationToken cancellationToken)
     {
-        var planner = new ComputerUsePlanner(config.Load(), models, goal);
+        var planner = new ComputerUsePlanner(config.Load(), models, goal, target.BrowserUri is not null, browserModelTransport);
         return RunAsync(target, planner.DecideAsync, cancellationToken);
     }
 
@@ -80,68 +103,70 @@ public sealed class ComputerUseService(IConfigService config, OpenAiModelRuntime
         CancellationToken cancellationToken)
     {
         using var run = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        var inBrowser = target.BrowserUri is not null;
         lock (_gate)
         {
             ObjectDisposedException.ThrowIf(_disposed, this);
             if (_activeRun is not null)
                 return FunctionResult.FailureResult("Another Computer Use task is running.");
             _activeRun = run;
+            _activeRunInBrowser = inBrowser;
             _runEnded = new(TaskCreationOptions.RunContinuationsAsynchronously);
         }
 
         run.CancelAfter(TimeSpan.FromMinutes(3));
         var token = run.Token;
-        var session = $"athena-{Guid.NewGuid():N}";
         ComputerUseFrame? frame = null;
-        var started = false;
+        IComputerUseSession? session = null;
         try
         {
-            Publish(new(ComputerUsePhase.Observing, Detail: target.Title));
-            await CallAsync("start_session", new { session }, token).ConfigureAwait(false);
-            started = true;
+            Publish(new(ComputerUsePhase.Observing, Detail: target.Title, InBrowser: inBrowser, Address: target.BrowserUri));
+            session = target.BrowserUri is { } address
+                ? await OpenBrowserAsync(address, token).ConfigureAwait(false)
+                : await OpenWindowAsync(target, token).ConfigureAwait(false);
             var previousResult = "";
-            for (var step = 0; step <= MaxSteps; step++)
+            for (var step = 0; ; step++)
             {
-                frame = await ReadFrameAsync(target, session, token).ConfigureAwait(false);
-                Publish(new(ComputerUsePhase.Observing, frame, Detail: target.Title));
+                frame = await session.ObserveAsync(token).ConfigureAwait(false);
+                Publish(new(ComputerUsePhase.Observing, frame, Detail: target.Title, InBrowser: inBrowser));
                 var action = await decide(frame, previousResult, step, token).ConfigureAwait(false);
                 token.ThrowIfCancellationRequested();
                 if (action.Action == "finish")
                 {
                     var summary = string.IsNullOrWhiteSpace(action.Summary) ? "Computer Use finished." : action.Summary;
-                    Publish(new(action.Success ? ComputerUsePhase.Completed : ComputerUsePhase.Failed, frame, Detail: summary));
+                    Publish(new(action.Success ? ComputerUsePhase.Completed : ComputerUsePhase.Failed, frame,
+                        Detail: summary, InBrowser: inBrowser));
                     return action.Success ? FunctionResult.SuccessResult(summary) : FunctionResult.FailureResult(summary);
                 }
-                if (step == MaxSteps)
+                if (!frame.CursorInPage && step == MaxWindowSteps)
                     throw new InvalidOperationException("Computer Use reached its action limit.");
-                previousResult = await ExecuteAsync(target, session, frame, action, token).ConfigureAwait(false);
+                previousResult = await ExecuteAsync(session, frame, action, token).ConfigureAwait(false);
                 await Task.Delay(160, token).ConfigureAwait(false);
             }
-            throw new InvalidOperationException("Computer Use reached its action limit.");
         }
         catch (OperationCanceledException) when (token.IsCancellationRequested)
         {
-            Publish(new(ComputerUsePhase.Stopped, frame));
+            Publish(new(ComputerUsePhase.Stopped, frame, InBrowser: inBrowser));
             return FunctionResult.FailureResult("Computer Use stopped.");
         }
         catch (Exception exception)
         {
             logger.Warning("Computer Use task failed: {Error}", exception.Message);
-            Publish(new(ComputerUsePhase.Failed, frame, Detail: exception.Message));
+            Publish(new(ComputerUsePhase.Failed, frame, Detail: exception.Message, InBrowser: inBrowser));
             return FunctionResult.FailureResult(exception.Message);
         }
         finally
         {
-            if (started)
+            if (session is not null)
             {
                 try
                 {
                     using var cleanup = new CancellationTokenSource(TimeSpan.FromSeconds(3));
-                    await CallAsync("end_session", new { session }, cleanup.Token).ConfigureAwait(false);
+                    await session.EndAsync(cleanup.Token).ConfigureAwait(false);
                 }
                 catch (Exception exception)
                 {
-                    logger.Debug("Cua Driver session cleanup ended: {Error}", exception.Message);
+                    logger.Debug("Computer Use session cleanup ended: {Error}", exception.Message);
                 }
             }
             lock (_gate)
@@ -153,10 +178,33 @@ public sealed class ComputerUseService(IConfigService config, OpenAiModelRuntime
         }
     }
 
-    public void Stop()
+    public void StopDesktop()
     {
         lock (_gate)
-            _activeRun?.Cancel();
+        {
+            if (!_activeRunInBrowser)
+                _activeRun?.Cancel();
+        }
+    }
+
+    private async Task<IComputerUseSession> OpenWindowAsync(ComputerUseTarget target, CancellationToken token)
+    {
+        var session = $"athena-{Guid.NewGuid():N}";
+        await CallAsync("start_session", new { session }, token).ConfigureAwait(false);
+        return new WindowSession(this, target, session);
+    }
+
+    private async Task<IComputerUseSession> OpenBrowserAsync(Uri address, CancellationToken token) =>
+        new BrowserComputerUseSession(await browser.OpenTaskAsync(address, token).ConfigureAwait(false));
+
+    private sealed class WindowSession(ComputerUseService owner, ComputerUseTarget target, string id) : IComputerUseSession
+    {
+        public Task<ComputerUseFrame> ObserveAsync(CancellationToken token) => owner.ReadFrameAsync(target, id, token);
+
+        public Task<string> ActAsync(ComputerUseFrame frame, ComputerUseAction action, double x, double y, CancellationToken token) =>
+            owner.ActOnWindowAsync(target, id, frame, action, x, y, token);
+
+        public Task EndAsync(CancellationToken token) => owner.CallAsync("end_session", new { session = id }, token);
     }
 
     private async Task<ComputerUseFrame> ReadFrameAsync(ComputerUseTarget target, string session, CancellationToken token)
@@ -181,8 +229,71 @@ public sealed class ComputerUseService(IConfigService config, OpenAiModelRuntime
             ReadString(state, "tree_markdown"), ReadString(state, "capture_id"), ReadElements(state));
     }
 
-    private async Task<string> ExecuteAsync(ComputerUseTarget target, string session, ComputerUseFrame frame,
-        ComputerUseAction action, CancellationToken token)
+    private async Task<string> ExecuteAsync(IComputerUseSession session, ComputerUseFrame frame, ComputerUseAction action,
+        CancellationToken token)
+    {
+        if (session is BrowserComputerUseSession page && action.Action == "navigate")
+        {
+            if (!Uri.TryCreate(action.Url?.Trim(), UriKind.Absolute, out var address) || !EmbeddedBrowser.IsPageUri(address))
+                return "No navigation occurred. Use a complete HTTP or HTTPS URL without embedded credentials.";
+
+            Publish(new(ComputerUsePhase.Navigating, frame, InBrowser: true, Address: address));
+            return await page.NavigateAsync(address, token).ConfigureAwait(false);
+        }
+
+        var validAction = action.Action switch
+        {
+            "click" => true,
+            "type_text" => action.Text is { Length: > 0 and <= 4000 },
+            "press_key" => action.Key is { } key && NavigationKeys.Contains(key),
+            "scroll" => action.Direction is "up" or "down" or "left" or "right",
+            _ => false
+        };
+        if (!validAction && frame.CursorInPage)
+            return "No input was sent. Choose one supported action in the requested JSON format.";
+        if (!validAction)
+            throw new InvalidOperationException("The model returned an unsupported Computer Use action.");
+
+        double x, y;
+        try
+        {
+            (x, y) = ResolveActionPoint(frame, action);
+        }
+        catch (InvalidOperationException) when (frame.CursorInPage)
+        {
+            return "No input was sent. Pick a numbered control from the new observation or give x and y in screenshot pixels.";
+        }
+        var px = x / frame.Width;
+        var py = y / frame.Height;
+        Publish(new(ComputerUsePhase.Moving, frame, px, py, InBrowser: frame.CursorInPage));
+        if (!frame.CursorInPage)
+            await Task.Delay(270, token).ConfigureAwait(false);
+        if (action.Action == "type_text")
+            Publish(new(ComputerUsePhase.Typing, frame, px, py, InBrowser: frame.CursorInPage));
+        var result = await session.ActAsync(frame, action, x, y, token).ConfigureAwait(false);
+        Publish(new(action.Action == "click" ? ComputerUsePhase.Clicking
+            : action.Action == "type_text" ? ComputerUsePhase.Typing : ComputerUsePhase.OtherAction,
+            frame, px, py, InBrowser: frame.CursorInPage));
+        return result;
+    }
+
+    internal static (double X, double Y) ResolveActionPoint(ComputerUseFrame frame, ComputerUseAction action)
+    {
+        if (frame.CursorInPage && action is { Action: "scroll" or "press_key", Element: null, X: null, Y: null })
+            return (frame.Width / 2.0, frame.Height / 2.0);
+
+        var element = action.Element is { } index && frame.CursorInPage
+            ? frame.Elements.FirstOrDefault(item => item.Index == index)
+                ?? throw new InvalidOperationException("The selected control is absent from the current observation.")
+            : null;
+        if ((element?.X ?? action.X) is not double x || (element?.Y ?? action.Y) is not double y
+            || !double.IsFinite(x) || !double.IsFinite(y) || x < 0 || y < 0 || x >= frame.Width || y >= frame.Height)
+            throw new InvalidOperationException("The action must point to a valid pixel in the current observation.");
+        return (x, y);
+    }
+
+    private async Task<string> ActOnWindowAsync(ComputerUseTarget target, string session, ComputerUseFrame frame,
+        ComputerUseAction action, double x, double y, CancellationToken token)
     {
         var arguments = new Dictionary<string, object>
         {
@@ -198,14 +309,6 @@ public sealed class ComputerUseService(IConfigService config, OpenAiModelRuntime
         else
         {
             arguments["delivery_mode"] = "foreground";
-        }
-
-        if (action.X is not double x || action.Y is not double y || !double.IsFinite(x) || !double.IsFinite(y)
-            || x < 0 || y < 0 || x >= frame.Width || y >= frame.Height)
-            throw new InvalidOperationException("The action must point to a valid pixel in the current window observation.");
-
-        if (action.Element is null)
-        {
             arguments["x"] = x;
             arguments["y"] = y;
             if (action.Action == "click" && !string.IsNullOrWhiteSpace(frame.CaptureId))
@@ -214,36 +317,22 @@ public sealed class ComputerUseService(IConfigService config, OpenAiModelRuntime
 
         switch (action.Action)
         {
-            case "click":
+            case "type_text":
+                arguments["text"] = action.Text!;
                 break;
-            case "type_text" when action.Text is { Length: > 0 and <= 4000 } text:
-                arguments["text"] = text;
+            case "press_key":
+                arguments["key"] = action.Key!;
                 break;
-            case "press_key" when action.Key is { } key && NavigationKeys.Contains(key):
-                arguments["key"] = key;
+            case "scroll":
+                arguments["direction"] = action.Direction!;
                 break;
-            case "scroll" when action.Direction is "up" or "down" or "left" or "right":
-                arguments["direction"] = action.Direction;
-                break;
-            default:
-                throw new InvalidOperationException("The model returned an unsupported Computer Use action.");
         }
-
-        var px = x / frame.Width;
-        var py = y / frame.Height;
-        Publish(new(ComputerUsePhase.Moving, frame, px, py));
-        await Task.Delay(270, token).ConfigureAwait(false);
-        if (action.Action == "type_text")
-            Publish(new(ComputerUsePhase.Typing, frame, px, py));
-        var result = await CallAsync(action.Action, arguments, token).ConfigureAwait(false);
-        Publish(new(action.Action == "click" ? ComputerUsePhase.Clicking
-            : action.Action == "type_text" ? ComputerUsePhase.Typing : ComputerUsePhase.OtherAction, frame, px, py));
-        return ReadText(result);
+        return ReadText(await CallAsync(action.Action, arguments, token).ConfigureAwait(false));
     }
 
     private async Task<JsonElement> CallAsync(string tool, object arguments, CancellationToken token)
     {
-        if (!IsAvailable)
+        if (!IsDesktopAvailable)
             throw new InvalidOperationException("Cua Driver SDK is missing. Run Scripts/run-computer-use-demo.sh or set ATHENA_CUA_DRIVER_LIBRARY.");
         var result = await _driver.Value.CallAsync(tool, arguments, token).ConfigureAwait(false);
         if (result.TryGetProperty("isError", out var error) && error.ValueKind == JsonValueKind.True)

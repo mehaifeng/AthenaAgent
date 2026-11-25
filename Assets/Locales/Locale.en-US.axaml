@@ -112,7 +112,6 @@
     <system:String x:Key="Chat.Link.OpenWith.Prompt">Choose an application to open this file</system:String>
     <system:String x:Key="Chat.Link.CopyPath">Copy path</system:String>
     <system:String x:Key="Chat.Link.RevealInFolder">Show in Folder</system:String>
-    <system:String x:Key="Chat.Link.OpenUrl">Open link</system:String>
     <system:String x:Key="Chat.Link.CopyUrl">Copy link address</system:String>
     <system:String x:Key="Chat.Audio.PlaybackUnavailable">Audio playback is not supported on this device.</system:String>
     <system:String x:Key="Chat.Audio.PlaybackFailed">Audio playback failed.</system:String>
@@ -1054,8 +1053,8 @@
     <system:String x:Key="MainWindow.Tip.RevealInFolder">Reveal in folder</system:String>
     <system:String x:Key="MainWindow.Tip.CopyPath">Copy path</system:String>
     <system:String x:Key="MainWindow.Tip.SwapLayout">Swap left/right layout</system:String>
-    <system:String x:Key="MainWindow.Tip.CollapseRightPanel">Collapse workbench panel</system:String>
-    <system:String x:Key="MainWindow.Tip.ExpandRightPanel">Expand workbench panel</system:String>
+    <system:String x:Key="MainWindow.Tip.CollapseRightPanel">Collapse right tools</system:String>
+    <system:String x:Key="MainWindow.Tip.ExpandRightPanel">Expand right tools</system:String>
     <system:String x:Key="MainWindow.Section.Pinned">Pinned chats</system:String>
 
     <!-- Approval queue -->
@@ -1851,6 +1850,21 @@
 
     <!-- Computer Use -->
     <x:String x:Key="ComputerUse.PreviewHint">Window preview and AI cursor</x:String>
+    <x:String x:Key="Browser.Title">Built-in browser</x:String>
+    <x:String x:Key="Browser.Browse">Browse</x:String>
+    <x:String x:Key="Browser.Task">Task</x:String>
+    <x:String x:Key="Browser.OpenExternal">Open in system browser</x:String>
+    <x:String x:Key="Browser.Close">Close browser panel</x:String>
+    <x:String x:Key="Browser.Back">Back</x:String>
+    <x:String x:Key="Browser.Forward">Forward</x:String>
+    <x:String x:Key="Browser.Reload">Reload</x:String>
+    <x:String x:Key="Browser.Empty">Enter a URL or open a link from chat</x:String>
+    <x:String x:Key="Browser.TaskEmpty">Start a browser task in the conversation to see the page and AI cursor here</x:String>
+    <x:String x:Key="Browser.InvalidAddress">Enter an HTTP or HTTPS address.</x:String>
+    <x:String x:Key="Browser.Observing">Observing webpage</x:String>
+    <x:String x:Key="Browser.Address">Web address</x:String>
+    <x:String x:Key="Browser.Navigating">Navigating to address</x:String>
+    <x:String x:Key="ComputerUse.DesktopTitle">Desktop computer use</x:String>
     <x:String x:Key="ComputerUse.PlayDemo">Run demo</x:String>
     <x:String x:Key="ComputerUse.Stop">Stop</x:String>
     <x:String x:Key="ComputerUse.Target">Target window</x:String>

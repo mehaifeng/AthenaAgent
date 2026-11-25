@@ -13,7 +13,7 @@ Athena is a sophisticated, highly autonomous desktop AI assistant built with **.
 - **🧩 Optional PTC Prototype**: Default-off, bounded in-process JavaScript orchestration of five read-only file tools, with per-call approval, child progress, immutable audit records and small model projections. Not a strong sandbox. See [PTC usage and limitations](Docs/PTC_Prototype_Usage_CN.md) and [implementation evidence](Libraries/Ptc/IMPLEMENTATION.md).
 - **📊 Optional Execution Timeline**: Inspect main-model attempts, direct and PTC tool calls, script lifetime, approvals and waits in a per-reply multi-lane timeline. Disabled by default; timing metadata stays local.
 - **🦉 Parallel Sub-Agents**: Fans out batches of isolated sub-agents for concurrent work, visualized as an animated "owl village" overview.
-- **Computer Use** operates a selected app or browser window through Cua Driver. Athena shows recent window frames and an animated AI cursor.
+- **Built-in browser and Computer Use** open chat links and show Athena's browser cursor, clicks, and typing in the right panel. Desktop input has a separate window preview.
 - **📚 Local Knowledge Base**: A vector-powered semantic memory stored locally in Markdown files with hybrid retrieval (vectors + BM25/FTS) and optional background maintenance.
 - **📄 Document Parsing**: MinerU-backed extraction of outlines and content from attached documents.
 - **🎨 Image Generation & Audio**: Inline image generation with cross-turn continuity, plus TTS audio playback.
@@ -80,7 +80,13 @@ Athena is a sophisticated, highly autonomous desktop AI assistant built with **.
 
 Run `bash Scripts/run-computer-use-demo.sh` on Linux x64 to open the preview and its demo form. The scripted demonstration clicks and enters text through Cua Driver and verifies it using the target form. The script downloads the pinned SDK and checks its checksum. Set `ATHENA_CUA_DRIVER_LIBRARY` to use a local SDK library.
 
-Pass `--app` to the same script for the normal Athena window. Open Computer Use, select a visible target, and ask Athena in chat to perform the task. Configure an image-capable model under Image Recognition or use a vision-capable main model.
+Pass `--app` to the same script for the normal Athena window. Open Desktop computer use from the left toolbar, select a window, and ask Athena in chat to perform the task. Desktop input uses the Image Recognition model or the main model when that role is unset.
+
+With Chrome or Chromium installed, click a chat link or use the built-in browser button in the conversation header. Web links open in the right panel's Browse tab. Right-click a chat link to open it in the system browser.
+
+Describe the website and task in the main conversation. Browser Computer Use runs through `run_computer_task` with the configured official DeepSeek credentials for `deepseek-flash`. It can navigate directly to an address as instructed. The Task tab shows the current address, page, cursor, and status. Browse and Task use separate temporary sessions. Closing or collapsing the pane pauses the preview. Completed results return to the main model for a reply. Use Stop next to the chat input to cancel the task and reply.
+
+[Prototype design, Cua Driver integration, and test results (Chinese)](Docs/ComputerUse_Prototype_CN.md)
 
 ## 📄 License
 

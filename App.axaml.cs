@@ -281,7 +281,7 @@ public partial class App : Application, IAsyncDisposable
                 return;
             }
 
-            if (desktop.Args?.Contains("--computer-use-demo", StringComparer.Ordinal) == true)
+            if (desktop.Args is ["--computer-use-demo"])
             {
                 desktop.ShutdownRequested += OnShutdownRequested;
                 desktop.MainWindow = new ComputerUseWindow(Services.GetRequiredService<ComputerUseService>(),
@@ -1123,8 +1123,11 @@ public partial class App : Application, IAsyncDisposable
             return new ImageGenerationFunctions(imageGenerationService, imageGenerationSessionService, conversationSessionAccessor, logger);
         });
 
+        services.AddSingleton<EmbeddedBrowser>();
         services.AddSingleton(sp => new ComputerUseService(sp.GetRequiredService<IConfigService>(),
-            sp.GetRequiredService<OpenAiModelRuntimeFactory>(), Log.ForContext<ComputerUseService>()));
+            sp.GetRequiredService<OpenAiModelRuntimeFactory>(), Log.ForContext<ComputerUseService>(),
+            sp.GetRequiredService<EmbeddedBrowser>()));
+        services.AddSingleton<EmbeddedBrowserViewModel>();
         services.AddSingleton<ComputerUseFunctions>();
 
         // 猫头鹰呈现对象的工厂：实现挂在 ViewModels 层，编排器只认 ISubAgentPresenterFactory。
@@ -1498,7 +1501,8 @@ public partial class App : Application, IAsyncDisposable
                 sp.GetService<IAppForegroundProbe>(),
                 sp.GetRequiredService<Athena.UI.ViewModels.GameMode.GameModeViewModel>(),
                 () => sp.GetRequiredService<ProviderModelsViewModel>(),
-                sp.GetRequiredService<ToolApprovalModePickerViewModel>());
+                sp.GetRequiredService<ToolApprovalModePickerViewModel>(),
+                sp.GetRequiredService<EmbeddedBrowserViewModel>());
         });
 
         Log.Debug("Dependency injection services configured");

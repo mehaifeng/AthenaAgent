@@ -140,7 +140,8 @@ public partial class MainWindow : Window
     private void OnMainViewModelPropertyChanged(object? sender, PropertyChangedEventArgs e)
     {
         if (e.PropertyName is nameof(MainWindowViewModel.IsSidePanelsSwapped)
-            or nameof(MainWindowViewModel.IsRightPanelCollapsed)) ApplySavedLayout();
+            or nameof(MainWindowViewModel.IsRightPanelCollapsed)
+            or nameof(MainWindowViewModel.ShowEmbeddedBrowser)) ApplySavedLayout();
         else if (e.PropertyName == nameof(MainWindowViewModel.ShellPanelOpacity)) ApplyShellPanelMaterial();
         else if (e.PropertyName == nameof(MainWindowViewModel.PanelGlassEnabled)) ApplyShellPanelMaterial();
         else if (e.PropertyName == nameof(MainWindowViewModel.IsConversationPageActive)) UpdateGameRenderVisibility();
@@ -425,8 +426,9 @@ public partial class MainWindow : Window
         if (!collapsed) ApplySavedLogHeight(layout.RightLogHeight);
     }
 
-    private double GetSemanticRightMinWidth() =>
-        Math.Max(
+    private double GetSemanticRightMinWidth() => _viewModel?.ShowEmbeddedBrowser == true
+        ? RightPanelMinWidth
+        : Math.Max(
             RightPanelMinWidth,
             (_workspaceWorkbench?.MinimumRequiredWidth ?? 0) + RightPanelHorizontalInset);
 

@@ -442,15 +442,19 @@ public class FunctionRegistry : IFunctionRegistry
             });
 
         RegisterFunction("run_computer_task", computerUseFunctions.RunComputerTaskAsync,
-            "Uses screenshots and Cua Driver to operate the user's selected desktop window, including browser windows. "
-            + "Ask the user to select the intended window from Athena's Computer Use panel before calling. Prefer web_search for ordinary public research.",
+            "Operates a browser page or a user-selected desktop window. Provide startingUrl to launch a browser task for a known website. "
+            + "For an already open page, the existing browser address can be used when no desktop window is selected. "
+            + "The browser can navigate to HTTP(S) addresses during the task. Put the user's requested address-bar navigation in the instruction. "
+            + "The call returns the task result when it finishes. Prefer web_search for ordinary public research.",
             new
             {
                 type = "object",
                 properties = new
                 {
                     instruction = new { type = "string", minLength = 1, maxLength = 4000,
-                        description = "The user's goal, scope, and observable completion condition for the selected window." }
+                        description = "The user's goal, scope, and observable completion condition for the selected page or window." },
+                    startingUrl = new { type = "string", minLength = 1,
+                        description = "Complete HTTP or HTTPS start address for a browser task. Pass it when the user's browser destination is known. Omit for a selected desktop window." }
                 },
                 required = new[] { "instruction" }
             });

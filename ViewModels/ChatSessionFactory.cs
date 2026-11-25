@@ -37,6 +37,7 @@ public sealed class ChatSessionFactory
     private readonly ISystemNotificationService _notifications;
     private readonly IAppForegroundProbe _foregroundProbe;
     private readonly ExecutionTimelineService _executionTimelines;
+    private readonly EmbeddedBrowserViewModel _browser;
 
     public ChatSessionFactory(
         IChatService chatService,
@@ -62,7 +63,8 @@ public sealed class ChatSessionFactory
         IPetChatterService petChatterService,
         ISystemNotificationService notifications,
         IAppForegroundProbe foregroundProbe,
-        ExecutionTimelineService executionTimelines)
+        ExecutionTimelineService executionTimelines,
+        EmbeddedBrowserViewModel browser)
     {
         _chatService = chatService;
         _configService = configService;
@@ -88,6 +90,7 @@ public sealed class ChatSessionFactory
         _notifications = notifications;
         _foregroundProbe = foregroundProbe;
         _executionTimelines = executionTimelines ?? throw new System.ArgumentNullException(nameof(executionTimelines));
+        _browser = browser;
     }
 
     public MainConversationViewModel Create()
@@ -118,6 +121,7 @@ public sealed class ChatSessionFactory
             _petChatterService,
             _notifications,
             _foregroundProbe,
-            _executionTimelines);
+            _executionTimelines,
+            _browser);
     }
 }

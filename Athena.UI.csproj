@@ -61,6 +61,7 @@
     <EmbeddedResource Include="Assets\AthenaSoul.md">
       <LogicalName>AthenaSoul.md</LogicalName>
     </EmbeddedResource>
+    <EmbeddedResource Include="Services/ComputerUse/BrowserPage.js" LogicalName="Athena.UI.ComputerUse.BrowserPage.js" />
   </ItemGroup>
 
   <ItemGroup>

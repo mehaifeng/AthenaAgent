@@ -47,6 +47,7 @@ public partial class MainConversationViewModel : ViewModelBase, IDisposable
     private readonly ISystemNotificationService? _notifications;
     private readonly IAppForegroundProbe? _foregroundProbe;
     private readonly ExecutionTimelineService? _executionTimelines;
+    private readonly EmbeddedBrowserViewModel? _browser;
 
     /// <summary>Used only by the view's non-modal timeline window; the service contains no UI types.</summary>
     public ExecutionTimelineService? ExecutionTimelines => _executionTimelines;
@@ -717,11 +718,13 @@ public partial class MainConversationViewModel : ViewModelBase, IDisposable
         IPetChatterService? petChatterService = null,
         ISystemNotificationService? notifications = null,
         IAppForegroundProbe? foregroundProbe = null,
-        ExecutionTimelineService? executionTimelines = null)
+        ExecutionTimelineService? executionTimelines = null,
+        EmbeddedBrowserViewModel? browser = null)
     {
         _notifications = notifications;
         _foregroundProbe = foregroundProbe;
         _executionTimelines = executionTimelines;
+        _browser = browser;
         if (_executionTimelines != null) _executionTimelines.EnabledChanged += OnExecutionTimelineEnabledChanged;
         // 宠物是装饰件，缺了它不该拖垮会话装配——但"缺"必须是显式选择的另一条路径，
         // 而不是一堆 null 条件调用（见 CLAUDE.md「Review Rules」第 1 条）。
@@ -1400,7 +1403,7 @@ public partial class MainConversationViewModel : ViewModelBase, IDisposable
     }
 
     /// <summary>
-    /// Markdown 链接统一分派（左键点击与右键“打开文件/打开链接”共用）。
+    /// Markdown 链接统一分派，本地文件交给工作台，网页交给内置浏览器。
     /// </summary>
     [RelayCommand]
     private async Task OpenMarkdownLinkUriAsync(Uri? href)
@@ -1411,8 +1414,12 @@ public partial class MainConversationViewModel : ViewModelBase, IDisposable
             await OpenLocalFileAsync(uri.LocalPath);
             return;
         }
-        if (uri.Scheme is "http" or "https") LaunchExternally(uri.AbsoluteUri);
+        if (uri.Scheme is "http" or "https" && _browser is not null)
+            await _browser.OpenLinkAsync(uri);
     }
+
+    [RelayCommand]
+    private void OpenMarkdownLinkInSystemBrowser(Uri? href) => _browser?.OpenLinkInSystemBrowser(href);
 
     /// <summary>
     /// 右键菜单：本地文件“打开方式”——系统选择可用应用打开。
@@ -1464,7 +1471,7 @@ public partial class MainConversationViewModel : ViewModelBase, IDisposable
     }
 
     /// <summary>
-    /// 交给系统按默认方式打开（文件用默认应用，URL 用默认浏览器）。
+    /// 交给系统默认应用打开本地文件。
     /// </summary>
     private void LaunchExternally(string target)
     {

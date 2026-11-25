@@ -112,7 +112,6 @@
     <system:String x:Key="Chat.Link.OpenWith.Prompt">选择用于打开此文件的应用程序</system:String>
     <system:String x:Key="Chat.Link.CopyPath">复制路径</system:String>
     <system:String x:Key="Chat.Link.RevealInFolder">在文件夹中显示</system:String>
-    <system:String x:Key="Chat.Link.OpenUrl">打开链接</system:String>
     <system:String x:Key="Chat.Link.CopyUrl">复制链接地址</system:String>
     <system:String x:Key="Chat.Audio.PlaybackUnavailable">当前设备无法播放音频。</system:String>
     <system:String x:Key="Chat.Audio.PlaybackFailed">音频播放失败。</system:String>
@@ -1054,8 +1053,8 @@
     <system:String x:Key="MainWindow.Tip.RevealInFolder">在文件夹中显示</system:String>
     <system:String x:Key="MainWindow.Tip.CopyPath">复制路径</system:String>
     <system:String x:Key="MainWindow.Tip.SwapLayout">左右布局对调</system:String>
-    <system:String x:Key="MainWindow.Tip.CollapseRightPanel">收起工作台面板</system:String>
-    <system:String x:Key="MainWindow.Tip.ExpandRightPanel">展开工作台面板</system:String>
+    <system:String x:Key="MainWindow.Tip.CollapseRightPanel">收起右侧工具区</system:String>
+    <system:String x:Key="MainWindow.Tip.ExpandRightPanel">展开右侧工具区</system:String>
     <system:String x:Key="MainWindow.Section.Pinned">置顶对话</system:String>
 
     <!-- 审批队列 -->
@@ -1851,6 +1850,21 @@
 
     <!-- Computer Use -->
     <x:String x:Key="ComputerUse.PreviewHint">窗口画面与 AI 光标</x:String>
+    <x:String x:Key="Browser.Title">内置浏览器</x:String>
+    <x:String x:Key="Browser.Browse">浏览</x:String>
+    <x:String x:Key="Browser.Task">任务</x:String>
+    <x:String x:Key="Browser.OpenExternal">在系统浏览器中打开</x:String>
+    <x:String x:Key="Browser.Close">关闭浏览器面板</x:String>
+    <x:String x:Key="Browser.Back">后退</x:String>
+    <x:String x:Key="Browser.Forward">前进</x:String>
+    <x:String x:Key="Browser.Reload">刷新网页</x:String>
+    <x:String x:Key="Browser.Empty">输入网址或从对话打开链接</x:String>
+    <x:String x:Key="Browser.TaskEmpty">在主对话发起网页任务后，这里会显示网页和 AI 光标</x:String>
+    <x:String x:Key="Browser.InvalidAddress">请输入 HTTP 或 HTTPS 网址。</x:String>
+    <x:String x:Key="Browser.Observing">正在查看网页</x:String>
+    <x:String x:Key="Browser.Address">网址</x:String>
+    <x:String x:Key="Browser.Navigating">正在通过地址栏打开网页</x:String>
+    <x:String x:Key="ComputerUse.DesktopTitle">桌面操作</x:String>
     <x:String x:Key="ComputerUse.PlayDemo">运行演示</x:String>
     <x:String x:Key="ComputerUse.Stop">停止</x:String>
     <x:String x:Key="ComputerUse.Target">目标窗口</x:String>

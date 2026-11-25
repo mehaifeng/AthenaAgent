@@ -53,11 +53,11 @@
                 <MenuItem.Icon><PathIcon Data="{StaticResource AthenaIconFolderReveal}" Foreground="{DynamicResource App.IconForeground}"/></MenuItem.Icon>
             </MenuItem>
             <Separator IsVisible="{Binding HRef, Converter={StaticResource LinkSchemeConverter}, ConverterParameter=file, x:DataType=lmd:Link}"/>
-            <MenuItem Header="{loc:Loc Chat.Link.OpenUrl}"
+            <MenuItem Header="{loc:Loc Browser.OpenExternal}"
                       IsVisible="{Binding HRef, Converter={StaticResource LinkSchemeConverter}, ConverterParameter=http, x:DataType=lmd:Link}"
-                      Command="{Binding $parent[UserControl].((vm:MainConversationViewModel)DataContext).OpenMarkdownLinkUriCommand, x:DataType=lmd:Link}"
+                      Command="{Binding $parent[UserControl].((vm:MainConversationViewModel)DataContext).OpenMarkdownLinkInSystemBrowserCommand, x:DataType=lmd:Link}"
                       CommandParameter="{Binding HRef, x:DataType=lmd:Link}">
-                <MenuItem.Icon><PathIcon Data="{StaticResource AthenaIconOpenFile}" Foreground="{DynamicResource App.IconForeground}"/></MenuItem.Icon>
+                <MenuItem.Icon><PathIcon Data="{StaticResource CoreIconExternalLink}" Foreground="{DynamicResource App.IconForeground}"/></MenuItem.Icon>
             </MenuItem>
             <MenuItem Header="{loc:Loc Chat.Link.CopyUrl}"
                       IsVisible="{Binding HRef, Converter={StaticResource LinkSchemeConverter}, ConverterParameter=http, x:DataType=lmd:Link}"
@@ -326,7 +326,14 @@
                                   Data="{Binding #ConversationRoot.GameMode.ToggleIconKey, Converter={StaticResource ToolIconKeyToGeometryConverter}}"
                                   Foreground="{DynamicResource App.IconAccentForeground}"/>
                     </Button>
-                    <!-- 工作台收起/展开：放在对话标题栏右端，紧挨着它要收起的那一栏。
+                    <Button x:Name="RevealBrowserButton" VerticalAlignment="Center" Padding="5"
+                            Command="{Binding #ConversationRoot.RevealBrowserCommand}"
+                            IsVisible="{Binding #ConversationRoot.RevealBrowserCommand, Converter={x:Static ObjectConverters.IsNotNull}}"
+                            ToolTip.Tip="{loc:Loc Browser.Title}" AutomationProperties.Name="{loc:Loc Browser.Title}">
+                        <PathIcon Width="16" Height="16" Data="{StaticResource AthenaIconFileWeb}"
+                                  Foreground="{DynamicResource App.IconAccentForeground}"/>
+                    </Button>
+                    <!-- 工具区收起/展开：放在对话标题栏右端，紧挨着它要收起的那一栏。
                          命令由外壳注入（见 RightPanelToggleCommand），没有宿主时隐藏。 -->
                     <Button x:Name="RightPanelToggleButton"
                             VerticalAlignment="Center"

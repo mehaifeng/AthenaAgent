@@ -40,6 +40,7 @@ public sealed partial class ComputerUseWindow : Window, IDisposable
         InitializeComponent();
         DataContext = _viewModel;
         Targets.IsVisible = !demoOnly;
+        DemoButton.IsVisible = service.IsDesktopAvailable;
         _service.ProgressChanged += OnProgress;
         Opened += OnOpened;
         Closed += OnClosed;
@@ -58,7 +59,7 @@ public sealed partial class ComputerUseWindow : Window, IDisposable
     private void OnStop(object? sender, RoutedEventArgs e)
     {
         _demoCancellation?.Cancel();
-        _service.Stop();
+        _service.StopDesktop();
     }
 
     private async Task RefreshAsync()
@@ -205,7 +206,7 @@ public sealed partial class ComputerUseWindow : Window, IDisposable
 
     private void OnProgress(ComputerUseProgress progress) => Dispatcher.UIThread.Post(() =>
     {
-        if (_closed)
+        if (_closed || progress.InBrowser)
             return;
         if (progress.Phase == ComputerUsePhase.Observing && progress.Frame is null)
         {
@@ -222,7 +223,7 @@ public sealed partial class ComputerUseWindow : Window, IDisposable
         {
             Log.Warning(exception, "Could not render the Computer Use frame");
             _viewModel.Update(new(ComputerUsePhase.Failed, Detail: exception.Message));
-            _service.Stop();
+            _service.StopDesktop();
         }
         if (progress.Phase is ComputerUsePhase.Completed or ComputerUsePhase.Failed or ComputerUsePhase.Stopped)
             _viewModel.Busy = false;
@@ -236,8 +237,9 @@ public sealed partial class ComputerUseWindow : Window, IDisposable
             return;
         _closed = true;
         _service.ProgressChanged -= OnProgress;
-        _service.SelectedTarget = null;
-        _service.Stop();
+        if (ReferenceEquals(_service.SelectedTarget, _viewModel.SelectedWindow))
+            _service.SelectedTarget = null;
+        _service.StopDesktop();
         _lifetime.Cancel();
         CloseFixture();
         _lifetime.Dispose();

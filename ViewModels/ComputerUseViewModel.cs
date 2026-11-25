@@ -46,7 +46,7 @@ public sealed partial class ComputerUseViewModel : ViewModelBase
     partial void OnSelectedWindowChanged(ComputerUseTarget? value)
     {
         _service.SelectedTarget = value;
-        if (value is not null)
+        if (value is not null && !Busy)
         {
             Status = L("ComputerUse.TargetReady", "Window selected. Ask Athena to operate it in chat.");
             Detail = value.Title;

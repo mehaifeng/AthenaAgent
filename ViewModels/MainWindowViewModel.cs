@@ -50,6 +50,9 @@ public partial class MainWindowViewModel : ViewModelBase, IDisposable, ICronSess
     private bool _disposed;
 
     public WorkspaceWorkbenchViewModel? Workbench { get; }
+    public EmbeddedBrowserViewModel? Browser { get; }
+    public bool ShowEmbeddedBrowser => Browser?.IsOpen == true;
+    public bool IsBrowserPreviewActive => ShowEmbeddedBrowser && !IsRightPanelCollapsed && IsConversationPageActive;
 
     /// <summary>
     /// 游戏模式（中间区域的另一种呈现）。设计器与单独挂载的测试外壳里为空：标题栏不出现切换按钮。
@@ -79,8 +82,8 @@ public partial class MainWindowViewModel : ViewModelBase, IDisposable, ICronSess
         IsRightPanelCollapsed == IsSidePanelsSwapped ? "AthenaIconPanelTowardRight" : "AthenaIconPanelTowardLeft";
 
     public string RightPanelToggleTip => IsRightPanelCollapsed
-        ? L("MainWindow.Tip.ExpandRightPanel", "Expand workbench panel")
-        : L("MainWindow.Tip.CollapseRightPanel", "Collapse workbench panel");
+        ? L("MainWindow.Tip.ExpandRightPanel", "Expand right tools")
+        : L("MainWindow.Tip.CollapseRightPanel", "Collapse right tools");
 
     private string L(string key, string fallback) => _localizationService?.GetString(key, fallback) ?? fallback;
 
@@ -500,7 +503,8 @@ public partial class MainWindowViewModel : ViewModelBase, IDisposable, ICronSess
         IAppForegroundProbe? foregroundProbe = null,
         GameModeViewModel? gameMode = null,
         Func<ProviderModelsViewModel>? providerModelsFactory = null,
-        ToolApprovalModePickerViewModel? approvalModePicker = null)
+        ToolApprovalModePickerViewModel? approvalModePicker = null,
+        EmbeddedBrowserViewModel? browser = null)
     {
         GameMode = gameMode;
         if (GameMode != null)
@@ -530,6 +534,12 @@ public partial class MainWindowViewModel : ViewModelBase, IDisposable, ICronSess
         _conversationNavigator = conversationNavigator;
         Workbench = workbench;
         if (Workbench != null) Workbench.RevealRequested += OnWorkbenchRevealRequested;
+        Browser = browser;
+        if (Browser != null)
+        {
+            Browser.RevealRequested += OnBrowserRevealRequested;
+            Browser.PropertyChanged += OnBrowserPropertyChanged;
+        }
         _configurationSession = configurationSession;
         _approvalQueue = approvalQueue;
         ApprovalModePicker = approvalModePicker;
@@ -549,7 +559,7 @@ public partial class MainWindowViewModel : ViewModelBase, IDisposable, ICronSess
         // pipeline as sessions loaded into the tree. The factory is the composition root for that
         // per-session state; design-time and isolated tests may still use the lightweight fallback.
         _mainConversationViewModel = chatSessionFactory?.Create()
-            ?? new MainConversationViewModel(chatService, configService, promptService, functionRegistry, tokenService, localizationService, attachmentStoreService, systemAudioService, archiveService, imageGenerationSessionService, screenCaptureService, subAgentOrchestrator, workspaceService, conversationSessionAccessor, userInteractionService, executionCoordinator, contextPolicyProvider);
+            ?? new MainConversationViewModel(chatService, configService, promptService, functionRegistry, tokenService, localizationService, attachmentStoreService, systemAudioService, archiveService, imageGenerationSessionService, screenCaptureService, subAgentOrchestrator, workspaceService, conversationSessionAccessor, userInteractionService, executionCoordinator, contextPolicyProvider, browser: Browser);
         // 中间面板的初始内容与 MainConversationViewModel 同源；此后由 BeginConversationSurfaceSwap 晚一帧跟进。
         _displayedConversation = _mainConversationViewModel;
         _approvalQueue?.ShowConversation(_displayedConversation.ConversationId);
@@ -861,7 +871,8 @@ public partial class MainWindowViewModel : ViewModelBase, IDisposable, ICronSess
                 _localizationService,
                 archiveService: _conversationArchiveService,
                 workspaceService: _workspaceService,
-                userInteractionService: _userInteractionService);
+                userInteractionService: _userInteractionService,
+                browser: Browser);
         chat.AssignWorkspace(workspace);
         return chat;
     }
@@ -1150,6 +1161,7 @@ public partial class MainWindowViewModel : ViewModelBase, IDisposable, ICronSess
         OnPropertyChanged(nameof(ActivePage));
         OnPropertyChanged(nameof(ActivePageTitle));
         OnPropertyChanged(nameof(IsConversationPageActive));
+        OnPropertyChanged(nameof(IsBrowserPreviewActive));
 
         if (previousPage is IDisposable disposable
             && !ReferenceEquals(previousPage, TasksViewModel)
@@ -1199,12 +1211,26 @@ public partial class MainWindowViewModel : ViewModelBase, IDisposable, ICronSess
         await _configurationSession.SaveNowAsync();
     }
 
-    private void OnWorkbenchRevealRequested(object? sender, EventArgs e) =>
+    private void OnWorkbenchRevealRequested(object? sender, EventArgs e)
+    {
+        Browser?.CloseCommand.Execute(null);
         AsyncEventGuard.Run(() => ExpandRightPanelAsync("workbench reveal"), nameof(OnWorkbenchRevealRequested));
+    }
+
+    private void OnBrowserRevealRequested(object? sender, EventArgs e) =>
+        AsyncEventGuard.Run(() => ExpandRightPanelAsync("browser reveal"), nameof(OnBrowserRevealRequested));
+
+    private void OnBrowserPropertyChanged(object? sender, PropertyChangedEventArgs e)
+    {
+        if (e.PropertyName != nameof(EmbeddedBrowserViewModel.IsOpen)) return;
+        OnPropertyChanged(nameof(ShowEmbeddedBrowser));
+        OnPropertyChanged(nameof(IsBrowserPreviewActive));
+    }
 
     private void RaiseRightPanelStateChanged()
     {
         OnPropertyChanged(nameof(IsRightPanelCollapsed));
+        OnPropertyChanged(nameof(IsBrowserPreviewActive));
         OnPropertyChanged(nameof(RightPanelToggleIconKey));
         OnPropertyChanged(nameof(RightPanelToggleTip));
     }
@@ -1682,6 +1708,11 @@ public partial class MainWindowViewModel : ViewModelBase, IDisposable, ICronSess
             _configurationSession.CurrentChanged -= OnCurrentConfigChanged;
         TrackMainLayout(null);
         if (Workbench != null) Workbench.RevealRequested -= OnWorkbenchRevealRequested;
+        if (Browser != null)
+        {
+            Browser.RevealRequested -= OnBrowserRevealRequested;
+            Browser.PropertyChanged -= OnBrowserPropertyChanged;
+        }
         if (_logService != null)
             _logService.LogsChanged -= OnLogsChanged;
 

@@ -110,6 +110,15 @@ public partial class MainConversationView : UserControl
         set => SetValue(IsSwitchingProperty, value);
     }
 
+    public static readonly StyledProperty<ICommand?> RevealBrowserCommandProperty =
+        AvaloniaProperty.Register<MainConversationView, ICommand?>(nameof(RevealBrowserCommand));
+
+    public ICommand? RevealBrowserCommand
+    {
+        get => GetValue(RevealBrowserCommandProperty);
+        set => SetValue(RevealBrowserCommandProperty, value);
+    }
+
     /// <summary>
     /// 标题栏右端的工作台（语义右栏）收起/展开按钮，由外壳注入命令、图标 key 与提示。
     /// 与 <see cref="Workbench"/> / <see cref="IsSwitching"/> 同一形状：视图不认识 MainWindowViewModel；
