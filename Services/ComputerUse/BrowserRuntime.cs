@@ -31,7 +31,7 @@ internal sealed class BrowserRuntime(string archiveDirectory, string dataDirecto
         "AthenaAgent", "Browser");
 
     private static JsonElement Package => Manifest.Value.GetProperty("packages").TryGetProperty(Rid, out var value)
-        ? value : throw new PlatformNotSupportedException("The browser runtime is unavailable for this platform.");
+        ? value : throw new PlatformNotSupportedException($"The bundled browser runtime is unavailable for {Rid}.");
     private string Archive => Path.Combine(archiveDirectory, "runtime.zip");
     private static string Executable => OperatingSystem.IsWindows() ? "electron.exe"
         : OperatingSystem.IsMacOS() ? "Electron.app/Contents/MacOS/Electron" : "electron";
@@ -47,14 +47,19 @@ internal sealed class BrowserRuntime(string archiveDirectory, string dataDirecto
 
     public Task<(string Executable, string Script)> PrepareAsync(CancellationToken token) => Task.Run(() =>
     {
-        if (!IsBundled) throw new InvalidOperationException("The bundled browser runtime is missing. Reinstall Athena from its platform package.");
+        var package = Package;
+        var archive = Archive;
+        if (!File.Exists(archive))
+            throw new FileNotFoundException($"The bundled browser runtime for {Rid} is missing at '{archive}'. "
+                + "For a source build, run 'dotnet run --project Athena.UI.csproj' with Python 3 available. "
+                + "For an installed build, reinstall Athena from its platform package.", archive);
         var directory = Path.Combine(dataDirectory, "Runtime", $"{Version}-{Rid}");
-        var checksum = Package.GetProperty("sha256").GetString()!;
+        var checksum = package.GetProperty("sha256").GetString()!;
         var executable = Path.Combine(directory, Executable);
         var stamp = Path.Combine(directory, ".sha256");
         if (!File.Exists(executable) || !File.Exists(stamp) || File.ReadAllText(stamp) != checksum)
         {
-            using var input = File.OpenRead(Archive);
+            using var input = File.OpenRead(archive);
             if (!Convert.ToHexString(SHA256.HashData(input)).Equals(checksum, StringComparison.OrdinalIgnoreCase))
                 throw new InvalidOperationException("The bundled browser runtime failed its checksum verification.");
             input.Position = 0;

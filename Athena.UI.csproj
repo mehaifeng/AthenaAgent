@@ -76,6 +76,18 @@
           CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
   </ItemGroup>
 
+  <!-- The .NET 10 run target is also used by the IDE to launch a source build. -->
+  <Target Name="PrepareBrowserRuntimeForRun" BeforeTargets="ComputeRunArguments" Condition="'$(DesignTimeBuild)' != 'true'">
+    <PropertyGroup>
+      <_BrowserRuntimeRid Condition="'$(RuntimeIdentifier)' != ''">$(RuntimeIdentifier)</_BrowserRuntimeRid>
+      <_BrowserRuntimeRid Condition="'$(_BrowserRuntimeRid)' == ''">$(NETCoreSdkPortableRuntimeIdentifier)</_BrowserRuntimeRid>
+      <_BrowserRuntimePython Condition="$([MSBuild]::IsOSPlatform('Windows'))">python</_BrowserRuntimePython>
+      <_BrowserRuntimePython Condition="'$(_BrowserRuntimePython)' == ''">python3</_BrowserRuntimePython>
+    </PropertyGroup>
+    <Exec WorkingDirectory="$(MSBuildProjectDirectory)" ContinueOnError="WarnAndContinue"
+          Command="$(_BrowserRuntimePython) Scripts/stage-browser-runtime.py &quot;$(_BrowserRuntimeRid)&quot; &quot;$(TargetDir).&quot;" />
+  </Target>
+
   <!-- 编译时将 AthenaSoul.md 复制到输出目录的 AthenaData/KnowledgeBase -->
   <Target Name="CopyAthenaSoulToKnowledgeBase" AfterTargets="Build">
     <PropertyGroup>

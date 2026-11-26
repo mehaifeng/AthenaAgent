@@ -52,6 +52,12 @@ bash Scripts/run-computer-use-demo.sh
 
 发布脚本按 RID 读取锁定的 Electron 版本和 SHA-256，将校验后的原始压缩包放入 `BrowserRuntime/runtime.zip`。安装包、应用内更新包和本地调试可使用相同的准备脚本。首次打开浏览器时，从随包资源解包到用户目录中的版本化缓存，浏览资料位于独立的资料目录。更新替换安装目录中的运行时包时，会继续使用现有浏览资料。
 
+源码调试使用 `dotnet run --project Athena.UI.csproj` 或 VS Code 的 `Debug Athena.UI`。启动前会用 Python 3 将当前 .NET 架构的 Electron 包准备到应用输出目录，并复用已通过校验的文件。首次准备需要下载运行时。若直接运行本地 Debug 产物，可先将运行时准备到对应的输出目录。Apple Silicon 上的原生 .NET 使用 `osx-arm64`，Intel Mac 或 Rosetta 下运行的 x64 .NET 使用 `osx-x64`。
+
+```bash
+python3 Scripts/stage-browser-runtime.py osx-arm64 bin/Debug/net10.0
+```
+
 ### 回归测试
 
 从仓库根目录运行以下命令。以 Linux x64 为例，先用同一发布脚本准备锁定的运行时，再运行专项。Windows 和 macOS 使用对应的 RID。

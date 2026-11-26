@@ -24,6 +24,20 @@ internal static class BrowserRuntimeTests
         var server = ServeAsync(listener, token);
         try
         {
+            var unstagedDirectory = Path.Combine(root.FullName, "UnstagedRuntime");
+            var unstaged = new BrowserRuntime(unstagedDirectory, root.FullName);
+            try
+            {
+                await unstaged.PrepareAsync(token);
+                throw new InvalidOperationException("Browser startup must diagnose a missing archive.");
+            }
+            catch (FileNotFoundException exception)
+            {
+                Assert(exception.FileName == Path.Combine(unstagedDirectory, "runtime.zip")
+                    && exception.Message.Contains("dotnet run", StringComparison.Ordinal),
+                    "The missing-runtime error must give the archive path and the source launch command.");
+            }
+
             await using (var browser = new EmbeddedBrowser(archiveDirectory, root.FullName))
             {
                 var login = await browser.OpenAsync(new Uri(site, "login"), token);

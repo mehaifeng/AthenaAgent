@@ -16,7 +16,6 @@ package = manifest["packages"][rid]
 version = manifest["version"]
 asset = f"electron-v{version}-{package['asset']}.zip"
 cache = Path(os.environ.get("ATHENA_BROWSER_BUILD_CACHE", root / "obj/browser-runtime"))
-cache.mkdir(parents=True, exist_ok=True)
 
 
 def valid(path):
@@ -29,6 +28,12 @@ def valid(path):
     return digest.hexdigest() == package["sha256"]
 
 
+destination = Path(output) / "BrowserRuntime" / "runtime.zip"
+if valid(destination):
+    print(f"Bundled {asset} is ready")
+    sys.exit(0)
+
+cache.mkdir(parents=True, exist_ok=True)
 source = cache / asset
 if not valid(source):
     with tempfile.NamedTemporaryFile(dir=cache, delete=False) as target:
@@ -43,7 +48,9 @@ if not valid(source):
     finally:
         partial.unlink(missing_ok=True)
 
-destination = Path(output) / "BrowserRuntime"
-destination.mkdir(parents=True, exist_ok=True)
-shutil.copyfile(source, destination / "runtime.zip")
+destination.parent.mkdir(parents=True, exist_ok=True)
+with tempfile.TemporaryDirectory(dir=destination.parent) as staging:
+    staged_archive = Path(staging) / destination.name
+    shutil.copyfile(source, staged_archive)
+    os.replace(staged_archive, destination)
 print(f"Bundled {asset}")
