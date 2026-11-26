@@ -26,8 +26,10 @@ flowchart LR
 - **网页文字输入**。`type_text` 先点中可编辑控件，再通过 Chrome DevTools 逐字发送带文字的按下与释放事件。短文本在右栏有逐字出现的间隔。由多个 Unicode 码点组合成的字符及换行等控制字符按原样插入。网页出现自动补全候选时，规划器会先观察并选择匹配项，再移动焦点。[Chrome DevTools Input](https://github.com/ChromeDevTools/devtools-protocol/blob/master/pdl/domains/Input.pdl)
 - **网页横向滚动**。每轮截图覆盖当前视口。整页存在横向溢出时，观察会提供还可以滚动的方向。模型用 `scroll` 的 `left` 或 `right` 横向滚动，可指定截图中表格或轮播内的坐标。每次横移取滚动区域可见宽度的约 80%，下一次截图保留一段重叠，便于连续阅读和定位。滚动后按新截图上的坐标操作。
 - **浏览器与右栏**。发布包包含固定版本的 Electron 运行时。首次打开从本地包校验并解包，Athena 通过父子进程管道调用 DevTools。「浏览」和「任务」有各自的页签，共用 Athena 的持久 Cookie 和站点存储。历史写入本机用户数据目录。当前可见页签由 Chromium 合成器在页面变化时推送原始像素，更新上限为 60 FPS。右栏按窗口的 DPI 分配位图，浏览器按 CSS 视口布局和接收输入。界面跟不上时，运行时保留最新一帧。关闭右栏会暂停预览绘制，网页任务使用上一次有效视口继续。页面尺寸发生变化时，界面收到匹配的新帧后恢复鼠标定位。Avalonia 在网页原生弹层上方绘制 Athena 光标、点击波纹和输入提示。模型在每轮观察时通过 DevTools 获取对应视口的 PNG。[Electron 离屏渲染](https://www.electronjs.org/docs/latest/tutorial/offscreen-rendering)
+- **网页打开的新页签**。Electron 45.5.0 的首个渲染视图可能保留初始化时的空绘制回调，DOM 和媒体仍可运行。可见子页签等待 `paint` 150 毫秒后改用同一页面的合成帧订阅，订阅上限为 30 FPS。切走时停止订阅，下一次主导航提交后重新尝试常规绘制。回归测试检查高 DPI 下的首帧、同页更新和切回后的页面状态。[Electron 渲染视图](https://github.com/electron/electron/blob/v45.5.0/shell/browser/osr/osr_web_contents_view.cc) · [合成帧订阅](https://github.com/electron/electron/blob/v45.5.0/shell/browser/api/frame_subscriber.cc)
 - **地址栏**。主模型可用工具参数 `startingUrl` 指定起始页。省略时，工具优先使用选中的桌面窗口，其次使用内置浏览器已知的页面地址。网页规划器把“点击地址栏、输入网址并回车”转换为 `navigate` 动作，由 CDP 的 `Page.navigate` 执行，然后观察目的页。起始网址和导航动作均接受无内嵌凭据的 HTTP(S) 绝对地址。[ComputerUseFunctions.cs](../Services/Functions/ComputerUseFunctions.cs) · [CDP Page](https://chromedevtools.github.io/devtools-protocol/tot/Page/)
-- **结果与停止**。任务通过主对话工具调用进入原有审批流程。网页任务开始时读取时限和重试次数，最长运行时间可设为 1–60 分钟，默认 3 分钟。用户点「接管」或在任务页操作时，Agent 完成正在进行的浏览器动作后暂停，并作废未执行的决定。Agent 也可请求用户登录或确认。暂停期间停止发送新观察并暂停计时。点击「继续」重新观察，点击聊天「停止」结束任务。上传、下载、网页消息和站点权限由用户在界面上处理。
+- **结果与停止**。任务通过主对话工具调用进入原有审批流程。网页任务开始时读取时限和重试次数，最长运行时间可设为 1–60 分钟，默认 3 分钟。用户直接滚动、点击、输入或切换任务标签时，任务继续运行，右栏短暂提醒用户操作可能影响结果。手动输入和模型动作依次送给浏览器。手动操作使未执行的模型决定过期，Agent 自动重新观察。用户点「接管」时显式暂停，也可以由 Agent 交回控制权。暂停期间停止发送新观察并暂停计时。点击「继续」重新观察，点击聊天「停止」结束任务。
+- **网站权限**。自动执行期间出现的新权限请求立即收到拒绝结果，右栏提示用户可在接管后重试。已有站点授权仍由浏览器的权限检查处理。手动浏览或暂停时，新请求由用户确认。登录、文件选择和需要回答的网页对话继续交给用户。
 
 ## 使用与复现
 
@@ -58,6 +60,38 @@ bash Scripts/run-computer-use-demo.sh
 ```bash
 python3 Scripts/stage-browser-runtime.py osx-arm64 bin/Debug/net10.0
 ```
+
+### macOS 共享纹理原型
+
+源码构建可以显式开启 IOSurface 预览。需要 Xcode 命令行工具和带 Node-API 头文件的 Node.js。`ATHENA_NODE_HEADERS` 可以指向头文件目录。
+
+```bash
+bash Scripts/build-browser-gpu-macos.sh
+ATHENA_BROWSER_GPU_DIRECTORY="$PWD/obj/browser-gpu" dotnet run --project Athena.UI.csproj
+```
+
+开启后，Avalonia 优先使用 Metal。Electron 主进程经 Mach 端口送出 IOSurface，接收端验证 Electron 进程身份。Athena 在 GPU 上复制到独立纹理，以便 Chromium 安全复用原有帧池，再由 Avalonia 合成线程绘制新纹理。浏览和任务沿用同一个 Chromium 资料目录、CDP、输入坐标和 Athena 光标叠层。运行环境缺少互操作能力或未收到纹理时，预览回退到位图。捕获帧的像素尺寸保持不变时，`Page.frameResized` 仍可触发 CSS 视口校验。原型显示页面主表面，Chromium 单独输出的原生子弹层尚未接入共享纹理合成。
+
+性能测试使用真实的 Avalonia 窗口和同一个临时 Chromium 资料目录。脚本需要 FFmpeg，生成本地的 60 FPS 视频并与连续滚动一起测试。两轮以相反顺序运行，比较 OpenGL 位图、Metal 位图和 Metal IOSurface。统计量是有新预览内容的 Avalonia 动画帧频率与间隔，CPU 为 Athena 进程独占的单核百分比。测试也会在切换渲染路径后读取原有 Cookie 和站点存储，并对一个网页任务执行显式接管与恢复。
+
+```bash
+python3 Scripts/benchmark-browser-preview.py
+```
+
+2026-11-27 在 Apple M4 上使用真实的 2× 窗口，网页像素尺寸为 1076 × 1336。每个场景预热 2 秒，测量 8 秒，两轮取中位数。长帧为两次新画面节拍间隔超过 25 毫秒。
+
+| 路径 | 场景 | FPS | p95 帧间隔（ms） | 长帧（%） | Athena CPU（% 单核） |
+| --- | --- | ---: | ---: | ---: | ---: |
+| OpenGL 位图 | 滚动 | 60.0 | 17.1 | 0.1 | 41.5 |
+| OpenGL 位图 | 视频 | 59.9 | 18.6 | 0.1 | 38.2 |
+| Metal 位图 | 滚动 | 59.9 | 17.3 | 0.1 | 31.8 |
+| Metal 位图 | 视频 | 60.0 | 17.2 | 0.0 | 28.0 |
+| Metal IOSurface | 滚动 | 58.3 | 17.5 | 1.4 | 26.2 |
+| Metal IOSurface | 视频 | 59.5 | 17.5 | 0.4 | 22.4 |
+
+同为 Metal 时，共享纹理分别减少约 18% 和 20% 的 Athena CPU 用量。两轮共享纹理均验证了同一资料目录的 Cookie 和站点存储，并用本地网页验证了接管与恢复。[跑分脚本](../Scripts/benchmark-browser-preview.py)
+
+接上 CSS 视口变化事件后，浏览器专项在默认路径和实验模式的位图回退上均通过。共享纹理单次补测录得滚动 59.0 FPS、视频 60.0 FPS，仍使用相同的 1076 × 1336 视口。
 
 ### 回归测试
 

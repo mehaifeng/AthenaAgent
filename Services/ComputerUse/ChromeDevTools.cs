@@ -8,12 +8,14 @@ using System.Text;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
+using Serilog;
 
 namespace Athena.UI.Services.ComputerUse;
 
 internal sealed class ChromeDevTools(BrowserHostConnection connection, string tab)
 {
     public bool IsOpen => connection.IsOpen;
+    public bool SupportsSharedTextures => connection.SupportsSharedTextures;
 
     public Task<JsonElement> CallAsync(string method, object parameters, CancellationToken token) =>
         connection.CallAsync(method, parameters, token, tab);
@@ -27,6 +29,7 @@ internal sealed class BrowserHostConnection : IAsyncDisposable
     private const int MaxMetadataBytes = 32 * 1024 * 1024;
     private const int MaxPixelBytes = 128 * 1024 * 1024;
     private readonly Process _process;
+    private readonly MacBrowserSurfaces? _surfaces;
     private readonly Action<JsonElement> _event;
     private readonly SemaphoreSlim _writer = new(1, 1);
     private readonly ConcurrentDictionary<int, TaskCompletionSource<JsonElement>> _requests = new();
@@ -52,12 +55,28 @@ internal sealed class BrowserHostConnection : IAsyncDisposable
         start.Environment.Remove("NODE_OPTIONS");
         start.Environment.Remove("NODE_PATH");
         _event = onEvent;
-        _process = Process.Start(start) ?? throw new InvalidOperationException("Could not launch the bundled browser.");
+        var surfaces = MacBrowserSurfaces.TryOpen();
+        try
+        {
+            if (surfaces is not null)
+            {
+                start.ArgumentList.Add(surfaces.Addon);
+                start.ArgumentList.Add(surfaces.Service);
+            }
+            _process = Process.Start(start) ?? throw new InvalidOperationException("Could not launch the bundled browser.");
+            _surfaces = surfaces;
+        }
+        catch
+        {
+            surfaces?.Dispose();
+            throw;
+        }
         _reader = ReadAsync();
         _errors = ReadErrorsAsync();
     }
 
     public bool IsOpen => !_closed.IsCancellationRequested;
+    public bool SupportsSharedTextures { get; private set; }
     public Task WaitUntilReadyAsync(CancellationToken token) => _ready.Task.WaitAsync(token);
 
     public BrowserPreview OpenPreview(string tab)
@@ -133,7 +152,16 @@ internal sealed class BrowserHostConnection : IAsyncDisposable
                     case "ready":
                         if (message.GetProperty("version").GetString() != BrowserRuntime.Version)
                             throw new IOException("The browser runtime returned an unexpected version.");
+                        SupportsSharedTextures = _surfaces is not null && message.TryGetProperty("sharedTextures", out var shared)
+                            && shared.ValueKind == JsonValueKind.True;
                         _ready.TrySetResult();
+                        break;
+                    case "previewTexture":
+                        ReadTexture(message);
+                        break;
+                    case "previewViewportChanged":
+                        if (_previews.TryGetValue(message.GetProperty("preview").GetInt32(), out var preview))
+                            preview.ReportViewportChange();
                         break;
                     case "startup-error":
                         throw new IOException(message.GetProperty("error").GetString());
@@ -157,6 +185,37 @@ internal sealed class BrowserHostConnection : IAsyncDisposable
             foreach (var preview in _previews.Values) preview.Complete(failure);
             using var disconnected = JsonDocument.Parse("""{"event":"disconnected"}""");
             _event(disconnected.RootElement);
+        }
+    }
+
+    private void ReadTexture(JsonElement message)
+    {
+        var sequence = message.GetProperty("sequence").GetUInt32();
+        var width = message.GetProperty("width").GetInt32();
+        var height = message.GetProperty("height").GetInt32();
+        var revision = message.GetProperty("revision").GetInt32();
+        var id = message.GetProperty("preview").GetInt32();
+        if (_surfaces is null || width <= 0 || height <= 0 || (long)width * height > MaxPixelBytes / 4)
+            throw new IOException("The browser returned an invalid shared texture.");
+        var surface = _surfaces.Read(_process.Id, sequence, width, height);
+        if (surface == IntPtr.Zero)
+        {
+            Log.Warning("Could not receive the browser IOSurface. Falling back to bitmap frames");
+            _ = ReleaseTextureAsync(sequence, fallback: true);
+            return;
+        }
+        var frame = new BrowserPreviewFrame(revision, width, height, null, surface, () => _ = ReleaseTextureAsync(sequence));
+        if (_previews.TryGetValue(id, out var preview)) preview.Publish(frame);
+        else frame.Dispose();
+    }
+
+    private async Task ReleaseTextureAsync(uint sequence, bool fallback = false)
+    {
+        using var limit = new CancellationTokenSource(TimeSpan.FromSeconds(2));
+        try { await CallAsync("previewTextureAck", new { sequence, fallback }, limit.Token).ConfigureAwait(false); }
+        catch (Exception exception) when (exception is ChromeDevToolsException or IOException or OperationCanceledException)
+        {
+            Log.Debug("Browser texture release ended after a preview disconnect: {Error}", exception.Message);
         }
     }
 
@@ -221,6 +280,7 @@ internal sealed class BrowserHostConnection : IAsyncDisposable
             _closed.Cancel();
             await Task.WhenAll(_reader, _errors).ConfigureAwait(false);
             _process.Dispose();
+            _surfaces?.Dispose();
         }
     }
 }

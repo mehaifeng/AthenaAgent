@@ -1,4 +1,5 @@
 using Avalonia;
+using Athena.UI.Services.ComputerUse;
 using System;
 using System.IO;
 using System.Text;
@@ -84,11 +85,9 @@ class Program
             // 参见 AvaloniaUI/Avalonia#14829、#17025），故退回 OpenGL。
             .With(new AvaloniaNativePlatformOptions
             {
-                RenderingMode = new[]
-                {
-                    AvaloniaNativeRenderingMode.OpenGl,
-                    AvaloniaNativeRenderingMode.Software
-                }
+                RenderingMode = MacBrowserSurfaces.Requested
+                    ? [AvaloniaNativeRenderingMode.Metal, AvaloniaNativeRenderingMode.OpenGl, AvaloniaNativeRenderingMode.Software]
+                    : [AvaloniaNativeRenderingMode.OpenGl, AvaloniaNativeRenderingMode.Software]
             })
             .WithInterFont()
             .LogToTrace();

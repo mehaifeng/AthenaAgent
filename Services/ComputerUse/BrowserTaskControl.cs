@@ -19,6 +19,7 @@ internal sealed class BrowserTaskControl : IDisposable
     private long _activeSince;
     private TimeSpan _remaining;
     private int _generation;
+    private bool _afterTakeover;
     private bool _disposed;
 
     public BrowserTaskControl(CancellationToken run, CancellationTokenSource deadline, TimeSpan limit, Action<string?> paused, Action resumed)
@@ -44,6 +45,7 @@ internal sealed class BrowserTaskControl : IDisposable
             _deadline.CancelAfter(Timeout.InfiniteTimeSpan);
             _resume = new(TaskCreationOptions.RunContinuationsAsynchronously);
             _generation++;
+            _afterTakeover = true;
             _observation.Cancel();
             _paused(reason);
         }
@@ -70,7 +72,7 @@ internal sealed class BrowserTaskControl : IDisposable
         finally { _input.Release(); }
     }
 
-    public async Task<(int Generation, CancellationToken Token)> NextObservationAsync(CancellationToken token)
+    public async Task<(int Generation, CancellationToken Token, bool AfterTakeover)> NextObservationAsync(CancellationToken token)
     {
         while (true)
         {
@@ -78,7 +80,7 @@ internal sealed class BrowserTaskControl : IDisposable
             lock (_state)
             {
                 token.ThrowIfCancellationRequested();
-                if (_resume == null) return (_generation, _observation.Token);
+                if (_resume == null) return (_generation, _observation.Token, _afterTakeover);
                 wait = _resume.Task;
             }
             await wait.WaitAsync(token).ConfigureAwait(false);
@@ -96,16 +98,26 @@ internal sealed class BrowserTaskControl : IDisposable
         }
     }
 
-    public async Task WithHumanInputAsync(Func<Task> send, CancellationToken token, string? reason = null)
+    public async Task WithHumanInputAsync(Func<Task> send, CancellationToken token, bool changesPage)
     {
-        Pause(reason);
         await _input.WaitAsync(token).ConfigureAwait(false);
-        try
+        try { await send().ConfigureAwait(false); }
+        finally
         {
-            Pause(reason);
-            await send().ConfigureAwait(false);
+            // A model may have observed the page while this input was in flight.
+            if (changesPage) PageChanged();
+            _input.Release();
         }
-        finally { _input.Release(); }
+    }
+
+    public void PageChanged()
+    {
+        lock (_state)
+        {
+            if (_disposed || _resume != null || _run.IsCancellationRequested) return;
+            _generation++;
+            _afterTakeover = false;
+        }
     }
 
     public void Dispose()

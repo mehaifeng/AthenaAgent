@@ -67,7 +67,15 @@
                                    Foreground="{DynamicResource App.TextMuted}" Text="{loc:Loc Browser.TaskEmpty}"/>
                     </Panel>
                     <Image x:Name="BrowserImage" Stretch="Fill" IsHitTestVisible="False"/>
+                    <Border x:Name="BrowserGpuLayer" IsHitTestVisible="False"/>
                     <controls:ComputerUsePreview x:Name="BrowserCursor" IsHitTestVisible="False"/>
+                    <Border x:Name="BrowserNotice" IsVisible="{Binding HasNotice}" IsHitTestVisible="False"
+                            HorizontalAlignment="Center" VerticalAlignment="Bottom" Margin="12" Padding="10,7"
+                            CornerRadius="8" BorderThickness="1" BorderBrush="{DynamicResource App.PanelBorderBrush}"
+                            Background="{DynamicResource App.PanelBackgroundBrush}">
+                        <TextBlock Text="{Binding Notice}" TextWrapping="Wrap"
+                                   Foreground="{DynamicResource App.TextPrimary}"/>
+                    </Border>
                     <TextBox x:Name="BrowserImeInput" Width="2" Height="2" MinWidth="0" MinHeight="0" Padding="0"
                              Opacity="0" IsHitTestVisible="False" IsTabStop="False"
                              HorizontalAlignment="Left" VerticalAlignment="Top"/>

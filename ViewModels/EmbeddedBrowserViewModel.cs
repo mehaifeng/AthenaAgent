@@ -22,6 +22,7 @@ public sealed partial class EmbeddedBrowserViewModel : ViewModelBase, IDisposabl
     private readonly CancellationTokenSource _lifetime = new();
     private readonly Queue<BrowserInteraction> _interactions = new();
     private ChromeBrowserPage? _lastPage;
+    private IDisposable? _noticeTimeout;
     private bool _handlingInteraction;
     private bool _updatingTabs;
     private bool _addressEditing;
@@ -32,6 +33,7 @@ public sealed partial class EmbeddedBrowserViewModel : ViewModelBase, IDisposabl
     [ObservableProperty] private string _address = "";
     [ObservableProperty] private string _browseStatus = "";
     [ObservableProperty] private string _taskStatus = "";
+    [ObservableProperty, NotifyPropertyChangedFor(nameof(HasNotice))] private string _notice = "";
     [ObservableProperty, NotifyPropertyChangedFor(nameof(HasMultipleTabs))]
     private IReadOnlyList<BrowserPageOption> _pages = [];
     [ObservableProperty] private BrowserPageOption? _activePage;
@@ -58,9 +60,9 @@ public sealed partial class EmbeddedBrowserViewModel : ViewModelBase, IDisposabl
     public bool HasPage => CurrentPage is not null;
     public bool HasMultipleTabs => Pages.Count > 1;
     public bool HasPrompt => Prompt != null;
+    public bool HasNotice => IsTask && Notice.Length != 0;
     public bool CanTakeOver => IsTask && _computerUse.HasBrowserTask && !_computerUse.IsBrowserPaused;
     public bool CanResume => IsTask && _computerUse.IsBrowserPaused && !_handlingInteraction;
-    public bool CanHoverPage => !IsTask || !_computerUse.HasBrowserTask || _computerUse.IsBrowserPaused;
     internal ChromeBrowserPage? CurrentPage => IsTask ? _browser.TaskPage : _browser.BrowsingPage;
 
     internal void SetPreferredViewport(BrowserViewportSize size) => _browser.SetPreferredViewport(size);
@@ -74,6 +76,7 @@ public sealed partial class EmbeddedBrowserViewModel : ViewModelBase, IDisposabl
     {
         OnPropertyChanged(nameof(IsTask));
         OnPropertyChanged(nameof(IsBrowsing));
+        OnPropertyChanged(nameof(HasNotice));
         RefreshPage();
         RefreshControl();
     }
@@ -83,8 +86,12 @@ public sealed partial class EmbeddedBrowserViewModel : ViewModelBase, IDisposabl
         if (value == null || _updatingTabs || value.Id == CurrentPage?.Id) return;
         if (_browser.Tabs(IsTask).FirstOrDefault(page => page.Id == value.Id) is { } page)
         {
-            if (page.IsTask) _computerUse.RequestBrowserTakeover();
             _browser.Select(page);
+            if (page.IsTask)
+            {
+                _computerUse.BrowserTaskPageChanged();
+                WarnAboutManualInput();
+            }
             RefreshPage();
         }
     }
@@ -179,13 +186,33 @@ public sealed partial class EmbeddedBrowserViewModel : ViewModelBase, IDisposabl
 
     private Task WithPageAsync(Func<ChromeBrowserPage, CancellationToken, Task> operation) =>
         CurrentPage is { } page
-            ? BrowseAsync(token => _computerUse.WithManualBrowserInputAsync(page, () =>
-                ReferenceEquals(CurrentPage, page) ? operation(page, token) : Task.CompletedTask, token), page.IsTask)
+            ? BrowseAsync(token => WithManualInputAsync(page, () => operation(page, token), token), page.IsTask)
             : Task.CompletedTask;
 
-    internal Task WithManualInputAsync(ChromeBrowserPage page, Func<Task> input, CancellationToken token) =>
-        _computerUse.WithManualBrowserInputAsync(page, () =>
-            ReferenceEquals(CurrentPage, page) ? input() : Task.CompletedTask, token);
+    internal Task WithManualInputAsync(ChromeBrowserPage page, Func<Task> input, CancellationToken token, bool changesPage = true)
+    {
+        if (page.IsTask && changesPage) WarnAboutManualInput();
+        return _computerUse.WithManualBrowserInputAsync(page, () =>
+            ReferenceEquals(CurrentPage, page) ? input() : Task.CompletedTask, token, changesPage);
+    }
+
+    private void WarnAboutManualInput()
+    {
+        if (_computerUse.IsBrowserTaskRunning)
+            ShowNotice(T("Browser.ManualInput", "Computer Use is running. Your input can affect the task."));
+    }
+
+    private void ShowNotice(string text)
+    {
+        if (_disposed || string.Equals(Notice, text, StringComparison.Ordinal)) return;
+        _noticeTimeout?.Dispose();
+        Notice = text;
+        _noticeTimeout = DispatcherTimer.RunOnce(() =>
+        {
+            Notice = "";
+            _noticeTimeout = null;
+        }, TimeSpan.FromSeconds(4));
+    }
 
     private async Task BrowseAsync(Func<CancellationToken, Task> operation, bool inTask)
     {
@@ -244,12 +271,13 @@ public sealed partial class EmbeddedBrowserViewModel : ViewModelBase, IDisposabl
     {
         OnPropertyChanged(nameof(CanTakeOver));
         OnPropertyChanged(nameof(CanResume));
-        OnPropertyChanged(nameof(CanHoverPage));
     }
 
     private void OnInteractionRequested(BrowserInteraction request)
     {
-        if (request.InTask) _computerUse.RequestBrowserTakeover(T("Browser.Interaction.Required", "The website needs your input."));
+        if (DeclineRunningTaskPermission(request)) return;
+        if (request.InTask && request.Kind != "permission")
+            _computerUse.RequestBrowserTakeover(T("Browser.Interaction.Required", "The website needs your input."));
         Dispatcher.UIThread.Post(() =>
         {
             if (_disposed)
@@ -262,6 +290,15 @@ public sealed partial class EmbeddedBrowserViewModel : ViewModelBase, IDisposabl
         });
     }
 
+    private bool DeclineRunningTaskPermission(BrowserInteraction request)
+    {
+        if (!request.InTask || request.Kind != "permission" || !_computerUse.IsBrowserTaskRunning) return false;
+        _ = AnswerAsync(request, new { accept = false });
+        Dispatcher.UIThread.Post(() => ShowNotice(T("Browser.PermissionDeclined",
+            "Website permission declined. You can take over and try again to grant it.")));
+        return true;
+    }
+
     private async Task ProcessInteractionsAsync()
     {
         _handlingInteraction = true;
@@ -269,6 +306,7 @@ public sealed partial class EmbeddedBrowserViewModel : ViewModelBase, IDisposabl
         {
             while (_interactions.TryDequeue(out var request))
             {
+                if (DeclineRunningTaskPermission(request)) continue;
                 RefreshControl();
                 SelectedTab = request.InTask ? 1 : 0;
                 if (_browser.Tabs(request.InTask).FirstOrDefault(page => page.Id == request.Tab) is { } tab)
@@ -355,6 +393,7 @@ public sealed partial class EmbeddedBrowserViewModel : ViewModelBase, IDisposabl
         _browser.DownloadCompleted -= OnDownloadCompleted;
         _computerUse.ProgressChanged -= OnProgress;
         Prompt?.Confirmation.TrySetResult(false);
+        _noticeTimeout?.Dispose();
         _lifetime.Cancel();
         _lifetime.Dispose();
     }

@@ -47,6 +47,7 @@ internal static class BrowserRuntimeTests
                 await WaitForAsync(() => IsTrue(agent, "document.body?.textContent.includes('Logged in')", token), token);
                 Assert(agent.Id != login.Id, "The task must have its own tab while sharing the signed-in browser profile.");
                 await ReplayInteractionsAsync(browser, agent, root.FullName, token);
+                await VerifyConcurrentBrowserInputAsync(browser, site, token);
                 await VerifyTakeoverAsync(browser, site, token);
                 await VerifyActiveTimeLimitAsync(browser, site, token);
                 await VerifyShadowDialogInputAsync(browser, site, token);
@@ -143,6 +144,7 @@ internal static class BrowserRuntimeTests
             }, token);
         await observing.Task.WaitAsync(token);
         var page = browser.TaskPage!;
+        service.RequestBrowserTakeover();
         await service.WithManualBrowserInputAsync(page, async () =>
         {
             await Evaluate(page, "document.title = 'Human updated page'; true", token);
@@ -154,6 +156,53 @@ internal static class BrowserRuntimeTests
         Assert(result.Success && result.Message == "Resumed"
             && await IsTrue(page, "!window.staleClick", token), "The stale agent action must remain discarded after resume.");
         Console.WriteLine("[PASS] Manual takeover invalidates an in-flight model decision and resumes with a fresh observation");
+    }
+
+    private static async Task VerifyConcurrentBrowserInputAsync(EmbeddedBrowser browser, Uri site, CancellationToken token)
+    {
+        var config = new HeadlessConfigService(new AppConfig());
+        await using var service = new ComputerUseService(config, Log.Logger, browser, new ModelRoleProbeService());
+        var localization = new LocalizationService();
+        using var model = new Athena.UI.ViewModels.EmbeddedBrowserViewModel(browser, service, localization, new BrowserTestUrlOpener());
+        var observing = new TaskCompletionSource<CancellationToken>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var finishDecision = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var passes = 0;
+        var run = service.RunAsync(ComputerUseTarget.FromBrowserAddress(new Uri(site, "session").AbsoluteUri)!,
+            async (frame, previous, _, cancellation) =>
+            {
+                if (Interlocked.Increment(ref passes) == 1)
+                {
+                    observing.TrySetResult(cancellation);
+                    await finishDecision.Task.WaitAsync(token);
+                    return new ComputerUseAction("click", X: 20, Y: 20);
+                }
+                Assert(previous.Contains("user interacted", StringComparison.OrdinalIgnoreCase)
+                    && frame.Tree.Contains("Manual input during task", StringComparison.Ordinal),
+                    "After manual input, the next model observation must see the changed page.");
+                return new("finish", Success: true, Summary: "Continued");
+            }, token);
+        try
+        {
+            var decisionToken = await observing.Task.WaitAsync(token);
+            var page = browser.TaskPage!;
+            await Evaluate(page, "navigator.geolocation.getCurrentPosition(() => window.permission = 'granted', () => window.permission = 'denied'); true", token);
+            await WaitForAsync(() => IsTrue(page, "window.permission === 'denied'", token), token);
+            Assert(service.IsBrowserTaskRunning && !decisionToken.IsCancellationRequested && model.Prompt is null,
+                "An ungranted website permission must return denied without blocking or pausing the task.");
+            await model.WithManualInputAsync(page, async () =>
+            {
+                await Evaluate(page, "document.title = 'Manual input during task'; true", token);
+            }, token);
+            Assert(service.IsBrowserTaskRunning && !decisionToken.IsCancellationRequested && model.Notice == localization.GetString("Browser.ManualInput"),
+                "Manual input must send a notice while leaving the in-flight model request and task running.");
+            finishDecision.TrySetResult();
+            var result = await run.WaitAsync(token);
+            Assert(result.Success && result.Message == "Continued" && passes == 2
+                && await IsTrue(page, "!window.staleClick", token),
+                "The task must advance automatically without applying the stale click.");
+        }
+        finally { finishDecision.TrySetResult(); }
+        Console.WriteLine("[PASS] Website permissions resolve without a pause, and manual input re-observes the page while the task continues");
     }
 
     private static async Task VerifyActiveTimeLimitAsync(EmbeddedBrowser browser, Uri site, CancellationToken token)

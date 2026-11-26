@@ -7,6 +7,15 @@ const readline = require('node:readline');
 const { randomUUID } = require('node:crypto');
 
 const profile = path.resolve(process.argv[2]);
+let textureBridge;
+if (process.platform === 'darwin' && process.argv[3] && process.argv[4]) {
+  try {
+    const addon = require(process.argv[3]);
+    if (addon.connect(process.argv[4])) textureBridge = addon;
+  } catch (error) {
+    process.stderr.write(`Browser GPU bridge: ${error.message}\n`);
+  }
+}
 fs.mkdirSync(profile, { recursive: true });
 app.setName('Athena Browser');
 app.setPath('userData', profile);
@@ -18,10 +27,13 @@ if (process.platform === 'linux')
 const tabs = new Map();
 const interactions = new Map();
 const grants = new Set();
+const texturesInFlight = new Map();
 const downloads = path.join(profile, 'PendingDownloads');
+const popupPaintWaitMs = 150;
 let shared;
 let stopping = false;
 let nextInteraction = 0;
+let nextTextureSequence = 0;
 
 function send(message, pixels) {
   if (process.stdout.destroyed) return;
@@ -36,10 +48,27 @@ function send(message, pixels) {
   process.stdout.uncork();
 }
 
-function sendPreview(preview) {
+function sendPreview(tab, preview) {
   if (preview.inFlight || !preview.latest) return;
-  const image = preview.latest;
+  const { image, texture } = preview.latest;
   preview.latest = null;
+  if (texture) {
+    const { handle, codedSize, visibleRect, pixelFormat } = texture.textureInfo;
+    const { width, height } = codedSize;
+    const sequence = ++nextTextureSequence;
+    if (texturesInFlight.size >= 8 || pixelFormat !== 'bgra' || visibleRect.x !== 0 || visibleRect.y !== 0
+        || visibleRect.width !== width || visibleRect.height !== height
+        || !textureBridge.send(handle.ioSurface, sequence)) {
+      texture.release();
+      subscribeToPreviewFrames(tab, preview);
+      return;
+    }
+    texturesInFlight.set(sequence, { tab, texture });
+    preview.inFlight = true;
+    preview.textureSequence = sequence;
+    send({ event: 'previewTexture', sequence, preview: preview.id, revision: preview.revision, width, height });
+    return;
+  }
   const { width, height } = image.getSize();
   if (!width || !height) return;
   const pixels = image.toBitmap();
@@ -49,10 +78,60 @@ function sendPreview(preview) {
   send({ event: 'preview', preview: preview.id, revision: preview.revision, width, height }, pixels);
 }
 
+function discardPendingPreview(preview) {
+  preview?.latest?.texture?.release();
+  if (preview) preview.latest = null;
+}
+
+function queuePreview(tab, preview, frame) {
+  discardPendingPreview(preview);
+  preview.latest = frame;
+  sendPreview(tab, preview);
+}
+
 function invalidatePreview(tab) {
-  if (!tab.preview) return;
+  if (!tab.preview || tab.preview.subscribed) return;
   tab.contents.startPainting();
   tab.contents.invalidate();
+}
+
+function subscribeToPreviewFrames(tab, preview) {
+  clearTimeout(preview.paintDeadline);
+  discardPendingPreview(preview);
+  tab.contents.stopPainting();
+  preview.subscribed = true;
+  tab.contents.beginFrameSubscription(false, image => {
+    if (tab.preview !== preview || !preview.subscribed || image.isEmpty()) return;
+    queuePreview(tab, preview, { image });
+  });
+}
+
+function stopPreviewFallback(tab, preview) {
+  clearTimeout(preview.paintDeadline);
+  if (preview.subscribed) {
+    preview.subscribed = false;
+    tab.contents.endFrameSubscription();
+  }
+}
+
+function requestPreviewPaint(tab) {
+  const preview = tab.preview;
+  if (!preview) return;
+  stopPreviewFallback(tab, preview);
+  discardPendingPreview(preview);
+  if (textureBridge && !preview.sharedTextures) {
+    subscribeToPreviewFrames(tab, preview);
+    return;
+  }
+  if (tab.opener !== null || textureBridge) {
+    // Electron can leave a popup's first renderer view with a no-op paint callback.
+    // Subscribe to that view's compositor frames so the live page can stay loaded.
+    preview.paintDeadline = setTimeout(() => {
+      if (tab.preview === preview && !tab.contents.isDestroyed())
+        subscribeToPreviewFrames(tab, preview);
+    }, popupPaintWaitMs);
+  }
+  invalidatePreview(tab);
 }
 
 function allowed(url, blank = false) {
@@ -68,7 +147,8 @@ function windowOptions(width, height) {
     show: false, width, height, useContentSize: true,
     enableLargerThanScreen: true,
     webPreferences: {
-      session: shared, offscreen: true, backgroundThrottling: false,
+      session: shared, offscreen: textureBridge ? { useSharedTexture: true, sharedTexturePixelFormat: 'bgra' } : true,
+      backgroundThrottling: false,
       nodeIntegration: false, contextIsolation: true, sandbox: true, webSecurity: true,
       preload: path.join(__dirname, 'BrowserPrompt.cjs')
     }
@@ -109,6 +189,7 @@ function register(window, group, opener) {
     send({ ...tabInfo(tab, opener), event, url });
   };
   contents.on('did-navigate', (_event, url, status) => {
+    if (opener !== null || textureBridge) requestPreviewPaint(tab);
     if (status >= 200 && status < 400) report('visit', url);
     else if (allowed(url)) report('address', url);
   });
@@ -119,13 +200,25 @@ function register(window, group, opener) {
   contents.setZoomMode('isolated');
   contents.setFrameRate(60);
   contents.stopPainting();
-  contents.on('paint', (_event, _dirty, image) => {
+  contents.on('paint', (event, _dirty, image) => {
     const preview = tab.preview;
-    if (!preview) return;
-    preview.latest = image;
-    sendPreview(preview);
+    const texture = event.texture;
+    if (texture) {
+      if (!preview?.sharedTextures || preview.subscribed || texture.textureInfo.widgetType !== 'frame') {
+        texture.release();
+        return;
+      }
+      clearTimeout(preview.paintDeadline);
+      queuePreview(tab, preview, { texture });
+      return;
+    }
+    if (!preview || preview.subscribed || image.isEmpty()) return;
+    clearTimeout(preview.paintDeadline);
+    queuePreview(tab, preview, { image });
   });
   contents.on('destroyed', () => {
+    clearTimeout(tab.preview?.paintDeadline);
+    discardPendingPreview(tab.preview);
     tabs.delete(id);
     for (const [key, value] of interactions) {
       if (value.tab === tab) {
@@ -141,6 +234,18 @@ function register(window, group, opener) {
   debuggerApi.attach('1.3');
   debuggerApi.on('message', async (_event, method, params) => {
     try {
+      if (method === 'Page.frameResized' && textureBridge && tab.preview && tab.viewport && !tab.settingViewport) {
+        // Capture surfaces can retain their dimensions even when Chromium's CSS viewport drifts.
+        const { preview, viewport } = tab;
+        const { result } = await debuggerApi.sendCommand('Runtime.evaluate', {
+          expression: '[innerWidth, innerHeight, devicePixelRatio]', returnByValue: true
+        });
+        const metrics = result.value;
+        if (tab.preview === preview && tab.viewport === viewport && !tab.settingViewport && Array.isArray(metrics)
+            && (metrics[0] !== viewport.cssWidth || metrics[1] !== viewport.cssHeight
+                || Math.abs(metrics[2] - viewport.scale) > 0.0001))
+          send({ event: 'previewViewportChanged', preview: preview.id });
+      }
       if (method === 'Page.fileChooserOpened') {
         const reply = await ask(tab, 'file', { multiple: params.mode === 'selectMultiple', url: contents.getURL() });
         if (Array.isArray(reply.files) && reply.files.length > 0 && params.backendNodeId)
@@ -228,6 +333,8 @@ async function shutdown() {
   stopping = true;
   for (const { resolve } of interactions.values()) resolve({});
   interactions.clear();
+  for (const { texture } of texturesInFlight.values()) texture.release();
+  texturesInFlight.clear();
   if (shared) {
     shared.flushStorageData();
     await shared.cookies.flushStore();
@@ -252,6 +359,22 @@ async function dispatch(request) {
       pending?.resolve(result || {});
       return {};
     }
+    case 'previewTextureAck': {
+      const { sequence, fallback } = request.parameters;
+      const frame = texturesInFlight.get(sequence);
+      if (!frame) return {};
+      texturesInFlight.delete(sequence);
+      frame.texture.release();
+      const { tab } = frame;
+      const preview = tab.preview;
+      if (preview?.textureSequence === sequence && !tab.contents.isDestroyed()) {
+        preview.textureSequence = null;
+        preview.inFlight = false;
+        if (fallback && !preview.subscribed) subscribeToPreviewFrames(tab, preview);
+        else sendPreview(tab, preview);
+      }
+      return {};
+    }
     case 'clearData':
       await shared.clearData();
       await shared.clearCache();
@@ -269,21 +392,30 @@ async function dispatch(request) {
         return {};
       }
       if (request.method === 'previewStart') {
-        const { id, revision } = request.parameters;
-        const inFlight = tab.preview?.id === id && tab.preview.inFlight;
-        tab.preview = { id, revision, inFlight, latest: null };
-        invalidatePreview(tab);
+        const { id, revision, sharedTextures } = request.parameters;
+        const previous = tab.preview;
+        const samePreview = previous?.id === id;
+        const inFlight = samePreview && previous.inFlight && (!previous.textureSequence || sharedTextures);
+        const subscribed = samePreview && previous.subscribed;
+        if (previous) stopPreviewFallback(tab, previous);
+        discardPendingPreview(previous);
+        tab.preview = { id, revision, inFlight, latest: null, subscribed: false, paintDeadline: null, sharedTextures,
+          textureSequence: samePreview && sharedTextures ? previous.textureSequence : null };
+        if (subscribed) subscribeToPreviewFrames(tab, tab.preview);
+        else requestPreviewPaint(tab);
         return {};
       }
       if (request.method === 'previewAck') {
         if (tab.preview?.id === request.parameters.id) {
           tab.preview.inFlight = false;
-          sendPreview(tab.preview);
+          sendPreview(tab, tab.preview);
         }
         return {};
       }
       if (request.method === 'previewStop') {
         if (tab.preview?.id === request.parameters.id) {
+          stopPreviewFallback(tab, tab.preview);
+          discardPendingPreview(tab.preview);
           tab.preview = null;
           tab.contents.stopPainting();
         }
@@ -291,16 +423,21 @@ async function dispatch(request) {
       }
       await tab.ready;
       if (request.method === 'setViewport') {
-        const { scale, pixelWidth, pixelHeight } = request.parameters;
+        const { scale, pixelWidth, pixelHeight, cssWidth, cssHeight } = request.parameters;
         const debuggerApi = tab.contents.debugger;
-        // A navigation can recreate the compositor surface using the offscreen window's size.
-        tab.window.setContentSize(pixelWidth, pixelHeight);
-        // Page zoom rasterizes at the requested scale. An emulated DPR alone only scales screenshots.
-        tab.contents.setZoomFactor(scale);
-        await debuggerApi.sendCommand('Emulation.setDeviceMetricsOverride', {
-          width: pixelWidth, height: pixelHeight, deviceScaleFactor: 1, mobile: false, dontSetVisibleSize: true
-        });
-        return await debuggerApi.sendCommand('Emulation.setVisibleSize', { width: pixelWidth, height: pixelHeight });
+        tab.settingViewport = true;
+        try {
+          // A navigation can recreate the compositor surface using the offscreen window's size.
+          tab.window.setContentSize(pixelWidth, pixelHeight);
+          // Page zoom rasterizes at the requested scale. An emulated DPR alone only scales screenshots.
+          tab.contents.setZoomFactor(scale);
+          await debuggerApi.sendCommand('Emulation.setDeviceMetricsOverride', {
+            width: pixelWidth, height: pixelHeight, deviceScaleFactor: 1, mobile: false, dontSetVisibleSize: true
+          });
+          const result = await debuggerApi.sendCommand('Emulation.setVisibleSize', { width: pixelWidth, height: pixelHeight });
+          tab.viewport = { cssWidth, cssHeight, scale };
+          return result;
+        } finally { tab.settingViewport = false; }
       }
       // The channel is private to Athena. Web renderers have no access to it.
       return await tab.contents.debugger.sendCommand(request.method, request.parameters);
@@ -323,7 +460,7 @@ app.whenReady().then(async () => {
     }
   });
   pipe.on('close', () => shutdown().catch(() => app.exit(1)));
-  send({ event: 'ready', version: process.versions.electron });
+  send({ event: 'ready', version: process.versions.electron, sharedTextures: !!textureBridge });
 }).catch(error => {
   send({ event: 'startup-error', error: String(error.message || error) });
   app.exit(1);

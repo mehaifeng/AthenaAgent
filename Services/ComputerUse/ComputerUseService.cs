@@ -68,12 +68,14 @@ public sealed class ComputerUseService(IConfigService config, ILogger logger, Em
     public bool IsAvailable => IsDesktopAvailable || browser.IsAvailable;
     internal bool HasBrowserTask => Volatile.Read(ref _browserControl) != null;
     internal bool IsBrowserPaused => Volatile.Read(ref _browserControl)?.IsPaused == true;
+    internal bool IsBrowserTaskRunning => Volatile.Read(ref _browserControl) is { IsPaused: false };
     internal void RequestBrowserTakeover(string? reason = null) => Volatile.Read(ref _browserControl)?.Pause(reason);
+    internal void BrowserTaskPageChanged() => Volatile.Read(ref _browserControl)?.PageChanged();
     internal Task ResumeBrowserAsync(CancellationToken token) =>
         Volatile.Read(ref _browserControl)?.ResumeAsync(token) ?? Task.CompletedTask;
-    internal Task WithManualBrowserInputAsync(ChromeBrowserPage page, Func<Task> send, CancellationToken token) =>
+    internal Task WithManualBrowserInputAsync(ChromeBrowserPage page, Func<Task> send, CancellationToken token, bool changesPage = true) =>
         page.IsTask && Volatile.Read(ref _browserControl) is { } control
-            ? control.WithHumanInputAsync(send, token) : send();
+            ? control.WithHumanInputAsync(send, token, changesPage) : send();
     public ComputerUseTarget? SelectedTarget
     {
         get => Volatile.Read(ref _selectedTarget);
@@ -160,13 +162,16 @@ public sealed class ComputerUseService(IConfigService config, ILogger logger, Em
             var generation = 0;
             for (var step = 0; ;)
             {
-                var turn = control != null ? await control.NextObservationAsync(token).ConfigureAwait(false) : (0, token);
-                if (turn.Item1 != generation)
+                var (observedGeneration, observationToken, afterTakeover) = control != null
+                    ? await control.NextObservationAsync(token).ConfigureAwait(false) : (0, token, false);
+                if (observedGeneration != generation)
                 {
-                    generation = turn.Item1;
-                    previousResult = "The user returned control. Observe the current page before acting.";
+                    generation = observedGeneration;
+                    previousResult = afterTakeover
+                        ? "The user returned control. Observe the current page before acting."
+                        : "The user interacted with the browser. Observe the current page before acting.";
                 }
-                using var observation = CancellationTokenSource.CreateLinkedTokenSource(token, turn.Item2);
+                using var observation = CancellationTokenSource.CreateLinkedTokenSource(token, observationToken);
                 ComputerUseAction action;
                 try
                 {

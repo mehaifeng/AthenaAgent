@@ -1935,6 +1935,8 @@
     <system:String x:Key="Browser.SaveDownload">Save download</system:String>
     <system:String x:Key="Browser.SignIn">Website sign-in</system:String>
     <system:String x:Key="Browser.Permission">Website permission</system:String>
+    <system:String x:Key="Browser.PermissionDeclined">Website permission declined. You can take over and try again to grant it.</system:String>
+    <system:String x:Key="Browser.ManualInput">Computer Use is running. Your input can affect the task.</system:String>
     <system:String x:Key="Browser.WebDialog">Website message</system:String>
     <system:String x:Key="Browser.Username">Username</system:String>
     <system:String x:Key="Browser.Password">Password</system:String>

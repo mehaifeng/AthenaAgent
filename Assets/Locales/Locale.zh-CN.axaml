@@ -1935,6 +1935,8 @@
     <system:String x:Key="Browser.SaveDownload">保存下载文件</system:String>
     <system:String x:Key="Browser.SignIn">网站登录</system:String>
     <system:String x:Key="Browser.Permission">网站权限</system:String>
+    <system:String x:Key="Browser.PermissionDeclined">已拒绝网站权限。需要授权时，可以接管后重试。</system:String>
+    <system:String x:Key="Browser.ManualInput">Computer Use 正在运行。你的操作可能影响任务。</system:String>
     <system:String x:Key="Browser.WebDialog">网页提示</system:String>
     <system:String x:Key="Browser.Username">用户名</system:String>
     <system:String x:Key="Browser.Password">密码</system:String>

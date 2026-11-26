@@ -1,4 +1,5 @@
 using Athena.UI.Services.ComputerUse;
+using Athena.UI.Controls;
 using Athena.UI.ViewModels;
 using Avalonia;
 using Avalonia.Controls;
@@ -7,7 +8,9 @@ using Avalonia.Input.Platform;
 using Avalonia.Interactivity;
 using Avalonia.Media.Imaging;
 using Avalonia.Platform;
+using Avalonia.Rendering.Composition;
 using Avalonia.Threading;
+using Serilog;
 using System;
 using System.ComponentModel;
 using System.Diagnostics.CodeAnalysis;
@@ -31,6 +34,7 @@ public sealed partial class EmbeddedBrowserView : UserControl
     private ChromeDevTools? _viewer;
     private CancellationTokenSource? _viewLifetime;
     private BrowserPreview? _preview;
+    internal event Action<bool, BrowserViewportSize>? PreviewFramePresented;
     private WriteableBitmap? _bitmap;
     private BrowserViewportSize? _preferredViewport;
     private BrowserViewportSize? _renderedViewport;
@@ -143,6 +147,8 @@ public sealed partial class EmbeddedBrowserView : UserControl
         _pressed = false;
         InvalidateFrame();
         ClearBitmap();
+        if (ElementComposition.GetElementChildVisual(BrowserGpuLayer) is not null)
+            ElementComposition.SetElementChildVisual(BrowserGpuLayer, null);
         if (page is not null)
         {
             page.CursorChanged += OnCursorChanged;
@@ -173,28 +179,42 @@ public sealed partial class EmbeddedBrowserView : UserControl
         {
             var token = lease.Token;
             var viewer = page.Driver;
+            MacBrowserGpuPreview? gpu = null;
             try
             {
                 if (!ReferenceEquals(lease, _viewLifetime)) return;
                 _viewer = viewer;
+                if (viewer.SupportsSharedTextures)
+                {
+                    try { gpu = await MacBrowserGpuPreview.TryCreateAsync(BrowserGpuLayer, preview.Signal); }
+                    catch (Exception exception) { Log.Warning("Browser GPU preview initialization failed: {Error}", exception.Message); }
+                }
                 BrowserViewportSize? appliedSize = null;
                 var revision = 0;
                 var repair = false;
                 while (!token.IsCancellationRequested)
                 {
+                    repair |= preview.TakeViewportChange();
+                    if (gpu?.Failure is { } failure)
+                    {
+                        Log.Warning("Browser GPU preview fell back to bitmap frames: {Error}", failure);
+                        gpu.Dispose();
+                        gpu = null;
+                        appliedSize = null;
+                    }
                     if (!_pressed && _preferredViewport is { } size
                         && (size != appliedSize || repair || page.ViewportRevision != revision))
                     {
                         InvalidateFrame();
                         try
                         {
-                            if (size != appliedSize || page.ViewportSize != size)
+                            if (page.ViewportSize != size)
                                 await page.ResizeAsync(size, token);
                             else if (repair && await page.RepairPreviewViewportAsync(size, token))
                                 ClearBitmap();
                             token.ThrowIfCancellationRequested();
                             revision = page.ViewportRevision;
-                            await preview.ConfigureAsync(revision, token);
+                            await preview.ConfigureAsync(revision, token, sharedTextures: gpu is not null);
                             appliedSize = size;
                             repair = false;
                         }
@@ -207,6 +227,7 @@ public sealed partial class EmbeddedBrowserView : UserControl
                         if (_preferredViewport != size && !_pressed) continue;
                     }
 
+                    bool acknowledgeBitmap;
                     using (var frame = preview.TakeFrame())
                     {
                         if (frame is null)
@@ -215,16 +236,42 @@ public sealed partial class EmbeddedBrowserView : UserControl
                             continue;
                         }
                         token.ThrowIfCancellationRequested();
+                        acknowledgeBitmap = frame.Surface == IntPtr.Zero;
                         if (!repair && appliedSize is { } frameSize && _preferredViewport == frameSize
                             && frame.Revision == revision && page.ViewportRevision == revision)
                         {
                             if (frame.Width == frameSize.PixelWidth && frame.Height == frameSize.PixelHeight)
                             {
-                                await Dispatcher.UIThread.InvokeAsync(() =>
+                                if (acknowledgeBitmap)
                                 {
-                                    if (_preferredViewport == frameSize && page.ViewportRevision == revision)
-                                        PresentFrame(frame, frameSize);
-                                }, DispatcherPriority.Background, token);
+                                    await Dispatcher.UIThread.InvokeAsync(() =>
+                                    {
+                                        if (_preferredViewport == frameSize && page.ViewportRevision == revision)
+                                        {
+                                            gpu?.Hide();
+                                            PresentFrame(frame, frameSize);
+                                        }
+                                    }, DispatcherPriority.Background, token);
+                                }
+                                else if (gpu is not null)
+                                {
+                                    try
+                                    {
+                                        await gpu.UploadAsync(frame, () =>
+                                        {
+                                            if (token.IsCancellationRequested || _preferredViewport != frameSize
+                                                || page.ViewportRevision != frame.Revision || gpu?.IsVisible != true) return;
+                                            if (_bitmap is not null) ClearBitmap();
+                                            MarkFramePresented(frameSize, sharedTexture: true);
+                                        });
+                                        if (!token.IsCancellationRequested && _preferredViewport == frameSize && page.ViewportRevision == revision)
+                                            gpu.Show();
+                                    }
+                                    catch (Exception exception)
+                                    {
+                                        gpu.ReportFailure(exception);
+                                    }
+                                }
                             }
                             else
                             {
@@ -233,7 +280,7 @@ public sealed partial class EmbeddedBrowserView : UserControl
                             }
                         }
                     }
-                    await preview.AcknowledgeAsync(token);
+                    if (acknowledgeBitmap) await preview.AcknowledgeAsync(token);
                     if (repair && !_pressed) await Task.Delay(80, token);
                 }
             }
@@ -259,6 +306,7 @@ public sealed partial class EmbeddedBrowserView : UserControl
                     try { await preview.StopAsync(stop.Token); }
                     catch (Exception exception) when (exception is ChromeDevToolsException or OperationCanceledException or IOException) { }
                 }
+                gpu?.Dispose();
             }
         }
     }
@@ -283,9 +331,15 @@ public sealed partial class EmbeddedBrowserView : UserControl
                     Marshal.Copy(frame.Pixels, y * rowLength, buffer.Address + y * buffer.RowBytes, rowLength);
         }
         BrowserImage.InvalidateVisual();
+        MarkFramePresented(size, sharedTexture: false);
+    }
+
+    private void MarkFramePresented(BrowserViewportSize size, bool sharedTexture)
+    {
         var changed = _renderedViewport != size;
         _renderedViewport = size;
         if (changed) RefreshCursor();
+        PreviewFramePresented?.Invoke(sharedTexture, size);
     }
 
     private void OnCursorChanged(ChromeBrowserPage page) => Dispatcher.UIThread.Post(() =>
@@ -312,12 +366,12 @@ public sealed partial class EmbeddedBrowserView : UserControl
     private bool TryMapPoint(PointerEventArgs e, out Point result)
     {
         result = default;
-        var bounds = BrowserImage.Bounds.Size;
+        var bounds = BrowserSurface.Bounds.Size;
         if (_model is not { HasPage: true, HasPrompt: false } || _viewer is null || _renderedViewport is not { } size
             || _preferredViewport != size || bounds.Width <= 0 || bounds.Height <= 0)
             return false;
 
-        var point = e.GetPosition(BrowserImage);
+        var point = e.GetPosition(BrowserSurface);
         if (!new Rect(bounds).Contains(point))
             return false;
         result = new Point(point.X * size.Width / bounds.Width, point.Y * size.Height / bounds.Height);
@@ -383,7 +437,7 @@ public sealed partial class EmbeddedBrowserView : UserControl
     private async void OnPointerMoved(object? sender, PointerEventArgs e)
     {
         var now = Environment.TickCount64;
-        if (_model?.CanHoverPage != true || _moving || now - _lastMove < 16 || !TryMapPoint(e, out var point)) return;
+        if (_moving || now - _lastMove < 16 || !TryMapPoint(e, out var point)) return;
         _lastMove = now;
         _moving = true;
         try
@@ -392,7 +446,7 @@ public sealed partial class EmbeddedBrowserView : UserControl
             {
                 type = "mouseMoved", x = point.X, y = point.Y, buttons = _pressed ? _buttons : 0,
                 modifiers = ModifierMask(e.KeyModifiers)
-            }, token));
+            }, token), changesPage: _pressed);
         }
         finally
         {
@@ -455,7 +509,7 @@ public sealed partial class EmbeddedBrowserView : UserControl
         await SendInputAsync((viewer, token) => BrowserComputerUseSession.TypeCommittedTextAsync(viewer, text, token));
     }
 
-    private async Task SendInputAsync(Func<ChromeDevTools, CancellationToken, Task> send)
+    private async Task SendInputAsync(Func<ChromeDevTools, CancellationToken, Task> send, bool changesPage = true)
     {
         if (_model is not { HasPage: true, HasPrompt: false } model || _page is not { } page
             || _viewer is not { } viewer || _viewLifetime is not { } lease)
@@ -463,12 +517,12 @@ public sealed partial class EmbeddedBrowserView : UserControl
         var token = lease.Token;
         try
         {
-            // Request ownership immediately. The first pointer/key event waits for any current AI input.
+            // Keep manual events in order and send them between complete agent input operations.
             await _manualInput.WaitAsync(token);
             try
             {
                 if (ReferenceEquals(lease, _viewLifetime))
-                    await model.WithManualInputAsync(page, () => send(viewer, token), token);
+                    await model.WithManualInputAsync(page, () => send(viewer, token), token, changesPage);
             }
             finally { _manualInput.Release(); }
         }

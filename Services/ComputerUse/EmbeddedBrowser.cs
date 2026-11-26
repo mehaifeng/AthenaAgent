@@ -393,7 +393,8 @@ internal sealed class ChromeBrowserPage(string id, bool task, string? opener, Ch
     {
         await driver.CallAsync("setViewport", new
         {
-            scale = size.Scale, pixelWidth = size.PixelWidth, pixelHeight = size.PixelHeight
+            scale = size.Scale, pixelWidth = size.PixelWidth, pixelHeight = size.PixelHeight,
+            cssWidth = size.Width, cssHeight = size.Height
         }, token).ConfigureAwait(false);
         Cursor = null;
         ViewportSize = size;

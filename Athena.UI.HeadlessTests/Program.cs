@@ -56,6 +56,9 @@ using Serilog.Events;
 
 try
 {
+if (Environment.GetEnvironmentVariable("ATHENA_BROWSER_PREVIEW_BENCHMARK") is { Length: > 0 } browserBenchmark)
+    Environment.Exit(BrowserPreviewBenchmark.Run(browserBenchmark));
+
 // 测试断言按中文界面文案编写，必须显式固定 zh-CN：
 // LocalizationService 在构造时读取 CultureInfo.CurrentUICulture，
 // 若不固定会随 CI 机器系统语言漂移（本地中文通过、CI 英文失败）。
@@ -2670,8 +2673,10 @@ static void TestEmbeddedBrowserPane(bool runChrome, string? previewPath = null)
             {
                 PumpUntil(() =>
                 {
-                    size = PixelSize.FromSize(surface.Bounds.Size, 1);
-                    return size.Width > 0 && size.Height > 0
+                    if (surface.Bounds is not { Width: > 0, Height: > 0 } bounds) return false;
+                    var viewport = new BrowserViewportSize((int)Math.Round(bounds.Width), (int)Math.Round(bounds.Height), window.RenderScaling);
+                    size = new PixelSize(viewport.PixelWidth, viewport.PixelHeight);
+                    return browser.CurrentPage?.ViewportSize == viewport
                         && (previous is null || (size.Width != previous.Value.Width && size.Height != previous.Value.Height))
                         && preview.Bounds.Size == surface.Bounds.Size
                         && preview.Source is Bitmap bitmap && bitmap.PixelSize == size;
@@ -2683,6 +2688,17 @@ static void TestEmbeddedBrowserPane(bool runChrome, string? previewPath = null)
                     + $"browser {browser.CurrentPage?.ViewportSize}, status '{browser.BrowseStatus}' / '{browser.TaskStatus}'.", exception);
             }
             return size;
+        }
+
+        bool HasRenderedBrowserPixel(Point point, SkiaSharp.SKColor color)
+        {
+            if (preview.TranslatePoint(point, window) is not { } marker) return false;
+            using var snapshot = window.CaptureRenderedFrame();
+            if (snapshot is null) return false;
+            using var png = new MemoryStream();
+            snapshot.Save(png, PngBitmapEncoderOptions.Default);
+            using var pixels = SkiaSharp.SKBitmap.Decode(png.ToArray());
+            return pixels.GetPixel((int)(marker.X * window.RenderScaling), (int)(marker.Y * window.RenderScaling)) == color;
         }
 
         PumpUntil(() => !shell.IsConversationSwitching && ReferenceEquals(conversationView.DataContext, shell.SelectedConversation?.Chat));
@@ -2718,7 +2734,7 @@ static void TestEmbeddedBrowserPane(bool runChrome, string? previewPath = null)
         var browseSize = WaitForFilledViewport();
         window.Width = 1180;
         window.Height = 830;
-        var resizedBrowse = WaitForFilledViewport(browseSize);
+        _ = WaitForFilledViewport(browseSize);
         var openerPage = host.BrowsingPage!;
         var browsing = openerPage;
         if (browser.SelectedTab != 0 || browsing.Address != manualPage || external.LastAddress != linkedPage.AbsoluteUri)
@@ -2732,14 +2748,11 @@ static void TestEmbeddedBrowserPane(bool runChrome, string? previewPath = null)
         });
 
         window.SetRenderScaling(2);
-        var scaledViewport = new BrowserViewportSize(resizedBrowse.Width, resizedBrowse.Height, 2);
-        var scaledPixels = new PixelSize(scaledViewport.PixelWidth, scaledViewport.PixelHeight);
-        PumpUntil(() => browsing.ViewportSize == scaledViewport && preview.Source is Bitmap bitmap
-            && bitmap.PixelSize == scaledPixels,
-            7000, "The browser preview must render at the window's physical resolution.");
+        _ = WaitForFilledViewport();
+        var scaledViewport = browsing.ViewportSize!;
         var scaledBitmap = preview.Source;
         var browserMetrics = awaitPageValue(browsing, "[innerWidth, innerHeight, devicePixelRatio]");
-        if (browserMetrics[0].GetInt32() != resizedBrowse.Width || browserMetrics[1].GetInt32() != resizedBrowse.Height
+        if (browserMetrics[0].GetInt32() != scaledViewport.Width || browserMetrics[1].GetInt32() != scaledViewport.Height
             || browserMetrics[2].GetDouble() != 2)
             throw new InvalidOperationException("DPI changes must preserve the browser's CSS layout.");
         _ = awaitPageValue(browsing, """
@@ -2755,17 +2768,8 @@ static void TestEmbeddedBrowserPane(bool runChrome, string? previewPath = null)
                 && System.Runtime.InteropServices.Marshal.ReadByte(sample, 1) == 100
                 && System.Runtime.InteropServices.Marshal.ReadByte(sample, 2) == 25;
         }, 7000, "A changed webpage pixel must reach the 2× Chromium surface at its physical coordinates.");
-        PumpUntil(() =>
-        {
-            var marker = preview.TranslatePoint(new Point(97, 111), window)!.Value;
-            using var snapshot = window.CaptureRenderedFrame();
-            if (snapshot is null) return false;
-            using var png = new MemoryStream();
-            snapshot.Save(png, PngBitmapEncoderOptions.Default);
-            using var pixels = SkiaSharp.SKBitmap.Decode(png.ToArray());
-            return pixels.GetPixel((int)(marker.X * window.RenderScaling), (int)(marker.Y * window.RenderScaling))
-                == new SkiaSharp.SKColor(25, 100, 210);
-        }, 7000, "A changed webpage pixel must reach the actual high-DPI Avalonia render.");
+        PumpUntil(() => HasRenderedBrowserPixel(new Point(97, 111), new SkiaSharp.SKColor(25, 100, 210)),
+            7000, "A changed webpage pixel must reach the actual high-DPI Avalonia render.");
         if (!ReferenceEquals(scaledBitmap, preview.Source))
             throw new InvalidOperationException("A repaint at the same size must reuse the preview bitmap.");
         var linkPoint = preview.TranslatePoint(new Point(60, 42), window)
@@ -2779,8 +2783,24 @@ static void TestEmbeddedBrowserPane(bool runChrome, string? previewPath = null)
         if (browsing.Opener != openerPage.Id || ReferenceEquals(browsing, openerPage)
             || !(awaitPageValue(browsing, "window.opener !== null")).GetBoolean())
             throw new InvalidOperationException("A target-blank link must keep its opener relationship in an embedded tab.");
+        var popupSample = new Point(32, 80);
+        PumpUntil(() => HasRenderedBrowserPixel(popupSample, new SkiaSharp.SKColor(196, 33, 106)),
+            7000, "The new tab's loaded document must appear in Avalonia without refreshing it.");
+        _ = awaitPageValue(browsing, "document.documentElement.style.background = '#2b8a3e'; true");
+        var updatedColor = new SkiaSharp.SKColor(43, 138, 62);
+        PumpUntil(() => HasRenderedBrowserPixel(popupSample, updatedColor), 7000,
+            "The open tab must continue presenting frames when the same document changes.");
+        browser.ActivePage = browser.Pages.Single(page => page.Id == openerPage.Id);
+        PumpUntil(() => ReferenceEquals(browser.CurrentPage, openerPage) && preview.Source is Bitmap,
+            7000, "Switching away must bring back the opener's preview.");
+        browser.ActivePage = browser.Pages.Single(page => page.Id == browsing.Id);
+        PumpUntil(() => HasRenderedBrowserPixel(popupSample, updatedColor), 7000,
+            "Switching back must present the live popup document and keep its state.");
+        if (awaitPageValue(browsing, "performance.getEntriesByType('navigation')[0].type").GetString() != "navigate")
+            throw new InvalidOperationException("Recovering the preview must never reload the popup document.");
         window.SetRenderScaling(1);
         Console.WriteLine("[PASS] A 2× retina preview repaints losslessly and keeps manual browser clicks in CSS coordinates");
+        Console.WriteLine("[PASS] A target-blank tab displays live pixels in Avalonia on open and reselect without reloading");
         PumpForCompletion(browsing.NavigateAsync(manualPage, timeout.Token), "navigating within the popup tab");
         PumpUntil(() => browser.Address == manualPage.AbsoluteUri);
         PumpForCompletion(browser.BackCommand.ExecuteAsync(null), "going back in the embedded browser");
@@ -2978,6 +2998,7 @@ static async Task ServeBrowserFixtureAsync(HttpListener listener, CancellationTo
                     <title>Manual browsing</title>
                     <a href="/more" target="_blank" rel="opener" style="position:absolute;left:12px;top:12px;padding:20px;display:block">Continue</a>
                     """,
+                "/more" => "<!doctype html><title>New tab</title><style>html { background: #c4216a }</style><p>Opened from browsing.</p>",
                 _ => "<title>Manual browsing</title><p>Browsing remains available.</p>"
             };
             var bytes = Encoding.UTF8.GetBytes(html);
