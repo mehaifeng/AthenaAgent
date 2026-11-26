@@ -1,4 +1,6 @@
 using System;
+using System.Buffers;
+using System.Buffers.Binary;
 using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.IO;
@@ -15,15 +17,20 @@ internal sealed class ChromeDevTools(BrowserHostConnection connection, string ta
 
     public Task<JsonElement> CallAsync(string method, object parameters, CancellationToken token) =>
         connection.CallAsync(method, parameters, token, tab);
+
+    public BrowserPreview OpenPreview() => connection.OpenPreview(tab);
 }
 
-/// <summary>One private, request-correlated pipe. A cancelled caller does not interrupt other tabs or the preview.</summary>
+/// <summary>Private process pipes for commands, browser events and compositor frames.</summary>
 internal sealed class BrowserHostConnection : IAsyncDisposable
 {
+    private const int MaxMetadataBytes = 32 * 1024 * 1024;
+    private const int MaxPixelBytes = 128 * 1024 * 1024;
     private readonly Process _process;
     private readonly Action<JsonElement> _event;
     private readonly SemaphoreSlim _writer = new(1, 1);
     private readonly ConcurrentDictionary<int, TaskCompletionSource<JsonElement>> _requests = new();
+    private readonly ConcurrentDictionary<int, BrowserPreview> _previews = new();
     private readonly TaskCompletionSource _ready = new(TaskCreationOptions.RunContinuationsAsynchronously);
     private readonly CancellationTokenSource _closed = new();
     private readonly Task _reader;
@@ -53,6 +60,16 @@ internal sealed class BrowserHostConnection : IAsyncDisposable
     public bool IsOpen => !_closed.IsCancellationRequested;
     public Task WaitUntilReadyAsync(CancellationToken token) => _ready.Task.WaitAsync(token);
 
+    public BrowserPreview OpenPreview(string tab)
+    {
+        var id = Interlocked.Increment(ref _nextId);
+        var preview = new BrowserPreview(this, tab, id);
+        _previews[id] = preview;
+        return preview;
+    }
+
+    internal void ClosePreview(int id) => _previews.TryRemove(id, out _);
+
     public async Task<JsonElement> CallAsync(string method, object parameters, CancellationToken token, string? tab = null)
     {
         if (!IsOpen) throw new ChromeDevToolsException("The browser runtime disconnected.");
@@ -81,13 +98,27 @@ internal sealed class BrowserHostConnection : IAsyncDisposable
         Exception? error = null;
         try
         {
-            while (await _process.StandardOutput.ReadLineAsync(_closed.Token).ConfigureAwait(false) is { } line)
+            var stream = _process.StandardOutput.BaseStream;
+            var header = new byte[8];
+            var token = _closed.Token;
+            while (true)
             {
-                if (line.Length == 0) continue;
-                if (line.Length > 32 * 1024 * 1024)
-                    throw new IOException("The browser returned an oversized response.");
-                using var document = JsonDocument.Parse(line);
+                var count = await stream.ReadAtLeastAsync(header, header.Length, false, token).ConfigureAwait(false);
+                if (count == 0) break;
+                if (count != header.Length) throw new IOException("The browser returned an incomplete message.");
+                var metadataLength = BinaryPrimitives.ReadInt32LittleEndian(header);
+                var pixelLength = BinaryPrimitives.ReadInt32LittleEndian(header.AsSpan(4));
+                if (metadataLength is <= 0 or > MaxMetadataBytes || pixelLength is < 0 or > MaxPixelBytes)
+                    throw new IOException("The browser returned an invalid message size.");
+                var metadata = new byte[metadataLength];
+                await stream.ReadExactlyAsync(metadata, token).ConfigureAwait(false);
+                using var document = JsonDocument.Parse(metadata);
                 var message = document.RootElement;
+                if (pixelLength != 0)
+                {
+                    await ReadPreviewAsync(stream, message, pixelLength, token).ConfigureAwait(false);
+                    continue;
+                }
                 if (message.TryGetProperty("id", out var id))
                 {
                     if (!_requests.TryGetValue(id.GetInt32(), out var completion)) continue;
@@ -123,9 +154,37 @@ internal sealed class BrowserHostConnection : IAsyncDisposable
                 ? $"The browser runtime disconnected. {detail}" : "The browser runtime disconnected."));
             _ready.TrySetException(failure);
             foreach (var request in _requests.Values) request.TrySetException(failure);
+            foreach (var preview in _previews.Values) preview.Complete(failure);
             using var disconnected = JsonDocument.Parse("""{"event":"disconnected"}""");
             _event(disconnected.RootElement);
         }
+    }
+
+    private async Task ReadPreviewAsync(Stream stream, JsonElement message, int length, CancellationToken token)
+    {
+        var width = message.GetProperty("width").GetInt32();
+        var height = message.GetProperty("height").GetInt32();
+        if (message.GetProperty("event").GetString() != "preview" || width <= 0 || height <= 0
+            || (long)width * height != length / 4 || length % 4 != 0)
+            throw new IOException("The browser returned an invalid preview frame.");
+        var id = message.GetProperty("preview").GetInt32();
+        var revision = message.GetProperty("revision").GetInt32();
+        var pixels = ArrayPool<byte>.Shared.Rent(length);
+        try
+        {
+            await stream.ReadExactlyAsync(pixels.AsMemory(0, length), token).ConfigureAwait(false);
+            if (_previews.TryGetValue(id, out var preview))
+            {
+                preview.Publish(new BrowserPreviewFrame(revision, width, height, pixels));
+                return;
+            }
+        }
+        catch
+        {
+            ArrayPool<byte>.Shared.Return(pixels);
+            throw;
+        }
+        ArrayPool<byte>.Shared.Return(pixels);
     }
 
     private async Task ReadErrorsAsync()

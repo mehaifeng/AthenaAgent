@@ -23,8 +23,36 @@ let shared;
 let stopping = false;
 let nextInteraction = 0;
 
-function send(message) {
-  if (!process.stdout.destroyed) process.stdout.write(JSON.stringify(message) + '\n');
+function send(message, pixels) {
+  if (process.stdout.destroyed) return;
+  const metadata = Buffer.from(JSON.stringify(message));
+  const header = Buffer.alloc(8);
+  header.writeUInt32LE(metadata.length, 0);
+  header.writeUInt32LE(pixels?.length ?? 0, 4);
+  process.stdout.cork();
+  process.stdout.write(header);
+  process.stdout.write(metadata);
+  if (pixels) process.stdout.write(pixels);
+  process.stdout.uncork();
+}
+
+function sendPreview(preview) {
+  if (preview.inFlight || !preview.latest) return;
+  const image = preview.latest;
+  preview.latest = null;
+  const { width, height } = image.getSize();
+  if (!width || !height) return;
+  const pixels = image.toBitmap();
+  if (pixels.length !== width * height * 4) return;
+  // One frame awaiting Athena and one newest paint to send when it catches up.
+  preview.inFlight = true;
+  send({ event: 'preview', preview: preview.id, revision: preview.revision, width, height }, pixels);
+}
+
+function invalidatePreview(tab) {
+  if (!tab.preview) return;
+  tab.contents.startPainting();
+  tab.contents.invalidate();
 }
 
 function allowed(url, blank = false) {
@@ -38,6 +66,7 @@ function allowed(url, blank = false) {
 function windowOptions(width, height) {
   return {
     show: false, width, height, useContentSize: true,
+    enableLargerThanScreen: true,
     webPreferences: {
       session: shared, offscreen: true, backgroundThrottling: false,
       nodeIntegration: false, contextIsolation: true, sandbox: true, webSecurity: true,
@@ -85,6 +114,17 @@ function register(window, group, opener) {
   });
   contents.on('did-navigate-in-page', (_event, url, main) => { if (main) report('visit', url); });
   contents.on('page-title-updated', () => report('title', contents.getURL()));
+  contents.on('dom-ready', () => invalidatePreview(tab));
+  contents.on('did-stop-loading', () => invalidatePreview(tab));
+  contents.setZoomMode('isolated');
+  contents.setFrameRate(60);
+  contents.stopPainting();
+  contents.on('paint', (_event, _dirty, image) => {
+    const preview = tab.preview;
+    if (!preview) return;
+    preview.latest = image;
+    sendPreview(preview);
+  });
   contents.on('destroyed', () => {
     tabs.delete(id);
     for (const [key, value] of interactions) {
@@ -228,7 +268,40 @@ async function dispatch(request) {
         tab.window.destroy();
         return {};
       }
+      if (request.method === 'previewStart') {
+        const { id, revision } = request.parameters;
+        const inFlight = tab.preview?.id === id && tab.preview.inFlight;
+        tab.preview = { id, revision, inFlight, latest: null };
+        invalidatePreview(tab);
+        return {};
+      }
+      if (request.method === 'previewAck') {
+        if (tab.preview?.id === request.parameters.id) {
+          tab.preview.inFlight = false;
+          sendPreview(tab.preview);
+        }
+        return {};
+      }
+      if (request.method === 'previewStop') {
+        if (tab.preview?.id === request.parameters.id) {
+          tab.preview = null;
+          tab.contents.stopPainting();
+        }
+        return {};
+      }
       await tab.ready;
+      if (request.method === 'setViewport') {
+        const { scale, pixelWidth, pixelHeight } = request.parameters;
+        const debuggerApi = tab.contents.debugger;
+        // A navigation can recreate the compositor surface using the offscreen window's size.
+        tab.window.setContentSize(pixelWidth, pixelHeight);
+        // Page zoom rasterizes at the requested scale. An emulated DPR alone only scales screenshots.
+        tab.contents.setZoomFactor(scale);
+        await debuggerApi.sendCommand('Emulation.setDeviceMetricsOverride', {
+          width: pixelWidth, height: pixelHeight, deviceScaleFactor: 1, mobile: false, dontSetVisibleSize: true
+        });
+        return await debuggerApi.sendCommand('Emulation.setVisibleSize', { width: pixelWidth, height: pixelHeight });
+      }
       // The channel is private to Athena. Web renderers have no access to it.
       return await tab.contents.debugger.sendCommand(request.method, request.parameters);
     }

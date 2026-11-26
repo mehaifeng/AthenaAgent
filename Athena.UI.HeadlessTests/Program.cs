@@ -2666,14 +2666,22 @@ static void TestEmbeddedBrowserPane(bool runChrome, string? previewPath = null)
         PixelSize WaitForFilledViewport(PixelSize? previous = null)
         {
             PixelSize size = default;
-            PumpUntil(() =>
+            try
             {
-                size = PixelSize.FromSize(surface.Bounds.Size, 1);
-                return size.Width > 0 && size.Height > 0
-                    && (previous is null || (size.Width != previous.Value.Width && size.Height != previous.Value.Height))
-                    && preview.Bounds.Size == surface.Bounds.Size
-                    && preview.Source is Bitmap bitmap && bitmap.PixelSize == size;
-            }, 7000, "Chrome must cover the full browser surface after layout.");
+                PumpUntil(() =>
+                {
+                    size = PixelSize.FromSize(surface.Bounds.Size, 1);
+                    return size.Width > 0 && size.Height > 0
+                        && (previous is null || (size.Width != previous.Value.Width && size.Height != previous.Value.Height))
+                        && preview.Bounds.Size == surface.Bounds.Size
+                        && preview.Source is Bitmap bitmap && bitmap.PixelSize == size;
+                }, 7000, "Chrome must cover the full browser surface after layout.");
+            }
+            catch (InvalidOperationException exception)
+            {
+                throw new InvalidOperationException($"{exception.Message} Surface {size}, image {(preview.Source as Bitmap)?.PixelSize}, "
+                    + $"browser {browser.CurrentPage?.ViewportSize}, status '{browser.BrowseStatus}' / '{browser.TaskStatus}'.", exception);
+            }
             return size;
         }
 
@@ -2710,7 +2718,7 @@ static void TestEmbeddedBrowserPane(bool runChrome, string? previewPath = null)
         var browseSize = WaitForFilledViewport();
         window.Width = 1180;
         window.Height = 830;
-        _ = WaitForFilledViewport(browseSize);
+        var resizedBrowse = WaitForFilledViewport(browseSize);
         var openerPage = host.BrowsingPage!;
         var browsing = openerPage;
         if (browser.SelectedTab != 0 || browsing.Address != manualPage || external.LastAddress != linkedPage.AbsoluteUri)
@@ -2722,7 +2730,44 @@ static void TestEmbeddedBrowserPane(bool runChrome, string? previewPath = null)
                 "waiting for the browser fixture");
             return page.GetProperty("result").TryGetProperty("value", out var ready) && ready.GetBoolean();
         });
-        using (window.CaptureRenderedFrame()) { }
+
+        window.SetRenderScaling(2);
+        var scaledViewport = new BrowserViewportSize(resizedBrowse.Width, resizedBrowse.Height, 2);
+        var scaledPixels = new PixelSize(scaledViewport.PixelWidth, scaledViewport.PixelHeight);
+        PumpUntil(() => browsing.ViewportSize == scaledViewport && preview.Source is Bitmap bitmap
+            && bitmap.PixelSize == scaledPixels,
+            7000, "The browser preview must render at the window's physical resolution.");
+        var scaledBitmap = preview.Source;
+        var browserMetrics = awaitPageValue(browsing, "[innerWidth, innerHeight, devicePixelRatio]");
+        if (browserMetrics[0].GetInt32() != resizedBrowse.Width || browserMetrics[1].GetInt32() != resizedBrowse.Height
+            || browserMetrics[2].GetDouble() != 2)
+            throw new InvalidOperationException("DPI changes must preserve the browser's CSS layout.");
+        _ = awaitPageValue(browsing, """
+            document.body.insertAdjacentHTML('beforeend', '<div style="position:fixed;left:92px;top:108px;width:12px;height:6px;background:#1964d2"></div>');
+            true
+            """);
+        PumpUntil(() =>
+        {
+            if (preview.Source is not WriteableBitmap bitmap) return false;
+            using var pixels = bitmap.Lock();
+            var sample = pixels.Address + 222 * pixels.RowBytes + 194 * 4;
+            return System.Runtime.InteropServices.Marshal.ReadByte(sample) == 210
+                && System.Runtime.InteropServices.Marshal.ReadByte(sample, 1) == 100
+                && System.Runtime.InteropServices.Marshal.ReadByte(sample, 2) == 25;
+        }, 7000, "A changed webpage pixel must reach the 2× Chromium surface at its physical coordinates.");
+        PumpUntil(() =>
+        {
+            var marker = preview.TranslatePoint(new Point(97, 111), window)!.Value;
+            using var snapshot = window.CaptureRenderedFrame();
+            if (snapshot is null) return false;
+            using var png = new MemoryStream();
+            snapshot.Save(png, PngBitmapEncoderOptions.Default);
+            using var pixels = SkiaSharp.SKBitmap.Decode(png.ToArray());
+            return pixels.GetPixel((int)(marker.X * window.RenderScaling), (int)(marker.Y * window.RenderScaling))
+                == new SkiaSharp.SKColor(25, 100, 210);
+        }, 7000, "A changed webpage pixel must reach the actual high-DPI Avalonia render.");
+        if (!ReferenceEquals(scaledBitmap, preview.Source))
+            throw new InvalidOperationException("A repaint at the same size must reuse the preview bitmap.");
         var linkPoint = preview.TranslatePoint(new Point(60, 42), window)
             ?? throw new InvalidOperationException("The embedded page must provide a pointer target.");
         window.MouseMove(linkPoint);
@@ -2734,6 +2779,8 @@ static void TestEmbeddedBrowserPane(bool runChrome, string? previewPath = null)
         if (browsing.Opener != openerPage.Id || ReferenceEquals(browsing, openerPage)
             || !(awaitPageValue(browsing, "window.opener !== null")).GetBoolean())
             throw new InvalidOperationException("A target-blank link must keep its opener relationship in an embedded tab.");
+        window.SetRenderScaling(1);
+        Console.WriteLine("[PASS] A 2× retina preview repaints losslessly and keeps manual browser clicks in CSS coordinates");
         PumpForCompletion(browsing.NavigateAsync(manualPage, timeout.Token), "navigating within the popup tab");
         PumpUntil(() => browser.Address == manualPage.AbsoluteUri);
         PumpForCompletion(browser.BackCommand.ExecuteAsync(null), "going back in the embedded browser");
@@ -2780,13 +2827,13 @@ static void TestEmbeddedBrowserPane(bool runChrome, string? previewPath = null)
         window.Height = 1040;
         var resizedTask = WaitForFilledViewport(taskSize);
         var viewportRevision = taskPage.ViewportRevision;
+        var lastFrame = preview.Source;
         PumpForCompletion(taskPage.Driver.CallAsync("Emulation.setDeviceMetricsOverride", new
         {
             width = resizedTask.Width + 60, height = resizedTask.Height - 60, deviceScaleFactor = 1, mobile = false
         }, timeout.Token), "changing Chromium viewport metrics independently of Athena's preferred size");
         PumpUntil(() => taskPage.ViewportRevision > viewportRevision, 7000,
             "The visible task must repair the viewport on the same page without a tab switch.");
-        var lastFrame = preview.Source;
         PumpUntil(() => !ReferenceEquals(lastFrame, preview.Source) && preview.Source is Bitmap frame
             && frame.PixelSize == resizedTask && ReferenceEquals(browser.CurrentPage, taskPage) && browser.IsTask,
             7000, "The task preview must display new frames for the recovered viewport.");

@@ -195,13 +195,6 @@ public sealed partial class EmbeddedBrowserViewModel : ViewModelBase, IDisposabl
         catch (Exception exception) { SetStatus(inTask, exception.Message); }
     }
 
-    internal void UpdateAddress(ChromeBrowserPage page, Uri? location, bool addressHasFocus)
-    {
-        if (location == null || !ReferenceEquals(page, CurrentPage)) return;
-        page.UpdateAddress(location);
-        if (!addressHasFocus) Address = location.AbsoluteUri;
-    }
-
     [RelayCommand]
     private void OpenInSystemBrowser() => OpenLinkInSystemBrowser(CurrentPage?.Address);
 

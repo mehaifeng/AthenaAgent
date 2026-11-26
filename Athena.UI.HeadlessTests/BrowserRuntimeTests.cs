@@ -50,6 +50,7 @@ internal static class BrowserRuntimeTests
                 await VerifyTakeoverAsync(browser, site, token);
                 await VerifyActiveTimeLimitAsync(browser, site, token);
                 await VerifyShadowDialogInputAsync(browser, site, token);
+                await VerifyHorizontalScrollingAsync(browser, site, token);
             }
             // Recreate the host with a new installation location but the same user browser data.
             var movedArchiveDirectory = Path.Combine(root.FullName, "UpdatedInstall");
@@ -184,18 +185,71 @@ internal static class BrowserRuntimeTests
     private static async Task VerifyShadowDialogInputAsync(EmbeddedBrowser browser, Uri site, CancellationToken token)
     {
         var page = await browser.OpenTaskAsync(new Uri(site, "shadow-search"), token);
+        var viewport = new BrowserViewportSize(469, 761, 2);
+        await page.ResizeAsync(viewport, token);
         var session = new BrowserComputerUseSession(browser, page);
         try
         {
             var frame = await session.ObserveAsync(token);
-            await session.ActAsync(frame, new ComputerUseAction("type_text", Text: "Array.map"), 60, 32, token);
+            Assert(frame.Width == viewport.PixelWidth && frame.Height == viewport.PixelHeight,
+                "The model must observe the physical-pixel viewport.");
+            await session.ActAsync(frame, new ComputerUseAction("type_text", Text: "Array.map"), 120, 64, token);
             Assert(await IsTrue(page, """
                 document.activeElement.id === 'search' &&
                 document.activeElement.shadowRoot.activeElement.value === 'Array.map'
-                """, token), "Typing must follow focus into an editable field inside a shadow-root dialog.");
-            Console.WriteLine("[PASS] Browser input reaches the editable field inside a shadow-root search dialog");
+                """, token), "2× model coordinates must map to the visible field inside the shadow-root dialog.");
+            Console.WriteLine("[PASS] A 2× hidden browser observation maps model pixels to the editable field inside a shadow-root dialog");
         }
         finally { await session.EndAsync(token); }
+    }
+
+    private static async Task VerifyHorizontalScrollingAsync(EmbeddedBrowser browser, Uri site, CancellationToken token)
+    {
+        var viewport = new BrowserViewportSize(320, 220, 2);
+        browser.SetPreferredViewport(viewport);
+        var config = new HeadlessConfigService(new AppConfig());
+        await using var service = new ComputerUseService(config, Log.Logger, browser, new ModelRoleProbeService());
+        var target = ComputerUseTarget.FromBrowserAddress(new Uri(site, "horizontal-scroll").AbsoluteUri)!;
+        var result = await service.RunAsync(target, async (frame, _, step, cancellation) =>
+        {
+            var page = browser.TaskPage!;
+            Assert(frame.Width == viewport.PixelWidth && frame.Height == viewport.PixelHeight,
+                "A wider document must still produce a screenshot of just the narrow viewport.");
+            switch (step)
+            {
+                case 0:
+                    Assert(frame.Tree.Contains("Horizontal page scroll available: right.", StringComparison.Ordinal)
+                        && !frame.Tree.Contains("Middle column", StringComparison.Ordinal)
+                        && frame.Elements.All(element => element.Label is not "Page target" and not "Panel target"),
+                        "The initial observation must report rightward overflow and omit the offscreen text and controls.");
+                    return ComputerUsePlanner.ReadBrowserAction("""{"action":"scroll","direction":"right"}""");
+                case 1:
+                    Assert(await IsTrue(page, "scrollX > innerWidth * 0.7 && scrollX < innerWidth", cancellation)
+                        && frame.Tree.Contains("Middle column", StringComparison.Ordinal)
+                        && frame.Tree.Contains("Horizontal page scroll available: left, right.", StringComparison.Ordinal),
+                        "A rightward step must overlap the previous viewport and reveal the middle column.");
+                    return new("click", Element: frame.Elements.Single(element => element.Label == "Page target").Index);
+                case 2:
+                    Assert(await IsTrue(page, "window.pageClicked === true", cancellation),
+                        "The next screenshot must provide clickable coordinates after the page scrolls.");
+                    return ComputerUsePlanner.ReadBrowserAction("""{"action":"scroll","direction":"left"}""");
+                case 3:
+                    Assert(await IsTrue(page, "scrollX === 0", cancellation), "A leftward scroll must return to the starting position.");
+                    return ComputerUsePlanner.ReadBrowserAction("""{"action":"scroll","direction":"right","x":100,"y":330}""");
+                case 4:
+                    Assert(await IsTrue(page, "scrollX === 0 && rail.scrollLeft > rail.clientWidth * 0.7 && rail.scrollLeft < rail.clientWidth", cancellation),
+                        "A targeted scroll must overlap the nested panel's previous viewport and leave the page in place.");
+                    return new("click", Element: frame.Elements.Single(element => element.Label == "Panel target").Index);
+                case 5:
+                    Assert(await IsTrue(page, "window.panelClicked === true", cancellation),
+                        "The newly visible control inside the panel must be clickable.");
+                    return new("finish", Success: true, Summary: "Both targets clicked");
+                default:
+                    throw new InvalidOperationException("Unexpected horizontal scrolling step.");
+            }
+        }, token);
+        Assert(result.Success && result.Message == "Both targets clicked", result.Message);
+        Console.WriteLine("[PASS] Narrow 2× viewport scrolls the page and nested panel horizontally with overlap, then clicks newly visible controls");
     }
 
     private static async Task<JsonElement> Evaluate(ChromeBrowserPage page, string expression, CancellationToken token)
@@ -255,6 +309,27 @@ internal static class BrowserRuntimeTests
                           root.innerHTML = '<dialog><input aria-label="Search" style="position:fixed;left:20px;top:20px;width:180px"></dialog>';
                           root.querySelector('dialog').showModal();
                         </script>
+                        """;
+                }
+                else if (path == "/horizontal-scroll")
+                {
+                    html = """
+                        <!doctype html><title>Horizontal scroll</title>
+                        <style>
+                          body { margin: 0 }
+                          main { position: relative; width: 880px; height: 200px; background: white }
+                          #rail { position: fixed; left: 16px; top: 140px; width: 160px; height: 62px;
+                                  overflow-x: auto; overflow-y: hidden; background: #eef }
+                        </style>
+                        <main>
+                          <p style="position:absolute;left:385px;top:0">Middle column</p>
+                          <button style="position:absolute;left:430px;top:56px" onclick="window.pageClicked=true">Page target</button>
+                        </main>
+                        <section id="rail">
+                          <div style="width:600px;height:42px;position:relative">
+                            <button style="position:absolute;left:230px;top:8px" onclick="window.panelClicked=true">Panel target</button>
+                          </div>
+                        </section>
                         """;
                 }
                 else

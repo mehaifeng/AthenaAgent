@@ -15,6 +15,7 @@ internal sealed class BrowserComputerUseSession(EmbeddedBrowser browser, ChromeB
 {
     private const int TypingIntervalMilliseconds = 120;
     private const int TypingPauseBudgetMilliseconds = 2000;
+    private const double HorizontalScrollFraction = 0.8;
 
     private static readonly Lazy<string> PageScript = new(() =>
     {
@@ -63,7 +64,7 @@ internal sealed class BrowserComputerUseSession(EmbeddedBrowser browser, ChromeB
             _viewport = null;
         }
         if (_page.ViewportSize == null)
-            await _page.ResizeAsync(_initialViewport, token).ConfigureAwait(false);
+            await _page.InitializeViewportAsync(_initialViewport, token).ConfigureAwait(false);
         using var viewportLease = await _page.LockViewportAsync(token).ConfigureAwait(false);
         var frames = await DevTools.CallAsync("Page.getFrameTree", new { }, token).ConfigureAwait(false);
         var main = frames.GetProperty("frameTree").GetProperty("frame");
@@ -81,7 +82,8 @@ internal sealed class BrowserComputerUseSession(EmbeddedBrowser browser, ChromeB
             return null;
 
         var viewport = ReadViewport(state);
-        if (_page.ViewportSize is not { } size || viewport.Width != size.Width || viewport.Height != size.Height)
+        if (_page.ViewportSize is not { } size || viewport.Width != size.Width || viewport.Height != size.Height
+            || Math.Abs(viewport.Scale - size.Scale) > 0.0001)
             return null;
         if (!Uri.TryCreate(viewport.Url, UriKind.Absolute, out var document) || !EmbeddedBrowser.IsPageUri(document))
             throw new InvalidOperationException("Computer Use reached a tab outside HTTP and HTTPS webpages.");
@@ -94,15 +96,18 @@ internal sealed class BrowserComputerUseSession(EmbeddedBrowser browser, ChromeB
             throw new InvalidOperationException("Chrome returned an empty viewport image.");
 
         // Recheck after capture so a scroll or resize cannot pair the screenshot with stale controls.
-        if (!ReferenceEquals(_page, browser.TaskPage) || width != viewport.Width || height != viewport.Height
+        // Chromium may round a fractional device scale down by one pixel for a capture.
+        if (!ReferenceEquals(_page, browser.TaskPage) || Math.Abs(width - size.PixelWidth) > 1 || Math.Abs(height - size.PixelHeight) > 1
             || viewport != ReadViewport(await EvaluateAsync("athenaPage.viewport()", token).ConfigureAwait(false)))
             return null;
-        _page.UpdateAddress(document);
         _viewport = viewport;
         _viewportRevision = _page.ViewportRevision;
         var text = new StringBuilder()
             .AppendLine(state.GetProperty("title").GetString())
             .AppendLine(document.AbsoluteUri);
+        var horizontal = state.GetProperty("horizontalPageDirections");
+        if (horizontal.GetArrayLength() > 0)
+            text.AppendLine($"Horizontal page scroll available: {string.Join(", ", horizontal.EnumerateArray().Select(direction => direction.GetString()))}.");
         var elements = new List<ComputerUseElement>();
         foreach (var control in state.GetProperty("controls").EnumerateArray())
         {
@@ -167,7 +172,14 @@ internal sealed class BrowserComputerUseSession(EmbeddedBrowser browser, ChromeB
                 await TypeAsync(action.Text!, token).ConfigureAwait(false);
                 break;
             case "scroll":
-                var deltaX = action.Direction switch { "left" => -540, "right" => 540, _ => 0 };
+                var deltaX = 0.0;
+                if (action.Direction is "left" or "right")
+                {
+                    var width = await EvaluateAsync($"athenaPage.horizontalScrollWidth({coordinates})", token).ConfigureAwait(false);
+                    // Chromium divides the wheel movement by the page zoom used for high-DPI rendering.
+                    deltaX = Math.Max(1, width.GetDouble() * HorizontalScrollFraction) * viewport.Scale
+                        * (action.Direction == "left" ? -1 : 1);
+                }
                 var deltaY = action.Direction switch { "up" => -540, "down" => 540, _ => 0 };
                 await DevTools.CallAsync("Input.dispatchMouseEvent",
                     new { type = "mouseWheel", x, y, deltaX, deltaY }, token).ConfigureAwait(false);
@@ -281,8 +293,9 @@ internal sealed class BrowserComputerUseSession(EmbeddedBrowser browser, ChromeB
 
     private static Viewport ReadViewport(JsonElement state) => new(
         state.GetProperty("width").GetInt32(), state.GetProperty("height").GetInt32(),
+        state.GetProperty("scale").GetDouble(),
         state.GetProperty("scrollX").GetDouble(), state.GetProperty("scrollY").GetDouble(),
         state.GetProperty("url").GetString() ?? "");
 
-    private sealed record Viewport(int Width, int Height, double ScrollX, double ScrollY, string Url);
+    private sealed record Viewport(int Width, int Height, double Scale, double ScrollX, double ScrollY, string Url);
 }

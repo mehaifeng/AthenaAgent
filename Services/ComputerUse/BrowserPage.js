@@ -2,8 +2,41 @@ globalThis.athenaPage ??= (() => {
     let controls = [];
 
     const viewport = () => ({
-        width: innerWidth, height: innerHeight, scrollX, scrollY, url: location.href
+        width: innerWidth, height: innerHeight, scale: devicePixelRatio, scrollX, scrollY, url: location.href
     });
+
+    function horizontalPageDirections() {
+        const root = document.scrollingElement;
+        if (!root) return [];
+        const max = root.scrollWidth - root.clientWidth;
+        if (max <= 1) return [];
+        const style = getComputedStyle(document.documentElement);
+        const overflow = document.body && style.overflowX === 'visible' && style.overflowY === 'visible'
+            ? getComputedStyle(document.body).overflowX : style.overflowX;
+        if (overflow === 'hidden' || overflow === 'clip') return [];
+        const offset = root.scrollLeft + (style.direction === 'rtl' ? max : 0);
+        const directions = [];
+        if (offset > 1) directions.push('left');
+        if (max - offset > 1) directions.push('right');
+        return directions;
+    }
+
+    function horizontalScrollWidth(x, y) {
+        const root = document.scrollingElement;
+        let target = document.elementFromPoint(x, y);
+        while (target?.shadowRoot) {
+            const inner = target.shadowRoot.elementFromPoint(x, y);
+            if (!inner || inner === target) break;
+            target = inner;
+        }
+        for (let element = target; element && element !== root; element = element.parentElement ?? element.getRootNode().host) {
+            if (element.scrollWidth <= element.clientWidth || !/^(auto|scroll|overlay)$/.test(getComputedStyle(element).overflowX))
+                continue;
+            const rect = element.getBoundingClientRect();
+            return Math.min(element.clientWidth, Math.min(innerWidth, rect.right) - Math.max(0, rect.left));
+        }
+        return root?.clientWidth || innerWidth;
+    }
 
     function observe() {
         const state = { ...viewport(), title: document.title, ready: !!document.body && document.readyState !== 'loading' };
@@ -40,7 +73,8 @@ globalThis.athenaPage ??= (() => {
         let length = 0;
         for (const element of content?.querySelectorAll('h1,h2,h3,p,li,th,td') || []) {
             const rect = element.getBoundingClientRect();
-            if (rect.width === 0 || rect.height === 0 || rect.bottom <= 0 || rect.top >= innerHeight)
+            if (rect.width === 0 || rect.height === 0 || rect.right <= 0 || rect.left >= innerWidth
+                || rect.bottom <= 0 || rect.top >= innerHeight)
                 continue;
             const snippet = (element.innerText || '').trim().replace(/\s+/g, ' ').slice(0, 420);
             if (!snippet)
@@ -50,7 +84,7 @@ globalThis.athenaPage ??= (() => {
             if (length >= 2300)
                 break;
         }
-        return { ...state, controls: visible, visibleText: snippets.join('\n').slice(0, 2300) };
+        return { ...state, horizontalPageDirections: horizontalPageDirections(), controls: visible, visibleText: snippets.join('\n').slice(0, 2300) };
     }
 
     function hasEditableFocus() {
@@ -62,7 +96,7 @@ globalThis.athenaPage ??= (() => {
     }
 
     return {
-        viewport, observe, hasEditableFocus,
+        viewport, observe, hasEditableFocus, horizontalScrollWidth,
         hits: (index, x, y) => index === null || !!controls[index - 1]?.contains(document.elementFromPoint(x, y))
     };
 })();

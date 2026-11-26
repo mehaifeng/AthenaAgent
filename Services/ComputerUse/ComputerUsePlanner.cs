@@ -69,6 +69,8 @@ internal sealed class ComputerUsePlanner
         Tab, Escape, Left, Right, Up, Down, Home, End, Page_Up, Page_Down, BackSpace, Delete, or space).
         Keys go to the current focus. Scroll takes direction (up, down, left, or right). Without an element or
         x and y, scroll targets the center of the latest viewport.
+        When content extends beyond the screenshot, scroll toward it and inspect the next viewport. For a wide table,
+        carousel, or other independently scrolling area, point inside that area when scrolling.
         Check the updated page after each action. For every action before finish, put the facts verified on the
         current page, their source URLs, and the next unfinished part of the goal in "summary". Keep confirmed
         facts about the current page in that summary. Notes from other pages are recorded separately.

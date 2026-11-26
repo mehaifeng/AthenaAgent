@@ -109,7 +109,7 @@ public sealed class EmbeddedBrowser : IAsyncDisposable
             lock (_pagesGate) page = _pages[id];
             try
             {
-                await page.ResizeAsync(size, token).ConfigureAwait(false);
+                await page.InitializeViewportAsync(size, token).ConfigureAwait(false);
                 if (address != Blank) await page.NavigateAsync(address, token).ConfigureAwait(false);
                 return page;
             }
@@ -309,7 +309,11 @@ internal sealed class BrowserInteraction(BrowserHostConnection connection, strin
         new { interaction = request.GetProperty("interaction").GetInt32(), result }, token);
 }
 
-internal sealed record BrowserViewportSize(int Width, int Height);
+internal sealed record BrowserViewportSize(int Width, int Height, double Scale = 1)
+{
+    public int PixelWidth => Math.Max(1, (int)Math.Round(Width * Scale, MidpointRounding.AwayFromZero));
+    public int PixelHeight => Math.Max(1, (int)Math.Round(Height * Scale, MidpointRounding.AwayFromZero));
+}
 
 [SuppressMessage("Design", "CA1001", Justification = "No wait handle is created and a viewport lease may complete after the tab closes.")]
 internal sealed class ChromeBrowserPage(string id, bool task, string? opener, ChromeDevTools driver)
@@ -327,10 +331,15 @@ internal sealed class ChromeBrowserPage(string id, bool task, string? opener, Ch
     public string Title => Volatile.Read(ref _title);
     public BrowserViewportSize? ViewportSize { get; private set; }
     public int ViewportRevision { get; private set; }
+    public event Action<ChromeBrowserPage>? CursorChanged;
     public ComputerUseCursor? Cursor
     {
         get => Volatile.Read(ref _cursor);
-        set => Volatile.Write(ref _cursor, value);
+        set
+        {
+            if (!ReferenceEquals(Interlocked.Exchange(ref _cursor, value), value))
+                CursorChanged?.Invoke(this);
+        }
     }
 
     public void UpdateAddress(Uri target) => Volatile.Write(ref _address, target);
@@ -341,21 +350,58 @@ internal sealed class ChromeBrowserPage(string id, bool task, string? opener, Ch
         var result = await driver.CallAsync("Page.navigate", new { url = target.AbsoluteUri }, token).ConfigureAwait(false);
         if (result.TryGetProperty("errorText", out var error) && !string.IsNullOrEmpty(error.GetString()))
             throw new InvalidOperationException($"Chrome could not open the page ({error.GetString()}).");
-        UpdateAddress(target);
     }
 
-    public async Task ResizeAsync(BrowserViewportSize size, CancellationToken token, bool force = false)
+    public Task InitializeViewportAsync(BrowserViewportSize size, CancellationToken token) =>
+        ResizeAsync(size, token, onlyIfUnset: true);
+
+    public Task ResizeAsync(BrowserViewportSize size, CancellationToken token) =>
+        ResizeAsync(size, token, onlyIfUnset: false);
+
+    private async Task ResizeAsync(BrowserViewportSize size, CancellationToken token, bool onlyIfUnset)
     {
         using var viewport = await LockViewportAsync(token).ConfigureAwait(false);
-        if (!force && size == ViewportSize) return;
+        if (size == ViewportSize || (onlyIfUnset && ViewportSize is not null)) return;
         token.ThrowIfCancellationRequested();
         using var resize = new CancellationTokenSource(TimeSpan.FromSeconds(3));
-        await driver.CallAsync("Emulation.setDeviceMetricsOverride",
-            new { width = size.Width, height = size.Height, deviceScaleFactor = 1, mobile = false }, resize.Token).ConfigureAwait(false);
+        await ApplyViewportAsync(size, resize.Token).ConfigureAwait(false);
+    }
+
+    public async Task<bool> RepairPreviewViewportAsync(BrowserViewportSize size, CancellationToken token)
+    {
+        using var viewport = await LockViewportAsync(token).ConfigureAwait(false);
+        if (size != ViewportSize) return false;
+        using var repair = CancellationTokenSource.CreateLinkedTokenSource(token);
+        repair.CancelAfter(TimeSpan.FromSeconds(3));
+        var response = await driver.CallAsync("Runtime.evaluate",
+            new { expression = "[innerWidth, innerHeight, devicePixelRatio]", returnByValue = true }, repair.Token).ConfigureAwait(false);
+        // An old compositor surface can arrive during navigation even when the CSS viewport is already correct.
+        if (!response.GetProperty("result").TryGetProperty("value", out var metrics)
+            || metrics[0].GetInt32() == size.Width && metrics[1].GetInt32() == size.Height
+                && Math.Abs(metrics[2].GetDouble() - size.Scale) < 0.0001)
+        {
+            await SetSurfaceSizeAsync(size, repair.Token).ConfigureAwait(false);
+            return false;
+        }
+        repair.Token.ThrowIfCancellationRequested();
+        using var resize = new CancellationTokenSource(TimeSpan.FromSeconds(3));
+        await ApplyViewportAsync(size, resize.Token).ConfigureAwait(false);
+        return true;
+    }
+
+    private async Task ApplyViewportAsync(BrowserViewportSize size, CancellationToken token)
+    {
+        await driver.CallAsync("setViewport", new
+        {
+            scale = size.Scale, pixelWidth = size.PixelWidth, pixelHeight = size.PixelHeight
+        }, token).ConfigureAwait(false);
         Cursor = null;
         ViewportSize = size;
         ViewportRevision++;
     }
+
+    private Task SetSurfaceSizeAsync(BrowserViewportSize size, CancellationToken token) =>
+        driver.CallAsync("Emulation.setVisibleSize", new { width = size.PixelWidth, height = size.PixelHeight }, token);
 
     public async ValueTask<ViewportLease> LockViewportAsync(CancellationToken token)
     {
