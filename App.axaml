@@ -90,8 +90,10 @@
             </ControlTheme>
 
             <!-- 字体设置 -->
-            <!-- 系统 CJK 字体优先：Win=Microsoft YaHei，macOS=PingFang SC，Linux=Noto Sans CJK SC。-->
-            <FontFamily x:Key="MainFontFamily">Microsoft YaHei, PingFang SC, Noto Sans CJK SC, Segoe UI Emoji, Apple Color Emoji, Noto Color Emoji, Segoe UI, sans-serif</FontFamily>
+            <!-- Linux 在 Emoji 字体前尝试内置 Inter，避免半粗体数字回退到 Emoji 字体。 -->
+            <OnPlatform x:Key="MainFontFamily" x:TypeArguments="FontFamily"
+                        Default="Microsoft YaHei, PingFang SC, Noto Sans CJK SC, Segoe UI Emoji, Apple Color Emoji, Noto Color Emoji, Segoe UI, sans-serif"
+                        Linux="Microsoft YaHei, PingFang SC, Noto Sans CJK SC, fonts:Inter#Inter, Segoe UI Emoji, Apple Color Emoji, Noto Color Emoji, Segoe UI, sans-serif"/>
             <FontFamily x:Key="MonospaceFontFamily">Cascadia Code, Consolas, Monaco, Menlo, Courier New, Courier, Monospace</FontFamily>
 
             <!--

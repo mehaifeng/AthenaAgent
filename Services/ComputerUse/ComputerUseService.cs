@@ -1,4 +1,5 @@
 using Athena.UI.Services.Interfaces;
+using Athena.UI.Models;
 using Serilog;
 using System;
 using System.ClientModel.Primitives;
@@ -21,7 +22,7 @@ public sealed record ComputerUseTarget(int Pid, long WindowId, string Title, str
 }
 
 public sealed record ComputerUseFrame(byte[] Image, string MimeType, int Width, int Height, string Tree,
-    string? CaptureId, IReadOnlyList<ComputerUseElement> Elements, bool CursorInPage = false, Uri? BrowserUri = null);
+    string? CaptureId, IReadOnlyList<ComputerUseElement> Elements, Uri? BrowserUri = null);
 
 public sealed record ComputerUseElement(int Index, string Token, string Role, string Label, double? X = null, double? Y = null);
 
@@ -29,7 +30,7 @@ public sealed record ComputerUseAction(string Action, double? X = null, double? 
     int? Element = null, string? Text = null, string? Key = null, string? Direction = null,
     bool Success = false, string? Summary = null, string? Url = null);
 
-public enum ComputerUsePhase { Observing, Moving, Clicking, Typing, Navigating, OtherAction, Completed, Stopped, Failed }
+public enum ComputerUsePhase { Observing, Moving, Clicking, Typing, Navigating, OtherAction, Paused, Resumed, Completed, Stopped, Failed, TimedOut }
 
 public sealed record ComputerUseProgress(ComputerUsePhase Phase, ComputerUseFrame? Frame = null,
     double? X = null, double? Y = null, string? Detail = null, bool InBrowser = false,
@@ -42,8 +43,8 @@ internal interface IComputerUseSession
     Task EndAsync(CancellationToken token);
 }
 
-public sealed class ComputerUseService(IConfigService config, OpenAiModelRuntimeFactory models, ILogger logger,
-    EmbeddedBrowser browser, PipelineTransport? browserModelTransport = null) : IAsyncDisposable
+public sealed class ComputerUseService(IConfigService config, ILogger logger, EmbeddedBrowser browser,
+    ModelRoleProbeService roleProbes, PipelineTransport? modelTransport = null) : IAsyncDisposable
 {
     private const int MaxWindowSteps = 16;
     private const int MaxImageDimension = 1440;
@@ -58,12 +59,21 @@ public sealed class ComputerUseService(IConfigService config, OpenAiModelRuntime
     private CancellationTokenSource? _activeRun;
     private TaskCompletionSource? _runEnded;
     private bool _activeRunInBrowser;
+    private BrowserTaskControl? _browserControl;
     private bool _disposed;
     private ComputerUseTarget? _selectedTarget;
 
     public event Action<ComputerUseProgress>? ProgressChanged;
     public bool IsDesktopAvailable => File.Exists(CuaDriverNative.LibraryPath);
-    public bool IsAvailable => IsDesktopAvailable || EmbeddedBrowser.IsAvailable;
+    public bool IsAvailable => IsDesktopAvailable || browser.IsAvailable;
+    internal bool HasBrowserTask => Volatile.Read(ref _browserControl) != null;
+    internal bool IsBrowserPaused => Volatile.Read(ref _browserControl)?.IsPaused == true;
+    internal void RequestBrowserTakeover(string? reason = null) => Volatile.Read(ref _browserControl)?.Pause(reason);
+    internal Task ResumeBrowserAsync(CancellationToken token) =>
+        Volatile.Read(ref _browserControl)?.ResumeAsync(token) ?? Task.CompletedTask;
+    internal Task WithManualBrowserInputAsync(ChromeBrowserPage page, Func<Task> send, CancellationToken token) =>
+        page.IsTask && Volatile.Read(ref _browserControl) is { } control
+            ? control.WithHumanInputAsync(send, token) : send();
     public ComputerUseTarget? SelectedTarget
     {
         get => Volatile.Read(ref _selectedTarget);
@@ -94,16 +104,34 @@ public sealed class ComputerUseService(IConfigService config, OpenAiModelRuntime
 
     public Task<FunctionResult> RunAsync(ComputerUseTarget target, string goal, CancellationToken cancellationToken)
     {
-        var planner = new ComputerUsePlanner(config.Load(), models, goal, target.BrowserUri is not null, browserModelTransport);
-        return RunAsync(target, planner.DecideAsync, cancellationToken);
+        var current = config.Load();
+        var browserSettings = current.EmbeddedBrowser;
+        var model = roleProbes.Resolve(current, AiModelRole.ComputerUse);
+        var needsProof = roleProbes.NeedsVisionProof(model);
+        var planner = new ComputerUsePlanner(model, goal, target.BrowserUri is not null, modelTransport, browserSettings.ActionRetryCount);
+        return RunAsync(target, async (frame, previous, step, token) =>
+        {
+            if (needsProof)
+            {
+                await roleProbes.TestAsync(model, token, modelTransport).ConfigureAwait(false);
+                needsProof = false;
+            }
+            return await planner.DecideAsync(frame, previous, step, token).ConfigureAwait(false);
+        }, cancellationToken, planner.RememberProgress, TimeSpan.FromMinutes(browserSettings.TaskTimeoutMinutes));
     }
 
     internal async Task<FunctionResult> RunAsync(ComputerUseTarget target,
         Func<ComputerUseFrame, string, int, CancellationToken, Task<ComputerUseAction>> decide,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken, Action<ComputerUseFrame, ComputerUseAction>? remember = null,
+        TimeSpan? browserTimeLimit = null)
     {
-        using var run = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         var inBrowser = target.BrowserUri is not null;
+        var timeLimit = inBrowser
+            ? browserTimeLimit ?? TimeSpan.FromMinutes(config.Load().EmbeddedBrowser.TaskTimeoutMinutes)
+            : TimeSpan.FromMinutes(3);
+        using var deadline = new CancellationTokenSource();
+        using var run = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, deadline.Token);
+        BrowserTaskControl? control = null;
         lock (_gate)
         {
             ObjectDisposedException.ThrowIf(_disposed, this);
@@ -112,9 +140,13 @@ public sealed class ComputerUseService(IConfigService config, OpenAiModelRuntime
             _activeRun = run;
             _activeRunInBrowser = inBrowser;
             _runEnded = new(TaskCreationOptions.RunContinuationsAsynchronously);
+            if (inBrowser)
+                _browserControl = control = new BrowserTaskControl(run.Token, deadline, timeLimit,
+                    reason => Publish(new(ComputerUsePhase.Paused, Detail: reason, InBrowser: true)),
+                    () => Publish(new(ComputerUsePhase.Resumed, InBrowser: true)));
         }
 
-        run.CancelAfter(TimeSpan.FromMinutes(3));
+        if (control == null) deadline.CancelAfter(timeLimit);
         var token = run.Token;
         ComputerUseFrame? frame = null;
         IComputerUseSession? session = null;
@@ -125,27 +157,60 @@ public sealed class ComputerUseService(IConfigService config, OpenAiModelRuntime
                 ? await OpenBrowserAsync(address, token).ConfigureAwait(false)
                 : await OpenWindowAsync(target, token).ConfigureAwait(false);
             var previousResult = "";
-            for (var step = 0; ; step++)
+            var generation = 0;
+            for (var step = 0; ;)
             {
-                frame = await session.ObserveAsync(token).ConfigureAwait(false);
-                Publish(new(ComputerUsePhase.Observing, frame, Detail: target.Title, InBrowser: inBrowser));
-                var action = await decide(frame, previousResult, step, token).ConfigureAwait(false);
-                token.ThrowIfCancellationRequested();
-                if (action.Action == "finish")
+                var turn = control != null ? await control.NextObservationAsync(token).ConfigureAwait(false) : (0, token);
+                if (turn.Item1 != generation)
                 {
-                    var summary = string.IsNullOrWhiteSpace(action.Summary) ? "Computer Use finished." : action.Summary;
-                    Publish(new(action.Success ? ComputerUsePhase.Completed : ComputerUsePhase.Failed, frame,
-                        Detail: summary, InBrowser: inBrowser));
-                    return action.Success ? FunctionResult.SuccessResult(summary) : FunctionResult.FailureResult(summary);
+                    generation = turn.Item1;
+                    previousResult = "The user returned control. Observe the current page before acting.";
                 }
-                if (!frame.CursorInPage && step == MaxWindowSteps)
-                    throw new InvalidOperationException("Computer Use reached its action limit.");
-                previousResult = await ExecuteAsync(session, frame, action, token).ConfigureAwait(false);
+                using var observation = CancellationTokenSource.CreateLinkedTokenSource(token, turn.Item2);
+                ComputerUseAction action;
+                try
+                {
+                    frame = await session.ObserveAsync(observation.Token).ConfigureAwait(false);
+                    observation.Token.ThrowIfCancellationRequested();
+                    Publish(new(ComputerUsePhase.Observing, frame, Detail: target.Title, InBrowser: inBrowser));
+                    action = await decide(frame, previousResult, step, observation.Token).ConfigureAwait(false);
+                }
+                catch (OperationCanceledException) when (!token.IsCancellationRequested && observation.IsCancellationRequested)
+                {
+                    continue;
+                }
+                token.ThrowIfCancellationRequested();
+                using (var input = control == null ? null : await control.BeginAgentInputAsync(generation, token).ConfigureAwait(false))
+                {
+                    if (control != null && input == null) continue;
+                    if (control != null && action.Action == "handoff")
+                    {
+                        control.Pause(action.Summary);
+                        continue;
+                    }
+                    if (action.Action == "finish")
+                    {
+                        var summary = string.IsNullOrWhiteSpace(action.Summary) ? "Computer Use finished." : action.Summary;
+                        Publish(new(action.Success ? ComputerUsePhase.Completed : ComputerUsePhase.Failed, frame,
+                            Detail: summary, InBrowser: inBrowser));
+                        return action.Success ? FunctionResult.SuccessResult(summary) : FunctionResult.FailureResult(summary);
+                    }
+                    if (!inBrowser && step == MaxWindowSteps)
+                        throw new InvalidOperationException("Computer Use reached its action limit.");
+                    remember?.Invoke(frame, action);
+                    previousResult = await ExecuteAsync(session, frame, action, token).ConfigureAwait(false);
+                }
+                step++;
                 await Task.Delay(160, token).ConfigureAwait(false);
             }
         }
         catch (OperationCanceledException) when (token.IsCancellationRequested)
         {
+            if (inBrowser && deadline.IsCancellationRequested && !cancellationToken.IsCancellationRequested)
+            {
+                Publish(new(ComputerUsePhase.TimedOut, frame, InBrowser: true));
+                return FunctionResult.FailureResult("The browser task reached its active time limit.");
+            }
             Publish(new(ComputerUsePhase.Stopped, frame, InBrowser: inBrowser));
             return FunctionResult.FailureResult("Computer Use stopped.");
         }
@@ -171,6 +236,8 @@ public sealed class ComputerUseService(IConfigService config, OpenAiModelRuntime
             }
             lock (_gate)
             {
+                _browserControl = null;
+                control?.Dispose();
                 _activeRun = null;
                 _runEnded?.TrySetResult();
                 _runEnded = null;
@@ -195,7 +262,7 @@ public sealed class ComputerUseService(IConfigService config, OpenAiModelRuntime
     }
 
     private async Task<IComputerUseSession> OpenBrowserAsync(Uri address, CancellationToken token) =>
-        new BrowserComputerUseSession(await browser.OpenTaskAsync(address, token).ConfigureAwait(false));
+        new BrowserComputerUseSession(browser, await browser.OpenTaskAsync(address, token).ConfigureAwait(false));
 
     private sealed class WindowSession(ComputerUseService owner, ComputerUseTarget target, string id) : IComputerUseSession
     {
@@ -249,7 +316,8 @@ public sealed class ComputerUseService(IConfigService config, OpenAiModelRuntime
             "scroll" => action.Direction is "up" or "down" or "left" or "right",
             _ => false
         };
-        if (!validAction && frame.CursorInPage)
+        var inBrowser = frame.BrowserUri is not null;
+        if (!validAction && inBrowser)
             return "No input was sent. Choose one supported action in the requested JSON format.";
         if (!validAction)
             throw new InvalidOperationException("The model returned an unsupported Computer Use action.");
@@ -259,30 +327,31 @@ public sealed class ComputerUseService(IConfigService config, OpenAiModelRuntime
         {
             (x, y) = ResolveActionPoint(frame, action);
         }
-        catch (InvalidOperationException) when (frame.CursorInPage)
+        catch (InvalidOperationException) when (inBrowser)
         {
             return "No input was sent. Pick a numbered control from the new observation or give x and y in screenshot pixels.";
         }
         var px = x / frame.Width;
         var py = y / frame.Height;
-        Publish(new(ComputerUsePhase.Moving, frame, px, py, InBrowser: frame.CursorInPage));
-        if (!frame.CursorInPage)
+        Publish(new(ComputerUsePhase.Moving, frame, px, py, InBrowser: inBrowser));
+        if (!inBrowser)
             await Task.Delay(270, token).ConfigureAwait(false);
         if (action.Action == "type_text")
-            Publish(new(ComputerUsePhase.Typing, frame, px, py, InBrowser: frame.CursorInPage));
+            Publish(new(ComputerUsePhase.Typing, frame, px, py, InBrowser: inBrowser));
         var result = await session.ActAsync(frame, action, x, y, token).ConfigureAwait(false);
         Publish(new(action.Action == "click" ? ComputerUsePhase.Clicking
             : action.Action == "type_text" ? ComputerUsePhase.Typing : ComputerUsePhase.OtherAction,
-            frame, px, py, InBrowser: frame.CursorInPage));
+            frame, px, py, InBrowser: inBrowser));
         return result;
     }
 
     internal static (double X, double Y) ResolveActionPoint(ComputerUseFrame frame, ComputerUseAction action)
     {
-        if (frame.CursorInPage && action is { Action: "scroll" or "press_key", Element: null, X: null, Y: null })
+        var inBrowser = frame.BrowserUri is not null;
+        if (inBrowser && action is { Action: "scroll" or "press_key", Element: null, X: null, Y: null })
             return (frame.Width / 2.0, frame.Height / 2.0);
 
-        var element = action.Element is { } index && frame.CursorInPage
+        var element = action.Element is { } index && inBrowser
             ? frame.Elements.FirstOrDefault(item => item.Index == index)
                 ?? throw new InvalidOperationException("The selected control is absent from the current observation.")
             : null;

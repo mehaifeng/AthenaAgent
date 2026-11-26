@@ -209,6 +209,9 @@ public partial class AiModelConfiguration : ObservableObject
     [ObservableProperty]
     private ModelRoleSettings _imageRecognition = new();
 
+    [ObservableProperty]
+    private ModelRoleSettings _computerUse = new();
+
     /// <summary>
     /// 虚拟宠物台词。留空时借用标题生成角色——两者都是"一句话、低延迟、便宜"的场景，
     /// 没必要为了玩具功能逼用户多配一个模型。
@@ -227,5 +230,6 @@ public enum AiModelRole
     SubAgent,
     KnowledgeMaintenance,
     ImageRecognition,
-    Companion
+    Companion,
+    ComputerUse
 }

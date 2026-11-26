@@ -30,6 +30,9 @@ public partial class AppConfig : ObservableObject
     private AiModelConfiguration _aiModels = new();
 
     [ObservableProperty]
+    private EmbeddedBrowserSettings _embeddedBrowser = new();
+
+    [ObservableProperty]
     private int _mainConversationMaxParallel = 4;
 
     // 流中途被上游掐断时的自动重试。字段缺省即默认值，老配置无需迁移。

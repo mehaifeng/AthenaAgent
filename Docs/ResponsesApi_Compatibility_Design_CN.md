@@ -34,7 +34,7 @@
 - [ ] **协议进运行时身份**：`OpenAiModelClientIdentity` 与 `OpenAiModelExecutionPolicyIdentity` 均纳入协议维度；协议变化触发客户端重建与压缩/校准缓存键隔离。
 - [ ] **校准按传输分桶**：`ITokenCalibrationService` 的观察特征（Features）携带传输标识，避免跨协议 usage 信号污染。
 - [ ] **连接测试保持 Chat Completions 恒定**（`OpenAIChatService.TestConnectionAsync` 与 `OpenAiModelRuntimeFactory.TestChatAsync`）：测试目标是「连接与密钥有效」，不随协议切换，避免端点探测歧义。
-- [ ] **推理文本双通道**：Responses 传输下用 `include: ["reasoning"]` 获取完整推理文本，归一化为与 `reasoning_content` 相同的 `ReasoningContent` 内部字段；请求侧回放规则按传输区分（chat=回放以兼容 DeepSeek 系；responses=不回放，见 §7.4）。
+- [ ] **推理事件归一化**。Responses 将供应商返回的推理文本或摘要事件归入 `ReasoningContent`。回放规则见 §7.4。
 - [ ] **非推理模型不切 Responses**：协议收益集中在推理模型（官方 3% SWE-bench、缓存收益、推理文本可见性），非推理模型切协议无意义且引入风险。
 
 ## 2. 背景、目标与非目标
@@ -181,8 +181,8 @@ var responses = new ResponsesClient(new ApiKeyCredential(apiKey), options);
 | `StreamingResponseOutputTextDeltaUpdate` | `Delta` (string) | 正文增量（替代 `ContentUpdate`） |
 | `StreamingResponseFunctionCallArgumentsDeltaUpdate` | `ItemId`/`OutputIndex`/`Delta` (BinaryData) | 工具参数增量（替代 `ToolCallUpdates`） |
 | `StreamingResponseFunctionCallArgumentsDoneUpdate` | `ItemId`/`Arguments` | 工具参数完成 |
-| `StreamingResponseReasoningTextDeltaUpdate` / `DoneUpdate` | `Delta` (string) | **完整推理文本增量**（需 `include: ["reasoning"]`） |
-| `StreamingResponseReasoningSummaryTextDeltaUpdate` / `DoneUpdate` | `Delta` (string) | 推理摘要增量（默认开启） |
+| `StreamingResponseReasoningTextDeltaUpdate` / `DoneUpdate` | `Delta` (string) | 支持该事件的兼容端点返回的推理文本增量 |
+| `StreamingResponseReasoningSummaryTextDeltaUpdate` / `DoneUpdate` | `Delta` (string) | 供应商返回的推理摘要增量 |
 | `StreamingResponseReasoningSummaryPartAddedUpdate` / `DoneUpdate` | `Item` | 摘要 part 生命周期 |
 | `StreamingResponseOutputItemAddedUpdate` / `DoneUpdate` | `Item` (ResponseItem) | item 生命周期（可提前看类型/状态） |
 | `StreamingResponseOutputTextDoneUpdate` | `ItemId`/`ContentIndex` | 文本 part 完成 |
@@ -192,7 +192,7 @@ var responses = new ResponsesClient(new ApiKeyCredential(apiKey), options);
 ### 4.5 推理能力
 
 - `ResponseReasoningOptions`：`ReasoningEffortLevel`（`ResponseReasoningEffortLevel`：none/minimal/low/medium/high，wire 名 `effort`）、`ReasoningSummaryVerbosity`（auto/concise/detailed，wire 名 `summary`）、`GenerateSummary`（wire 名 `generate_summary`，**SDK 仅 internal**，需经 `Patch` 设置）。
-- 完整推理文本：`options.IncludedProperties.Add("reasoning")`（SDK 只预定义 `IncludedResponseProperty.ReasoningEncryptedContent` = `"reasoning.encrypted_content"`；纯 `"reasoning"` 经隐式转换传入字符串）。
+- 官方 API 通过 `reasoning.summary` 请求可读推理摘要。`include` 的可选值见[官方 Responses 请求参数](https://developers.openai.com/api/reference/resources/responses/methods/create)。
 - 非流式：`ResponseResult.OutputItems` 里的 `ReasoningResponseItem`（`SummaryParts` 摘要文本 + `EncryptedContent` 加密内容）。
 - `include: ["reasoning.encrypted_content"]` + `store: false` 可拿加密推理（当前不采用，无需求）。
 
@@ -411,9 +411,9 @@ MapUsage(ResponseTokenUsage u) => new TokenUsageSnapshot(
 
 ### 7.4 推理文本通道细节（含开放决策）
 
-- **默认取「完整推理文本」**（`include: ["reasoning"]`）并入 `ReasoningContent`——与 chat 通道的 `reasoning_content` 语义对齐，UI/压缩/持久化零改动。
-- 摘要事件（`ReasoningSummaryTextDelta`）默认忽略（避免与完整文本重复拼入）。**开放问题 A**（见 §12）：若某端点只支持摘要（如第三方 /responses 的裁剪实现），降级为摘要事件作为回退通道。
-- `generate_summary` SDK 仅 internal：若需关闭摘要生成（省 token），经 `ResponseReasoningOptions.Patch` 设置 `$.generate_summary = false`；默认先不设（摘要由服务端默认策略决定）。
+- `ReasoningTextDelta` 和 `ReasoningSummaryTextDelta` 都可进入 `ReasoningContent`。收到推理文本后跳过同轮后续的摘要增量，避免重复。
+- Athena 使用供应商的默认摘要设置。OpenAI 的摘要功能可能要求 API 组织验证。参见[官方推理摘要文档](https://developers.openai.com/api/docs/guides/reasoning#reasoning-summaries)。
+- 直连 OpenAI 的 GPT‑6.2 主对话及连接探测使用服务端默认采样值。参见[官方 GPT‑6.2 迁移指南](https://developers.openai.com/api/docs/guides/latest-model#update-api-and-model-parameters)。
 - **请求侧不回放推理**（responses 传输下），见 §5.4；切换协议时历史推理不回发。
 
 ### 7.5 图片降级路径
@@ -534,7 +534,7 @@ ProviderModels.Metadata.Responses       "Responses：" / "Responses:"（仿 Prov
 |---|---|---|---|
 | **P0** 协议配置管道 | ProviderProtocol 字段 + UI + 本地化；`OpenAiModelClientIdentity` 纳入协议；Auto 判定服务（纯函数，不接传输） | 设置可保存/恢复协议；日志打印判定结果；切换协议触发 `UpdateConfig`（identity 变化） | `AiModelConfiguration.cs`、`ProviderModelsWindow.axaml`、`ProviderModelsViewModel.cs`、`OpenAiModelRuntimeFactory.cs`、`Locale.*.axaml` | ✅ 完成 |
 | **P1** 传输抽象重构 | `ICompletionTransport` + `ChatCompletionsTransport`（行为与现状逐字节一致）+ 快照扩展 + ExecutionPolicyIdentity 加 Transport | 现有 5 个流式测试全绿（回归基线）；校准指纹含 Transport | 新建 `Services/Context/ICompletionTransport.cs` + 实现；`OpenAIChatService.cs`、`EffectiveRequestRuntimeSnapshot.cs` | ✅ 完成 |
-| **P2** Responses transport（主环） | `ResponsesTransport`：BuildRequest/StreamUpdates/回填/usage/截断/推理文本 + 端点降级 | 新夹具下：流式/工具循环/截断重试/usage/推理文本用例全绿；`include:["reasoning"]` 生效 | `Services/Context/ResponsesTransport.cs`、`OpenAIChatService.cs`（装配点）、HeadlessTests 新夹具与注入点 | ✅ 完成（5 个新用例） |
+| **P2** Responses transport（主环） | `ResponsesTransport`：BuildRequest/StreamUpdates/回填/usage/截断/推理文本 + 端点降级 | 流式、工具循环、截断重试、usage 和推理事件测试通过 | `Services/Context/ResponsesTransport.cs`、`OpenAIChatService.cs`（装配点）、HeadlessTests 新夹具与注入点 | ✅ 完成（5 个新用例） |
 | **P3** 非流式调用点铺开 | 按 §8.2 顺序迁移；`GetFirstOutputText`/`GetConcatenatedOutputText` 辅助 | 同 provider 各角色协议一致；审批/压缩/浏览器协商行为不变 | 15 个调用点 + 辅助静态类 | ✅ 完成（两处连接测试按 §1 决策保持 chat） |
 | **P4** 元数据 + 测试收尾 | `SupportsResponses` 8 处；Auto 判定接元数据；端到端用例补全；文档更新 | 全部新用例绿；Archive.Tests 不受影响 | 见 §9.2 清单 | ✅ 完成（图片降级 chat+responses 端到端、端点降级、Auto 判定、reasoning 提取共 8 个新用例全绿；CSV 导出列为可选项未做） |
 | **P5** 第三方响应结构容错 | Responses 专用 HTTP/SSE 层按 schema 将显式 `null` 空数组归一化为 `[]`；`response` 信封上回显的 `parallel_tool_calls: null` 摘除（2026-10-07 追加） | OpenAI SDK 可完整消费正文增量与 `response.completed`；无 provider/model 分支 | `ResponsesCompatibilityHandler.cs`、`ResponsesCallHelpers.cs`、Archive.Tests SDK 级夹具 | ✅ 完成 |
@@ -549,8 +549,8 @@ ProviderModels.Metadata.Responses       "Responses：" / "Responses:"（仿 Prov
 
 | # | 问题 | 影响 | 对策/建议 |
 |---|---|---|---|
-| A | 第三方 /responses 端点的推理实现差异（只给摘要不给完整文本；`include` 被忽略） | 推理文本可能为空或只到摘要 | 摘要事件作为回退通道（§7.4）；以各家文档为准，文档记录已验证端点。**实测 OpenRouter `/v1/responses` 对 `include` 支持面极窄：除 `reasoning.encrypted_content` 外的任何取值（含 `reasoning`/`reasoning.summary`/`usage`）直接 `400 invalid_prompt`**——已改为仅官方 OpenAI 端点携带 `include=reasoning`，第三方端点靠默认摘要事件回退（见 §13 决策变更） |
-| B | `generate_summary` SDK 仅 internal，需 Patch 设置 | 关闭摘要生成需额外 Patch 代码 | 默认不关；如需省 token 再补 Patch 路径并加测试 |
+| A | Responses 供应商的推理事件不同 | 气泡可能显示推理文本、摘要或仅正文 | 按 §7.4 消费端点返回的事件 |
+| B | OpenAI 推理摘要可能需要组织验证 | 默认请求的回复可能没有可读摘要 | 使用供应商默认设置，避免让正文请求依赖摘要权限 |
 | C | 第三方 /responses 事件顺序、usage 或数组空值字段偏差 | 归一化错乱、SDK 终止事件反序列化失败、压缩判断失真 | schema 驱动的 JSON/SSE 兼容层处理已知 `null` 数组；其他缺失字段走缺省；文档记录已验证端点 |
 | D | `Experimental("OPENAI001")` API 面演进 | SDK 升级时类型/属性变动 | 升级前查 CHANGELOG（`openai-dotnet/CHANGELOG.md` 488–491 等条目）；Responses 相关集中在 transport 内部，隔离面小 |
 | E | 切换协议后压缩/校准历史不共享（指纹隔离） | 切换初期压缩阈值判断用新桶的冷数据 | 符合预期；日志可见（§6.4），文档说明 |
@@ -575,3 +575,4 @@ ProviderModels.Metadata.Responses       "Responses：" / "Responses:"（仿 Prov
 | 2026-08-11 | 增加 provider/model 无关的 Responses JSON/SSE 空数组兼容层 | 部分第三方端点把 schema 数组返回为 `null`，OpenAI SDK 2.12.0 在终止事件中严格调用 `EnumerateArray` 并抛错 | 仅修正已知 item 类型下显式为 `null` 的数组字段；流式不整包缓冲；SDK 级回归夹具覆盖 `annotations:null` 与 `logprobs:null` |
 | 2026-10-07 | 兼容层追加：摘除 `response` 信封上的 `parallel_tool_calls: null` | OrcaRouter + `deepseek/deepseek-v4.1-flash`（供应商自报 `openai-response`，Auto 因此走 Responses）每一轮死在 `response.created`：SDK 2.12.0 的 `ResponseResult` 对该字段直接 `GetBoolean()`、无 null 守卫。真机抓流确认三个带 `response` 的事件与非流式响应体都回显 `null` | 只在 `object == "response"` 的信封上摘除，不填默认值；`true`/`false`、缺失、非信封对象原样；夹具是真实抓取的两条流（一句话回复、一次工具调用），逐字节校验过；另有非流式与 `CreateResponsesClient` 生产接线两段断言 |
 | 2026-10-07 | `BuildInputItems` 不再为空文本的 assistant 回合发 assistant 条目 | 解析修好后第 2 轮（回传工具结果）被 OrcaRouter 以 HTTP 400 拒绝。真机单变量二分：空串 `output_text` 紧随 `function_call` 才触发；去掉条目、空白字符文本、空条目后跟用户消息均 200 | 条件画在字面空串（`text.Length > 0`），空白文本照旧发送；Responses 里 `function_call` 本就是独立条目，省掉空条目对其它供应商同样合法；用例经真实 `ResponsesTransport.AppendAssistantWithTools` 取线上请求体 |
+| 2026-11-26 | 移除 Responses 请求中的 `include: ["reasoning"]`。官方 GPT‑6.2 使用默认采样 | OpenAI 官方端点以 `include[0]` 无效为由返回 HTTP 400。GPT‑6.2 API 也要求省略 `temperature` 和 `top_p` | 配置无需迁移。HeadlessTests 验证了 GPT‑6.2 Sol 的请求体、正文流、usage 和连接探测 |

@@ -2,7 +2,6 @@
 #pragma warning disable OPENAI001
 
 using Athena.UI.Models;
-using Athena.UI.Services.Protocol;
 using OpenAI.Chat;
 using OpenAI.Responses;
 using Serilog;
@@ -48,7 +47,7 @@ internal sealed class ResponsesStreamFailureException(string message)
 /// 规则：
 /// - 无状态（store: false），每次请求全量重发 items，永不使用 previous_response_id（Athena 自管上下文）；
 /// - 工具全部经自有 FunctionRegistry 执行，不使用内置工具；
-/// - include: ["reasoning"] 取完整推理文本（第三方端点忽略时退化为摘要通道）；
+/// - 接收供应商返回的推理文本或摘要增量，统一为 ReasoningText；
 /// - 端点不支持（404/405 或明确暗示）时自动降级 Chat Completions 重发本轮并记忆。
 /// </summary>
 public sealed class ResponsesTransport : ICompletionTransport
@@ -176,7 +175,6 @@ public sealed class ResponsesTransport : ICompletionTransport
                     yield return new NormalizedUpdate(ReasoningText: reasoning.Delta);
                     break;
                 case StreamingResponseReasoningSummaryTextDeltaUpdate summary when !sawFullReasoningText:
-                    // 第三方端点可能忽略 include 只发摘要：作为推理文本的回退通道。
                     yield return new NormalizedUpdate(ReasoningText: summary.Delta);
                     break;
                 case StreamingResponseFunctionCallArgumentsDeltaUpdate argumentsDelta:
@@ -250,23 +248,6 @@ public sealed class ResponsesTransport : ICompletionTransport
             runtime.ToolDefinitions);
         options.TopP = runtime.ChatOptions.TopP;
         options.StreamingEnabled = true;
-
-        // 完整推理文本：官方 OpenAI 端点经 include=reasoning 获取（responses 协议下完整思考
-        // 文本的唯一通道）。第三方 /responses 端点（OpenRouter 实测）对 include 支持面极窄，
-        // 除 reasoning.encrypted_content 外的任何取值都会 400 invalid_prompt，因此只在官方
-        // 端点携带；第三方端点的推理文本靠默认摘要事件（response.reasoning_summary_text.delta，
-        // 推理模型无需任何参数即可产出）走回退通道并入 ReasoningContent。
-        if (ResponsesProtocolResolver.IsOfficialOpenAi(runtime.MainModel.ProviderPreset, runtime.MainModel.BaseUrl))
-        {
-            options.IncludedProperties.Add("reasoning");
-        }
-        else
-        {
-            Log.Debug(
-                "Skipping include=reasoning for third-party /responses endpoint. Provider={Provider} BaseUrl={BaseUrl}",
-                runtime.MainModel.ProviderPreset,
-                runtime.MainModel.BaseUrl);
-        }
 
         ResponsesCallHelpers.AddInputItems(options, messages);
 

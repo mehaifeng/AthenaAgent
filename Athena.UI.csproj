@@ -62,6 +62,9 @@
       <LogicalName>AthenaSoul.md</LogicalName>
     </EmbeddedResource>
     <EmbeddedResource Include="Services/ComputerUse/BrowserPage.js" LogicalName="Athena.UI.ComputerUse.BrowserPage.js" />
+    <EmbeddedResource Include="Services/ComputerUse/BrowserHost.cjs" LogicalName="Athena.UI.ComputerUse.BrowserHost.cjs" />
+    <EmbeddedResource Include="Services/ComputerUse/BrowserPrompt.cjs" LogicalName="Athena.UI.ComputerUse.BrowserPrompt.cjs" />
+    <EmbeddedResource Include="Services/ComputerUse/BrowserRuntime.json" LogicalName="Athena.UI.ComputerUse.BrowserRuntime.json" />
   </ItemGroup>
 
   <ItemGroup>

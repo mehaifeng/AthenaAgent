@@ -11,6 +11,7 @@ using Avalonia.Input;
 using Avalonia.LogicalTree;
 using Avalonia.Media;
 using Avalonia.Media.Imaging;
+using Avalonia.Media.TextFormatting;
 using Avalonia.Rendering.Composition;
 using Avalonia.Styling;
 using Avalonia.Threading;
@@ -80,7 +81,10 @@ AppBuilder.Configure<App>()
     {
         UseHeadlessDrawing = false
     })
+    .WithInterFont()
     .SetupWithoutStarting();
+
+TestLinuxDigitsUseTextFont();
 
 if (Environment.GetEnvironmentVariable("ATHENA_HEADLESS_ONLY") == "onboarding")
 {
@@ -176,11 +180,25 @@ if (Environment.GetEnvironmentVariable("ATHENA_HEADLESS_ONLY") == "game-mode")
     TestGameModeDebate();
     Environment.Exit(0);
 }
+if (Environment.GetEnvironmentVariable("ATHENA_HEADLESS_ONLY") == "browser-runtime")
+{
+    PumpForCompletion(BrowserRuntimeTests.RunAsync(
+        Environment.GetEnvironmentVariable("ATHENA_BROWSER_RUNTIME_DIRECTORY") ?? BrowserRuntime.DefaultDirectory),
+        "checking bundled browser persistence and input ownership", 60000);
+    Environment.Exit(0);
+}
 if (Environment.GetEnvironmentVariable("ATHENA_HEADLESS_ONLY") == "computer-use")
 {
     TestComputerUseToolPolicy();
     TestComputerUseBrowserTarget();
-    TestEmbeddedBrowserPane(Environment.GetEnvironmentVariable("ATHENA_BROWSER_SMOKE") == "1", args.Length == 0 ? null : outputPath);
+    TestEmbeddedBrowserExecutionSettings();
+    PumpForCompletion(ModelRoleProbeTests.RunAsync(), "proving each role protocol and visual input");
+    var smokeRuntime = Environment.GetEnvironmentVariable("ATHENA_BROWSER_SMOKE") == "1";
+    TestEmbeddedBrowserPane(smokeRuntime, args.Length == 0 ? null : outputPath);
+    if (smokeRuntime)
+        PumpForCompletion(BrowserRuntimeTests.RunAsync(
+            Environment.GetEnvironmentVariable("ATHENA_BROWSER_RUNTIME_DIRECTORY") ?? BrowserRuntime.DefaultDirectory),
+            "checking the bundled browser profile and manual takeover", 60000);
     Environment.Exit(0);
 }
 OnboardingEntranceTests.Run(outputPath);
@@ -193,6 +211,8 @@ if (Environment.GetEnvironmentVariable("ATHENA_OWL_TEST_ONLY") == "1")
 TestMermaidMarkdownRendering();
 TestComputerUseToolPolicy();
 TestComputerUseBrowserTarget();
+TestEmbeddedBrowserExecutionSettings();
+PumpForCompletion(ModelRoleProbeTests.RunAsync(), "proving each role protocol and visual input");
 TestEmbeddedBrowserPane(runChrome: false);
 TestVirtualPetStateMachine();
 TestVirtualPetProgression();
@@ -2458,12 +2478,28 @@ static void TestComputerUseBrowserTarget()
         throw new InvalidOperationException("Browser targets must use HTTP or HTTPS without embedded credentials.");
 
     var frame = new ComputerUseFrame([], "image/png", 1200, 800, "", null,
-        [new ComputerUseElement(1, "", "button", "Search", 800, 250)], CursorInPage: true);
+        [new ComputerUseElement(1, "", "button", "Search", 800, 250)], BrowserUri: target.BrowserUri);
     if (ComputerUseService.ResolveActionPoint(frame, new ComputerUseAction("click", 2, 4, Element: 1)) != (800, 250)
         || ComputerUseService.ResolveActionPoint(frame, new ComputerUseAction("click", 2, 4)) != (2, 4)
         || ComputerUseService.ResolveActionPoint(frame, new ComputerUseAction("scroll", Direction: "down")) != (600, 400)
         || ComputerUseService.ResolveActionPoint(frame, new ComputerUseAction("press_key", Key: "Home")) != (600, 400))
         throw new InvalidOperationException("Browser input must use the observed control or a pixel from the current screenshot.");
+
+    var point = ComputerUsePlanner.ReadBrowserAction("""{"action":"click","element":"null","x":"2.5","y":4}""");
+    if (ComputerUseService.ResolveActionPoint(frame, point) != (2.5, 4))
+        throw new InvalidOperationException("Numeric coordinates in strings must preserve the precise screenshot target.");
+
+    static void RejectDecision(string json, string expected)
+    {
+        try { ComputerUsePlanner.ReadBrowserAction(json); }
+        catch (JsonException exception) when (exception.Message.Contains(expected, StringComparison.Ordinal)) { return; }
+        throw new InvalidOperationException($"The browser decision must be rejected with a correction mentioning {expected}.");
+    }
+    RejectDecision("""{"action":"scroll","direction":"down","x":[],"y":null}""", "'x' and 'y'");
+    RejectDecision("""{"action":"click","x":2,"y":"NaN"}""", "'x' and 'y'");
+    RejectDecision("""{"action":"type_text","element":1,"text":["苏州"]}""", "'text'");
+    RejectDecision("""{"action":"finish","success":"maybe"}""", "'success'");
+    RejectDecision("""{"action":"click","element":1,"Element":2}""", "repeats a field");
 
     var config = new AppConfig();
     config.AiModels.Providers.Add(new OpenAiProviderConfiguration
@@ -2474,13 +2510,14 @@ static void TestComputerUseBrowserTarget()
     {
         BaseUrl = "https://api.deepseek.com/v1", ApiKey = "official-key"
     });
-    var model = ComputerUsePlanner.ResolveBrowserModel(config);
+    ModelRoleProbeService.MigrateComputerUse(config);
+    var request = new ModelRoleProbeService().Resolve(config, AiModelRole.ComputerUse);
+    var model = request.Model;
     if (model is not { BaseUrl: "https://api.deepseek.com", Model: "deepseek-flash",
             ApiKey: "official-key", Protocol: ProviderProtocol.Responses })
         throw new InvalidOperationException("Browser Computer Use must resolve the configured official Flash connection.");
 
-    var factory = new OpenAiModelRuntimeFactory(new HeadlessConfigService(config));
-    var planner = new ComputerUsePlanner(config, factory, "Check two articles.", browser: true);
+    var planner = new ComputerUsePlanner(request, "Check two articles.", browser: true);
     var firstPage = frame with { BrowserUri = new Uri("https://example.org/article-a") };
     var secondPage = frame with { BrowserUri = new Uri("https://example.org/article-b"), Tree = "Article B" };
     planner.RememberProgress(firstPage, new ComputerUseAction("click", Summary: "Article A confirmed the date."));
@@ -2489,10 +2526,68 @@ static void TestComputerUseBrowserTarget()
     var nextReport = planner.BuildObservationReport(secondPage, "Page opened.", 3);
     if (!nextReport.Contains("https://example.org/article-a: Article A confirmed the date.", StringComparison.Ordinal)
         || !nextReport.Contains("Progress from previous observations: Article B confirmed the location.", StringComparison.Ordinal)
-        || new ComputerUsePlanner(config, factory, "Start a second task.", browser: true)
+        || new ComputerUsePlanner(request, "Start a second task.", browser: true)
             .BuildObservationReport(frame, "", 0).Contains("Article A", StringComparison.Ordinal))
         throw new InvalidOperationException("Browser Computer Use must retain evidence across pages within the same task.");
     Console.WriteLine("[PASS] Browser Computer Use uses the selected webpage, observed points, official DeepSeek Flash, and remembered progress");
+}
+
+static void TestEmbeddedBrowserExecutionSettings()
+{
+    var directory = Directory.CreateTempSubdirectory("athena-browser-settings-");
+    try
+    {
+        var paths = new TemporaryPathService(directory.FullName);
+        var configService = new ConfigService(paths);
+        File.WriteAllText(configService.ConfigFilePath,
+            $$$"""{"configSchemaVersion":{{{AppConfig.CurrentSchemaVersion}}},"aiModels":{"computerUse":{}},"embeddedBrowser":{"homePage":"https://example.org/"}}""");
+        using var session = new AppConfigurationSession(configService);
+        using var state = new AppSettingsState(session);
+        using var settings = new EmbeddedBrowserSettingsViewModel(state, null, null, null, null, null, new ModelRoleProbeService());
+        var provider = new OpenAiProviderConfiguration { DisplayName = "Test provider", BaseUrl = "https://vision.test.invalid", ApiKey = "test-vision-key" };
+        var vision = new ProviderModelDescriptor { Id = "vision", Reported = new() { InputModalities = ["text", "image"] } };
+        provider.Models.Add(vision);
+        provider.Models.Add(new() { Id = "text-only", Reported = new() { InputModalities = ["text"] } });
+        session.Current.AiModels.Providers.Add(provider);
+
+        var page = new EmbeddedBrowserSettingsView { DataContext = settings };
+        var window = new Window { Content = page, Width = 410, Height = 520 };
+        window.Show();
+        try
+        {
+            Dispatcher.UIThread.RunJobs();
+            var editor = page.FindControl<ProviderRoleEditor>("BrowserModelEditor")!;
+            var providerPicker = editor.FindControl<ComboBox>("ProviderPicker")!;
+            var modelPicker = editor.FindControl<ComboBox>("ModelPicker")!;
+            var testButton = editor.FindControl<Button>("TestModelButton")!;
+            var timeout = page.FindControl<NumericUpDown>("BrowserTaskTimeout")!;
+            var retries = page.FindControl<NumericUpDown>("BrowserActionRetries")!;
+            if (timeout.Value != 3 || retries.Value != 1 || testButton.IsEffectivelyEnabled
+                || timeout.Minimum != EmbeddedBrowserSettings.MinTaskTimeoutMinutes || timeout.Maximum != EmbeddedBrowserSettings.MaxTaskTimeoutMinutes
+                || retries.Minimum != EmbeddedBrowserSettings.MinActionRetryCount || retries.Maximum != EmbeddedBrowserSettings.MaxActionRetryCount)
+                throw new InvalidOperationException($"Unexpected browser defaults. Timeout {timeout.Value} [{timeout.Minimum}, {timeout.Maximum}], retries {retries.Value} [{retries.Minimum}, {retries.Maximum}], test enabled {testButton.IsEffectivelyEnabled}.");
+
+            providerPicker.SelectedItem = provider;
+            Dispatcher.UIThread.RunJobs();
+            if (modelPicker.Items.Count != 1 || !ReferenceEquals(modelPicker.Items[0], vision))
+                throw new InvalidOperationException("The shared Computer Use picker must exclude text-only models.");
+            modelPicker.SelectedItem = vision;
+            timeout.Value = 12;
+            retries.Value = 0;
+            PumpForCompletion(session.SaveNowAsync(), "saving the browser model and execution settings");
+
+            using var providers = new ProviderModelsViewModel(session, new HeadlessModelCatalogService());
+            var role = providers.Roles.Single(row => ReferenceEquals(row.Settings, session.Current.AiModels.ComputerUse));
+            var reloaded = new ConfigService(paths).Load();
+            if (!testButton.IsEffectivelyEnabled || role.SelectedModel != vision || reloaded.AiModels.ComputerUse.Model != vision.Id
+                || reloaded.AiModels.ComputerUse.ProviderId != provider.Id
+                || reloaded.EmbeddedBrowser is not { TaskTimeoutMinutes: 12, ActionRetryCount: 0, HomePage: "https://example.org/" })
+                throw new InvalidOperationException("The browser settings must persist and use the existing Computer Use role.");
+        }
+        finally { window.Close(); }
+    }
+    finally { directory.Delete(recursive: true); }
+    Console.WriteLine("[PASS] Browser settings expose one shared vision model, model testing, and persistent execution limits");
 }
 
 static void TestEmbeddedBrowserPane(bool runChrome, string? previewPath = null)
@@ -2501,6 +2596,7 @@ static void TestEmbeddedBrowserPane(bool runChrome, string? previewPath = null)
     config.MainLayout.RightPanelCollapsed = true;
     config.ContextPolicy.AutoCompress = false;
     config.ToolApprovalMode = ToolApprovalMode.Off;
+    config.EmbeddedBrowser.ActionRetryCount = 2;
     var provider = new OpenAiProviderConfiguration
     {
         Id = "browser-chat-test", BaseUrl = "https://browser-chat.invalid",
@@ -2508,20 +2604,31 @@ static void TestEmbeddedBrowserPane(bool runChrome, string? previewPath = null)
     };
     provider.Models.Add(new ProviderModelDescriptor { Id = "test-main", Capability = ModelCapability.Text });
     config.AiModels.Providers.Add(provider);
-    config.AiModels.Providers.Add(new() { BaseUrl = "https://api.deepseek.com", ApiKey = "browser-planner-test-key" });
+    var browserProvider = new OpenAiProviderConfiguration
+    {
+        BaseUrl = "https://api.deepseek.com", ApiKey = "browser-planner-test-key", Protocol = ProviderProtocol.Responses
+    };
+    browserProvider.Models.Add(new()
+    {
+        Id = BrowserConversationModelFixture.NextBrowserModel,
+        Reported = new() { InputModalities = ["text", "image"] }
+    });
+    config.AiModels.Providers.Add(browserProvider);
+    ModelRoleProbeService.MigrateComputerUse(config);
     config.AiModels.MainConversation.ProviderId = provider.Id;
     config.AiModels.MainConversation.Model = "test-main";
     var configService = new HeadlessConfigService(config);
-    var host = new EmbeddedBrowser();
+    var fixtureRoot = Directory.CreateTempSubdirectory("athena-browser-conversation-");
+    var runtimeDirectory = Environment.GetEnvironmentVariable("ATHENA_BROWSER_RUNTIME_DIRECTORY") ?? BrowserRuntime.DefaultDirectory;
+    var host = new EmbeddedBrowser(runtimeDirectory, Path.Combine(fixtureRoot.FullName, "Browser"), configService);
     using var models = new BrowserConversationModelFixture();
     using var http = new HttpClient(models, disposeHandler: false);
     var transport = new HttpClientPipelineTransport(http);
-    var computerUse = new ComputerUseService(configService, new OpenAiModelRuntimeFactory(configService), Log.Logger, host, transport);
+    var computerUse = new ComputerUseService(configService, Log.Logger, host, new ModelRoleProbeService(), transport);
     var external = new BrowserTestUrlOpener();
     var localization = new LocalizationService();
     using var browser = new EmbeddedBrowserViewModel(host, computerUse, localization, external);
     using var session = new AppConfigurationSession(configService);
-    var fixtureRoot = Directory.CreateTempSubdirectory("athena-browser-conversation-");
     var paths = new TemporaryPathService(fixtureRoot.FullName);
     var services = new ServiceCollection();
     typeof(App).GetMethod("ConfigureServices", BindingFlags.NonPublic | BindingFlags.Static)!.Invoke(null, [services]);
@@ -2555,6 +2662,21 @@ static void TestEmbeddedBrowserPane(bool runChrome, string? previewPath = null)
         var opener = conversationView.FindControl<Button>("RevealBrowserButton")!;
         var close = pane.FindControl<Button>("CloseBrowserButton")!;
         var preview = pane.FindControl<Image>("BrowserImage")!;
+        var surface = pane.FindControl<Border>("BrowserSurface")!;
+        PixelSize WaitForFilledViewport(PixelSize? previous = null)
+        {
+            PixelSize size = default;
+            PumpUntil(() =>
+            {
+                size = PixelSize.FromSize(surface.Bounds.Size, 1);
+                return size.Width > 0 && size.Height > 0
+                    && (previous is null || (size.Width != previous.Value.Width && size.Height != previous.Value.Height))
+                    && preview.Bounds.Size == surface.Bounds.Size
+                    && preview.Source is Bitmap bitmap && bitmap.PixelSize == size;
+            }, 7000, "Chrome must cover the full browser surface after layout.");
+            return size;
+        }
+
         PumpUntil(() => !shell.IsConversationSwitching && ReferenceEquals(conversationView.DataContext, shell.SelectedConversation?.Chat));
         var chat = (MainConversationViewModel)conversationView.DataContext!;
         var linkedPage = new Uri("https://example.org/");
@@ -2585,8 +2707,12 @@ static void TestEmbeddedBrowserPane(bool runChrome, string? previewPath = null)
         models.Destination = destination.AbsoluteUri;
         config.MainLayout.RightPanelCollapsed = true;
         PumpForCompletion(chat.OpenMarkdownLinkUriCommand.ExecuteAsync(manualPage), "opening an embedded chat link");
-        PumpUntil(() => preview.Source is not null);
-        var browsing = host.BrowsingPage!;
+        var browseSize = WaitForFilledViewport();
+        window.Width = 1180;
+        window.Height = 830;
+        _ = WaitForFilledViewport(browseSize);
+        var openerPage = host.BrowsingPage!;
+        var browsing = openerPage;
         if (browser.SelectedTab != 0 || browsing.Address != manualPage || external.LastAddress != linkedPage.AbsoluteUri)
             throw new InvalidOperationException("A normal chat link must navigate the embedded browsing page.");
         PumpUntil(() =>
@@ -2604,10 +2730,18 @@ static void TestEmbeddedBrowserPane(bool runChrome, string? previewPath = null)
         window.MouseUp(linkPoint, MouseButton.Left);
         var nextAddress = new Uri(site, "more").AbsoluteUri;
         PumpUntil(() => browser.Address == nextAddress, 5000, "Clicking inside the embedded page did not follow its link.");
-        PumpForCompletion(browser.BackCommand.ExecuteAsync(null), "going back in the embedded browser");
+        browsing = host.BrowsingPage!;
+        if (browsing.Opener != openerPage.Id || ReferenceEquals(browsing, openerPage)
+            || !(awaitPageValue(browsing, "window.opener !== null")).GetBoolean())
+            throw new InvalidOperationException("A target-blank link must keep its opener relationship in an embedded tab.");
+        PumpForCompletion(browsing.NavigateAsync(manualPage, timeout.Token), "navigating within the popup tab");
         PumpUntil(() => browser.Address == manualPage.AbsoluteUri);
-        PumpForCompletion(browser.ForwardCommand.ExecuteAsync(null), "going forward in the embedded browser");
+        PumpForCompletion(browser.BackCommand.ExecuteAsync(null), "going back in the embedded browser");
         PumpUntil(() => browser.Address == nextAddress);
+        PumpForCompletion(browser.ForwardCommand.ExecuteAsync(null), "going forward in the embedded browser");
+        PumpUntil(() => browser.Address == manualPage.AbsoluteUri);
+        window.Width = 1440;
+        window.Height = 800;
         config.MainLayout.RightPanelCollapsed = true;
         PumpUntil(() => preview.Source is null && !pane.PreviewEnabled);
 
@@ -2615,43 +2749,100 @@ static void TestEmbeddedBrowserPane(bool runChrome, string? previewPath = null)
         var run = chat.SendMessageCommand.ExecuteAsync(null);
         PumpUntil(() => models.WaitingToSubmit.Task.IsCompleted && chat.IsSending && browser.IsTask
             && pane.PreviewEnabled && preview.Source is not null, 15000, "The running task never appeared in the browser pane.");
-        var addressBox = pane.FindControl<TextBox>("TaskAddressBox")!;
-        if (!addressBox.IsReadOnly || addressBox.Text != destination.AbsoluteUri)
-            throw new InvalidOperationException("The task pane must show the navigated address in a read-only field.");
+        var addressBox = pane.FindControl<TextBox>("AddressBox")!;
+        if (addressBox.IsReadOnly || addressBox.Text != destination.AbsoluteUri)
+            throw new InvalidOperationException("The task pane must show the navigated address in an editable field.");
+        var taskSize = WaitForFilledViewport();
+        if (models.ViewportBeforeResize != taskSize)
+            throw new InvalidOperationException("Computer Use must observe the same viewport as the task pane.");
+        var taskPage = host.TaskPage!;
+        var modal = awaitPageValue(taskPage, """
+            ({ modal: !!document.querySelector('dialog:modal'), cursorInDocument: !!document.querySelector('[data-athena-computer-use]'),
+               click: window.stationClick })
+            """);
+        if (!modal.GetProperty("modal").GetBoolean() || modal.GetProperty("cursorInDocument").GetBoolean())
+            throw new InvalidOperationException("The native search dialog must be open over a webpage without an injected cursor.");
+        var click = modal.GetProperty("click");
+        var cursorPoint = preview.TranslatePoint(new Point(click.GetProperty("x").GetDouble() + 5,
+            click.GetProperty("y").GetDouble() + 10), window)
+            ?? throw new InvalidOperationException("The browser preview must map the cursor into the window.");
+        using (var snapshot = window.CaptureRenderedFrame() ?? throw new InvalidOperationException("No browser preview was rendered."))
+        using (var png = new MemoryStream())
+        {
+            snapshot.Save(png, PngBitmapEncoderOptions.Default);
+            using var pixels = SkiaSharp.SKBitmap.Decode(png.ToArray());
+            var tip = pixels.GetPixel((int)(cursorPoint.X * window.RenderScaling), (int)(cursorPoint.Y * window.RenderScaling));
+            if (tip != new SkiaSharp.SKColor(94, 234, 212))
+                throw new InvalidOperationException($"The app cursor must be painted above the modal at its input position. Observed {tip}.");
+        }
+        Console.WriteLine("[PASS] Athena paints the browser cursor above a real Chromium top-layer dialog");
+        window.Width = 1180;
+        window.Height = 1040;
+        var resizedTask = WaitForFilledViewport(taskSize);
+        var viewportRevision = taskPage.ViewportRevision;
+        PumpForCompletion(taskPage.Driver.CallAsync("Emulation.setDeviceMetricsOverride", new
+        {
+            width = resizedTask.Width + 60, height = resizedTask.Height - 60, deviceScaleFactor = 1, mobile = false
+        }, timeout.Token), "changing Chromium viewport metrics independently of Athena's preferred size");
+        PumpUntil(() => taskPage.ViewportRevision > viewportRevision, 7000,
+            "The visible task must repair the viewport on the same page without a tab switch.");
+        var lastFrame = preview.Source;
+        PumpUntil(() => !ReferenceEquals(lastFrame, preview.Source) && preview.Source is Bitmap frame
+            && frame.PixelSize == resizedTask && ReferenceEquals(browser.CurrentPage, taskPage) && browser.IsTask,
+            7000, "The task preview must display new frames for the recovered viewport.");
+        var recoveredViewport = awaitPageValue(taskPage, "[innerWidth, innerHeight]");
+        if (recoveredViewport[0].GetInt32() != resizedTask.Width || recoveredViewport[1].GetInt32() != resizedTask.Height)
+            throw new InvalidOperationException("The task preview and Chromium must agree on the repaired viewport.");
+        Console.WriteLine("[PASS] The visible task recovers fresh preview frames after Chromium viewport drift without a tab switch");
+        models.AllowSubmit.TrySetResult();
+        PumpUntil(() => models.WaitingForResizedSubmit.Task.IsCompleted, 7000,
+            "The browser task must re-observe after the stale click was rejected.");
+        if (models.ViewportAfterResize != resizedTask)
+            throw new InvalidOperationException("After reflow the model must receive the full resized viewport.");
         if (previewPath is not null)
         {
             using var snapshot = window.CaptureRenderedFrame() ?? throw new InvalidOperationException("No browser preview was rendered.");
             using var output = File.Create(previewPath);
             snapshot.Save(output, PngBitmapEncoderOptions.Default);
         }
-        var taskPage = host.TaskPage!;
-        window.Width = 1180;
         config.MainLayout.RightPanelCollapsed = true;
         PumpUntil(() => preview.Source is null && !pane.PreviewEnabled);
         opener.Command!.Execute(null);
-        PumpUntil(() => pane.PreviewEnabled && preview.Source is not null);
+        _ = WaitForFilledViewport();
         close.Command!.Execute(null);
         PumpUntil(() => preview.Source is null && !pane.PreviewEnabled);
-        models.AllowSubmit.TrySetResult();
+        window.Width = 1440;
+        window.Height = 850;
+        models.AllowResizedSubmit.TrySetResult();
         PumpForCompletion(run, "the model's reply after hidden form submission");
         if (browser.IsOpen || !ReferenceEquals(taskPage, host.TaskPage) || chat.IsSending || models.ChatRequests != 2
             || !chat.Messages.Any(message => message.Role == "assistant" && message.Content == "done")
             || !chat.Messages.Any(message => message.Role == "tool" && message.ToolName == "run_computer_task"
-                && message.Content!.Contains("Received Athena verified", StringComparison.Ordinal)))
+                && message.Content!.Contains("Received 苏州", StringComparison.Ordinal)))
             throw new InvalidOperationException("The completed browser task must return to the same chat without reopening the preview.");
+        if (models.BrowserRetryRequests != 4)
+            throw new InvalidOperationException("The configured retry count must allow two corrections for one observation.");
+        Console.WriteLine("[PASS] Browser decisions use the configured retry count and accept usable action variants");
+        Console.WriteLine("[PASS] Chrome sends sequential Chinese key events, selects the autocomplete choice, and retains it on blur");
 
         opener.Command!.Execute(null);
         PumpUntil(() => pane.PreviewEnabled && preview.Source is not null);
         browser.SelectedTab = 0;
         PumpUntil(() => preview.Source is not null && ReferenceEquals(browser.CurrentPage, browsing));
-        if (browsing.ContextId == taskPage.ContextId || browsing.Address.AbsoluteUri != nextAddress)
-            throw new InvalidOperationException("The task must keep its page separate from the user's browsing session.");
-        Console.WriteLine("[PASS] Chrome address-bar navigation, live preview, hidden form submission, and the result returning to the main model");
+        if (browsing.Id == taskPage.Id || browsing.Address != manualPage)
+            throw new InvalidOperationException("A task must keep its page separate from the user's browsing tab.");
+        Console.WriteLine($"[PASS] Chrome fills both tabs, re-observes after resizing {taskSize} to {resizedTask}, and completes in the hidden pane");
 
+        config.AiModels.ComputerUse.Model = BrowserConversationModelFixture.NextBrowserModel;
+        PumpForCompletion(session.SaveNowAsync(), "saving the newly selected Computer Use model");
         models.WaitForStop = true;
         chat.InputText = "在浏览器中执行一个可以停止的任务";
         var interruptedRun = chat.SendMessageCommand.ExecuteAsync(null);
-        PumpUntil(() => models.WaitingToStop.Task.IsCompleted && chat.IsSending);
+        PumpUntil(() => models.WaitingToStop.Task.IsCompleted && chat.IsSending, 7000,
+            "The next browser task in the same conversation must request the newly selected model.");
+        Console.WriteLine("[PASS] A second browser task in the same conversation uses the latest Computer Use model selection");
+        browser.TakeOverCommand.Execute(null);
+        PumpUntil(() => browser.CanResume && models.DecisionCancelled.Task.IsCompleted && chat.IsSending);
         var stop = conversationView.GetVisualDescendants().OfType<Button>()
             .Single(button => ReferenceEquals(button.Command, chat.StopResponseCommand));
         if (!stop.IsVisible || !stop.Command!.CanExecute(null))
@@ -2666,7 +2857,11 @@ static void TestEmbeddedBrowserPane(bool runChrome, string? previewPath = null)
             || !chat.Messages.Any(message => message.Role == "tool" && message.ToolName == "run_computer_task"
                 && message.Content!.Contains("interrupted", StringComparison.OrdinalIgnoreCase)))
             throw new InvalidOperationException("Stopping the chat must cancel the browser decision and record the interrupted tool call.");
-        Console.WriteLine("[PASS] The composer stop button cancels the running browser task and keeps the tool call paired");
+        Console.WriteLine("[PASS] The composer stop button cancels a paused browser task and keeps the tool call paired");
+
+        JsonElement awaitPageValue(ChromeBrowserPage page, string expression) =>
+            PumpForResult(page.Driver.CallAsync("Runtime.evaluate", new { expression, returnByValue = true }, timeout.Token),
+                "checking the popup relationship").GetProperty("result").GetProperty("value");
     }
     finally
     {
@@ -2690,23 +2885,51 @@ static async Task ServeBrowserFixtureAsync(HttpListener listener, CancellationTo
             {
                 "/start" => "<title>Starting page</title><p>Navigate via the browser address bar.</p>",
                 "/task" => """
-                    <title>Browser task</title>
+                    <!doctype html><title>Browser task</title>
                     <style>
                         body { margin:0; background:#edf5f6; color:#16353a; font:22px system-ui,sans-serif }
-                        form { background:white; margin:80px 68px; padding:36px; border-radius:16px }
+                        dialog { position:fixed; inset:0; width:100%; height:100%; max-width:none; max-height:none;
+                                 box-sizing:border-box; margin:0; padding:0; border:0; background:#edf5f6; color:inherit }
+                        form { background:white; margin:80px min(8vw, 68px); padding:min(6vw, 36px); border-radius:16px }
                         label, input { display:block }
-                        input, button { font:inherit; padding:8px 12px; margin-top:10px }
+                        input, button { font:inherit; padding:8px 12px; margin-top:10px; max-width:100%; box-sizing:border-box }
+                        button[type=submit] { position:fixed; right:16px; bottom:16px }
                     </style>
-                    <form action="/result">
-                        <h1>任务验证</h1>
-                        <label>Title<input name="title"></label>
-                        <button>Submit</button>
-                    </form>
+                    <dialog>
+                        <form action="/result">
+                            <h1>任务验证</h1>
+                            <label>Title<input name="title" autocomplete="off"></label>
+                            <button type="button" id="station" hidden>苏州</button>
+                            <button type="submit">Submit</button>
+                        </form>
+                    </dialog>
+                    <script>
+                        const field = document.querySelector('input[name=title]');
+                        const station = document.querySelector('#station');
+                        let firstCharacterEntered = false;
+                        let selected = false;
+                        field.addEventListener('keyup', event => {
+                            if (!event.isTrusted) return;
+                            if (event.key === '苏' && field.value === '苏') firstCharacterEntered = true;
+                            if (event.key === '州' && field.value === '苏州' && firstCharacterEntered) station.hidden = false;
+                        });
+                        field.addEventListener('blur', () => {
+                            if (!selected) field.value = '';
+                            station.hidden = true;
+                        });
+                        station.addEventListener('mousedown', event => event.preventDefault());
+                        station.addEventListener('click', event => {
+                            window.stationClick = { x: event.clientX, y: event.clientY };
+                            selected = true;
+                            field.blur();
+                        });
+                        document.querySelector('dialog').showModal();
+                    </script>
                     """,
                 "/result" => "<title>Task result</title><p>Received " + WebUtility.HtmlEncode(request.Request.QueryString["title"]) + "</p>",
                 "/browse" => """
                     <title>Manual browsing</title>
-                    <a href="/more" target="_blank" style="position:absolute;left:12px;top:12px;padding:20px;display:block">Continue</a>
+                    <a href="/more" target="_blank" rel="opener" style="position:absolute;left:12px;top:12px;padding:20px;display:block">Continue</a>
                     """,
                 _ => "<title>Manual browsing</title><p>Browsing remains available.</p>"
             };
@@ -3799,6 +4022,25 @@ static void TestShellPanelBackgroundThemeResolution()
     Console.WriteLine("[PASS] shell panels use the theme-consistent background color in Dark mode");
 }
 
+static void TestLinuxDigitsUseTextFont()
+{
+    if (!OperatingSystem.IsLinux())
+        return;
+
+    var family = (FontFamily)Application.Current!.Resources["MainFontFamily"]!;
+    var textFamilies = family.FamilyNames.TakeWhile(name => !name.Contains("Emoji", StringComparison.OrdinalIgnoreCase));
+    if (!textFamilies.Contains("Inter", StringComparer.Ordinal))
+        throw new InvalidOperationException("Linux must try the bundled Inter font before emoji fonts.");
+
+    var typeface = new Typeface(family, weight: FontWeight.SemiBold);
+    using var layout = new TextLayout("0123456789", typeface, 11, Brushes.Black);
+    var runs = layout.TextLines.SelectMany(line => line.TextRuns).OfType<ShapedTextRun>().ToArray();
+    if (runs.Length == 0 || runs.Any(run => run.ShapedBuffer.GlyphTypeface.FamilyName.Contains("Emoji", StringComparison.OrdinalIgnoreCase)))
+        throw new InvalidOperationException("Linux semibold digits must render in a text font.");
+
+    Console.WriteLine("[PASS] Linux semibold digits render in a text font");
+}
+
 static void TestColorSchemeSwitching()
 {
     var app = (App)Application.Current!;
@@ -4159,11 +4401,12 @@ static void TestConfigurationSession(string artifactDirectory)
         || !ReferenceEquals(documentPage.Config, replacement))
         throw new InvalidOperationException("All settings pages must follow an externally replaced configuration instance.");
 
-    if (appSettings.Sections.Count != 6
+    if (appSettings.Sections.Count != 7
         || !ReferenceEquals(appSettings.General.State, appSettings.ConversationContext.State)
         || !ReferenceEquals(appSettings.General.State, appSettings.ToolApproval.State)
-        || !ReferenceEquals(appSettings.General.State, appSettings.AgentRuntime.State))
-        throw new InvalidOperationException("App Settings pages must share one settings state and expose six semantic sections.");
+        || !ReferenceEquals(appSettings.General.State, appSettings.AgentRuntime.State)
+        || !ReferenceEquals(appSettings.General.State, appSettings.Browser.State))
+        throw new InvalidOperationException("App Settings pages must share one settings state and expose seven semantic sections.");
     settingsLocalization.SwitchLanguage("en-US");
     if (appSettings.Sections[0].Title != "General"
         || appSettings.ToolApproval.ModePicker.Modes[0].Title != "Balanced"
@@ -4195,6 +4438,7 @@ static void TestConfigurationSession(string artifactDirectory)
         typeof(ConversationContextSettingsView),
         typeof(ToolApprovalSettingsView),
         typeof(AgentRuntimeSettingsView),
+        typeof(EmbeddedBrowserSettingsView),
         typeof(RuntimeDiagnosticsView),
         typeof(AboutView)
     };
@@ -4204,6 +4448,7 @@ static void TestConfigurationSession(string artifactDirectory)
         "conversation-context",
         "tool-approval",
         "agent-runtime",
+        "embedded-browser",
         "runtime-diagnostics",
         "about"
     };
@@ -4213,7 +4458,7 @@ static void TestConfigurationSession(string artifactDirectory)
         Dispatcher.UIThread.RunJobs();
         if (!appSettingsWindow.GetVisualDescendants().Any(view => view.GetType() == expectedViews[index]))
             throw new InvalidOperationException($"App Settings section {index} did not render {expectedViews[index].Name}.");
-        if (index == 4
+        if (appSettings.SelectedSection.Content == appSettings.RuntimeDiagnostics
             && !new[] { "ClearMetadataCacheButton", "RefreshContextDiagnosticsButton" }
                 .All(name => appSettingsWindow.GetVisualDescendants().OfType<Button>().Any(button => button.Name == name)))
             throw new InvalidOperationException("Runtime diagnostics did not render keyboard-accessible context-data maintenance controls.");
@@ -6541,7 +6786,7 @@ static void TestGameModeCitizens()
         var someone = expected[1].Id;
         page.Send($$"""{"v":1,"type":"chat","who":"{{someone}}","text":"你好"}""");
         PumpTimers(() => Talks(true).Count > 2, 5000, "没配模型也要推一句话回去。");
-        if (Talks(true)[^1].GetProperty("status").GetString() != "nomodel" || !Talks(true)[^1].GetProperty("text").GetString()!.Contains("城里的居民", StringComparison.Ordinal))
+        if (Talks(true)[^1].GetProperty("status").GetString() != "nomodel" || !Talks(true)[^1].GetProperty("text").GetString()!.Contains("「虚拟宠物」", StringComparison.Ordinal))
             throw new InvalidOperationException("没配模型时他说一句本地化的话。");
 
         // —— 你自己说了一句，附近几个人依次接话：第一位走 Player（带着楼与项目）；后面的走 Chorus，听得到前面几位、不带任何文件内容 ——
@@ -9598,6 +9843,7 @@ static void TestAuxiliaryRolesSendNoTemperature()
             AiModelRole.KnowledgeMaintenance => config.AiModels.KnowledgeMaintenance,
             AiModelRole.ImageRecognition => config.AiModels.ImageRecognition,
             AiModelRole.Companion => config.AiModels.Companion,
+            AiModelRole.ComputerUse => config.AiModels.ComputerUse,
             _ => null
         };
         if (settings == null) continue;
@@ -9634,20 +9880,21 @@ static void TestOutputScaledTimeout()
 
 static async Task TestResponsesStreamingTextAndUsageAsync()
 {
+    const string model = "gpt-6.2-sol";
     var config = new AppConfig();
     var provider = new OpenAiProviderConfiguration
     {
         Id = "responses-stream-provider",
         DisplayName = "Responses provider",
         ProviderPreset = "OpenAI",
-        BaseUrl = "https://responses-stream.invalid/v1",
+        BaseUrl = "https://api.openai.com/v1",
         ApiKey = "test-key",
         Protocol = ProviderProtocol.Responses
     };
-    provider.Models.Add(new ProviderModelDescriptor { Id = "responses-model", DisplayName = "Responses model", Capability = ModelCapability.Text });
+    provider.Models.Add(new ProviderModelDescriptor { Id = model, DisplayName = model, Capability = ModelCapability.Text });
     config.AiModels.Providers.Add(provider);
     config.AiModels.MainConversation.ProviderId = provider.Id;
-    config.AiModels.MainConversation.Model = "responses-model";
+    config.AiModels.MainConversation.Model = model;
 
     var output = new StringBuilder();
     var usageEvents = new List<string>();
@@ -9675,11 +9922,16 @@ static async Task TestResponsesStreamingTextAndUsageAsync()
         throw new InvalidOperationException($"Responses usage mismatch: {string.Join(",", usageEvents)}");
     if (handler.RequestBodies.Count != 1)
         throw new InvalidOperationException("Responses transport must issue exactly one request for a single-round turn.");
-    var requestBody = handler.RequestBodies[0];
-    if (!requestBody.Contains("\"include\":[\"reasoning\"]", StringComparison.Ordinal)
-        || !requestBody.Contains("\"store\":false", StringComparison.Ordinal))
-        throw new InvalidOperationException("Responses request must carry include=reasoning and stateless store=false.");
-    Console.WriteLine("[PASS] responses streaming text, usage, include=reasoning and stateless store=false");
+    using var request = JsonDocument.Parse(handler.RequestBodies[0]);
+    var body = request.RootElement;
+    if (body.GetProperty("model").GetString() != model || body.GetProperty("store").GetBoolean())
+        throw new InvalidOperationException("The Responses request must target GPT-6.2 Sol with store=false.");
+    foreach (var parameter in new[] { "include", "temperature", "top_p" })
+    {
+        if (body.TryGetProperty(parameter, out _))
+            throw new InvalidOperationException($"The OpenAI GPT-6.2 Sol Responses request must omit {parameter}.");
+    }
+    Console.WriteLine("[PASS] OpenAI GPT-6.2 Sol Responses request streams text and usage with supported parameters");
 }
 
 static async Task TestResponsesToolLoopAsync()
@@ -9817,6 +10069,7 @@ static async Task TestResponsesReasoningTextAsync()
 
 static async Task TestResponsesThirdPartyNoIncludeAsync()
 {
+    const string model = "gpt-6.2-sol";
     var config = new AppConfig();
     var provider = new OpenAiProviderConfiguration
     {
@@ -9827,10 +10080,10 @@ static async Task TestResponsesThirdPartyNoIncludeAsync()
         ApiKey = "test-key",
         Protocol = ProviderProtocol.Responses
     };
-    provider.Models.Add(new ProviderModelDescriptor { Id = "responses-thirdparty-model", DisplayName = "Responses third-party model", Capability = ModelCapability.Text });
+    provider.Models.Add(new ProviderModelDescriptor { Id = model, DisplayName = model, Capability = ModelCapability.Text });
     config.AiModels.Providers.Add(provider);
     config.AiModels.MainConversation.ProviderId = provider.Id;
-    config.AiModels.MainConversation.Model = "responses-thirdparty-model";
+    config.AiModels.MainConversation.Model = model;
 
     var service = new OpenAIChatService(
         config,
@@ -9848,9 +10101,12 @@ static async Task TestResponsesThirdPartyNoIncludeAsync()
     {
     }
 
-    var requestBody = handler.RequestBodies[0];
-    if (requestBody.Contains("\"include\"", StringComparison.Ordinal))
-        throw new InvalidOperationException("Third-party /responses request must not carry include (OpenRouter rejects any include value with 400 invalid_prompt).");
+    using var request = JsonDocument.Parse(handler.RequestBodies[0]);
+    var body = request.RootElement;
+    if (body.TryGetProperty("include", out _))
+        throw new InvalidOperationException("The third-party Responses request must omit include.");
+    if (body.GetProperty("temperature").GetSingle() != 0.7f || body.GetProperty("top_p").GetSingle() != (float)config.TopP)
+        throw new InvalidOperationException("The third-party Responses request must retain its sampling parameters.");
 
     var reasoning = context.Messages
         .Where(message => message.Role == "assistant")
@@ -9858,7 +10114,7 @@ static async Task TestResponsesThirdPartyNoIncludeAsync()
         .FirstOrDefault(value => !string.IsNullOrWhiteSpace(value));
     if (reasoning != "summary one summary two")
         throw new InvalidOperationException($"Summary fallback channel did not flow into ReasoningContent: '{reasoning}'");
-    Console.WriteLine("[PASS] third-party /responses skips include=reasoning and falls back to summary events");
+    Console.WriteLine("[PASS] third-party Responses preserves sampling parameters and consumes summary events");
 }
 
 static async Task TestResponsesReasoningEffortAsync()
@@ -9983,24 +10239,25 @@ static async Task TestChatReasoningEffortAsync()
 
 static async Task TestConnectionProbeAsync()
 {
+    const string model = "gpt-6.2-sol";
     var config = new AppConfig();
     var provider = new OpenAiProviderConfiguration
     {
         Id = "connection-probe-provider",
         DisplayName = "Connection probe provider",
-        ProviderPreset = "OpenRouter",
-        BaseUrl = "https://connection-probe.invalid/api/v1",
+        ProviderPreset = "OpenAI",
+        BaseUrl = "https://api.openai.com/v1",
         ApiKey = "test-key"
     };
     provider.Models.Add(new ProviderModelDescriptor
     {
-        Id = "deepseek/reasoner-fixture",
-        DisplayName = "DeepSeek reasoner fixture",
+        Id = model,
+        DisplayName = model,
         Capability = ModelCapability.Text
     });
     config.AiModels.Providers.Add(provider);
     config.AiModels.MainConversation.ProviderId = provider.Id;
-    config.AiModels.MainConversation.Model = "deepseek/reasoner-fixture";
+    config.AiModels.MainConversation.Model = model;
 
     var functionEvents = new List<string>();
     var service = new OpenAIChatService(
@@ -10014,7 +10271,7 @@ static async Task TestConnectionProbeAsync()
     var client = new OpenAI.OpenAIClient(new ApiKeyCredential("test-key"), options);
     var chatField = typeof(OpenAIChatService).GetField("_chatClient", BindingFlags.Instance | BindingFlags.NonPublic)
                     ?? throw new InvalidOperationException("OpenAIChatService._chatClient field was not found.");
-    chatField.SetValue(service, client.GetChatClient("deepseek/reasoner-fixture"));
+    chatField.SetValue(service, client.GetChatClient(model));
 
     var (success, _) = await service.TestConnectionAsync();
     if (!success)
@@ -10026,11 +10283,13 @@ static async Task TestConnectionProbeAsync()
     var root = request.RootElement;
     if (root.TryGetProperty("tools", out _))
         throw new InvalidOperationException("Connection probe must not include the application tool catalog.");
+    if (root.TryGetProperty("temperature", out _) || root.TryGetProperty("top_p", out _))
+        throw new InvalidOperationException("The OpenAI GPT-6.2 Sol connection probe must use default sampling.");
     if (!root.TryGetProperty("max_completion_tokens", out var maxTokens)
         || maxTokens.GetInt32() != 256)
         throw new InvalidOperationException($"Connection probe must reserve 256 output tokens: {handler.RequestBodies[0]}");
 
-    Console.WriteLine("[PASS] connection probe omits tools, reserves reasoning budget, and accepts reasoning-only replies");
+    Console.WriteLine("[PASS] GPT-6.2 Sol connection probe uses default sampling and accepts a reasoning-only reply");
 }
 
 static void TestReasoningBubbleState()

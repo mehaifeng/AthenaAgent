@@ -177,6 +177,9 @@ public class ConfigService : IConfigService
         var droppedToolRoundLimits = root?.Remove("mainConversationMaxIterations") == true;
         droppedToolRoundLimits |= root?.Remove("subAgentMaxIterations") == true;
         var config = root?.Deserialize<AppConfig>(JsonOptions) ?? new AppConfig();
+        var missingComputerUse = root?["aiModels"] is not JsonObject models || !models.ContainsKey("computerUse");
+        if (missingComputerUse)
+            ModelRoleProbeService.MigrateComputerUse(config);
         var droppedLegacyCompressionKeys = MigrateLegacyCompressionKeys(root, config);
         if (version == 5)
         {
@@ -201,13 +204,15 @@ public class ConfigService : IConfigService
         }
 
         NormalizeCurrentConfig(config);
-        migrated = version < AppConfig.CurrentSchemaVersion || droppedLegacyCompressionKeys || droppedToolRoundLimits;
+        migrated = version < AppConfig.CurrentSchemaVersion || droppedLegacyCompressionKeys || droppedToolRoundLimits || missingComputerUse;
         return config;
     }
 
     private static void NormalizeCurrentConfig(AppConfig config)
     {
         config.ConfigSchemaVersion = AppConfig.CurrentSchemaVersion;
+        config.AiModels.ComputerUse ??= new();
+        config.EmbeddedBrowser ??= new();
         AppConfigNormalizer.NormalizeContextPolicy(config);
         AppConfigNormalizer.NormalizeProtocol(config);
         AppConfigNormalizer.NormalizeVirtualPet(config);

@@ -224,7 +224,7 @@ public static class PolisLocale
         ("Limited", "Polis.Debate.Limited", "这一个钟头辩得够多了，歇一会儿再来。"),
         ("AthenaNoModel", "Polis.Debate.AthenaNoModel", "（雅典娜没法开口：设置里还没给「主对话」选模型。这一轮让给你。）"),
         ("AthenaFailed", "Polis.Debate.AthenaFailed", "（雅典娜想了想，这一轮让给你。）"),
-        ("JudgeNoModel", "Polis.Debate.JudgeNoModel", "陪审团没有发言人：设置里还没给「虚拟宠物与城里的居民」或「标题生成」选模型，算平局。"),
+        ("JudgeNoModel", "Polis.Debate.JudgeNoModel", "陪审团没有发言人：设置里还没给「虚拟宠物」或「标题生成」选模型，算平局。"),
         ("NoVerdict", "Polis.Debate.NoVerdict", "陪审团没能给出裁决，算平局。"),
     };
 
@@ -234,7 +234,7 @@ public static class PolisLocale
     /// </summary>
     public static IReadOnlyList<(string Status, string Key, string Fallback)> CitizenAsk { get; } = new[]
     {
-        ("NoModel", "Polis.Citizen.Ask.NoModel", "要问话，先在设置的模型角色里给「虚拟宠物与城里的居民」或「标题生成」选一个模型。"),
+        ("NoModel", "Polis.Citizen.Ask.NoModel", "要问话，先在设置的模型角色里给「虚拟宠物」或「标题生成」选一个模型。"),
         ("Busy", "Polis.Citizen.Ask.Busy", "我还在想上一个问题呢。"),
         ("Limited", "Polis.Citizen.Ask.Limited", "这一个钟头问得够多了，我有点累，过一阵再来吧。"),
         ("Failed", "Polis.Citizen.Ask.Failed", "我想了想，没说出来。"),

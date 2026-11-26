@@ -12,6 +12,8 @@ using CommunityToolkit.Mvvm.Input;
 using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
+using System.ComponentModel;
+using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Threading;
@@ -27,6 +29,7 @@ public partial class ProviderModelsViewModel : ViewModelBase, IDisposable
     private readonly IModelMetadataResolver _metadataResolver;
     private readonly ILocalizationService? _localizationService;
     private readonly IUserInteractionService? _userInteractionService;
+    private readonly ModelRoleProbeService _roleProbes;
     private CancellationTokenSource? _refreshCancellation;
     private CancellationTokenSource? _metadataRefreshCancellation;
     private long _refreshGeneration;
@@ -39,12 +42,14 @@ public partial class ProviderModelsViewModel : ViewModelBase, IDisposable
         IModelMetadataResolver? metadataResolver = null,
         ILocalizationService? localizationService = null,
         IUserInteractionService? userInteractionService = null,
-        IOrcaRouterConnectService? orcaRouterConnectService = null)
+        IOrcaRouterConnectService? orcaRouterConnectService = null,
+        ModelRoleProbeService? roleProbes = null)
     {
         _configurationSession = configurationSession;
         _catalogService = catalogService;
         _metadataCatalog = metadataCatalog;
         _metadataResolver = metadataResolver ?? new ModelMetadataResolver(new ModelIdentityMatcher());
+        _roleProbes = roleProbes ?? new ModelRoleProbeService(_metadataResolver, metadataCatalog);
         _localizationService = localizationService;
         _userInteractionService = userInteractionService;
         _config = configurationSession.Current;
@@ -327,23 +332,24 @@ public partial class ProviderModelsViewModel : ViewModelBase, IDisposable
 
     private void RebuildRoles()
     {
+        foreach (var role in Roles) role.Dispose();
         Roles.Clear();
-        AddRole(GetString("ProviderModels.Role.MainConversation", "Main conversation"), Config.AiModels.MainConversation, ModelCapability.Text);
-        AddRole(GetString("ProviderModels.Role.TitleGeneration", "Title generation"), Config.AiModels.TitleGeneration, ModelCapability.Text);
-        AddRole(GetString("ProviderModels.Role.ContextCompression", "Context compression"), Config.AiModels.ContextCompression, ModelCapability.Text);
-        AddRole(GetString("ProviderModels.Role.Approval", "Automatic approval"), Config.AiModels.Approval, ModelCapability.Text);
-        AddRole("Embedding", Config.AiModels.Embedding, ModelCapability.Embedding);
-        AddRole(GetString("ProviderModels.Role.SubAgent", "Sub-agent"), Config.AiModels.SubAgent, ModelCapability.Text);
-        AddRole(GetString("ProviderModels.Role.KnowledgeMaintenance", "Knowledge maintenance"), Config.AiModels.KnowledgeMaintenance, ModelCapability.Text);
-        AddRole(GetString("ProviderModels.Role.ImageRecognition", "Image recognition"), Config.AiModels.ImageRecognition, ModelCapability.Text);
-        // 陪伴角色也答城里居民的问话（游戏模式 M-C）：标签写明，只在你走到居民跟前问的时候才调用
-        AddRole(GetString("ProviderModels.Role.Companion", "Virtual pet and citizens"), Config.AiModels.Companion, ModelCapability.Text);
+        AddRole(AiModelRole.MainConversation, "Main conversation");
+        AddRole(AiModelRole.TitleGeneration, "Title generation");
+        AddRole(AiModelRole.ContextCompression, "Context compression");
+        AddRole(AiModelRole.Approval, "Automatic approval");
+        AddRole(AiModelRole.Embedding, "Embedding");
+        AddRole(AiModelRole.SubAgent, "Sub-agent");
+        AddRole(AiModelRole.KnowledgeMaintenance, "Knowledge maintenance");
+        AddRole(AiModelRole.ImageRecognition, "Image recognition");
+        AddRole(AiModelRole.ComputerUse, "Computer Use");
+        AddRole(AiModelRole.Companion, "Virtual pet");
     }
 
-    private void AddRole(string name, ModelRoleSettings settings, ModelCapability requiredCapability)
+    private void AddRole(AiModelRole role, string fallback)
     {
-        var role = new ProviderRoleSelectionViewModel(name, settings, Providers, requiredCapability);
-        Roles.Add(role);
+        Roles.Add(new ProviderRoleSelectionViewModel(GetString($"ProviderModels.Role.{role}", fallback),
+            role, Config, _roleProbes, GetString));
     }
 
     private void OnCurrentConfigChanged(object? sender, AppConfig config)
@@ -543,6 +549,7 @@ public partial class ProviderModelsViewModel : ViewModelBase, IDisposable
         if (_disposed) return;
         foreach (var item in _allMetadataModels) item.RefreshResolved();
         ApplyMetadataFilters();
+        foreach (var role in Roles) role.RefreshModelChoices();
         OnPropertyChanged(nameof(MetadataCatalogText));
     }
 
@@ -601,6 +608,7 @@ public partial class ProviderModelsViewModel : ViewModelBase, IDisposable
         if (_metadataCatalog != null) _metadataCatalog.CatalogChanged -= OnMetadataCatalogChanged;
         if (_localizationService != null) _localizationService.LanguageChanged -= OnLanguageChanged;
         OrcaRouter.Dispose();
+        foreach (var role in Roles) role.Dispose();
         _refreshCancellation?.Cancel();
         _refreshCancellation = null;
         _metadataRefreshCancellation?.Cancel();
@@ -608,43 +616,65 @@ public partial class ProviderModelsViewModel : ViewModelBase, IDisposable
     }
 }
 
-public partial class ProviderRoleSelectionViewModel : ViewModelBase
+public partial class ProviderRoleSelectionViewModel : ViewModelBase, IDisposable
 {
-    private readonly ObservableCollection<OpenAiProviderConfiguration> _providers;
-    private readonly ModelCapability _requiredCapability;
+    private readonly AppConfig _config;
+    private readonly AiModelRole _role;
+    private readonly ModelRoleProbeService _probes;
+    private readonly Func<string, string, string> _text;
+    private CancellationTokenSource? _test;
+    private bool _disposed;
 
-    public ProviderRoleSelectionViewModel(
-        string name,
-        ModelRoleSettings settings,
-        ObservableCollection<OpenAiProviderConfiguration> providers,
-        ModelCapability requiredCapability)
+    internal ProviderRoleSelectionViewModel(string name, AiModelRole role, AppConfig config, ModelRoleProbeService probes,
+        Func<string, string, string> text)
     {
         Name = name;
-        Settings = settings;
-        _providers = providers;
-        _requiredCapability = requiredCapability;
-        _selectedProvider = providers.FirstOrDefault(provider => provider.Id == settings.ProviderId);
-        if (_selectedProvider == null && providers.Count == 1)
+        Settings = OpenAiModelRuntimeFactory.GetRoleSettings(config, role);
+        _role = role;
+        _config = config;
+        _probes = probes;
+        _text = text;
+        _selectedProvider = Providers.FirstOrDefault(provider => provider.Id == Settings.ProviderId);
+        if (_selectedProvider == null && Providers.Count == 1 && role != AiModelRole.ComputerUse)
         {
-            _selectedProvider = providers[0];
-            Settings.ProviderId = providers[0].Id;
+            _selectedProvider = Providers[0];
+            Settings.ProviderId = Providers[0].Id;
         }
-        _selectedModel = FilterModels(_selectedProvider?.Models).FirstOrDefault(model => model.Id == settings.Model);
+        _selectedModel = AvailableModels.FirstOrDefault(model => model.Id == Settings.Model);
+        if (_selectedProvider != null) _selectedProvider.PropertyChanged += OnProviderChanged;
     }
 
     public string Name { get; }
     public ModelRoleSettings Settings { get; }
-    public ObservableCollection<OpenAiProviderConfiguration> Providers => _providers;
+    public ObservableCollection<OpenAiProviderConfiguration> Providers => _config.AiModels.Providers;
 
-    public IEnumerable<ProviderModelDescriptor> AvailableModels => FilterModels(SelectedProvider?.Models);
-
-    private IEnumerable<ProviderModelDescriptor> FilterModels(ObservableCollection<ProviderModelDescriptor>? models)
+    public IEnumerable<ProviderModelDescriptor> AvailableModels
     {
-        if (models == null) return [];
-        return _requiredCapability == ModelCapability.Embedding
-            ? models.Where(m => m.Capability == ModelCapability.Embedding)
-            : models.Where(m => m.Capability != ModelCapability.Embedding);
+        get
+        {
+            if (SelectedProvider is not { } provider) return [];
+            if (_role == AiModelRole.Embedding) return provider.Models.Where(model => model.Capability == ModelCapability.Embedding);
+            if (_role == AiModelRole.ComputerUse)
+                return provider.Models.Where(model => _probes.Vision(_config, provider, model) != CapabilitySupport.Unsupported);
+            return provider.Models.Where(model => model.Capability != ModelCapability.Embedding);
+        }
     }
+
+    private string TestLabel => _text("ProviderModels.RoleTest.Run", "Test model");
+    public string TestAccessibleName => $"{Name} · {TestLabel}";
+    public string TestTooltip => TestDetail ?? (SelectedModel == null
+        ? _text("ProviderModels.RoleTest.Select", "Select a model first.")
+        : TestAccessibleName);
+    public bool ShowTestIcon => TestLatency == null;
+    public string TestIcon => IsTesting ? "AthenaIconLoading" : TestFailed ? "AthenaIconFailure" : "AthenaIconPlay";
+    [ObservableProperty, NotifyPropertyChangedFor(nameof(TestTooltip))]
+    private string? _testDetail;
+    [ObservableProperty, NotifyPropertyChangedFor(nameof(ShowTestIcon))]
+    private string? _testLatency;
+    [ObservableProperty, NotifyPropertyChangedFor(nameof(TestIcon))]
+    private bool _testFailed;
+    [ObservableProperty, NotifyPropertyChangedFor(nameof(TestIcon)), NotifyCanExecuteChangedFor(nameof(TestCommand))]
+    private bool _isTesting;
 
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(AvailableModels))]
@@ -653,16 +683,94 @@ public partial class ProviderRoleSelectionViewModel : ViewModelBase
     [ObservableProperty]
     private ProviderModelDescriptor? _selectedModel;
 
-    partial void OnSelectedProviderChanged(OpenAiProviderConfiguration? value)
+    partial void OnSelectedProviderChanged(OpenAiProviderConfiguration? oldValue, OpenAiProviderConfiguration? newValue)
     {
-        Settings.ProviderId = value?.Id ?? string.Empty;
-        var available = FilterModels(value?.Models).ToList();
-        if (value != null && available.All(model => model.Id != Settings.Model)) Settings.Model = available.FirstOrDefault()?.Id ?? string.Empty;
-        SelectedModel = available.FirstOrDefault(model => model.Id == Settings.Model);
+        if (oldValue != null) oldValue.PropertyChanged -= OnProviderChanged;
+        if (newValue != null) newValue.PropertyChanged += OnProviderChanged;
+        Settings.ProviderId = newValue?.Id ?? string.Empty;
+        var available = AvailableModels.ToList();
+        SelectedModel = available.FirstOrDefault(model => model.Id == Settings.Model)
+            ?? (_role != AiModelRole.ComputerUse ? available.FirstOrDefault() : null);
+        Settings.Model = SelectedModel?.Id ?? string.Empty;
+        ResetTest();
     }
 
     partial void OnSelectedModelChanged(ProviderModelDescriptor? value)
     {
         Settings.Model = value?.Id ?? string.Empty;
+        ResetTest();
+    }
+
+    private void OnProviderChanged(object? sender, PropertyChangedEventArgs e)
+    {
+        if (e.PropertyName is nameof(OpenAiProviderConfiguration.BaseUrl) or nameof(OpenAiProviderConfiguration.ApiKey)
+            or nameof(OpenAiProviderConfiguration.Protocol))
+            ResetTest();
+    }
+
+    internal void RefreshModelChoices()
+    {
+        if (_role == AiModelRole.ComputerUse) OnPropertyChanged(nameof(AvailableModels));
+    }
+
+    private bool CanTest() => !_disposed && !IsTesting && SelectedModel != null;
+
+    [RelayCommand(CanExecute = nameof(CanTest), AllowConcurrentExecutions = true)]
+    private async Task TestAsync()
+    {
+        using var cancellation = new CancellationTokenSource();
+        _test = cancellation;
+        IsTesting = true;
+        TestFailed = false;
+        TestLatency = null;
+        TestDetail = _text("ProviderModels.RoleTest.Running", "Testing the selected model…");
+        var watch = Stopwatch.StartNew();
+        RoleModelRequest? request = null;
+        try
+        {
+            request = _probes.Resolve(_config, _role);
+            await _probes.TestAsync(request, cancellation.Token);
+            if (!ReferenceEquals(_test, cancellation)) return;
+            TestLatency = watch.Elapsed.TotalSeconds < 10
+                ? $"{Math.Max(1, (int)watch.Elapsed.TotalMilliseconds)} ms" : $"{watch.Elapsed.TotalSeconds:0.#} s";
+            TestDetail = $"{_text("ProviderModels.RoleTest.Passed", "Test succeeded")} · {TestLatency}";
+        }
+        catch (Exception ex) when (!cancellation.IsCancellationRequested)
+        {
+            if (!ReferenceEquals(_test, cancellation)) return;
+            TestFailed = true;
+            var safe = new ProviderErrorClassifier().Classify(ex).SafeProviderMessage;
+            if (!string.IsNullOrEmpty(request?.Model.ApiKey)) safe = safe.Replace(request.Model.ApiKey, "[redacted]", StringComparison.Ordinal);
+            TestDetail = safe.Length > 500 ? safe[..500] + "…" : safe;
+        }
+        catch (Exception) when (cancellation.IsCancellationRequested) { }
+        finally
+        {
+            if (ReferenceEquals(_test, cancellation))
+            {
+                _test = null;
+                IsTesting = false;
+            }
+        }
+    }
+
+    private void ResetTest()
+    {
+        var previous = _test;
+        _test = null;
+        previous?.Cancel();
+        IsTesting = false;
+        TestFailed = false;
+        TestLatency = null;
+        TestDetail = null;
+        OnPropertyChanged(nameof(TestTooltip));
+        TestCommand.NotifyCanExecuteChanged();
+    }
+
+    public void Dispose()
+    {
+        _disposed = true;
+        if (SelectedProvider != null) SelectedProvider.PropertyChanged -= OnProviderChanged;
+        ResetTest();
     }
 }

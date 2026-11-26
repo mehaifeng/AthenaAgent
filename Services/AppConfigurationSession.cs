@@ -100,6 +100,7 @@ public sealed class AppConfigurationSession : IDisposable
                 or nameof(AppConfig.ImageProviderSettings)
                 or nameof(AppConfig.WebSearchProviderSettings)
                 or nameof(AppConfig.MainLayout)
+                or nameof(AppConfig.EmbeddedBrowser)
                 or nameof(AppConfig.FileSystemPolicy)
                 or nameof(AppConfig.AutoAllowedTools)
                 or nameof(AppConfig.TerminalAllowlist)
@@ -117,6 +118,7 @@ public sealed class AppConfigurationSession : IDisposable
         TrackProviderSettings(Current.ImageProviderSettings);
         TrackProviderSettings(Current.WebSearchProviderSettings);
         TrackObservable(Current.MainLayout);
+        TrackObservable(Current.EmbeddedBrowser);
         TrackFileSystemPolicy(Current.FileSystemPolicy);
         TrackCollection(Current.AutoAllowedTools, RequestSave);
         TrackCollection(Current.TerminalAllowlist, RequestSave);
@@ -343,6 +345,7 @@ public sealed class AppConfigurationSession : IDisposable
         yield return models.SubAgent;
         yield return models.KnowledgeMaintenance;
         yield return models.ImageRecognition;
+        yield return models.ComputerUse;
         yield return models.Companion;
     }
 

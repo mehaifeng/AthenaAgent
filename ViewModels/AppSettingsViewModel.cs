@@ -1,5 +1,6 @@
 using Athena.UI.Services;
 using Athena.UI.Services.Interfaces;
+using Athena.UI.Services.ComputerUse;
 using CommunityToolkit.Mvvm.ComponentModel;
 using System;
 using System.Collections.Generic;
@@ -21,7 +22,11 @@ public sealed partial class AppSettingsViewModel : ViewModelBase, IDisposable
         IModelMetadataResolver? metadataResolver = null,
         IModelContextPolicyResolver? contextPolicyResolver = null,
         IUserInteractionService? userInteractionService = null,
-        IPetDexCatalogService? petDexCatalogService = null)
+        IPetDexCatalogService? petDexCatalogService = null,
+        EmbeddedBrowser? browser = null,
+        EmbeddedBrowserViewModel? browserSurface = null,
+        ComputerUseService? computerUse = null,
+        ModelRoleProbeService? roleProbes = null)
     {
         _localizationService = localizationService;
         _state = new AppSettingsState(configurationSession);
@@ -34,6 +39,8 @@ public sealed partial class AppSettingsViewModel : ViewModelBase, IDisposable
             localizationService);
         ToolApproval = new ToolApprovalSettingsViewModel(_state, approvalModePicker);
         AgentRuntime = new AgentRuntimeSettingsViewModel(_state);
+        Browser = new EmbeddedBrowserSettingsViewModel(_state, browser, browserSurface, computerUse, userInteractionService,
+            localizationService, roleProbes ?? new ModelRoleProbeService(metadataResolver, metadataCatalog));
         RuntimeDiagnostics = new RuntimeDiagnosticsViewModel(
             localizationService,
             metadataCatalog,
@@ -45,6 +52,7 @@ public sealed partial class AppSettingsViewModel : ViewModelBase, IDisposable
             new("Settings.Nav.ConversationContext", "Conversation & context", "AthenaIconConversationSettings", ConversationContext, localizationService),
             new("Settings.Nav.ToolApproval", "Tool approval", "AthenaIconToolApproval", ToolApproval, localizationService),
             new("Settings.Nav.AgentRuntime", "Execution & concurrency", "AthenaIconAgentRuntime", AgentRuntime, localizationService),
+            new("Settings.Nav.EmbeddedBrowser", "Built-in browser", "AthenaIconFileWeb", Browser, localizationService),
             new("Settings.Nav.RuntimeDiagnostics", "Runtime diagnostics", "AthenaIconDiagnostics", RuntimeDiagnostics, localizationService),
             new("Settings.Nav.About", "About & updates", "AthenaIconAbout", about, localizationService)
         ];
@@ -57,11 +65,14 @@ public sealed partial class AppSettingsViewModel : ViewModelBase, IDisposable
     public ConversationContextSettingsViewModel ConversationContext { get; }
     public ToolApprovalSettingsViewModel ToolApproval { get; }
     public AgentRuntimeSettingsViewModel AgentRuntime { get; }
+    public EmbeddedBrowserSettingsViewModel Browser { get; }
     public RuntimeDiagnosticsViewModel RuntimeDiagnostics { get; }
     public IReadOnlyList<AppSettingsSection> Sections { get; }
 
     [ObservableProperty]
     private AppSettingsSection _selectedSection;
+
+    partial void OnSelectedSectionChanged(AppSettingsSection value) => Browser.Show(ReferenceEquals(value.Content, Browser));
 
     public void Dispose()
     {
@@ -72,6 +83,7 @@ public sealed partial class AppSettingsViewModel : ViewModelBase, IDisposable
         ConversationContext.Dispose();
         RuntimeDiagnostics.Dispose();
         General.Dispose();
+        Browser.Dispose();
         _state.Dispose();
     }
 

@@ -1,227 +1,286 @@
+using Athena.UI.Services.Interfaces;
 using Serilog;
 using System;
 using System.Collections.Generic;
-using System.ComponentModel;
-using System.Diagnostics;
 using System.Diagnostics.CodeAnalysis;
-using System.Globalization;
 using System.IO;
 using System.Linq;
-using System.Net.WebSockets;
+using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 
 namespace Athena.UI.Services.ComputerUse;
 
-/// <summary>Owns the browser process and page lifetimes independently of the right panel.</summary>
 public sealed class EmbeddedBrowser : IAsyncDisposable
 {
-    private static readonly Lazy<string?> ChromePath = new(FindChrome);
+    internal static readonly Uri Blank = new("about:blank");
     private readonly SemaphoreSlim _lifetime = new(1, 1);
-    private DirectoryInfo? _profile;
-    private Process? _process;
-    private ChromeDevTools? _host;
-    private ushort _port;
+    private readonly object _pagesGate = new();
+    private readonly Dictionary<string, ChromeBrowserPage> _pages = [];
+    private readonly BrowserRuntime _runtime;
+    private readonly BrowserHistory _history;
+    private readonly IConfigService? _config;
+    private readonly string _directory;
+    private FileStream? _profileLease;
+    private BrowserHostConnection? _host;
     private ChromeBrowserPage? _browsingPage;
     private ChromeBrowserPage? _taskPage;
+    private BrowserViewportSize _preferredViewport = new(800, 720);
     private bool _disposed;
 
-    public static bool IsAvailable => ChromePath.Value is not null;
+    public EmbeddedBrowser(IConfigService? config = null)
+        : this(BrowserRuntime.DefaultDirectory, BrowserRuntime.DefaultDataDirectory, config) { }
+
+    internal EmbeddedBrowser(string runtimeDirectory, string dataDirectory, IConfigService? config = null)
+    {
+        _runtime = new(runtimeDirectory, dataDirectory);
+        _history = new(dataDirectory);
+        _directory = dataDirectory;
+        _config = config;
+    }
+
+    public bool IsAvailable => _runtime.IsBundled;
+    public bool IsRunning => _host?.IsOpen == true;
+    public string RuntimeVersion => BrowserRuntime.Version;
+    public string? RuntimeError { get; private set; }
+    internal Uri? HomePage => Uri.TryCreate(_config?.Load().EmbeddedBrowser.HomePage, UriKind.Absolute, out var uri)
+        && IsPageUri(uri) ? uri : null;
+    internal string? DownloadDirectory => _config?.Load().EmbeddedBrowser.DownloadDirectory;
     internal ChromeBrowserPage? BrowsingPage => Volatile.Read(ref _browsingPage);
     internal ChromeBrowserPage? TaskPage => Volatile.Read(ref _taskPage);
+
     internal event Action? PagesChanged;
+    internal event Action? RuntimeChanged;
+    internal event Action? HistoryChanged;
+    internal event Action<BrowserInteraction>? InteractionRequested;
+    internal event Action<string, bool, bool>? DownloadCompleted;
+
+    internal void SetPreferredViewport(BrowserViewportSize size) => Volatile.Write(ref _preferredViewport, size);
 
     internal static bool IsPageUri(Uri address) => address.IsAbsoluteUri
         && address.Scheme is "https" or "http" && address.Host.Length != 0 && address.UserInfo.Length == 0;
 
-    internal Task<ChromeBrowserPage> OpenAsync(Uri address, CancellationToken token) => OpenPageAsync(address, false, token);
-
-    internal Task<ChromeBrowserPage> OpenTaskAsync(Uri address, CancellationToken token) => OpenPageAsync(address, true, token);
-
-    private async Task<ChromeBrowserPage> OpenPageAsync(Uri address, bool task, CancellationToken token)
+    internal IReadOnlyList<ChromeBrowserPage> Tabs(bool task)
     {
-        if (!IsPageUri(address))
-            throw new InvalidOperationException("Enter an HTTP or HTTPS page address.");
+        lock (_pagesGate) return _pages.Values.Where(page => page.IsTask == task).ToArray();
+    }
 
+    internal void Select(ChromeBrowserPage page)
+    {
+        lock (_pagesGate)
+        {
+            if (!_pages.ContainsKey(page.Id)) return;
+            if (page.IsTask) _taskPage = page;
+            else _browsingPage = page;
+        }
+        PagesChanged?.Invoke();
+    }
+
+    internal Task<ChromeBrowserPage> OpenAsync(Uri address, CancellationToken token) => OpenPageAsync(address, false, false, token);
+    internal Task<ChromeBrowserPage> NewTabAsync(Uri address, CancellationToken token) => OpenPageAsync(address, false, true, token);
+    internal Task<ChromeBrowserPage> OpenTaskAsync(Uri address, CancellationToken token) => OpenPageAsync(address, true, true, token);
+
+    [SuppressMessage("Reliability", "CA2000", Justification = "The scoped cancellation source bounds cleanup and is disposed after it.")]
+    private async Task<ChromeBrowserPage> OpenPageAsync(Uri address, bool task, bool newTab, CancellationToken token)
+    {
+        if (!IsPageUri(address) && (task || address != Blank))
+            throw new InvalidOperationException("Enter an HTTP or HTTPS page address.");
         await _lifetime.WaitAsync(token).ConfigureAwait(false);
         try
         {
             ObjectDisposedException.ThrowIf(_disposed, this);
             await EnsureHostAsync(token).ConfigureAwait(false);
-            if (!task && BrowsingPage is { Driver.IsOpen: true } existing)
+            if (!task && !newTab && BrowsingPage is { } existing)
             {
                 await existing.NavigateAsync(address, token).ConfigureAwait(false);
                 return existing;
             }
+            if (task)
+            {
+                foreach (var prior in Tabs(true))
+                    await CloseTabAsync(prior, token).ConfigureAwait(false);
+            }
 
-            var page = await CreatePageAsync(address, task, token).ConfigureAwait(false);
-            var previous = task
-                ? Interlocked.Exchange(ref _taskPage, page)
-                : Interlocked.Exchange(ref _browsingPage, page);
-            PagesChanged?.Invoke();
-            if (previous is not null)
-                await ClosePageAsync(previous).ConfigureAwait(false);
-            return page;
+            var size = Volatile.Read(ref _preferredViewport);
+            var response = await _host!.CallAsync("open", new { group = task ? "task" : "browse", width = size.Width, height = size.Height }, token)
+                .ConfigureAwait(false);
+            var id = response.GetProperty("tab").GetString()!;
+            ChromeBrowserPage page;
+            lock (_pagesGate) page = _pages[id];
+            try
+            {
+                await page.ResizeAsync(size, token).ConfigureAwait(false);
+                if (address != Blank) await page.NavigateAsync(address, token).ConfigureAwait(false);
+                return page;
+            }
+            catch
+            {
+                using var cleanup = new CancellationTokenSource(TimeSpan.FromSeconds(2));
+                try { await CloseTabAsync(page, cleanup.Token).ConfigureAwait(false); }
+                catch (Exception ex) when (ex is InvalidOperationException or IOException or OperationCanceledException) { }
+                throw;
+            }
         }
-        finally
+        finally { _lifetime.Release(); }
+    }
+
+    internal Task CloseTabAsync(ChromeBrowserPage page, CancellationToken token) => page.Driver.CallAsync("close", new { }, token);
+
+    internal Task<IReadOnlyList<BrowserHistoryEntry>> SearchHistoryAsync(string query, CancellationToken token) =>
+        Task.Run(() => _history.Search(query), token);
+
+    internal async Task ClearHistoryAsync(CancellationToken token)
+    {
+        await Task.Run(_history.Clear, token).ConfigureAwait(false);
+        HistoryChanged?.Invoke();
+    }
+
+    internal async Task ClearSiteDataAsync(CancellationToken token)
+    {
+        await _lifetime.WaitAsync(token).ConfigureAwait(false);
+        try
         {
-            _lifetime.Release();
+            await EnsureHostAsync(token).ConfigureAwait(false);
+            foreach (var page in Tabs(false).Concat(Tabs(true)))
+                await CloseTabAsync(page, token).ConfigureAwait(false);
+            await _host!.CallAsync("clearData", new { }, token).ConfigureAwait(false);
         }
+        finally { _lifetime.Release(); }
     }
 
     private async Task EnsureHostAsync(CancellationToken token)
     {
-        if (_process is { HasExited: false } && _host is { IsOpen: true })
-            return;
+        if (_host?.IsOpen == true) return;
         await CloseHostAsync().ConfigureAwait(false);
-
-        var executable = ChromePath.Value ?? throw new InvalidOperationException("Chrome or Chromium is required for the built-in browser.");
-        _profile = Directory.CreateTempSubdirectory("athena-browser-");
-        var start = new ProcessStartInfo(executable) { UseShellExecute = false };
-        foreach (var argument in new[]
-        {
-            "--headless=new", "--remote-debugging-port=0", "--remote-debugging-address=127.0.0.1",
-            "--user-data-dir=" + _profile.FullName, "--no-first-run", "--no-default-browser-check", "--disable-extensions",
-            "--window-size=800,720", "--force-device-scale-factor=1", "about:blank"
-        })
-            start.ArgumentList.Add(argument);
-
         try
         {
+            Directory.CreateDirectory(_directory);
+            try
+            {
+                _profileLease = new FileStream(Path.Combine(_directory, "Profile.lock"), FileMode.OpenOrCreate,
+                    FileAccess.ReadWrite, FileShare.None);
+            }
+            catch (IOException ex)
+            {
+                throw new InvalidOperationException("The Athena browser profile is in use by another Athena instance.", ex);
+            }
+            var (executable, script) = await _runtime.PrepareAsync(token).ConfigureAwait(false);
+            _host = new BrowserHostConnection(executable, script, Path.Combine(_directory, "Profile"), OnHostEvent);
             using var startup = CancellationTokenSource.CreateLinkedTokenSource(token);
-            startup.CancelAfter(TimeSpan.FromSeconds(12));
-            _process = Process.Start(start) ?? throw new InvalidOperationException("Could not launch Chrome.");
-            var endpoint = await FindHostSocketAsync(_process, _profile.FullName, startup.Token).ConfigureAwait(false);
-            _port = (ushort)endpoint.Port;
-            _host = new ChromeDevTools();
-            await _host.ConnectAsync(endpoint, startup.Token).ConfigureAwait(false);
+            startup.CancelAfter(TimeSpan.FromSeconds(15));
+            await _host.WaitUntilReadyAsync(startup.Token).ConfigureAwait(false);
+            RuntimeError = null;
         }
-        catch (Exception exception)
+        catch (Exception ex)
         {
             await CloseHostAsync().ConfigureAwait(false);
-            if (exception is OperationCanceledException && !token.IsCancellationRequested)
-                throw new InvalidOperationException("Chrome did not start in time.", exception);
+            RuntimeError = ex is OperationCanceledException && !token.IsCancellationRequested
+                ? "The bundled browser did not start in time." : ex.Message;
+            if (ex is OperationCanceledException && !token.IsCancellationRequested)
+                throw new InvalidOperationException(RuntimeError, ex);
             throw;
         }
+        finally { RuntimeChanged?.Invoke(); }
     }
 
-    [SuppressMessage("Reliability", "CA2000",
-        Justification = "ChromeBrowserPage owns the connected driver. Startup failures dispose it before closing the context.")]
-    private async Task<ChromeBrowserPage> CreatePageAsync(Uri address, bool task, CancellationToken token)
+    private void OnHostEvent(JsonElement message)
     {
-        // Distinct browser contexts keep the user's browsing cookies out of an automation task.
-        var host = _host ?? throw new InvalidOperationException("Chrome is disconnected.");
-        var context = await host.CallAsync("Target.createBrowserContext", new { }, token).ConfigureAwait(false);
-        var contextId = context.GetProperty("browserContextId").GetString()!;
-        var driver = new ChromeDevTools();
-        try
+        var kind = message.GetProperty("event").GetString();
+        if (kind == "disconnected")
         {
-            var target = await host.CallAsync("Target.createTarget", new { url = "about:blank", browserContextId = contextId }, token)
-                .ConfigureAwait(false);
-            var targetId = target.GetProperty("targetId").GetString();
-            var socket = new Uri($"ws://127.0.0.1:{_port}/devtools/page/{targetId}");
-            await driver.ConnectAsync(socket, token).ConfigureAwait(false);
-            var page = new ChromeBrowserPage(contextId, socket, driver, address);
-            await host.CallAsync("Browser.setDownloadBehavior", new
+            ResetPages();
+            RuntimeChanged?.Invoke();
+            return;
+        }
+
+        var id = message.GetProperty("tab").GetString()!;
+        var isTask = message.GetProperty("group").GetString() == "task";
+        if (kind == "interaction")
+        {
+            var interaction = new BrowserInteraction(_host!, id, isTask, message.Clone());
+            if (InteractionRequested is { } handler) handler(interaction);
+            else _ = interaction.RespondAsync(new { }, CancellationToken.None);
+            return;
+        }
+        if (kind == "download")
+        {
+            DownloadCompleted?.Invoke(message.GetProperty("name").GetString() ?? "", message.GetProperty("ok").GetBoolean(), isTask);
+            return;
+        }
+
+        Uri? visited = null;
+        string? title = null;
+        lock (_pagesGate)
+        {
+            var active = isTask ? _taskPage : _browsingPage;
+            if (kind == "opened")
             {
-                behavior = "deny", browserContextId = contextId
-            }, token).ConfigureAwait(false);
-            await page.ResizeAsync(task ? 800 : 720, 720, token).ConfigureAwait(false);
-            if (!task)
-            {
-                await driver.CallAsync("Page.enable", new { }, token).ConfigureAwait(false);
-                await driver.CallAsync("Page.addScriptToEvaluateOnNewDocument", new
+                var opener = message.GetProperty("opener").GetString();
+                var page = new ChromeBrowserPage(id, isTask, opener, new ChromeDevTools(_host!, id));
+                _pages[id] = page;
+                if (opener == null || active?.Id == opener)
                 {
-                    worldName = "Athena Browser",
-                    source = """
-                        addEventListener('click', e => {
-                            const link = e.composedPath().find(node => node instanceof HTMLAnchorElement);
-                            if (link?.target === '_blank' && !e.ctrlKey && !e.metaKey && !e.shiftKey)
-                                link.target = '_self';
-                        }, true);
-                        """
-                }, token).ConfigureAwait(false);
+                    if (isTask) _taskPage = page;
+                    else _browsingPage = page;
+                }
             }
-            await page.NavigateAsync(address, token).ConfigureAwait(false);
-            return page;
-        }
-        catch
-        {
-            driver.Dispose();
-            await DisposeContextAsync(contextId).ConfigureAwait(false);
-            throw;
-        }
-    }
-
-    private async Task ClosePageAsync(ChromeBrowserPage page)
-    {
-        page.Dispose();
-        await DisposeContextAsync(page.ContextId).ConfigureAwait(false);
-    }
-
-    private async Task DisposeContextAsync(string contextId)
-    {
-        if (_host is not { IsOpen: true } host) return;
-        try
-        {
-            using var cleanup = new CancellationTokenSource(TimeSpan.FromSeconds(3));
-            await host.CallAsync("Target.disposeBrowserContext", new { browserContextId = contextId }, cleanup.Token)
-                .ConfigureAwait(false);
-        }
-        catch (Exception exception) when (exception is OperationCanceledException or InvalidOperationException or WebSocketException)
-        {
-            Log.Debug("Embedded browser context cleanup ended: {Error}", exception.Message);
-        }
-    }
-
-    private static async Task<Uri> FindHostSocketAsync(Process process, string profile, CancellationToken token)
-    {
-        var portFile = Path.Combine(profile, "DevToolsActivePort");
-        while (!process.HasExited)
-        {
-            token.ThrowIfCancellationRequested();
-            if (File.Exists(portFile))
+            else if (kind == "closed")
             {
-                var lines = await File.ReadAllLinesAsync(portFile, token).ConfigureAwait(false);
-                if (lines.Length >= 2 && ushort.TryParse(lines[0], NumberStyles.None, CultureInfo.InvariantCulture, out var port)
-                    && port != 0 && lines[1].StartsWith("/devtools/browser/", StringComparison.Ordinal))
-                    return new Uri($"ws://127.0.0.1:{port}{lines[1]}");
+                _pages.Remove(id, out var closed);
+                if (active?.Id == id)
+                {
+                    var fallback = closed?.Opener is { } opener && _pages.TryGetValue(opener, out var parent)
+                        ? parent : _pages.Values.LastOrDefault(candidate => candidate.IsTask == isTask);
+                    if (isTask) _taskPage = fallback;
+                    else _browsingPage = fallback;
+                }
             }
-            await Task.Delay(100, token).ConfigureAwait(false);
+            else if (_pages.TryGetValue(id, out var page) && Uri.TryCreate(message.GetProperty("url").GetString(),
+                UriKind.Absolute, out var address) && IsPageUri(address))
+            {
+                page.UpdateAddress(address);
+                title = message.GetProperty("title").GetString() ?? "";
+                page.UpdateTitle(title);
+                if (kind is "visit" or "title") visited = address;
+            }
         }
-        throw new InvalidOperationException("Chrome exited before its browser started.");
+
+        if (visited != null)
+        {
+            try
+            {
+                _history.Record(visited, title!, kind == "visit");
+                HistoryChanged?.Invoke();
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or TypeInitializationException
+                or Microsoft.Data.Sqlite.SqliteException)
+            {
+                Log.Warning("Could not save embedded browser history: {ErrorType}", ex.GetType().Name);
+            }
+        }
+        PagesChanged?.Invoke();
+    }
+
+    private void ResetPages()
+    {
+        lock (_pagesGate)
+        {
+            _pages.Clear();
+            _browsingPage = null;
+            _taskPage = null;
+        }
+        PagesChanged?.Invoke();
     }
 
     private async Task CloseHostAsync()
     {
-        var browsing = Interlocked.Exchange(ref _browsingPage, null);
-        var task = Interlocked.Exchange(ref _taskPage, null);
-        browsing?.Dispose();
-        task?.Dispose();
-        if (browsing is not null || task is not null)
-            PagesChanged?.Invoke();
-        _host?.Dispose();
-        _host = null;
-        try
-        {
-            if (_process is { HasExited: false } running)
-            {
-                running.Kill(entireProcessTree: true);
-                using var cleanup = new CancellationTokenSource(TimeSpan.FromSeconds(3));
-                await running.WaitForExitAsync(cleanup.Token).ConfigureAwait(false);
-            }
-            _profile?.Delete(recursive: true);
-        }
-        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or Win32Exception
-                                         or InvalidOperationException or OperationCanceledException)
-        {
-            Log.Debug("Embedded Chrome cleanup ended: {Error}", exception.Message);
-        }
+        try { if (_host != null) await _host.DisposeAsync().ConfigureAwait(false); }
         finally
         {
-            _process?.Dispose();
-            _process = null;
-            _profile = null;
+            _host = null;
+            _profileLease?.Dispose();
+            _profileLease = null;
+            ResetPages();
         }
     }
 
@@ -234,50 +293,48 @@ public sealed class EmbeddedBrowser : IAsyncDisposable
             _disposed = true;
             await CloseHostAsync().ConfigureAwait(false);
         }
-        finally
-        {
-            _lifetime.Release();
-        }
-    }
-
-    private static string? FindChrome()
-    {
-        IEnumerable<string> candidates;
-        if (OperatingSystem.IsWindows())
-        {
-            candidates = new[] { Environment.SpecialFolder.ProgramFiles, Environment.SpecialFolder.ProgramFilesX86, Environment.SpecialFolder.LocalApplicationData }
-                .Select(folder => Path.Combine(Environment.GetFolderPath(folder), "Google", "Chrome", "Application", "chrome.exe"));
-        }
-        else if (OperatingSystem.IsMacOS())
-        {
-            candidates = ["/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
-                "/Applications/Chromium.app/Contents/MacOS/Chromium"];
-        }
-        else if (OperatingSystem.IsLinux())
-        {
-            candidates = (Environment.GetEnvironmentVariable("PATH") ?? "").Split(Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries)
-                .Where(Path.IsPathFullyQualified)
-                .SelectMany(directory => new[] { "google-chrome", "google-chrome-stable", "chromium", "chromium-browser" }
-                    .Select(name => Path.Combine(directory, name)));
-        }
-        else
-        {
-            return null;
-        }
-        return candidates.FirstOrDefault(File.Exists);
+        finally { _lifetime.Release(); }
     }
 }
 
-internal sealed class ChromeBrowserPage(string contextId, Uri socket, ChromeDevTools driver, Uri address) : IDisposable
+internal sealed class BrowserInteraction(BrowserHostConnection connection, string tab, bool inTask, JsonElement request)
 {
-    private Uri _address = address;
+    public string Tab => tab;
+    public bool InTask => inTask;
+    public JsonElement Request => request;
+    public string Kind => request.GetProperty("kind").GetString()!;
+    public string Text(string key) => request.TryGetProperty(key, out var value) && value.ValueKind == JsonValueKind.String
+        ? value.GetString() ?? "" : "";
+    public Task RespondAsync(object result, CancellationToken token) => connection.CallAsync("reply",
+        new { interaction = request.GetProperty("interaction").GetInt32(), result }, token);
+}
 
-    public string ContextId => contextId;
-    public Uri Socket => socket;
+internal sealed record BrowserViewportSize(int Width, int Height);
+
+[SuppressMessage("Design", "CA1001", Justification = "No wait handle is created and a viewport lease may complete after the tab closes.")]
+internal sealed class ChromeBrowserPage(string id, bool task, string? opener, ChromeDevTools driver)
+{
+    private readonly SemaphoreSlim _viewportGate = new(1, 1);
+    private Uri _address = EmbeddedBrowser.Blank;
+    private string _title = "";
+    private ComputerUseCursor? _cursor;
+
+    public string Id => id;
+    public bool IsTask => task;
+    public string? Opener => opener;
     public ChromeDevTools Driver => driver;
     public Uri Address => Volatile.Read(ref _address);
+    public string Title => Volatile.Read(ref _title);
+    public BrowserViewportSize? ViewportSize { get; private set; }
+    public int ViewportRevision { get; private set; }
+    public ComputerUseCursor? Cursor
+    {
+        get => Volatile.Read(ref _cursor);
+        set => Volatile.Write(ref _cursor, value);
+    }
 
     public void UpdateAddress(Uri target) => Volatile.Write(ref _address, target);
+    public void UpdateTitle(string title) => Volatile.Write(ref _title, title);
 
     public async Task NavigateAsync(Uri target, CancellationToken token)
     {
@@ -287,8 +344,24 @@ internal sealed class ChromeBrowserPage(string contextId, Uri socket, ChromeDevT
         UpdateAddress(target);
     }
 
-    public Task ResizeAsync(int width, int height, CancellationToken token) => driver.CallAsync(
-        "Emulation.setDeviceMetricsOverride", new { width, height, deviceScaleFactor = 1, mobile = false }, token);
+    public async Task ResizeAsync(BrowserViewportSize size, CancellationToken token, bool force = false)
+    {
+        using var viewport = await LockViewportAsync(token).ConfigureAwait(false);
+        if (!force && size == ViewportSize) return;
+        token.ThrowIfCancellationRequested();
+        using var resize = new CancellationTokenSource(TimeSpan.FromSeconds(3));
+        await driver.CallAsync("Emulation.setDeviceMetricsOverride",
+            new { width = size.Width, height = size.Height, deviceScaleFactor = 1, mobile = false }, resize.Token).ConfigureAwait(false);
+        Cursor = null;
+        ViewportSize = size;
+        ViewportRevision++;
+    }
+
+    public async ValueTask<ViewportLease> LockViewportAsync(CancellationToken token)
+    {
+        await _viewportGate.WaitAsync(token).ConfigureAwait(false);
+        return new ViewportLease(_viewportGate);
+    }
 
     public async Task GoAsync(int offset, CancellationToken token)
     {
@@ -302,5 +375,8 @@ internal sealed class ChromeBrowserPage(string contextId, Uri socket, ChromeDevT
         }
     }
 
-    public void Dispose() => driver.Dispose();
+    internal readonly struct ViewportLease(SemaphoreSlim gate) : IDisposable
+    {
+        public void Dispose() => gate.Release();
+    }
 }

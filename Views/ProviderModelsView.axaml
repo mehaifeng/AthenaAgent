@@ -247,38 +247,13 @@
                                     <ItemsControl ItemsSource="{Binding Roles}">
                                         <ItemsControl.ItemTemplate>
                                             <DataTemplate x:DataType="vm:ProviderRoleSelectionViewModel">
-                                                <Grid ColumnDefinitions="132,190,300"
+                                                <Grid ColumnDefinitions="132,*" MaxWidth="640" HorizontalAlignment="Stretch"
                                                       ColumnSpacing="8"
                                                       Margin="0,4">
                                                     <TextBlock Text="{Binding Name}"
                                                                VerticalAlignment="Center"
                                                                TextTrimming="CharacterEllipsis"/>
-                                                    <ComboBox Grid.Column="1"
-                                                              Width="190"
-                                                              MaxWidth="190"
-                                                              ItemsSource="{Binding Providers}"
-                                                              SelectedItem="{Binding SelectedProvider}">
-                                                        <ComboBox.ItemTemplate>
-                                                            <DataTemplate>
-                                                                <TextBlock Text="{Binding DisplayName}"
-                                                                           TextTrimming="CharacterEllipsis"
-                                                                           ToolTip.Tip="{Binding DisplayName}"/>
-                                                            </DataTemplate>
-                                                        </ComboBox.ItemTemplate>
-                                                    </ComboBox>
-                                                    <ComboBox Grid.Column="2"
-                                                              Width="300"
-                                                              MaxWidth="300"
-                                                              ItemsSource="{Binding AvailableModels}"
-                                                              SelectedItem="{Binding SelectedModel}">
-                                                        <ComboBox.ItemTemplate>
-                                                            <DataTemplate>
-                                                                <TextBlock Text="{Binding Id}"
-                                                                           TextTrimming="CharacterEllipsis"
-                                                                           ToolTip.Tip="{Binding Id}"/>
-                                                            </DataTemplate>
-                                                        </ComboBox.ItemTemplate>
-                                                    </ComboBox>
+                                                    <views:ProviderRoleEditor Grid.Column="1"/>
                                                 </Grid>
                                             </DataTemplate>
                                         </ItemsControl.ItemTemplate>

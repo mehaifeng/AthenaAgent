@@ -177,6 +177,8 @@ jobs:
             -p:PublishSingleFile=false -p:UseAppHost=true -o "$out/updater"
           if (-not (Test-Path "$out/Athena.UI.exe")) { throw "Athena.UI.exe missing in publish output" }
           if (-not (Test-Path "$out/updater/Athena.Updater.exe")) { throw "Athena.Updater.exe missing in publish output" }
+          python Scripts/stage-browser-runtime.py win-x64 $out
+          if ($LASTEXITCODE -ne 0) { throw "Bundled browser runtime is missing" }
 
       - name: Install Inno Setup
         shell: pwsh

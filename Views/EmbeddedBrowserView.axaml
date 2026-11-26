@@ -1,6 +1,7 @@
 <UserControl xmlns="https://github.com/avaloniaui"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:vm="using:Athena.UI.ViewModels"
+             xmlns:controls="using:Athena.UI.Controls"
              xmlns:loc="using:Athena.UI.Markup"
              x:Class="Athena.UI.Views.EmbeddedBrowserView"
              x:DataType="vm:EmbeddedBrowserViewModel">
@@ -8,22 +9,38 @@
             BorderBrush="{DynamicResource App.PanelBorderBrush}"
             Background="{DynamicResource App.PanelBackgroundBrush}">
         <Grid RowDefinitions="Auto,Auto,*,Auto">
-            <Grid Margin="9,7,9,0" ColumnDefinitions="*,Auto,Auto" ColumnSpacing="4">
+            <Grid Margin="9,7,9,0" ColumnDefinitions="*,Auto,Auto,Auto" ColumnSpacing="4">
                 <TabControl x:Name="BrowserTabs" SelectedIndex="{Binding SelectedTab}">
                     <TabItem Header="{loc:Loc Browser.Browse}"/>
                     <TabItem Header="{loc:Loc Browser.Task}"/>
                 </TabControl>
-                <Button Grid.Column="1" Classes="icon-plain" Command="{Binding OpenInSystemBrowserCommand}"
-                        ToolTip.Tip="{loc:Loc Browser.OpenExternal}" AutomationProperties.Name="{loc:Loc Browser.OpenExternal}">
+                <Button Grid.Column="1" Classes="icon-plain" Command="{Binding NewTabCommand}"
+                        ToolTip.Tip="{loc:Loc Browser.NewTab}" AutomationProperties.Name="{loc:Loc Browser.NewTab}">
+                    <PathIcon Width="14" Height="14" Data="{StaticResource AthenaIconAdd}"/>
+                </Button>
+                <Button Grid.Column="2" Classes="icon-plain" Command="{Binding OpenInSystemBrowserCommand}"
+                        IsEnabled="{Binding HasPage}" ToolTip.Tip="{loc:Loc Browser.OpenExternal}"
+                        AutomationProperties.Name="{loc:Loc Browser.OpenExternal}">
                     <PathIcon Width="14" Height="14" Data="{StaticResource CoreIconExternalLink}"/>
                 </Button>
-                <Button x:Name="CloseBrowserButton" Grid.Column="2" Classes="icon-plain" Command="{Binding CloseCommand}"
+                <Button x:Name="CloseBrowserButton" Grid.Column="3" Classes="icon-plain" Command="{Binding CloseCommand}"
                         ToolTip.Tip="{loc:Loc Browser.Close}" AutomationProperties.Name="{loc:Loc Browser.Close}">
                     <PathIcon Width="14" Height="14" Data="{StaticResource AthenaIconClose}"/>
                 </Button>
             </Grid>
-            <Panel Grid.Row="1" Margin="9,6">
-                <Grid ColumnDefinitions="Auto,Auto,Auto,*" ColumnSpacing="4" IsVisible="{Binding CanBrowse}">
+            <StackPanel Grid.Row="1" Margin="9,6" Spacing="4">
+                <Grid ColumnDefinitions="*,Auto" ColumnSpacing="4" IsVisible="{Binding HasMultipleTabs}">
+                    <ComboBox ItemsSource="{Binding Pages}" SelectedItem="{Binding ActivePage}" HorizontalAlignment="Stretch">
+                        <ComboBox.ItemTemplate>
+                            <DataTemplate x:DataType="vm:BrowserPageOption"><TextBlock Text="{Binding Label}" TextTrimming="CharacterEllipsis"/></DataTemplate>
+                        </ComboBox.ItemTemplate>
+                    </ComboBox>
+                    <Button Grid.Column="1" Classes="icon-plain" Command="{Binding CloseTabCommand}"
+                            ToolTip.Tip="{loc:Loc Browser.CloseTab}" AutomationProperties.Name="{loc:Loc Browser.CloseTab}">
+                        <PathIcon Width="14" Height="14" Data="{StaticResource AthenaIconClose}"/>
+                    </Button>
+                </Grid>
+                <Grid ColumnDefinitions="Auto,Auto,Auto,*" ColumnSpacing="4">
                     <Button Classes="icon-plain" Content="‹" Command="{Binding BackCommand}"
                             ToolTip.Tip="{loc:Loc Browser.Back}" AutomationProperties.Name="{loc:Loc Browser.Back}"/>
                     <Button Grid.Column="1" Classes="icon-plain" Content="›" Command="{Binding ForwardCommand}"
@@ -32,35 +49,65 @@
                             ToolTip.Tip="{loc:Loc Browser.Reload}" AutomationProperties.Name="{loc:Loc Browser.Reload}">
                         <PathIcon Width="14" Height="14" Data="{StaticResource AthenaIconRefresh}"/>
                     </Button>
-                    <TextBox x:Name="AddressBox" Grid.Column="3"
-                             PlaceholderText="{loc:Loc Browser.Address}" Text="{Binding Address}">
+                    <TextBox x:Name="AddressBox" Grid.Column="3" PlaceholderText="{loc:Loc Browser.Address}"
+                             Text="{Binding Address}" AutomationProperties.Name="{loc:Loc Browser.Address}">
                         <TextBox.KeyBindings>
                             <KeyBinding Gesture="Enter" Command="{Binding NavigateCommand}"/>
                         </TextBox.KeyBindings>
                     </TextBox>
                 </Grid>
-                <TextBox x:Name="TaskAddressBox" IsVisible="{Binding IsTask}" Text="{Binding TaskAddress, Mode=OneWay}"
-                         IsReadOnly="True" PlaceholderText="{loc:Loc Browser.Address}"
-                         AutomationProperties.Name="{loc:Loc Browser.Address}"/>
-            </Panel>
+            </StackPanel>
             <Border x:Name="BrowserSurface" Grid.Row="2" Focusable="True" ClipToBounds="True"
                     Background="{DynamicResource App.PanelBackgroundBrush}">
                 <Panel>
                     <Panel IsVisible="{Binding !HasPage}" HorizontalAlignment="Center" VerticalAlignment="Center" Margin="16">
-                        <TextBlock IsVisible="{Binding CanBrowse}" TextWrapping="Wrap" TextAlignment="Center"
+                        <TextBlock IsVisible="{Binding IsBrowsing}" TextWrapping="Wrap" TextAlignment="Center"
                                    Foreground="{DynamicResource App.TextMuted}" Text="{loc:Loc Browser.Empty}"/>
                         <TextBlock IsVisible="{Binding IsTask}" TextWrapping="Wrap" TextAlignment="Center"
                                    Foreground="{DynamicResource App.TextMuted}" Text="{loc:Loc Browser.TaskEmpty}"/>
                     </Panel>
-                    <Image x:Name="BrowserImage" VerticalAlignment="Top" Stretch="Uniform" IsHitTestVisible="False"/>
+                    <Image x:Name="BrowserImage" Stretch="Fill" IsHitTestVisible="False"/>
+                    <controls:ComputerUsePreview x:Name="BrowserCursor" IsHitTestVisible="False"/>
+                    <TextBox x:Name="BrowserImeInput" Width="2" Height="2" MinWidth="0" MinHeight="0" Padding="0"
+                             Opacity="0" IsHitTestVisible="False" IsTabStop="False"
+                             HorizontalAlignment="Left" VerticalAlignment="Top"/>
                 </Panel>
             </Border>
-            <Panel Grid.Row="3" Margin="9,5">
-                <TextBlock IsVisible="{Binding IsTask}" Text="{Binding TaskStatus}" TextWrapping="Wrap" MaxLines="3"
-                           TextTrimming="CharacterEllipsis" Foreground="{DynamicResource App.TextMuted}"/>
-                <TextBlock IsVisible="{Binding CanBrowse}" Text="{Binding BrowseStatus}" TextWrapping="Wrap" MaxLines="2"
-                           TextTrimming="CharacterEllipsis" Foreground="{DynamicResource App.TextMuted}"/>
-            </Panel>
+            <Border Grid.Row="2" Background="{DynamicResource App.PanelBackgroundBrush}" IsVisible="{Binding HasPrompt}"
+                    HorizontalAlignment="Stretch" VerticalAlignment="Top" Margin="12" Padding="14"
+                    BorderBrush="{DynamicResource App.PanelBorderBrush}" BorderThickness="1" CornerRadius="8">
+                <ContentControl Content="{Binding Prompt}">
+                    <ContentControl.ContentTemplate>
+                        <DataTemplate x:DataType="vm:BrowserUserPrompt">
+                            <StackPanel Spacing="8">
+                                <TextBlock Text="{Binding Title}" FontWeight="SemiBold"/>
+                                <TextBlock Text="{Binding Message}" TextWrapping="Wrap"/>
+                                <TextBox IsVisible="{Binding TextInput}" Text="{Binding Text}"/>
+                                <TextBox IsVisible="{Binding Authentication}" Text="{Binding User}"
+                                         PlaceholderText="{loc:Loc Browser.Username}"/>
+                                <TextBox IsVisible="{Binding Authentication}" Text="{Binding Password}" PasswordChar="●"
+                                         PlaceholderText="{loc:Loc Browser.Password}"/>
+                                <StackPanel Orientation="Horizontal" Spacing="8" HorizontalAlignment="Right">
+                                    <Button Content="{loc:Loc Common.Cancel}" Command="{Binding CancelCommand}"/>
+                                    <Button Content="{loc:Loc Common.Confirm}" Command="{Binding AcceptCommand}"/>
+                                </StackPanel>
+                            </StackPanel>
+                        </DataTemplate>
+                    </ContentControl.ContentTemplate>
+                </ContentControl>
+            </Border>
+            <Grid Grid.Row="3" ColumnDefinitions="*,Auto" ColumnSpacing="6" Margin="9,5">
+                <Panel VerticalAlignment="Center">
+                    <TextBlock IsVisible="{Binding IsTask}" Text="{Binding TaskStatus}" TextWrapping="Wrap" MaxLines="3"
+                               TextTrimming="CharacterEllipsis" Foreground="{DynamicResource App.TextMuted}"/>
+                    <TextBlock IsVisible="{Binding IsBrowsing}" Text="{Binding BrowseStatus}" TextWrapping="Wrap" MaxLines="2"
+                               TextTrimming="CharacterEllipsis" Foreground="{DynamicResource App.TextMuted}"/>
+                </Panel>
+                <Panel Grid.Column="1">
+                    <Button Content="{loc:Loc Browser.TakeOver}" Command="{Binding TakeOverCommand}" IsVisible="{Binding CanTakeOver}"/>
+                    <Button Content="{loc:Loc Browser.Resume}" Command="{Binding ResumeCommand}" IsVisible="{Binding CanResume}"/>
+                </Panel>
+            </Grid>
         </Grid>
     </Border>
 </UserControl>

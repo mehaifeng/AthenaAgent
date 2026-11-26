@@ -97,7 +97,7 @@ public sealed class OpenAiModelRuntimeFactory
             provider?.Protocol ?? ProviderProtocol.Auto);
     }
 
-    private static ModelRoleSettings GetRoleSettings(AppConfig config, AiModelRole role) => role switch
+    internal static ModelRoleSettings GetRoleSettings(AppConfig config, AiModelRole role) => role switch
     {
         AiModelRole.MainConversation => config.AiModels.MainConversation,
         AiModelRole.TitleGeneration => config.AiModels.TitleGeneration,
@@ -107,6 +107,7 @@ public sealed class OpenAiModelRuntimeFactory
         AiModelRole.SubAgent => config.AiModels.SubAgent,
         AiModelRole.KnowledgeMaintenance => config.AiModels.KnowledgeMaintenance,
         AiModelRole.ImageRecognition => config.AiModels.ImageRecognition,
+        AiModelRole.ComputerUse => config.AiModels.ComputerUse,
         AiModelRole.Companion => config.AiModels.Companion,
         _ => throw new ArgumentOutOfRangeException(nameof(role), role, null)
     };
@@ -146,6 +147,7 @@ public sealed class OpenAiModelRuntimeFactory
         AiModelRole.Embedding => 0,
         AiModelRole.KnowledgeMaintenance => 4096,
         AiModelRole.ImageRecognition => 4096,
+        AiModelRole.ComputerUse => 4096,
         AiModelRole.Companion => 256,
         _ => 16000
     };
@@ -200,9 +202,11 @@ public sealed class OpenAiModelRuntimeFactory
         }
     }
 
-    private static OpenAIClient CreateClient(EffectiveOpenAiModel effective, int timeoutSeconds)
+    internal static OpenAIClient CreateClient(EffectiveOpenAiModel effective, int timeoutSeconds,
+        System.ClientModel.Primitives.PipelineTransport? transport = null)
     {
         var options = OpenAiClientOptionsFactory.Create(effective.BaseUrl, timeoutSeconds);
+        if (transport != null) options.Transport = transport;
         return new OpenAIClient(new ApiKeyCredential(effective.ApiKey), options);
     }
 }

@@ -532,11 +532,12 @@ public class OpenAIChatService : IChatService
             .ToArray();
         var functionCallingEnabled = tools.Length > 0;
         var toolFingerprint = ComputeToolFingerprint(tools);
+        var useCustomSampling = SupportsCustomSampling(mainModel);
         var options = new ChatCompletionOptions
         {
-            Temperature = (float?)mainModel.Temperature,
+            Temperature = useCustomSampling ? (float?)mainModel.Temperature : null,
             MaxOutputTokenCount = checked((int)policy.OutputReserveTokens),
-            TopP = (float)topP
+            TopP = useCustomSampling ? (float)topP : null
         };
         // 推理强度：仅在显式配置时发送（Auto = 端点默认）。OpenAI 官方 chat 端点
         // 的 o 系列/gpt-5 模型支持 reasoning_effort；第三方端点不接受时请勿配置。
@@ -597,6 +598,11 @@ public class OpenAIChatService : IChatService
             policy.ContextWindowTokens, policy.AvailableInputBudgetTokens, policy.CompressionThresholdTokens);
         return snapshot;
     }
+
+    // 官方 GPT-6.2 在两种协议下都要求使用服务端默认的采样值。
+    private static bool SupportsCustomSampling(EffectiveOpenAiModel model)
+        => !model.Model.StartsWith("gpt-6.2-", StringComparison.OrdinalIgnoreCase)
+           || !ResponsesProtocolResolver.IsOfficialOpenAi(model.ProviderPreset, model.BaseUrl);
 
     private static AppContextPolicy ClonePolicy(AppContextPolicy source) => new()
     {
@@ -2579,11 +2585,13 @@ public class OpenAIChatService : IChatService
                 new UserChatMessage("test")
             };
 
+            var model = _mainModel;
+            var useCustomSampling = model is not { } mainModel || SupportsCustomSampling(mainModel);
             var options = new ChatCompletionOptions
             {
-                Temperature = (float)(_mainModel?.Temperature ?? 0.7),
+                Temperature = useCustomSampling ? (float)(model?.Temperature ?? 0.7) : null,
                 MaxOutputTokenCount = ConnectionTestMaxOutputTokens,
-                TopP = (float)_config.TopP
+                TopP = useCustomSampling ? (float)_config.TopP : null
             };
 
             // A connection probe validates only the endpoint, credential, and selected model.

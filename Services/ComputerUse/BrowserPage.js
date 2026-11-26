@@ -1,5 +1,4 @@
 globalThis.athenaPage ??= (() => {
-    let host, cursor, label, point;
     let controls = [];
 
     const viewport = () => ({
@@ -54,67 +53,16 @@ globalThis.athenaPage ??= (() => {
         return { ...state, controls: visible, visibleText: snippets.join('\n').slice(0, 2300) };
     }
 
-    function create(parent, tag, style) {
-        const element = document.createElement(tag);
-        element.style.cssText = style;
-        parent.append(element);
-        return element;
-    }
-
-    function mount() {
-        if (host?.isConnected)
-            return;
-        host = create(document.documentElement, 'div',
-            'all:initial!important;position:fixed!important;inset:0!important;z-index:2147483647!important;pointer-events:none!important');
-        host.setAttribute('aria-hidden', 'true');
-        host.setAttribute('data-athena-computer-use', '');
-        const shadow = host.attachShadow({ mode: 'closed' });
-        cursor = create(shadow, 'div',
-            'position:absolute;left:0;top:0;pointer-events:none;filter:drop-shadow(0 2px 5px #0a1f2788)');
-        create(cursor, 'span',
-            'position:absolute;width:23px;height:28px;background:#09242a;clip-path:polygon(0 0,100% 61%,54% 64%,32% 100%)');
-        create(cursor, 'span',
-            'position:absolute;left:3px;top:4px;width:16px;height:20px;background:#65f2cd;clip-path:polygon(0 0,100% 61%,54% 64%,32% 100%)');
-        label = create(cursor, 'span',
-            'position:absolute;left:21px;top:21px;border-radius:6px;padding:4px 7px;white-space:nowrap;' +
-            'background:#09242a;color:#dbfff4;font:600 12px system-ui;letter-spacing:.1px');
-        label.textContent = 'Athena';
-        point = [Math.min(innerWidth * .15, 120), Math.min(innerHeight * .15, 96)];
-    }
-
-    const translate = ([x, y]) => 'translate(' + x + 'px,' + y + 'px)';
-
-    async function move(x, y) {
-        mount();
-        const destination = [x, y];
-        const motion = cursor.animate(
-            [{ transform: translate(point) }, { transform: translate(destination) }],
-            { duration: 310, easing: 'cubic-bezier(.17,.75,.28,1)', fill: 'forwards' });
-        await motion.finished;
-        cursor.style.transform = translate(destination);
-        motion.cancel();
-        point = destination;
-    }
-
-    async function clickPulse() {
-        const ring = create(cursor, 'span',
-            'position:absolute;left:0;top:0;width:20px;height:20px;box-sizing:border-box;border:2px solid #65f2cd;' +
-            'border-radius:50%;box-shadow:0 0 0 1px #09242a;transform:translate(-50%,-50%);pointer-events:none');
-        ring.animate([{ scale: .55, opacity: 1 }, { scale: 2.25, opacity: 0 }], 340).finished.then(() => ring.remove());
-        // Paint the pulse before a click that may replace the document.
-        await new Promise(resolve => setTimeout(resolve, 105));
-    }
-
     function hasEditableFocus() {
-        const active = document.activeElement;
+        let active = document.activeElement;
+        while (active?.shadowRoot?.activeElement)
+            active = active.shadowRoot.activeElement;
         return !!(active?.isContentEditable || active?.matches(
             'textarea:not([readonly]),input:not([readonly]):is([type=text],[type=search],[type=email],[type=url],[type=tel],[type=number],:not([type]))'));
     }
 
     return {
-        viewport, observe, move, clickPulse, hasEditableFocus,
-        hits: (index, x, y) => index === null || !!controls[index - 1]?.contains(document.elementFromPoint(x, y)),
-        typing: active => { label.textContent = active ? 'Athena · Typing' : 'Athena'; },
-        remove: () => { host?.remove(); host = null; }
+        viewport, observe, hasEditableFocus,
+        hits: (index, x, y) => index === null || !!controls[index - 1]?.contains(document.elementFromPoint(x, y))
     };
 })();

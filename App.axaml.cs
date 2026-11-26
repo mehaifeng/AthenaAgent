@@ -1125,8 +1125,8 @@ public partial class App : Application, IAsyncDisposable
 
         services.AddSingleton<EmbeddedBrowser>();
         services.AddSingleton(sp => new ComputerUseService(sp.GetRequiredService<IConfigService>(),
-            sp.GetRequiredService<OpenAiModelRuntimeFactory>(), Log.ForContext<ComputerUseService>(),
-            sp.GetRequiredService<EmbeddedBrowser>()));
+            Log.ForContext<ComputerUseService>(), sp.GetRequiredService<EmbeddedBrowser>(),
+            sp.GetRequiredService<ModelRoleProbeService>()));
         services.AddSingleton<EmbeddedBrowserViewModel>();
         services.AddSingleton<ComputerUseFunctions>();
 
@@ -1356,6 +1356,7 @@ public partial class App : Application, IAsyncDisposable
         services.AddSingleton<ICompressionValidator, CompressionValidator>();
 
         services.AddSingleton<OpenAiModelRuntimeFactory>();
+        services.AddSingleton<ModelRoleProbeService>();
         // AI 对话服务（单例，共享配置）
         services.AddSingleton<IChatService>(sp =>
         {

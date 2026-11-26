@@ -489,6 +489,8 @@ for rid in "${PLATFORMS[@]}"; do
   cp -R "$app_dir"/. "$package_dir"/
   mkdir -p "$package_dir/updater"
   cp -R "$updater_dir"/. "$package_dir/updater"/
+  require_command python3
+  python3 "$REPO_ROOT/Scripts/stage-browser-runtime.py" "$rid" "$package_dir"
 
   [ -f "$package_dir/$entry_executable" ] || die "Missing entry executable for $rid: $entry_executable"
   [ -f "$package_dir/updater/$updater_executable" ] || die "Missing updater executable for $rid: $updater_executable"

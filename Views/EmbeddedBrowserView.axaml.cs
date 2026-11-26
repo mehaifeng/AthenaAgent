@@ -4,11 +4,13 @@ using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.Input.Platform;
+using Avalonia.Interactivity;
 using Avalonia.Media.Imaging;
 using System;
 using System.ComponentModel;
 using System.Diagnostics.CodeAnalysis;
 using System.IO;
+using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -27,13 +29,22 @@ public sealed partial class EmbeddedBrowserView : UserControl
     private ChromeDevTools? _viewer;
     private CancellationTokenSource? _viewLifetime;
     private Bitmap? _bitmap;
-    private int _width, _height;
+    private BrowserViewportSize? _preferredViewport;
+    private BrowserViewportSize? _renderedViewport;
     private bool _attached;
     private bool _pressed;
     private int _clickCount;
+    private string _button = "left";
+    private int _buttons;
     private bool _moving;
     private Point _lastPoint;
     private long _lastMove;
+    private readonly SemaphoreSlim _manualInput = new(1, 1);
+
+    private enum FrameUpdate { NotReady, ViewportChanged, Displayed }
+
+    private bool CanShowPreview => _attached && PreviewEnabled
+        && _owner is not { WindowState: WindowState.Minimized } && _owner is not { IsVisible: false };
 
     public bool PreviewEnabled
     {
@@ -45,12 +56,15 @@ public sealed partial class EmbeddedBrowserView : UserControl
     {
         InitializeComponent();
         DataContextChanged += (_, _) => BindModel();
+        BrowserSurface.SizeChanged += (_, _) => UpdatePreferredViewport();
         BrowserSurface.PointerPressed += OnPointerPressed;
         BrowserSurface.PointerReleased += OnPointerReleased;
         BrowserSurface.PointerMoved += OnPointerMoved;
         BrowserSurface.PointerWheelChanged += OnWheel;
-        BrowserSurface.KeyDown += OnBrowserKeyDown;
-        BrowserSurface.TextInput += OnBrowserTextInput;
+        BrowserSurface.AddHandler(InputElement.KeyDownEvent, OnBrowserKeyDown, RoutingStrategies.Tunnel);
+        BrowserSurface.AddHandler(InputElement.TextInputEvent, OnBrowserTextInput, RoutingStrategies.Tunnel);
+        AddressBox.GotFocus += (_, _) => _model?.SetAddressEditing(true);
+        AddressBox.LostFocus += (_, _) => _model?.SetAddressEditing(false);
     }
 
     protected override void OnAttachedToVisualTree(VisualTreeAttachmentEventArgs e)
@@ -106,9 +120,9 @@ public sealed partial class EmbeddedBrowserView : UserControl
 
     private void Reconnect()
     {
-        var page = _attached && PreviewEnabled && _owner is not { WindowState: WindowState.Minimized }
-            && _owner is not { IsVisible: false } ? _model?.CurrentPage : null;
-        if (ReferenceEquals(page, _page)) return;
+        UpdatePreferredViewport();
+        var page = CanShowPreview ? _model?.CurrentPage : null;
+        if (ReferenceEquals(page, _page) && (page is null || _viewLifetime is not null)) return;
 
         var previous = _viewLifetime;
         _viewLifetime = null;
@@ -116,50 +130,73 @@ public sealed partial class EmbeddedBrowserView : UserControl
         _page = page;
         previous?.Cancel();
         _pressed = false;
-        _width = _height = 0;
+        InvalidateFrame();
         SetBitmap(null);
-        if (page is not null && _model is { } model)
+        if (page is not null)
         {
             _viewLifetime = new CancellationTokenSource();
-            _ = ReadFramesAsync(page, model.CanBrowse, _viewLifetime);
+            _ = ReadFramesAsync(page, _viewLifetime);
         }
     }
 
-    private async Task ReadFramesAsync(ChromeBrowserPage page, bool canBrowse, CancellationTokenSource lease)
+    private void UpdatePreferredViewport()
+    {
+        if (!CanShowPreview || BrowserSurface.Bounds is not { Width: > 0, Height: > 0 } bounds)
+        {
+            _preferredViewport = null;
+            return;
+        }
+        var size = new BrowserViewportSize(
+            Math.Max(1, (int)Math.Round(bounds.Width)), Math.Max(1, (int)Math.Round(bounds.Height)));
+        _preferredViewport = size;
+        _model?.SetPreferredViewport(size);
+    }
+
+    private async Task ReadFramesAsync(ChromeBrowserPage page, CancellationTokenSource lease)
     {
         using (lease)
-        using (var viewer = new ChromeDevTools())
         {
             var token = lease.Token;
+            var viewer = page.Driver;
             try
             {
-                await viewer.ConnectAsync(page.Socket, token);
                 if (!ReferenceEquals(lease, _viewLifetime)) return;
                 _viewer = viewer;
-                (int Width, int Height) appliedSize = default;
+                BrowserViewportSize? appliedSize = null;
+                var forceResize = false;
                 while (!token.IsCancellationRequested)
                 {
-                    if (canBrowse && BrowserSurface.Bounds is { Width: > 0, Height: > 0 } bounds)
+                    var delay = 80;
+                    if (_preferredViewport is { } size && (!_pressed || size == appliedSize))
                     {
-                        var size = (Math.Clamp((int)bounds.Width, 320, 1440), Math.Clamp((int)bounds.Height, 220, 1200));
-                        if (size != appliedSize)
+                        var update = FrameUpdate.NotReady;
+                        try
                         {
-                            // The installed viewport belongs to the page's connection, even after this viewer is hidden.
-                            using var resize = new CancellationTokenSource(TimeSpan.FromSeconds(3));
-                            await page.ResizeAsync(size.Item1, size.Item2, resize.Token);
-                            appliedSize = size;
+                            if (size != appliedSize || (forceResize && !_pressed))
+                            {
+                                InvalidateFrame();
+                                await page.ResizeAsync(size, token, force: forceResize);
+                                appliedSize = size;
+                                forceResize = false;
+                            }
+                            token.ThrowIfCancellationRequested();
+                            update = await CaptureFrameAsync(page, size, lease, token);
+                        }
+                        catch (Exception exception) when (viewer.IsOpen
+                            && (exception is ChromeDevToolsException { IsNavigation: true }
+                                || exception is OperationCanceledException && !token.IsCancellationRequested))
+                        {
+                            // Keep the current page and let the next read use the active document.
+                        }
+                        if (token.IsCancellationRequested) return;
+                        if (update != FrameUpdate.Displayed)
+                        {
+                            InvalidateFrame();
+                            forceResize |= update == FrameUpdate.ViewportChanged;
+                            delay = 200;
                         }
                     }
-
-                    try
-                    {
-                        await CaptureFrameAsync(page, viewer, lease, token);
-                    }
-                    catch (ChromeDevToolsException exception) when (exception.IsNavigation)
-                    {
-                        // The new document will have a new execution context on the next frame.
-                    }
-                    await Task.Delay(80, token);
+                    await Task.Delay(delay, token);
                 }
             }
             catch (OperationCanceledException) when (token.IsCancellationRequested) { }
@@ -174,30 +211,55 @@ public sealed partial class EmbeddedBrowserView : UserControl
                 {
                     _viewLifetime = null;
                     _viewer = null;
+                    InvalidateFrame();
                 }
             }
         }
     }
 
-    private async Task CaptureFrameAsync(ChromeBrowserPage page, ChromeDevTools viewer,
-        CancellationTokenSource lease, CancellationToken token)
+    private async Task<FrameUpdate> CaptureFrameAsync(ChromeBrowserPage page, BrowserViewportSize size,
+        CancellationTokenSource lease, CancellationToken lifetime)
     {
+        using var frame = CancellationTokenSource.CreateLinkedTokenSource(lifetime);
+        frame.CancelAfter(TimeSpan.FromSeconds(3));
+        var token = frame.Token;
+        var viewer = page.Driver;
         var metrics = await viewer.CallAsync("Runtime.evaluate", new
         {
             expression = "({width: innerWidth, height: innerHeight, url: location.href})",
             returnByValue = true
         }, token);
-        if (!metrics.GetProperty("result").TryGetProperty("value", out var viewport)) return;
+        if (!metrics.TryGetProperty("result", out var result) || !result.TryGetProperty("value", out var viewport)
+            || viewport.ValueKind != JsonValueKind.Object)
+            return FrameUpdate.NotReady;
+        if (viewport.GetProperty("width").GetInt32() != size.Width
+            || viewport.GetProperty("height").GetInt32() != size.Height)
+            return FrameUpdate.ViewportChanged;
         var capture = await viewer.CallAsync("Page.captureScreenshot",
             new { format = "jpeg", quality = 84, captureBeyondViewport = false }, token);
-        if (!ReferenceEquals(lease, _viewLifetime)) return;
-        using var bytes = new MemoryStream(capture.GetProperty("data").GetBytesFromBase64());
-        _width = viewport.GetProperty("width").GetInt32();
-        _height = viewport.GetProperty("height").GetInt32();
-        SetBitmap(new Bitmap(bytes));
+        if (token.IsCancellationRequested || !ReferenceEquals(lease, _viewLifetime) || _preferredViewport != size
+            || !capture.TryGetProperty("data", out var data) || data.ValueKind != JsonValueKind.String)
+            return FrameUpdate.NotReady;
+        using var bytes = new MemoryStream(data.GetBytesFromBase64());
+        var bitmap = new Bitmap(bytes);
+        if (bitmap.PixelSize != new PixelSize(size.Width, size.Height))
+        {
+            bitmap.Dispose();
+            return FrameUpdate.ViewportChanged;
+        }
+        _renderedViewport = size;
+        SetBitmap(bitmap);
+        BrowserCursor.ShowBrowserCursor(_model?.CanTakeOver == true && page.ViewportSize == size ? page.Cursor : null);
         if (Uri.TryCreate(viewport.GetProperty("url").GetString(), UriKind.Absolute, out var address)
             && EmbeddedBrowser.IsPageUri(address))
             _model?.UpdateAddress(page, address, AddressBox.IsFocused);
+        return FrameUpdate.Displayed;
+    }
+
+    private void InvalidateFrame()
+    {
+        _renderedViewport = null;
+        BrowserCursor.ShowBrowserCursor(null);
     }
 
     private void SetBitmap(Bitmap? bitmap)
@@ -211,35 +273,42 @@ public sealed partial class EmbeddedBrowserView : UserControl
     {
         result = default;
         var bounds = BrowserImage.Bounds.Size;
-        if (_model?.CanBrowse != true || _viewer is null || _width <= 0 || _height <= 0)
+        if (_model is not { HasPage: true, HasPrompt: false } || _viewer is null || _renderedViewport is not { } size
+            || _preferredViewport != size || bounds.Width <= 0 || bounds.Height <= 0)
             return false;
 
-        var scale = Math.Min(bounds.Width / _width, bounds.Height / _height);
-        if (scale <= 0) return false;
-        var image = new Rect((bounds.Width - _width * scale) / 2, (bounds.Height - _height * scale) / 2,
-            _width * scale, _height * scale);
         var point = e.GetPosition(BrowserImage);
-        if (!image.Contains(point))
+        if (!new Rect(bounds).Contains(point))
             return false;
-        result = new Point((point.X - image.X) / scale, (point.Y - image.Y) / scale);
+        result = new Point(point.X * size.Width / bounds.Width, point.Y * size.Height / bounds.Height);
         _lastPoint = result;
         return true;
     }
 
     private async void OnPointerPressed(object? sender, PointerPressedEventArgs e)
     {
-        if (e.GetCurrentPoint(BrowserSurface).Properties.PointerUpdateKind != PointerUpdateKind.LeftButtonPressed
-            || !TryMapPoint(e, out var point))
+        var button = e.GetCurrentPoint(BrowserSurface).Properties.PointerUpdateKind switch
+        {
+            PointerUpdateKind.LeftButtonPressed => ("left", 1),
+            PointerUpdateKind.RightButtonPressed => ("right", 2),
+            PointerUpdateKind.MiddleButtonPressed => ("middle", 4),
+            _ => ("", 0)
+        };
+        if (_pressed || button.Item2 == 0 || !TryMapPoint(e, out var point))
             return;
-        BrowserSurface.Focus();
+        var position = e.GetPosition(BrowserSurface);
+        BrowserImeInput.Margin = new Thickness(position.X, position.Y, 0, 0);
+        BrowserImeInput.Focus();
         e.Pointer.Capture(BrowserSurface);
         _pressed = true;
+        (_button, _buttons) = button;
         _clickCount = e.ClickCount;
+        var clicks = _clickCount;
         e.Handled = true;
         await SendInputAsync((viewer, token) => viewer.CallAsync("Input.dispatchMouseEvent", new
         {
-            type = "mousePressed", x = point.X, y = point.Y, button = "left", buttons = 1,
-            clickCount = _clickCount, modifiers = ModifierMask(e.KeyModifiers)
+            type = "mousePressed", x = point.X, y = point.Y, button = button.Item1, buttons = button.Item2,
+            clickCount = clicks, modifiers = ModifierMask(e.KeyModifiers)
         }, token));
     }
 
@@ -249,10 +318,12 @@ public sealed partial class EmbeddedBrowserView : UserControl
         _pressed = false;
         e.Pointer.Capture(null);
         var point = TryMapPoint(e, out var current) ? current : _lastPoint;
+        var button = _button;
+        var clicks = _clickCount;
         e.Handled = true;
         await SendInputAsync((viewer, token) => viewer.CallAsync("Input.dispatchMouseEvent", new
         {
-            type = "mouseReleased", x = point.X, y = point.Y, button = "left", buttons = 0, clickCount = _clickCount,
+            type = "mouseReleased", x = point.X, y = point.Y, button, buttons = 0, clickCount = clicks,
             modifiers = ModifierMask(e.KeyModifiers)
         }, token));
     }
@@ -260,14 +331,14 @@ public sealed partial class EmbeddedBrowserView : UserControl
     private async void OnPointerMoved(object? sender, PointerEventArgs e)
     {
         var now = Environment.TickCount64;
-        if (_moving || now - _lastMove < 40 || !TryMapPoint(e, out var point)) return;
+        if (_model?.CanHoverPage != true || _moving || now - _lastMove < 40 || !TryMapPoint(e, out var point)) return;
         _lastMove = now;
         _moving = true;
         try
         {
             await SendInputAsync((viewer, token) => viewer.CallAsync("Input.dispatchMouseEvent", new
             {
-                type = "mouseMoved", x = point.X, y = point.Y, buttons = _pressed ? 1 : 0,
+                type = "mouseMoved", x = point.X, y = point.Y, buttons = _pressed ? _buttons : 0,
                 modifiers = ModifierMask(e.KeyModifiers)
             }, token));
         }
@@ -290,7 +361,7 @@ public sealed partial class EmbeddedBrowserView : UserControl
 
     private async void OnBrowserKeyDown(object? sender, KeyEventArgs e)
     {
-        if (_model?.CanBrowse != true || _viewer is null)
+        if (_model is not { HasPage: true, HasPrompt: false } || _viewer is null)
             return;
         if ((e.KeyModifiers & (KeyModifiers.Control | KeyModifiers.Meta)) != 0 && e.Key == Key.V)
         {
@@ -326,19 +397,30 @@ public sealed partial class EmbeddedBrowserView : UserControl
 
     private async void OnBrowserTextInput(object? sender, TextInputEventArgs e)
     {
-        if (_model?.CanBrowse != true || _viewer is null || string.IsNullOrEmpty(e.Text)) return;
+        if (_model is not { HasPage: true, HasPrompt: false } || _viewer is null || string.IsNullOrEmpty(e.Text)) return;
         e.Handled = true;
-        await SendInputAsync((viewer, token) => viewer.CallAsync("Input.insertText", new { text = e.Text }, token));
+        var text = e.Text;
+        await SendInputAsync((viewer, token) => BrowserComputerUseSession.TypeCommittedTextAsync(viewer, text, token));
     }
 
     private async Task SendInputAsync(Func<ChromeDevTools, CancellationToken, Task> send)
     {
-        if (_model?.CanBrowse != true || _viewer is not { } viewer || _viewLifetime is not { } lease)
+        if (_model is not { HasPage: true, HasPrompt: false } model || _page is not { } page
+            || _viewer is not { } viewer || _viewLifetime is not { } lease)
             return;
+        var token = lease.Token;
         try
         {
-            await send(viewer, lease.Token);
+            // Request ownership immediately. The first pointer/key event waits for any current AI input.
+            await _manualInput.WaitAsync(token);
+            try
+            {
+                if (ReferenceEquals(lease, _viewLifetime))
+                    await model.WithManualInputAsync(page, () => send(viewer, token), token);
+            }
+            finally { _manualInput.Release(); }
         }
+        catch (OperationCanceledException) when (token.IsCancellationRequested) { }
         catch (Exception exception)
         {
             if (ReferenceEquals(lease, _viewLifetime))

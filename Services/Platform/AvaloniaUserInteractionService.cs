@@ -75,6 +75,20 @@ public sealed class AvaloniaUserInteractionService : IUserInteractionService
         if (owner != null) await new ImagePreviewWindow(attachment).ShowDialog(owner);
     }
 
+    public async Task<string?> PickBrowserDownloadAsync(string title, string suggestedFileName, string directory)
+    {
+        var storage = GetMainWindow()?.StorageProvider;
+        if (storage == null) return null;
+        var location = System.IO.Directory.Exists(directory)
+            ? await storage.TryGetFolderFromPathAsync(directory) : null;
+        var file = await storage.SaveFilePickerAsync(new FilePickerSaveOptions
+        {
+            Title = title, SuggestedFileName = suggestedFileName, SuggestedStartLocation = location,
+            ShowOverwritePrompt = true
+        });
+        return file?.Path.LocalPath;
+    }
+
     private static Window? GetMainWindow()
         => (Application.Current?.ApplicationLifetime as IClassicDesktopStyleApplicationLifetime)?.MainWindow;
 }

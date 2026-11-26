@@ -16,5 +16,7 @@ public interface IUserInteractionService
     Task<string?> PickFolderAsync(string title);
     Task<IReadOnlyList<string>> PickFilesAsync(string title, string displayName, IReadOnlyList<string> patterns, bool allowMultiple);
     Task<string?> PickSaveFileAsync(string title, string suggestedFileName, string displayName, IReadOnlyList<string> patterns);
+    Task<string?> PickBrowserDownloadAsync(string title, string suggestedFileName, string directory) =>
+        PickSaveFileAsync(title, suggestedFileName, "", ["*"]);
     Task ShowImagePreviewAsync(ChatAttachment attachment);
 }
