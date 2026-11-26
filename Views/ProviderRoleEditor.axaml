@@ -1,0 +1,51 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:loc="using:Athena.UI.Markup"
+             xmlns:vm="using:Athena.UI.ViewModels"
+             x:Class="Athena.UI.Views.ProviderRoleEditor"
+             x:DataType="vm:ProviderRoleSelectionViewModel">
+    <UserControl.Styles>
+        <Style Selector="PathIcon.model-test-busy">
+            <Style.Animations>
+                <Animation Duration="0:0:1" IterationCount="INFINITE">
+                    <KeyFrame Cue="0%"><Setter Property="RotateTransform.Angle" Value="0"/></KeyFrame>
+                    <KeyFrame Cue="100%"><Setter Property="RotateTransform.Angle" Value="360"/></KeyFrame>
+                </Animation>
+            </Style.Animations>
+        </Style>
+    </UserControl.Styles>
+    <Grid ColumnDefinitions="3*,4*,62" ColumnSpacing="8">
+        <ComboBox x:Name="ProviderPicker" HorizontalAlignment="Stretch"
+                  ItemsSource="{Binding Providers}" SelectedItem="{Binding SelectedProvider}"
+                  PlaceholderText="{loc:Loc Config.UnifiedModels.Provider}"
+                  AutomationProperties.Name="{loc:Loc Config.UnifiedModels.Provider}">
+            <ComboBox.ItemTemplate>
+                <DataTemplate>
+                    <TextBlock Text="{Binding DisplayName}" TextTrimming="CharacterEllipsis" ToolTip.Tip="{Binding DisplayName}"/>
+                </DataTemplate>
+            </ComboBox.ItemTemplate>
+        </ComboBox>
+        <ComboBox x:Name="ModelPicker" Grid.Column="1" HorizontalAlignment="Stretch"
+                  ItemsSource="{Binding AvailableModels}" SelectedItem="{Binding SelectedModel}"
+                  PlaceholderText="{loc:Loc Config.UnifiedModels.Model}"
+                  AutomationProperties.Name="{loc:Loc Config.UnifiedModels.Model}">
+            <ComboBox.ItemTemplate>
+                <DataTemplate>
+                    <TextBlock Text="{Binding Id}" TextTrimming="CharacterEllipsis" ToolTip.Tip="{Binding Id}"/>
+                </DataTemplate>
+            </ComboBox.ItemTemplate>
+        </ComboBox>
+        <Button x:Name="TestModelButton" Grid.Column="2" Classes="icon-plain" Width="62"
+                HorizontalContentAlignment="Center" VerticalAlignment="Center" Padding="0"
+                Command="{Binding TestCommand}" ToolTip.Tip="{Binding TestTooltip}"
+                AutomationProperties.Name="{Binding TestAccessibleName}">
+            <Grid>
+                <PathIcon Width="14" Height="14" IsVisible="{Binding ShowTestIcon}"
+                          Classes.model-test-busy="{Binding IsTesting}"
+                          Data="{Binding TestIcon, Converter={StaticResource ToolIconKeyToGeometryConverter}}"/>
+                <TextBlock Text="{Binding TestLatency}" VerticalAlignment="Center"
+                           IsVisible="{Binding !ShowTestIcon}" Foreground="{DynamicResource App.SuccessForeground}"/>
+            </Grid>
+        </Button>
+    </Grid>
+</UserControl>

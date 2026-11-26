@@ -1,0 +1,11 @@
+{
+  "version": "45.5.0",
+  "packages": {
+    "linux-x64":   { "asset": "linux-x64",    "sha256": "36b44cd0c3d355ee74557bea2353e4539f96e1a09733a52a052bd093134a6142" },
+    "linux-arm64": { "asset": "linux-arm64",  "sha256": "f2bd21b4167dbf0d27968347127afa6703161fdb513b1f3c61da5de9289cac0a" },
+    "win-x64":     { "asset": "win32-x64",    "sha256": "20155c8b8aa5b1f575f3757bdf21490e0bac2f19a65a26ce9ba99bcf9f2c69bd" },
+    "win-arm64":   { "asset": "win32-arm64",  "sha256": "5b00f9a9fb4dff9ce448b7ff33eae14af9318b3207f7a66170254cd541becd48" },
+    "osx-arm64":   { "asset": "darwin-arm64", "sha256": "00d345b061064de7e6e2c02bec7ffa1adb7ef488fe4b673bd8ad3e059a182245" },
+    "osx-x64":     { "asset": "darwin-x64",   "sha256": "9ce4b0e25ce95e743b2d8f04ebfbfd76027060ff8b47829de22334fbdbdd4cc4" }
+  }
+}

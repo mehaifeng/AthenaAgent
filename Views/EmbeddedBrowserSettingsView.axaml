@@ -1,0 +1,93 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:Athena.UI.ViewModels"
+             xmlns:views="using:Athena.UI.Views"
+             xmlns:browser="using:Athena.UI.Services.ComputerUse"
+             xmlns:loc="using:Athena.UI.Markup"
+             x:Class="Athena.UI.Views.EmbeddedBrowserSettingsView"
+             x:DataType="vm:EmbeddedBrowserSettingsViewModel">
+    <ScrollViewer HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto">
+        <StackPanel Margin="16" Spacing="12">
+            <Border Padding="16" CornerRadius="8" Background="{DynamicResource App.SectionBg}">
+                <StackPanel Spacing="8">
+                    <TextBlock Text="{loc:Loc Settings.Browser.TaskTitle}" FontWeight="SemiBold"
+                               FontSize="{DynamicResource App.FontSize.Title}"/>
+                    <views:ProviderRoleEditor x:Name="BrowserModelEditor" DataContext="{Binding ModelSelection}"/>
+                    <TextBlock Text="{loc:Loc Settings.Browser.TaskModelHint}" TextWrapping="Wrap"
+                               Foreground="{DynamicResource App.TextMuted}"/>
+                    <Grid ColumnDefinitions="*,100" ColumnSpacing="8" Margin="0,4,0,0">
+                        <TextBlock Text="{loc:Loc Settings.Browser.TaskTimeout}" TextWrapping="Wrap" VerticalAlignment="Center"/>
+                        <NumericUpDown x:Name="BrowserTaskTimeout" Grid.Column="1" Minimum="1" Maximum="60" FormatString="0"
+                                       Value="{Binding State.Config.EmbeddedBrowser.TaskTimeoutMinutes}"
+                                       AutomationProperties.Name="{loc:Loc Settings.Browser.TaskTimeout}"
+                                       ToolTip.Tip="{loc:Loc Settings.Browser.TaskTimeoutHint}"/>
+                    </Grid>
+                    <Grid ColumnDefinitions="*,100" ColumnSpacing="8">
+                        <TextBlock Text="{loc:Loc Settings.Browser.ActionRetries}" TextWrapping="Wrap" VerticalAlignment="Center"/>
+                        <NumericUpDown x:Name="BrowserActionRetries" Grid.Column="1" Minimum="0" Maximum="3" FormatString="0"
+                                       Value="{Binding State.Config.EmbeddedBrowser.ActionRetryCount}"
+                                       AutomationProperties.Name="{loc:Loc Settings.Browser.ActionRetries}"
+                                       ToolTip.Tip="{loc:Loc Settings.Browser.ActionRetriesHint}"/>
+                    </Grid>
+                    <TextBlock Text="{loc:Loc Settings.Browser.TaskSettingsApply}" TextWrapping="Wrap"
+                               Foreground="{DynamicResource App.TextMuted}"/>
+                </StackPanel>
+            </Border>
+            <Border Padding="16" CornerRadius="8" Background="{DynamicResource App.SectionBg}">
+                <StackPanel Spacing="8">
+                    <TextBlock Text="{loc:Loc Settings.Nav.EmbeddedBrowser}" FontWeight="SemiBold"
+                               FontSize="{DynamicResource App.FontSize.Title}"/>
+                    <TextBlock Text="{loc:Loc Settings.Browser.SharedProfile}" TextWrapping="Wrap"
+                               Foreground="{DynamicResource App.TextMuted}"/>
+                    <Grid ColumnDefinitions="*,Auto">
+                        <TextBlock Text="{Binding RuntimeStatus}" VerticalAlignment="Center" TextWrapping="Wrap"/>
+                        <TextBlock Grid.Column="1" Text="{Binding RuntimeVersion}" Foreground="{DynamicResource App.TextMuted}"/>
+                    </Grid>
+                    <TextBlock Text="{loc:Loc Settings.Browser.HomePage}" Margin="0,6,0,0"/>
+                    <TextBox Text="{Binding HomePage}" PlaceholderText="{loc:Loc Settings.Browser.BlankPage}"
+                             AutomationProperties.Name="{loc:Loc Settings.Browser.HomePage}"/>
+                    <TextBlock Text="{Binding HomePageError}" IsVisible="{Binding HomePageError, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
+                               Foreground="{DynamicResource App.ErrorForeground}" TextWrapping="Wrap"/>
+                    <TextBlock Text="{loc:Loc Settings.Browser.DownloadDirectory}" Margin="0,6,0,0"/>
+                    <Grid ColumnDefinitions="*,Auto,Auto" ColumnSpacing="6">
+                        <TextBlock Text="{Binding DownloadDirectory}" VerticalAlignment="Center"
+                                   TextTrimming="CharacterEllipsis" ToolTip.Tip="{Binding DownloadDirectory}"/>
+                        <Button Grid.Column="1" Content="{loc:Loc Settings.Browser.ChooseFolder}" Command="{Binding PickDownloadDirectoryCommand}"/>
+                        <Button Grid.Column="2" Content="{loc:Loc Settings.Browser.ResetFolder}" Command="{Binding ResetDownloadDirectoryCommand}"/>
+                    </Grid>
+                </StackPanel>
+            </Border>
+            <Border Padding="16" CornerRadius="8" Background="{DynamicResource App.SectionBg}">
+                <StackPanel Spacing="8">
+                    <TextBlock Text="{loc:Loc Settings.Browser.History}" FontWeight="SemiBold"/>
+                    <TextBox Text="{Binding HistoryQuery}" PlaceholderText="{loc:Loc Settings.Browser.SearchHistory}"
+                             AutomationProperties.Name="{loc:Loc Settings.Browser.SearchHistory}"/>
+                    <ListBox ItemsSource="{Binding History}" Height="240">
+                        <ListBox.ItemTemplate>
+                            <DataTemplate x:DataType="browser:BrowserHistoryEntry">
+                                <Button HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch" Classes="icon-plain"
+                                        Command="{Binding $parent[UserControl].((vm:EmbeddedBrowserSettingsViewModel)DataContext).OpenHistoryCommand}"
+                                        CommandParameter="{Binding}" ToolTip.Tip="{Binding Url}">
+                                    <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
+                                        <StackPanel>
+                                            <TextBlock Text="{Binding Caption}" TextTrimming="CharacterEllipsis"/>
+                                            <TextBlock Text="{Binding Url}" Foreground="{DynamicResource App.TextMuted}" TextTrimming="CharacterEllipsis"/>
+                                        </StackPanel>
+                                        <TextBlock Grid.Column="1" Text="{Binding LocalTime}" Foreground="{DynamicResource App.TextMuted}"/>
+                                    </Grid>
+                                </Button>
+                            </DataTemplate>
+                        </ListBox.ItemTemplate>
+                    </ListBox>
+                    <WrapPanel Orientation="Horizontal" ItemSpacing="6" LineSpacing="6">
+                        <Button Content="{loc:Loc Settings.Browser.ClearHistory}" Command="{Binding ClearHistoryCommand}"/>
+                        <Button Content="{loc:Loc Settings.Browser.ClearData}" Command="{Binding ClearSiteDataCommand}"
+                                IsEnabled="{Binding CanClearSiteData}"/>
+                    </WrapPanel>
+                    <TextBlock Text="{Binding Status}" IsVisible="{Binding Status, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
+                               TextWrapping="Wrap" Foreground="{DynamicResource App.TextMuted}"/>
+                </StackPanel>
+            </Border>
+        </StackPanel>
+    </ScrollViewer>
+</UserControl>
