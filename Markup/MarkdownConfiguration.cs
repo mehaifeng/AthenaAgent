@@ -36,6 +36,7 @@ public static class MarkdownConfiguration
             .UseDetailsBlocks();
 
         MarkdownNode.Edit(builder => builder
+            .Unregister<ParagraphBlockNode>().Register<ChatParagraphNode>()
             .Register<EmojiInlineNode>()
             .Register<MathInlineNode>()
             .Register<MathBlockNode>()

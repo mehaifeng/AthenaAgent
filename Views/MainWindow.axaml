@@ -18,6 +18,26 @@
     <Window.Resources>
         <appconv:BoolToExpandIconConverter x:Key="BoolToExpandIcon"/>
 
+        <MenuFlyout x:Key="ConversationRowMenu" x:DataType="vm:ConversationSessionItemViewModel">
+            <MenuItem Header="{loc:Loc MainWindow.Menu.Rename}" Command="{Binding StartRenameCommand}">
+                <MenuItem.Icon><PathIcon Data="{StaticResource AthenaIconEdit}" Foreground="{DynamicResource App.IconForeground}"/></MenuItem.Icon>
+            </MenuItem>
+            <MenuItem Header="{Binding PinActionText}" Command="{Binding TogglePinnedCommand}">
+                <MenuItem.Icon><PathIcon Data="{StaticResource AthenaIconPin}" Foreground="{DynamicResource App.IconForeground}"/></MenuItem.Icon>
+            </MenuItem>
+            <MenuItem Header="{loc:Loc MainWindow.Menu.Fork}" Command="{Binding RequestForkCommand}">
+                <MenuItem.Icon><PathIcon Data="{StaticResource AthenaIconBranch}" Foreground="{DynamicResource App.IconForeground}"/></MenuItem.Icon>
+            </MenuItem>
+            <MenuItem Header="{loc:Loc MainWindow.Menu.Export}" Command="{Binding RequestExportCommand}">
+                <MenuItem.Icon>
+                    <PathIcon Data="{StaticResource AthenaIconExport}" Width="16" Height="16" Foreground="{DynamicResource App.IconForeground}"/>
+                </MenuItem.Icon>
+            </MenuItem>
+            <MenuItem Header="{loc:Loc MainWindow.Menu.Delete}" Command="{Binding RequestDeleteCommand}">
+                <MenuItem.Icon><PathIcon Data="{StaticResource AthenaIconDelete}" Foreground="{DynamicResource App.IconDangerForeground}"/></MenuItem.Icon>
+            </MenuItem>
+        </MenuFlyout>
+
         <DataTemplate x:Key="ConversationSessionItemTemplate" x:DataType="vm:ConversationSessionItemViewModel">
             <Grid Classes="conversation-row" Classes.selected="{Binding IsSelected}" IsVisible="{Binding IsSearchMatch}">
                 <!-- 选中指示条：从中心纵向长出来。用 Classes.on 直接绑 IsSelected，
@@ -81,31 +101,10 @@
                                        TextTrimming="CharacterEllipsis" VerticalAlignment="Center"/>
                         </Grid>
                     </Button>
-                    <Button Grid.Column="1" Classes="icon-plain conversation-menu" ToolTip.Tip="{loc:Loc MainWindow.Menu.Conversation}"
+                    <Button Grid.Column="1" Classes="icon-plain conversation-menu" ContextFlyout="{StaticResource ConversationRowMenu}" ToolTip.Tip="{loc:Loc MainWindow.Menu.Conversation}"
                             HorizontalAlignment="Center" VerticalAlignment="Center"
                             Click="OnOverflowMenuClick">
                         <PathIcon Data="{StaticResource AthenaIconOverflowMenu}" Width="14" Height="14" Foreground="{DynamicResource App.IconMutedForeground}"/>
-                        <Button.ContextFlyout>
-                            <MenuFlyout>
-                                <MenuItem Header="{loc:Loc MainWindow.Menu.Rename}" Command="{Binding StartRenameCommand}">
-                                    <MenuItem.Icon><PathIcon Data="{StaticResource AthenaIconEdit}" Foreground="{DynamicResource App.IconForeground}"/></MenuItem.Icon>
-                                </MenuItem>
-                                <MenuItem Header="{Binding PinActionText}" Command="{Binding TogglePinnedCommand}">
-                                    <MenuItem.Icon><PathIcon Data="{StaticResource AthenaIconPin}" Foreground="{DynamicResource App.IconForeground}"/></MenuItem.Icon>
-                                </MenuItem>
-                                <MenuItem Header="{loc:Loc MainWindow.Menu.Fork}" Command="{Binding RequestForkCommand}">
-                                    <MenuItem.Icon><PathIcon Data="{StaticResource AthenaIconBranch}" Foreground="{DynamicResource App.IconForeground}"/></MenuItem.Icon>
-                                </MenuItem>
-                                <MenuItem Header="{loc:Loc MainWindow.Menu.Export}" Command="{Binding RequestExportCommand}">
-                                    <MenuItem.Icon>
-                                        <PathIcon Data="{StaticResource AthenaIconExport}" Width="16" Height="16" Foreground="{DynamicResource App.IconForeground}"/>
-                                    </MenuItem.Icon>
-                                </MenuItem>
-                                <MenuItem Header="{loc:Loc MainWindow.Menu.Delete}" Command="{Binding RequestDeleteCommand}">
-                                    <MenuItem.Icon><PathIcon Data="{StaticResource AthenaIconDelete}" Foreground="{DynamicResource App.IconDangerForeground}"/></MenuItem.Icon>
-                                </MenuItem>
-                            </MenuFlyout>
-                        </Button.ContextFlyout>
                     </Button>
                 </Grid>
                 <Grid IsVisible="{Binding IsRenaming}" ColumnDefinitions="*,Auto" Margin="4,2">
@@ -143,7 +142,7 @@
              CubicEaseOut。这三档和曲线是取值，没有测量撑着，随便调。
              下面三条边界不一样——它们来自 CLAUDE.md 里已经量过的数字，不要越过：
                1. 选择器只覆盖 MainWindow 作用域的 shell 类，MainConversationView
-                  一个都不用——消息列表不虚拟化，一条 hover 过渡在那里量到 16.9ms/行
+                  一个都不用。旧版消息列表曾测得一条 hover 过渡耗费 16.9ms/行
                   （无过渡 1.1ms）。任何往消息列表里加动效的改动都必须先用
                   ATHENA_SCROLL_PERF=1 重测。
                1b. BrushTransition 的起点不能是 Transparent：直通 alpha 插值会经过
@@ -397,7 +396,11 @@
                         <TextBlock Foreground="{DynamicResource App.TextMuted}" Text="{loc:Loc MainWindow.Section.Pinned}" FontSize="{DynamicResource App.FontSize.Caption}" FontWeight="SemiBold" Margin="6,0,0,2"/>
                         <ItemsControl x:Name="PinnedConversationsList"
                                       ItemsSource="{Binding PinnedConversations}"
-                                      ItemTemplate="{StaticResource ConversationSessionItemTemplate}"/>
+                                      ItemTemplate="{StaticResource ConversationSessionItemTemplate}">
+                            <ItemsControl.ItemsPanel>
+                                <ItemsPanelTemplate><VirtualizingStackPanel/></ItemsPanelTemplate>
+                            </ItemsControl.ItemsPanel>
+                        </ItemsControl>
                     </StackPanel>
 
                     <ScrollViewer Grid.Row="3" Margin="6,0">
@@ -483,7 +486,11 @@
                                         <ItemsControl ItemsSource="{Binding Conversations}"
                                                       ItemTemplate="{StaticResource ConversationSessionItemTemplate}"
                                                       IsVisible="{Binding IsExpanded}"
-                                                      Margin="14,0,0,0"/>
+                                                      Margin="14,0,0,0">
+                                            <ItemsControl.ItemsPanel>
+                                                <ItemsPanelTemplate><VirtualizingStackPanel/></ItemsPanelTemplate>
+                                            </ItemsControl.ItemsPanel>
+                                        </ItemsControl>
                                     </StackPanel>
                                 </DataTemplate>
                             </ItemsControl.ItemTemplate>
@@ -700,7 +707,7 @@
                               ZIndex="60"
                               HorizontalAlignment="Left"
                               VerticalAlignment="Top"
-                              DataContext="{Binding MainConversationViewModel.Pet}">
+                              DataContext="{Binding MainConversationViewModel.Pet.VisiblePet}">
             <views:VirtualPetView.IsSuppressed>
                 <MultiBinding Converter="{x:Static BoolConverters.Or}">
                     <Binding Path="$parent[Window].((vm:MainWindowViewModel)DataContext).IsGameModeActive"/>

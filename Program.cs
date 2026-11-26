@@ -59,20 +59,32 @@ class Program
             e.SetObserved();
         };
 
+        // Local time zone initialization and the diagnostic file can run alongside Avalonia.
+        // Capture the event time here and flush the banner before a fatal error or exit.
+        var started = DateTimeOffset.UtcNow;
+        var startupLog = Task.Run(() =>
+        {
+            var time = started.ToLocalTime();
+            WriteCrashLog("Startup", null, "Process started.", time);
+            WriteCrashLog("Startup", null, $"BaseDirectory: {AppContext.BaseDirectory}", time);
+            WriteCrashLog("Startup", null, $"Runtime: {System.Runtime.InteropServices.RuntimeInformation.RuntimeIdentifier}", time);
+            WriteCrashLog("Startup", null, $"OS: {Environment.OSVersion}", time);
+            WriteCrashLog("Startup", null, $"64-bit: {Environment.Is64BitProcess}", time);
+        });
+
         try
         {
-            WriteCrashLog("Startup", null, "Process started.");
-            WriteCrashLog("Startup", null, $"BaseDirectory: {AppContext.BaseDirectory}");
-            WriteCrashLog("Startup", null, $"Runtime: {System.Runtime.InteropServices.RuntimeInformation.RuntimeIdentifier}");
-            WriteCrashLog("Startup", null, $"OS: {Environment.OSVersion}");
-            WriteCrashLog("Startup", null, $"64-bit: {Environment.Is64BitProcess}");
-
             BuildAvaloniaApp().StartWithClassicDesktopLifetime(args);
         }
         catch (Exception ex)
         {
+            startupLog.GetAwaiter().GetResult();
             WriteCrashLog("Main.Fatal", ex);
             throw;
+        }
+        finally
+        {
+            startupLog.GetAwaiter().GetResult();
         }
     }
 
@@ -92,11 +104,11 @@ class Program
             .WithInterFont()
             .LogToTrace();
 
-    private static void WriteCrashLog(string source, Exception? ex, string? message = null)
+    private static void WriteCrashLog(string source, Exception? ex, string? message = null, DateTimeOffset? timestamp = null)
     {
         try
         {
-            var line = $"[{DateTimeOffset.Now:yyyy-MM-dd HH:mm:ss.fff}] [{source}] {message ?? ex?.Message ?? "(no message)"}";
+            var line = $"[{timestamp ?? DateTimeOffset.Now:yyyy-MM-dd HH:mm:ss.fff}] [{source}] {message ?? ex?.Message ?? "(no message)"}";
             if (ex != null)
                 line += Environment.NewLine + ex;
 

@@ -379,7 +379,7 @@ public partial class MainWindow : Window
             || _leftShellColumn == null || _rightShellColumn == null
             || _leftSplitterColumn == null || _rightSplitterColumn == null) return;
         // 收起时语义右栏连同它那条分隔线一起归零（列宽 0、MinWidth 0），宽度全部让给中间对话。
-        // 不做宽度动画：中间消息列表没有虚拟化，每一帧改列宽都会让整棵气泡树重新布局。
+        // 折叠时直接应用列宽；拖动时由 GridSplitter 实时调整。
         var collapsed = layout.RightPanelCollapsed;
         var semanticRightMinWidth = collapsed ? 0 : GetSemanticRightMinWidth();
         var semanticRightSplitterWidth = collapsed ? 0 : ShellSplitterWidth;

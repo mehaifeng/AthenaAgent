@@ -89,6 +89,18 @@ AppBuilder.Configure<App>()
 
 TestLinuxDigitsUseTextFont();
 
+void TestDesktopPerformance()
+{
+    var validation = DesktopPerformanceTests.RunAsync();
+    PumpTimers(() => validation.IsCompleted, 30000, "Desktop performance regression checks did not return.");
+    validation.GetAwaiter().GetResult();
+}
+if (Environment.GetEnvironmentVariable("ATHENA_HEADLESS_ONLY") == "desktop-performance")
+{
+    TestDesktopPerformance();
+    return;
+}
+
 if (Environment.GetEnvironmentVariable("ATHENA_HEADLESS_ONLY") == "onboarding")
 {
     OnboardingEntranceTests.Run(outputPath);
@@ -326,6 +338,7 @@ TestLayoutSaveDoesNotReapplyRuntimeClients();
 TestConcreteConfigServiceIdentity();
 TestShellPanelBackgroundThemeResolution();
 TestConversationSwitchVeil();
+TestDesktopPerformance();
 TestConversationSwitchScrollsToBottom();
 TestRightPanelAutoExpand();
 GtkWebViewFocusBridgeTests.Run();
@@ -579,11 +592,13 @@ if (string.IsNullOrWhiteSpace(AutomationProperties.GetName(contextInspectorButto
     throw new InvalidOperationException("The Context inspector entry button needs an accessible name.");
 if (contextInspectorButton.Command == null)
     throw new InvalidOperationException("The Context inspector entry button must target the inspector command.");
+if (mainConversationView.FindControl<Border>("ContextInspectorDrawer")?.Child != null)
+    throw new InvalidOperationException("The Context inspector body should be created when first opened.");
 contextInspectorButton.Command.Execute(null);
 Dispatcher.UIThread.RunJobs();
 var contextInspectorDrawer = mainConversationView.FindControl<Border>("ContextInspectorDrawer")
                              ?? throw new InvalidOperationException("The current-conversation Context inspector drawer was not created.");
-var contextInspectorTabs = mainConversationView.FindControl<TabControl>("ContextInspectorTabs")
+var contextInspectorTabs = contextInspectorDrawer.GetVisualDescendants().OfType<TabControl>().FirstOrDefault(t => t.Name == "ContextInspectorTabs")
                            ?? throw new InvalidOperationException("The Context inspector tabs were not created.");
 if (!contextInspectorDrawer.IsVisible || contextInspectorTabs.ItemCount != 4)
     throw new InvalidOperationException($"The Context inspector must open with Overview, Summary, Preview, and RAW tabs (visible={contextInspectorDrawer.IsVisible}, tabs={contextInspectorTabs.ItemCount}).");
@@ -963,6 +978,16 @@ var pinnedMenuItems = WaitForMenuItems(
     ["重命名", "Unpin", "分支", "导出", "删除"],
     "Pinned conversation menu commands or icons are incomplete.");
 pinnedMenuFlyout.Hide();
+
+var activeMenuButton = conversationCards.First(row => ReferenceEquals(row.DataContext, activeSession))
+    .GetVisualDescendants().OfType<Button>().Single(button => button.Classes.Contains("conversation-menu"));
+activeMenuButton.RaiseEvent(new Avalonia.Interactivity.RoutedEventArgs(Button.ClickEvent));
+Dispatcher.UIThread.RunJobs();
+var activeMenu = (MenuFlyout)activeMenuButton.ContextFlyout!;
+var reopenedItems = WaitForMenuItems(activeMenu, ["重命名", "Pin", "分支", "导出", "删除"], "The menu must follow its current conversation.");
+if (!ReferenceEquals(reopenedItems[^1].Command, activeSession.RequestDeleteCommand))
+    throw new InvalidOperationException("The reused conversation menu retained a command from its previous row.");
+activeMenu.Hide();
 
 Directory.CreateDirectory(Path.GetDirectoryName(outputPath)!);
 AssertEveryIconResolved(window);
@@ -2513,7 +2538,7 @@ static void TestComputerUseBrowserTarget()
     {
         BaseUrl = "https://api.deepseek.com/v1", ApiKey = "official-key"
     });
-    ModelRoleProbeService.MigrateComputerUse(config);
+    Athena.UI.Services.ModelMetadata.ComputerUseModelSelection.MigrateComputerUse(config);
     var request = new ModelRoleProbeService().Resolve(config, AiModelRole.ComputerUse);
     var model = request.Model;
     if (model is not { BaseUrl: "https://api.deepseek.com", Model: "deepseek-flash",
@@ -2617,7 +2642,7 @@ static void TestEmbeddedBrowserPane(bool runChrome, string? previewPath = null)
         Reported = new() { InputModalities = ["text", "image"] }
     });
     config.AiModels.Providers.Add(browserProvider);
-    ModelRoleProbeService.MigrateComputerUse(config);
+    Athena.UI.Services.ModelMetadata.ComputerUseModelSelection.MigrateComputerUse(config);
     config.AiModels.MainConversation.ProviderId = provider.Id;
     config.AiModels.MainConversation.Model = "test-main";
     var configService = new HeadlessConfigService(config);
@@ -7916,7 +7941,7 @@ static void TestContextInspectorScaling(string outputPath)
     Dispatcher.UIThread.RunJobs();
     var drawer = view.FindControl<Border>("ContextInspectorDrawer")
                  ?? throw new InvalidOperationException("Scaled Context inspector drawer was not created.");
-    var tabs = view.FindControl<TabControl>("ContextInspectorTabs")
+    var tabs = drawer.GetVisualDescendants().OfType<TabControl>().FirstOrDefault(t => t.Name == "ContextInspectorTabs")
                ?? throw new InvalidOperationException("Scaled Context inspector tabs were not created.");
     var closeButton = drawer.GetVisualDescendants().OfType<Button>()
         .FirstOrDefault(button => ReferenceEquals(button.Command, viewModel.CloseContextInspectorCommand))
@@ -7978,6 +8003,11 @@ static async Task TestProviderRefreshOrderingAsync()
 
     provider.BaseUrl = "https://second.invalid/v1";
     provider.ApiKey = "second-key";
+    int inventoryChanges = 0;
+    provider.PropertyChanged += (_, change) =>
+    {
+        if (change.PropertyName == nameof(provider.Models)) inventoryChanges++;
+    };
     var newer = viewModel.RefreshModelsCommand.ExecuteAsync(provider);
     await catalog.SecondStarted.Task.WaitAsync(TimeSpan.FromSeconds(2));
     catalog.SecondResult.TrySetResult(ModelCatalogResult.Ok(["new-model"]));
@@ -7989,6 +8019,12 @@ static async Task TestProviderRefreshOrderingAsync()
         || provider.Models.All(model => model.Id != "new-model")
         || provider.Models.Single(model => model.Id == "referenced-model").IsAvailable)
         throw new InvalidOperationException("Provider refresh ordering/fingerprint guard or keyed unavailable merge failed.");
+    if (inventoryChanges != 1) throw new InvalidOperationException("The inventory must publish one complete replacement.");
+    await session.SaveNowAsync();
+    var saves = configService.SaveCount;
+    provider.Models.Add(new ProviderModelDescriptor { Id = "manual-after-refresh", IsManual = true });
+    for (var attempt = 0; configService.SaveCount == saves && attempt < 100; attempt++) await Task.Delay(20);
+    if (configService.SaveCount == saves) throw new InvalidOperationException("The replacement inventory lost configuration saving.");
     Console.WriteLine("[PASS] Provider Models ignores stale refreshes and preserves referenced unavailable models");
 }
 

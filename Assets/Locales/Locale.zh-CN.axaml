@@ -59,6 +59,7 @@
     <system:String x:Key="Chat.BtnAbort">停止</system:String>
     <system:String x:Key="Chat.BtnRewind">回溯到这里</system:String>
     <system:String x:Key="Chat.BtnFork">从这里分支</system:String>
+    <system:String x:Key="Chat.DiagramZoomHint">按住 Ctrl 或 ⌘ 并滚动可缩放图表</system:String>
     <system:String x:Key="Chat.RewindConfirm.Title">确认回溯</system:String>
     <system:String x:Key="Chat.RewindConfirm.Message">回溯会删除这条消息及之后的所有内容（不保留），被删的内容会回到输入框，是否继续？</system:String>
     <system:String x:Key="Chat.RewindConfirm.Yes">确认</system:String>

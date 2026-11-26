@@ -20,6 +20,7 @@ using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Text;
+using System.Threading;
 using System.Threading.Tasks;
 
 namespace Athena.UI.ViewModels;
@@ -48,6 +49,8 @@ public partial class MainWindowViewModel : ViewModelBase, IDisposable, ICronSess
     private readonly Func<ProviderModelsViewModel>? _providerModelsFactory;
     private readonly IConversationTitleGenerator? _titleGenerator;
     private bool _disposed;
+    private int _logRefreshPosted;
+    private int _logQueryGeneration;
 
     public WorkspaceWorkbenchViewModel? Workbench { get; }
     public EmbeddedBrowserViewModel? Browser { get; }
@@ -129,7 +132,7 @@ public partial class MainWindowViewModel : ViewModelBase, IDisposable, ICronSess
         }
     }
 
-    public ObservableCollection<LogEntryViewModel> CompactLogEntries { get; } = new();
+    public BulkObservableCollection<LogEntryViewModel> CompactLogEntries { get; } = new();
 
     private ViewModelBase? _activePage;
     public ViewModelBase? ActivePage => _activePage;
@@ -163,9 +166,36 @@ public partial class MainWindowViewModel : ViewModelBase, IDisposable, ICronSess
     [ObservableProperty]
     private string _conversationSearchText = string.Empty;
 
+    private CancellationTokenSource? _historySearch;
+
     partial void OnConversationSearchTextChanged(string value)
     {
+        _historySearch?.Cancel();
         var query = value.Trim();
+        ApplySearch(query, null);
+        if (query.Length == 0 || _conversationStore is not IConversationDirectory directory ||
+            !ConversationGroups.SelectMany(g => g.Conversations).Any(s => s.SearchableMessages == null)) return;
+        var cancellation = new CancellationTokenSource();
+        _historySearch = cancellation;
+        AsyncEventGuard.Run(async () =>
+        {
+            try
+            {
+                await Task.Delay(100, cancellation.Token);
+                var matches = await Task.Run(() => directory.FindByContent(query, cancellation.Token), cancellation.Token);
+                if (!cancellation.IsCancellationRequested) ApplySearch(query, matches);
+            }
+            catch (OperationCanceledException) when (cancellation.IsCancellationRequested) { }
+            finally
+            {
+                if (ReferenceEquals(_historySearch, cancellation)) _historySearch = null;
+                cancellation.Dispose();
+            }
+        }, "SearchConversationHistory");
+    }
+
+    private void ApplySearch(string query, HashSet<string>? archivedMatches)
+    {
         foreach (var group in ConversationGroups)
         {
             var groupMatches = string.IsNullOrEmpty(query)
@@ -175,7 +205,9 @@ public partial class MainWindowViewModel : ViewModelBase, IDisposable, ICronSess
             {
                 session.IsSearchMatch = groupMatches
                                         || session.Title.Contains(query, StringComparison.OrdinalIgnoreCase)
-                                        || session.Chat.Messages.Any(message => message.Content.Contains(query, StringComparison.OrdinalIgnoreCase));
+                                        || (session.SearchableMessages is { } messages
+                                            ? messages.Any(m => m.Content.Contains(query, StringComparison.OrdinalIgnoreCase))
+                                            : archivedMatches?.Contains(session.HistoryId) == true);
             }
             group.IsSearchMatch = groupMatches || group.Conversations.Any(session => session.IsSearchMatch);
             if (!string.IsNullOrEmpty(query) && group.IsSearchMatch) group.IsExpanded = true;
@@ -206,9 +238,17 @@ public partial class MainWindowViewModel : ViewModelBase, IDisposable, ICronSess
         newValue.IsSelected = true;
         // 连切时会攒下多个待退场会话（A→B→C 要各自结算 A 和 B），所以是队列而不是单个字段。
         if (oldValue != null && !ReferenceEquals(oldValue, newValue)) _pendingRetirement.Add(oldValue);
-        BeginConversationSurfaceSwap(newValue);
-        // 游戏模式的第一拍同样只做一件事：要换城就让页面出港（一次 InvokeScript），不装城、不扫描
         GameMode?.OnSelectionChanged(newValue);
+        if (oldValue == null && IsConversationTreeLoading && !IsGameModeActive &&
+            (newValue.LoadedChat == null || ReferenceEquals(newValue.LoadedChat, DisplayedConversation)))
+        {
+            // No outgoing row or content on first launch. Prepare the initial conversation
+            // while the shell is being laid out; the selection animation delay is for switches.
+            _conversationSurfaceGeneration++;
+            IsConversationSwitching = true;
+            AsyncEventGuard.Run(SwapSelectedAsync, nameof(SwapSelectedAsync));
+        }
+        else BeginConversationSurfaceSwap(newValue);
     }
 
     /// <summary>切走但还没结算的会话：空会话摘除与静默标题生成都推迟到换绑那一拍统一处理。</summary>
@@ -226,7 +266,7 @@ public partial class MainWindowViewModel : ViewModelBase, IDisposable, ICronSess
         _pendingRetirement.Clear();
         foreach (var session in retiring)
         {
-            if (ReferenceEquals(session, current)) continue;
+            if (ReferenceEquals(session, current) || session.LoadedChat == null) continue;
             if (session.Chat.Messages.Count == 0 && string.IsNullOrWhiteSpace(session.Chat.InputText))
             {
                 var group = ConversationGroups.FirstOrDefault(candidate => candidate.Conversations.Contains(session));
@@ -258,54 +298,25 @@ public partial class MainWindowViewModel : ViewModelBase, IDisposable, ICronSess
     }
 
 
-    /// <summary>
-    /// 会话切换遮罩：中间对话面板在切换期间盖一层与面板同色的幕布。
-    ///
-    /// 它买的不是速度——切换根本没有 I/O，所有会话在启动时就已经 restore 进各自的 VM 了，
-    /// 那 2~3 秒全是 MessagesItemsControl 一次性实体化整段气泡树的布局开销（消息列表不虚拟化，
-    /// 见 CLAUDE.md「Bubble Rendering Budget」）。遮罩买的是「把假死换成可解释的等待」：
-    /// 左侧列表这一拍就跟手切过去了，中间那块明确显示它正在排布。
-    /// </summary>
+    /// <summary>打开归档与定位可视气泡期间，消息区显示合成器驱动的切换幕布。</summary>
     [ObservableProperty]
     private bool _isConversationSwitching;
 
-    /// <summary>
-    /// 中间对话面板当前正在显示的会话 VM。
-    ///
-    /// 它与 <see cref="MainConversationViewModel"/> 现在一起在换绑那一拍落地，仍然分成两个属性：
-    /// 一个是「当前会话」的语义，一个是「那棵气泡树绑的是谁」。只有后者被 MainWindow.axaml
-    /// 中间列消费，也只有它的赋值会引发整棵树重排——两件事混在一个属性上，
-    /// 以后想再把轻绑定提前就没有着手处，而选中语义也会被一个渲染技巧绑住。
-    /// </summary>
+    /// <summary>已经完成加载并提交给中间面板的会话。</summary>
     [ObservableProperty]
     private MainConversationViewModel _displayedConversation;
+    private MainConversationViewModel? _initialChat;
 
-    /// <summary>
-    /// 切换代次。连切时只有最后一次真正重排气泡树——按住方向键连过 5 个会话，
-    /// 改动前要付 5 次全量布局，现在只付落点那一次。
-    /// </summary>
+    /// <summary>选中的归档读取完成时，用代次检查它是否仍是用户选中的会话。</summary>
     private int _conversationSurfaceGeneration;
 
     /// <summary>会话行选中动效跑完之前不换绑，见 <see cref="ShellMaterial.RowSelectionSettle"/>。</summary>
     private DispatcherTimer? _surfaceSwapTimer;
 
-    /// <summary>
-    /// 会话切换的第一拍：升起幕布、让出时间给选中动效，**不换绑**。
-    ///
-    /// **绝不能把换绑写在这一拍里。** 同一个 dispatcher turn 内赋值再换绑，UI 线程会直接进入
-    /// measure/arrange，幕布那一帧一个像素都画不出来，屏幕上照样冻着旧会话，等 2~3 秒后幕布
-    /// 和新内容同帧出现再立刻消失——白做。这和 OnUtilityTabSelectionChanged 上那条注释是同一个坑，
-    /// 方向相反：那里是多排了一个 turn 而闪帧，这里是少排了一个 turn 而根本不显示。
-    ///
-    /// 让出的这一段是 RowSelectionSettle 而不是「一个 dispatcher turn」：Transition 由 UI 线程的
-    /// 动画时钟驱动，紧接着冻住 2~3 秒会把选中行的生长动效钉死在第一帧，读起来就是
-    /// 「选中要等对话加载完」。先把选中态跑完，再去付布局的账。
-    ///
-    /// 计时器在连切时被重置，所以在列表里连着走不会触发任何一次气泡树重排——手停下来才付一次。
-    /// </summary>
+    /// <summary>先更新会话行并让选中动画完成。连续选择会重置计时器。</summary>
     private void BeginConversationSurfaceSwap(ConversationSessionItemViewModel target)
     {
-        if (ReferenceEquals(DisplayedConversation, target.Chat)) return;
+        if (ReferenceEquals(DisplayedConversation, target.LoadedChat) && !IsConversationSwitching) return;
         _conversationSurfaceGeneration++;
         IsConversationSwitching = true;
         _surfaceSwapTimer ??= new DispatcherTimer(
@@ -316,25 +327,42 @@ public partial class MainWindowViewModel : ViewModelBase, IDisposable, ICronSess
         _surfaceSwapTimer.Start();
     }
 
-    /// <summary>
-    /// 第二拍：换绑，以及所有第一拍让出去的重活。UI 线程在这里冻住整段气泡树的首次布局，
-    /// 屏幕上停的是已经提交出去的幕布帧，幕布上的加载动效由合成器（渲染线程）继续跑。
-    /// </summary>
+    /// <summary>载入选中的归档与工作区，再将消息视口定位到末尾。</summary>
     private void OnConversationSurfaceSwapDue(object? sender, EventArgs e)
     {
         _surfaceSwapTimer?.Stop();
+        AsyncEventGuard.Run(SwapSelectedAsync, nameof(SwapSelectedAsync));
+    }
+
+    private async Task SwapSelectedAsync()
+    {
         var generation = _conversationSurfaceGeneration;
         var target = SelectedConversation;
         RetirePendingConversations(target);
         if (target != null)
         {
+            try { await target.PrepareAsync(); }
+            catch (Exception ex)
+            {
+                _logger.Error(ex, "Could not open conversation {HistoryId}", target.HistoryId);
+                if (generation == _conversationSurfaceGeneration && !_disposed)
+                {
+                    target.SetArchiveFailed(L("History.FailedStatus", "Failed to load conversation"));
+                    var previous = ConversationGroups.SelectMany(group => group.Conversations)
+                        .FirstOrDefault(session => ReferenceEquals(session.LoadedChat, DisplayedConversation));
+                    SelectedConversation = previous;
+                    EndConversationSurfaceSwap(generation);
+                }
+                return;
+            }
+            if (_disposed || generation != _conversationSurfaceGeneration || !ReferenceEquals(SelectedConversation, target)) return;
             var previousConversation = MainConversationViewModel;
             MainConversationViewModel = target.Chat;
             DisplayedConversation = target.Chat;
             _approvalQueue?.ShowConversation(target.ConversationId);
             if (!ReferenceEquals(previousConversation, target.Chat)
                 && ConversationGroups.SelectMany(group => group.Conversations)
-                    .All(session => !ReferenceEquals(session.Chat, previousConversation)))
+                    .All(session => !ReferenceEquals(session.LoadedChat, previousConversation)))
             {
                 previousConversation.Dispose();
             }
@@ -560,6 +588,7 @@ public partial class MainWindowViewModel : ViewModelBase, IDisposable, ICronSess
         // per-session state; design-time and isolated tests may still use the lightweight fallback.
         _mainConversationViewModel = chatSessionFactory?.Create()
             ?? new MainConversationViewModel(chatService, configService, promptService, functionRegistry, tokenService, localizationService, attachmentStoreService, systemAudioService, archiveService, imageGenerationSessionService, screenCaptureService, subAgentOrchestrator, workspaceService, conversationSessionAccessor, userInteractionService, executionCoordinator, contextPolicyProvider, browser: Browser);
+        _initialChat = _mainConversationViewModel;
         // 中间面板的初始内容与 MainConversationViewModel 同源；此后由 BeginConversationSurfaceSwap 晚一帧跟进。
         _displayedConversation = _mainConversationViewModel;
         _approvalQueue?.ShowConversation(_displayedConversation.ConversationId);
@@ -607,8 +636,12 @@ public partial class MainWindowViewModel : ViewModelBase, IDisposable, ICronSess
 
     private void OnLogsChanged()
     {
-        // SQLiteSink 在后台线程触发，需切回 UI 线程刷新集合。
-        Dispatcher.UIThread.Post(async () => await RefreshCompactLogsAsync());
+        if (_disposed || Interlocked.Exchange(ref _logRefreshPosted, 1) != 0) return;
+        Dispatcher.UIThread.Post(async () =>
+        {
+            Interlocked.Exchange(ref _logRefreshPosted, 0);
+            await RefreshCompactLogsAsync();
+        });
     }
 
     /// <summary>
@@ -850,7 +883,7 @@ public partial class MainWindowViewModel : ViewModelBase, IDisposable, ICronSess
         if (group == null) return;
 
         _logger.Information("Session tree inserting external archive: {HistoryId}", history.Id);
-        session = RestoreConversationSession(history, group.Workspace, ResolveForkDepth(history));
+        session = RestoreConversationSession(ArchivedConversation.FromHistory(history), group.Workspace, ResolveForkDepth(history));
         session.SetArchiveCompleted();
         WireSession(session);
         group.Conversations.Insert(0, session);
@@ -859,9 +892,14 @@ public partial class MainWindowViewModel : ViewModelBase, IDisposable, ICronSess
         _logger.Information("Session tree inserted external archive: {HistoryId}", history.Id);
     }
 
-    private MainConversationViewModel CreateChatSession(WorkspaceProfile? workspace)
+    private MainConversationViewModel CreateChatSession(WorkspaceProfile? workspace, bool useInitial = false)
     {
-        var chat = _chatSessionFactory?.Create()
+        // The initial surface already owns a fully composed session. Give it to the
+        // first conversation while it is still empty; subsequent sessions are independent.
+        var initial = _initialChat;
+        _initialChat = null;
+        var chat = useInitial && initial != null && ReferenceEquals(initial, MainConversationViewModel)
+            ? initial : _chatSessionFactory?.Create()
             ?? new MainConversationViewModel(
                 null,
                 null,
@@ -878,12 +916,20 @@ public partial class MainWindowViewModel : ViewModelBase, IDisposable, ICronSess
     }
 
     private ConversationSessionItemViewModel RestoreConversationSession(
-        ConversationHistoryItem history, WorkspaceProfile? workspace, int forkDepth)
+        ArchivedConversation history, WorkspaceProfile? workspace, int forkDepth)
     {
-        var chat = CreateChatSession(workspace);
-        chat.RestorePersistedConversation(history);
-        chat.InputText = history.Draft;
-        return new ConversationSessionItemViewModel(chat, workspace, _conversationStore, history.Id, _localizationService)
+        MainConversationViewModel Restore(ConversationHistoryItem item)
+        {
+            var useInitial = IsConversationTreeLoading && SelectedConversation?.HistoryId == history.Id &&
+                MainConversationViewModel is { IsSending: false, Messages.Count: 0, PendingAttachments.Count: 0 } &&
+                string.IsNullOrEmpty(MainConversationViewModel.InputText);
+            var chat = CreateChatSession(workspace, useInitial);
+            chat.RestorePersistedConversation(item, history.OwnsReadMessages);
+            chat.InputText = item.Draft;
+            return chat;
+        }
+
+        return new ConversationSessionItemViewModel(history, Restore, workspace, _conversationStore, _localizationService)
         {
             Title = string.IsNullOrWhiteSpace(history.Summary) ? _localizationService?.GetString("Session.Title.NewConversation", "New chat") ?? "New chat" : history.Summary,
             IsPinned = history.IsPinned,
@@ -917,12 +963,12 @@ public partial class MainWindowViewModel : ViewModelBase, IDisposable, ICronSess
     /// 2=分支的分支……）。通过 ForkedFromHistoryId 追溯父链；父不在本次加载集合
     /// （如已删除）时按深度 1 计，保证分支图标照常显示。
     /// </summary>
-    private static Dictionary<string, int> BuildForkDepthMap(IReadOnlyList<ConversationHistoryItem> histories)
+    private static Dictionary<string, int> BuildForkDepthMap(IReadOnlyList<ArchivedConversation> histories)
     {
         var byId = histories.ToDictionary(history => history.Id);
         var depths = new Dictionary<string, int>(histories.Count);
 
-        int DepthOf(ConversationHistoryItem history)
+        int DepthOf(ArchivedConversation history)
         {
             if (depths.TryGetValue(history.Id, out var cached)) return cached;
 
@@ -978,7 +1024,11 @@ public partial class MainWindowViewModel : ViewModelBase, IDisposable, ICronSess
                 ConversationGroups.Add(group);
             }
 
-            var histories = _conversationArchiveService == null ? [] : await _conversationArchiveService.LoadAllAsync();
+            var histories = _conversationStore is IConversationDirectory directory
+                ? await directory.ReadDirectoryAsync()
+                : _conversationArchiveService == null ? [] :
+                    (await _conversationArchiveService.LoadAllAsync()).Select(ArchivedConversation.FromHistory).ToList();
+            if (_disposed) return;
             var forkDepths = BuildForkDepthMap(histories);
             foreach (var history in histories.OrderByDescending(item => item.IsPinned).ThenByDescending(item => item.UpdatedAt))
             {
@@ -1040,7 +1090,8 @@ public partial class MainWindowViewModel : ViewModelBase, IDisposable, ICronSess
 
     private ConversationSessionItemViewModel CreateConversationCore(WorkspaceConversationGroupViewModel group)
     {
-        var chat = CreateChatSession(group.Workspace);
+        // A newly created chat keeps anything typed into the startup surface.
+        var chat = CreateChatSession(group.Workspace, IsConversationTreeLoading && SelectedConversation == null && !IsGameModeActive);
         var session = new ConversationSessionItemViewModel(chat, group.Workspace, _conversationStore, null, _localizationService);
         WireSession(session);
         group.Conversations.Insert(0, session);
@@ -1251,17 +1302,17 @@ public partial class MainWindowViewModel : ViewModelBase, IDisposable, ICronSess
 
     private async Task RefreshCompactLogsAsync()
     {
-        if (_logService == null) return;
+        if (_logService == null || _disposed) return;
+        var generation = ++_logQueryGeneration;
         var result = await _logService.QueryLogsAsync(new LogQueryParams
         {
             Page = 1,
             PageSize = 200
         });
+        if (_disposed || generation != _logQueryGeneration) return;
         var entries = result.Entries.Select(entry => new LogEntryViewModel(entry)).ToList();
         GlobalErrorCount = entries.Count(entry => entry.Level is "ERROR" or "FATAL");
-        CompactLogEntries.Clear();
-        foreach (var entry in entries)
-            CompactLogEntries.Add(entry);
+        CompactLogEntries.ReplaceAll(entries);
     }
 
     [RelayCommand]
@@ -1467,7 +1518,7 @@ public partial class MainWindowViewModel : ViewModelBase, IDisposable, ICronSess
                                                                     || candidate.Workspace?.Id == workspace.Id))
         {
             group.NotifyRelocated();
-            foreach (var session in group.Conversations) session.Chat.RefreshWorkspaceDirectory();
+            foreach (var session in group.Conversations) session.LoadedChat?.RefreshWorkspaceDirectory();
         }
         if (SelectedConversation?.Workspace?.Id == workspace.Id)
             ActivateConversationScope(SelectedConversation);
@@ -1686,6 +1737,7 @@ public partial class MainWindowViewModel : ViewModelBase, IDisposable, ICronSess
     {
         if (_disposed) return;
         _disposed = true;
+        _historySearch?.Cancel();
 
         SetActivePage(null);
         if (_localizationService != null)

@@ -410,30 +410,25 @@ internal sealed class VectorStoreService : IDisposable
                     await deleteVectorStatusCommand.ExecuteNonQueryAsync();
                 }
 
+                using var insert = new SqliteCommand("""
+                    INSERT INTO document_vectors (file_path, chunk_index, chunk_text, heading_path, embedding)
+                    VALUES (@path, @idx, @text, @heading, NULL)
+                    """, connection, transaction);
+                insert.Parameters.AddWithValue("@path", filePath);
+                var chunkIndex = insert.Parameters.Add("@idx", SqliteType.Integer);
+                var text = insert.Parameters.Add("@text", SqliteType.Text);
+                var heading = insert.Parameters.Add("@heading", SqliteType.Text);
+                using var fts = new SqliteCommand("INSERT INTO fts_index (file_path, chunk_index, content) VALUES (@path, @idx, @text)", connection, transaction);
+                fts.Parameters.AddWithValue("@path", filePath);
+                var ftsIndex = fts.Parameters.Add("@idx", SqliteType.Integer);
+                var ftsText = fts.Parameters.Add("@text", SqliteType.Text);
                 foreach (var (index, chunkText, headingPath) in chunks)
                 {
-                    using (var insertCommand = new SqliteCommand(
-                        @"INSERT INTO document_vectors (file_path, chunk_index, chunk_text, heading_path, embedding)
-                          VALUES (@filePath, @chunkIndex, @chunkText, @headingPath, NULL)",
-                        connection, transaction))
-                    {
-                        insertCommand.Parameters.AddWithValue("@filePath", filePath);
-                        insertCommand.Parameters.AddWithValue("@chunkIndex", index);
-                        insertCommand.Parameters.AddWithValue("@chunkText", chunkText);
-                        insertCommand.Parameters.AddWithValue("@headingPath", headingPath ?? string.Empty);
-                        await insertCommand.ExecuteNonQueryAsync();
-                    }
-
-                    using var insertFtsCommand = new SqliteCommand(
-                        @"INSERT INTO fts_index (file_path, chunk_index, content)
-                          VALUES (@filePath, @chunkIndex, @content)",
-                        connection, transaction);
-
-                    insertFtsCommand.Parameters.Add(new SqliteParameter("@filePath", filePath));
-                    insertFtsCommand.Parameters.Add(new SqliteParameter("@chunkIndex", index));
-                    insertFtsCommand.Parameters.Add(new SqliteParameter("@content", chunkText));
-
-                    await insertFtsCommand.ExecuteNonQueryAsync();
+                    chunkIndex.Value = ftsIndex.Value = index;
+                    text.Value = ftsText.Value = chunkText;
+                    heading.Value = headingPath ?? string.Empty;
+                    await insert.ExecuteNonQueryAsync();
+                    await fts.ExecuteNonQueryAsync();
                 }
 
                 using (var statusCommand = new SqliteCommand(
@@ -485,14 +480,16 @@ internal sealed class VectorStoreService : IDisposable
                     await clearCommand.ExecuteNonQueryAsync();
                 }
 
+                using var updateCommand = new SqliteCommand(
+                    @"UPDATE document_vectors SET embedding = @embedding
+                      WHERE file_path = @filePath AND chunk_index = @chunkIndex", connection, transaction);
+                updateCommand.Parameters.AddWithValue("@filePath", filePath);
+                var chunkIndex = updateCommand.Parameters.Add("@chunkIndex", SqliteType.Integer);
+                var vector = updateCommand.Parameters.Add("@embedding", SqliteType.Blob);
                 foreach (var (index, embedding) in embeddings)
                 {
-                    using var updateCommand = new SqliteCommand(
-                        @"UPDATE document_vectors SET embedding = @embedding
-                          WHERE file_path = @filePath AND chunk_index = @chunkIndex", connection, transaction);
-                    updateCommand.Parameters.AddWithValue("@filePath", filePath);
-                    updateCommand.Parameters.AddWithValue("@chunkIndex", index);
-                    updateCommand.Parameters.AddWithValue("@embedding", FloatsToBytes(embedding));
+                    chunkIndex.Value = index;
+                    vector.Value = FloatsToBytes(embedding);
                     await updateCommand.ExecuteNonQueryAsync();
                 }
 

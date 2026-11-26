@@ -10,6 +10,7 @@
              xmlns:loc="using:Athena.UI.Markup"
              xmlns:u="https://irihi.tech/ursa"
              xmlns:lmd="clr-namespace:LiveMarkdown.Avalonia;assembly=LiveMarkdown.Avalonia"
+             xmlns:diagram="clr-namespace:LiveMarkdown.Avalonia;assembly=LiveMarkdown.Avalonia.Mermaid"
              mc:Ignorable="d" 
              d:DesignWidth="720" 
              d:DesignHeight="1080"
@@ -66,6 +67,109 @@
                 <MenuItem.Icon><PathIcon Data="{StaticResource AthenaIconCopy}" Foreground="{DynamicResource App.IconForeground}"/></MenuItem.Icon>
             </MenuItem>
         </ContextMenu>
+        <!-- Historical bubbles construct these status controls only when the state becomes visible. -->
+        <DataTemplate x:Key="MessageHasAudioErrorTemplate" x:DataType="models:ChatMessage">
+            <Border
+                    Background="{DynamicResource App.SectionBg}"
+                    BorderBrush="{DynamicResource SemiRed6}"
+                    BorderThickness="1"
+                    CornerRadius="8"
+                    Padding="10,8">
+                <TextBlock Text="{Binding AudioErrorMessage}"
+                           Foreground="{DynamicResource SemiRed6}"
+                           TextWrapping="Wrap"
+                           FontSize="{DynamicResource App.FontSize.Body}"/>
+            </Border>
+        </DataTemplate>
+
+        <DataTemplate x:Key="MessageIsGeneratingAudioTemplate" x:DataType="models:ChatMessage">
+            <StackPanel Orientation="Horizontal" Spacing="6">
+                <PathIcon Data="{StaticResource AthenaIconLoading}" Classes.SlowSpin="{Binding IsGeneratingAudio}" Width="13" Height="13" Opacity="0.6"/>
+                <TextBlock Foreground="{DynamicResource App.TextMuted}" Text="{loc:Loc Chat.Audio.Generating}" FontStyle="Italic" FontSize="{DynamicResource App.FontSize.Body}" VerticalAlignment="Center"/>
+            </StackPanel>
+        </DataTemplate>
+
+        <DataTemplate x:Key="MessageCanGenerateAudioTemplate" x:DataType="models:ChatMessage">
+            <Button HorizontalAlignment="Left"
+                    Padding="8,4"
+                    FontSize="{DynamicResource App.FontSize.Body}"
+                    Command="{Binding $parent[UserControl].((vm:MainConversationViewModel)DataContext).GenerateMessageAudioCommand}"
+                    CommandParameter="{Binding}"
+                    ToolTip.Tip="{loc:Loc Chat.Audio.Generate}">
+                <StackPanel Orientation="Horizontal" Spacing="6">
+                    <PathIcon Data="{StaticResource AthenaIconSpeech}" Width="13" Height="13" Opacity="0.75"/>
+                    <TextBlock Text="{loc:Loc Chat.Audio.Generate}" VerticalAlignment="Center"/>
+                </StackPanel>
+            </Button>
+        </DataTemplate>
+
+        <DataTemplate x:Key="MessageHasToolExecutionSummaryTemplate" x:DataType="models:ChatMessage">
+            <StackPanel Orientation="Horizontal" Spacing="6">
+                <PathIcon Data="{StaticResource AthenaIconLoading}" Classes.SlowSpin="{Binding HasToolExecutionSummary}" Width="14" Height="14" Opacity="0.6"/>
+                <TextBlock Foreground="{DynamicResource App.TextMuted}" Text="{Binding ToolExecutionSummary}" FontStyle="Italic" FontSize="{DynamicResource App.FontSize.Subheading}" VerticalAlignment="Center"/>
+            </StackPanel>
+        </DataTemplate>
+
+        <DataTemplate x:Key="MessageHasContextMaintenanceStatusTemplate" x:DataType="models:ChatMessage">
+            <StackPanel Orientation="Horizontal" Spacing="6">
+                <PathIcon Data="{StaticResource AthenaIconArchive}" Width="14" Height="14" Opacity="0.6" VerticalAlignment="Center"/>
+                <TextBlock Foreground="{DynamicResource App.TextMuted}" Text="{Binding ContextMaintenanceStatus}" FontStyle="Italic" FontSize="{DynamicResource App.FontSize.Subheading}" VerticalAlignment="Center"/>
+                <Button Padding="8,2"
+                        FontSize="{DynamicResource App.FontSize.Caption}"
+                        VerticalAlignment="Center"
+                        Content="{loc:Loc Chat.Context.SkipCompression}"
+                        Command="{Binding $parent[UserControl].((vm:MainConversationViewModel)DataContext).SkipCompressionCommand}"
+                        ToolTip.Tip="{loc:Loc Chat.Context.SkipCompressionHint}"
+                        AutomationProperties.Name="{loc:Loc Chat.Context.SkipCompression}"/>
+            </StackPanel>
+        </DataTemplate>
+
+        <DataTemplate x:Key="MessageIsLoadingTemplate" x:DataType="models:ChatMessage">
+            <StackPanel Orientation="Horizontal" Spacing="10" VerticalAlignment="Center">
+                <StackPanel Orientation="Horizontal" Spacing="3"
+                            IsVisible="{Binding ShowThinkingIndicator}"
+                            VerticalAlignment="Center">
+                    <Ellipse Classes="loading-dot dot1" Classes.animating="{Binding ShowThinkingIndicator}"/>
+                    <Ellipse Classes="loading-dot dot2" Classes.animating="{Binding ShowThinkingIndicator}"/>
+                    <Ellipse Classes="loading-dot dot3" Classes.animating="{Binding ShowThinkingIndicator}"/>
+                </StackPanel>
+                <TextBlock Classes="thinking-text"
+                           Classes.breathing="{Binding ShowThinkingIndicator}"
+                           Text="{loc:Loc Chat.ReceivingData}"
+                           IsVisible="{Binding ShowDefaultThinkingText}"/>
+                <TextBlock Classes="thinking-text"
+                           Classes.breathing="{Binding ShowThinkingIndicator}"
+                           Text="{loc:Loc Chat.ComposingFileText}"
+                           IsVisible="{Binding ShowComposingFileText}"/>
+            </StackPanel>
+        </DataTemplate>
+
+        <DataTemplate x:Key="MessageIsCompressionBoundaryTemplate" x:DataType="models:ChatMessage">
+            <Grid ColumnDefinitions="*,Auto,*"
+                  Margin="0,10,0,2"
+                  ColumnSpacing="10">
+                <Rectangle Grid.Column="0" Height="1" VerticalAlignment="Center"
+                           Fill="{DynamicResource Chat.TimestampFg}" Opacity="0.35"/>
+                <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
+                    <PathIcon Data="{StaticResource AthenaIconArchive}" Width="12" Height="12"
+                              Opacity="0.55" VerticalAlignment="Center"/>
+                    <TextBlock Text="{Binding $parent[ItemsControl].((vm:MainConversationViewModel)DataContext).CompressionBoundaryText}"
+                               Foreground="{DynamicResource Chat.TimestampFg}"
+                               FontSize="{DynamicResource App.FontSize.Caption}"
+                               VerticalAlignment="Center"/>
+                    <Button Padding="6,1"
+                            FontSize="{DynamicResource App.FontSize.Caption}"
+                            Content="{loc:Loc ContextInspector.Title}"
+                            Command="{Binding $parent[ItemsControl].((vm:MainConversationViewModel)DataContext).ToggleContextInspectorCommand}"/>
+                    <Button Padding="6,1"
+                            FontSize="{DynamicResource App.FontSize.Caption}"
+                            Content="{loc:Loc ContextInspector.Summary.Undo}"
+                            Command="{Binding $parent[ItemsControl].((vm:MainConversationViewModel)DataContext).UndoCompressionCommand}"/>
+                </StackPanel>
+                <Rectangle Grid.Column="2" Height="1" VerticalAlignment="Center"
+                           Fill="{DynamicResource Chat.TimestampFg}" Opacity="0.35"/>
+            </Grid>
+        </DataTemplate>
     </UserControl.Resources>
 
     <UserControl.KeyBindings>
@@ -73,6 +177,9 @@
     </UserControl.KeyBindings>
 
     <UserControl.Styles>
+        <Style Selector="diagram|PanAndZoom">
+            <Setter Property="ToolTip.Tip" Value="{loc:Loc Chat.DiagramZoomHint}"/>
+        </Style>
         <Style Selector="Button.approval-mode-picker.allow-all">
             <Setter Property="Foreground" Value="{DynamicResource App.WarningForeground}"/>
         </Style>
@@ -416,6 +523,9 @@
                           Margin="12"
                           MaxWidth="{DynamicResource App.ContentMaxWidth}"
                           HorizontalAlignment="Stretch">
+                <ItemsControl.ItemsPanel>
+                    <ItemsPanelTemplate><controls:MessageViewportPanel/></ItemsPanelTemplate>
+                </ItemsControl.ItemsPanel>
                 <ItemsControl.ItemTemplate>
                     <DataTemplate x:DataType="models:ChatMessage">
                         <Grid Classes="message-row" Margin="0,0,0,40" IsVisible="{Binding IsBubbleVisible}" Background="Transparent">
@@ -587,74 +697,27 @@
                                             </ItemsControl.ItemTemplate>
                                         </ItemsControl>
 
-                                        <Border IsVisible="{Binding HasAudioError}"
-                                                Background="{DynamicResource App.SectionBg}"
-                                                BorderBrush="{DynamicResource SemiRed6}"
-                                                BorderThickness="1"
-                                                CornerRadius="8"
-                                                Padding="10,8">
-                                            <TextBlock Text="{Binding AudioErrorMessage}"
-                                                       Foreground="{DynamicResource SemiRed6}"
-                                                       TextWrapping="Wrap"
-                                                       FontSize="{DynamicResource App.FontSize.Body}"/>
-                                        </Border>
+                                        <ContentControl Content="{Binding}" IsVisible="{Binding HasAudioError}"
+                                                        HorizontalContentAlignment="Stretch" ContentTemplate="{StaticResource MessageHasAudioErrorTemplate}"/>
 
                                         <!-- 后台语音生成中提示（不阻塞任何交互） -->
-                                        <StackPanel Orientation="Horizontal" Spacing="6" IsVisible="{Binding IsGeneratingAudio}">
-                                            <PathIcon Data="{StaticResource AthenaIconLoading}" Classes.SlowSpin="{Binding IsGeneratingAudio}" Width="13" Height="13" Opacity="0.6"/>
-                                            <TextBlock Foreground="{DynamicResource App.TextMuted}" Text="{loc:Loc Chat.Audio.Generating}" FontStyle="Italic" FontSize="{DynamicResource App.FontSize.Body}" VerticalAlignment="Center"/>
-                                        </StackPanel>
+                                        <ContentControl Content="{Binding}" IsVisible="{Binding IsGeneratingAudio}"
+                                                        HorizontalContentAlignment="Stretch" ContentTemplate="{StaticResource MessageIsGeneratingAudioTemplate}"/>
 
                                         <!-- 手动生成语音：语音开启但该消息尚无音频时出现（补生成被挤掉的/历史消息的语音） -->
-                                        <Button HorizontalAlignment="Left"
-                                                Padding="8,4"
-                                                FontSize="{DynamicResource App.FontSize.Body}"
-                                                IsVisible="{Binding CanGenerateAudio}"
-                                                Command="{Binding $parent[UserControl].((vm:MainConversationViewModel)DataContext).GenerateMessageAudioCommand}"
-                                                CommandParameter="{Binding}"
-                                                ToolTip.Tip="{loc:Loc Chat.Audio.Generate}">
-                                            <StackPanel Orientation="Horizontal" Spacing="6">
-                                                <PathIcon Data="{StaticResource AthenaIconSpeech}" Width="13" Height="13" Opacity="0.75"/>
-                                                <TextBlock Text="{loc:Loc Chat.Audio.Generate}" VerticalAlignment="Center"/>
-                                            </StackPanel>
-                                        </Button>
+                                        <ContentControl Content="{Binding}" IsVisible="{Binding CanGenerateAudio}"
+                                                        HorizontalContentAlignment="Stretch" ContentTemplate="{StaticResource MessageCanGenerateAudioTemplate}"/>
 
-                                        <StackPanel Orientation="Horizontal" Spacing="6" IsVisible="{Binding HasToolExecutionSummary}">
-                                            <PathIcon Data="{StaticResource AthenaIconLoading}" Classes.SlowSpin="{Binding HasToolExecutionSummary}" Width="14" Height="14" Opacity="0.6"/>
-                                            <TextBlock Foreground="{DynamicResource App.TextMuted}" Text="{Binding ToolExecutionSummary}" FontStyle="Italic" FontSize="{DynamicResource App.FontSize.Subheading}" VerticalAlignment="Center"/>
-                                        </StackPanel>
+                                        <ContentControl Content="{Binding}" IsVisible="{Binding HasToolExecutionSummary}"
+                                                        HorizontalContentAlignment="Stretch" ContentTemplate="{StaticResource MessageHasToolExecutionSummaryTemplate}"/>
 
                                         <!-- 自动压缩进行中：分段进度是真实的（分段数在首次模型调用前已确定），
                                              并给出「跳过压缩」，把用户唯一的逃生手段从「按停止作废整轮」降级为「少等一会儿」。 -->
-                                        <StackPanel Orientation="Horizontal" Spacing="6" IsVisible="{Binding HasContextMaintenanceStatus}">
-                                            <PathIcon Data="{StaticResource AthenaIconArchive}" Width="14" Height="14" Opacity="0.6" VerticalAlignment="Center"/>
-                                            <TextBlock Foreground="{DynamicResource App.TextMuted}" Text="{Binding ContextMaintenanceStatus}" FontStyle="Italic" FontSize="{DynamicResource App.FontSize.Subheading}" VerticalAlignment="Center"/>
-                                            <Button Padding="8,2"
-                                                    FontSize="{DynamicResource App.FontSize.Caption}"
-                                                    VerticalAlignment="Center"
-                                                    Content="{loc:Loc Chat.Context.SkipCompression}"
-                                                    Command="{Binding $parent[UserControl].((vm:MainConversationViewModel)DataContext).SkipCompressionCommand}"
-                                                    ToolTip.Tip="{loc:Loc Chat.Context.SkipCompressionHint}"
-                                                    AutomationProperties.Name="{loc:Loc Chat.Context.SkipCompression}"/>
-                                        </StackPanel>
+                                        <ContentControl Content="{Binding}" IsVisible="{Binding HasContextMaintenanceStatus}"
+                                                        HorizontalContentAlignment="Stretch" ContentTemplate="{StaticResource MessageHasContextMaintenanceStatusTemplate}"/>
 
-                                        <StackPanel IsVisible="{Binding IsLoading}" Orientation="Horizontal" Spacing="10" VerticalAlignment="Center">
-                                            <StackPanel Orientation="Horizontal" Spacing="3"
-                                                        IsVisible="{Binding ShowThinkingIndicator}"
-                                                        VerticalAlignment="Center">
-                                                <Ellipse Classes="loading-dot dot1" Classes.animating="{Binding ShowThinkingIndicator}"/>
-                                                <Ellipse Classes="loading-dot dot2" Classes.animating="{Binding ShowThinkingIndicator}"/>
-                                                <Ellipse Classes="loading-dot dot3" Classes.animating="{Binding ShowThinkingIndicator}"/>
-                                            </StackPanel>
-                                            <TextBlock Classes="thinking-text"
-                                                       Classes.breathing="{Binding ShowThinkingIndicator}"
-                                                       Text="{loc:Loc Chat.ReceivingData}"
-                                                       IsVisible="{Binding ShowDefaultThinkingText}"/>
-                                            <TextBlock Classes="thinking-text"
-                                                       Classes.breathing="{Binding ShowThinkingIndicator}"
-                                                       Text="{loc:Loc Chat.ComposingFileText}"
-                                                       IsVisible="{Binding ShowComposingFileText}"/>
-                                        </StackPanel>
+                                        <ContentControl Content="{Binding}" IsVisible="{Binding IsLoading}"
+                                                        HorizontalContentAlignment="Stretch" ContentTemplate="{StaticResource MessageIsLoadingTemplate}"/>
                                     </StackPanel>
                                 </Border>
 
@@ -702,8 +765,7 @@
                                                   Width="14" Height="14"/>
                                     </Button>
 
-                                    <!-- The conversation list is deliberately not virtualized. When analysis
-                                         is off, null content prevents a Button/PathIcon subtree per bubble. -->
+                                    <!-- Build the timeline button only when the message exposes the action. -->
                                     <ContentControl Content="{Binding ExecutionTimelineButtonContent}">
                                         <ContentControl.ContentTemplate>
                                             <DataTemplate x:DataType="models:ChatMessage">
@@ -720,7 +782,7 @@
                                     <!-- 本轮总用时。刻意住在这块已经由父面板统一翻转透明度的子树里：
                                          再给它自己绑一次 IsPointerOver，就等于每次光标跨过消息行都多付一次
                                          样式重算，而滚动时光标每秒要跨好几条（实测见上面 bubble-actions 的注释）。
-                                         同理只用一个 TextBlock，不配时钟图标——不虚拟化的消息列表按每行控件数计预算。 -->
+                                         耗时使用单个 TextBlock，与相邻操作共享悬停状态。 -->
                                     <Border Width="1" Height="11" VerticalAlignment="Center"
                                             IsVisible="{Binding HasDuration}"
                                             Background="{DynamicResource Chat.TimestampFg}"
@@ -736,31 +798,8 @@
 
                                 <!-- 压缩边界：从这条线往上，模型看到的是摘要而不是原文。
                                      逐条「已归档」角标答不了这个问题，边界才答得了，所以只标最后一条。 -->
-                                <Grid ColumnDefinitions="*,Auto,*"
-                                      Margin="0,10,0,2"
-                                      ColumnSpacing="10"
-                                      IsVisible="{Binding IsCompressionBoundary}">
-                                    <Rectangle Grid.Column="0" Height="1" VerticalAlignment="Center"
-                                               Fill="{DynamicResource Chat.TimestampFg}" Opacity="0.35"/>
-                                    <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
-                                        <PathIcon Data="{StaticResource AthenaIconArchive}" Width="12" Height="12"
-                                                  Opacity="0.55" VerticalAlignment="Center"/>
-                                        <TextBlock Text="{Binding $parent[ItemsControl].((vm:MainConversationViewModel)DataContext).CompressionBoundaryText}"
-                                                   Foreground="{DynamicResource Chat.TimestampFg}"
-                                                   FontSize="{DynamicResource App.FontSize.Caption}"
-                                                   VerticalAlignment="Center"/>
-                                        <Button Padding="6,1"
-                                                FontSize="{DynamicResource App.FontSize.Caption}"
-                                                Content="{loc:Loc ContextInspector.Title}"
-                                                Command="{Binding $parent[ItemsControl].((vm:MainConversationViewModel)DataContext).ToggleContextInspectorCommand}"/>
-                                        <Button Padding="6,1"
-                                                FontSize="{DynamicResource App.FontSize.Caption}"
-                                                Content="{loc:Loc ContextInspector.Summary.Undo}"
-                                                Command="{Binding $parent[ItemsControl].((vm:MainConversationViewModel)DataContext).UndoCompressionCommand}"/>
-                                    </StackPanel>
-                                    <Rectangle Grid.Column="2" Height="1" VerticalAlignment="Center"
-                                               Fill="{DynamicResource Chat.TimestampFg}" Opacity="0.35"/>
-                                </Grid>
+                                <ContentControl Content="{Binding}" IsVisible="{Binding IsCompressionBoundary}"
+                                                HorizontalContentAlignment="Stretch" ContentTemplate="{StaticResource MessageIsCompressionBoundaryTemplate}"/>
                             </StackPanel>
                         </Grid>
                     </DataTemplate>
@@ -775,16 +814,7 @@
                AutomationProperties.Name="AthenaAgent" IsHitTestVisible="False"
                IsVisible="{Binding Messages.Count, Converter={StaticResource EmptyCountToBoolConverter}}"/>
 
-        <!-- 会话切换幕布。它住在消息列表所在的这一格（Grid.Row=1），不是盖在整块面板上——
-             这样它的宽高天然等于消息区，外壳那一层不必复刻「标题栏 40px、输入区多高」这类魔法数字。
-
-             幕布复用新会话的主题标志，下方保留三个加载点。
-             **动效由合成器驱动，不是 Style.Animations。** 这一条是整个幕布唯一真正难的地方：
-             换绑那一拍 UI 线程要冻住 2~3 秒，而 Avalonia 的 Animation / Transition 全部由 UI 线程
-             的动画时钟推进——写在这里的任何关键帧动画都会在那一刻定格在第一帧，"加载中"反而
-             变成"卡死了"的证据。ElementComposition 的动画跑在渲染线程上，UI 线程冻住期间照常推进，
-             所以它们在 code-behind 里通过 CompositionVisual.StartAnimation 启动（见 StartVeilAnimations）。
-             XAML 这边只负责结构，不要在这棵子树上加任何 Transitions / Style.Animations。 -->
+        <!-- 幕布只覆盖消息区。标志和加载点的动效由 StartVeilAnimations 在合成器上驱动。 -->
         <Border x:Name="ConversationSwitchVeil"
                 Grid.Row="1"
                 ZIndex="60"
@@ -1205,237 +1235,241 @@
                 BorderBrush="{DynamicResource SemiGreyLowBrush}"
                 BorderThickness="1"
                 BoxShadow="0 4 24 0 #33000000">
-            <Grid RowDefinitions="Auto,*">
-                <Border Padding="14,10"
-                        BorderBrush="{DynamicResource SemiGreyLowBrush}"
-                        BorderThickness="0,0,0,1"
-                        CornerRadius="8,8,0,0">
-                    <Grid ColumnDefinitions="*,Auto">
-                        <StackPanel Spacing="2">
-                            <TextBlock Text="{loc:Loc ContextInspector.Title}"
-                                       FontSize="{DynamicResource App.FontSize.Title}"
-                                       FontWeight="SemiBold"/>
-                            <TextBlock Foreground="{DynamicResource App.TextMuted}" Text="{Binding ConversationId}"
-                                       FontSize="{DynamicResource App.FontSize.Caption}"
-                                       TextTrimming="CharacterEllipsis"
-                                       ToolTip.Tip="{Binding ConversationId}"/>
-                        </StackPanel>
-                        <Button Grid.Column="1"
-                                Command="{Binding CloseContextInspectorCommand}"
-                                Padding="6"
-                                AutomationProperties.Name="{loc:Loc ContextInspector.Close}"
-                                ToolTip.Tip="{loc:Loc ContextInspector.Close}">
-                            <PathIcon Data="{StaticResource AthenaIconClose}" Width="14" Height="14"/>
-                        </Button>
-                    </Grid>
-                </Border>
+            <Border.Resources>
+                <DataTemplate x:Key="ContextInspectorBody" x:DataType="vm:MainConversationViewModel">
+                    <Grid RowDefinitions="Auto,*">
+                        <Border Padding="14,10"
+                                BorderBrush="{DynamicResource SemiGreyLowBrush}"
+                                BorderThickness="0,0,0,1"
+                                CornerRadius="8,8,0,0">
+                            <Grid ColumnDefinitions="*,Auto">
+                                <StackPanel Spacing="2">
+                                    <TextBlock Text="{loc:Loc ContextInspector.Title}"
+                                               FontSize="{DynamicResource App.FontSize.Title}"
+                                               FontWeight="SemiBold"/>
+                                    <TextBlock Foreground="{DynamicResource App.TextMuted}" Text="{Binding ConversationId}"
+                                               FontSize="{DynamicResource App.FontSize.Caption}"
+                                               TextTrimming="CharacterEllipsis"
+                                               ToolTip.Tip="{Binding ConversationId}"/>
+                                </StackPanel>
+                                <Button Grid.Column="1"
+                                        Command="{Binding CloseContextInspectorCommand}"
+                                        Padding="6"
+                                        AutomationProperties.Name="{loc:Loc ContextInspector.Close}"
+                                        ToolTip.Tip="{loc:Loc ContextInspector.Close}">
+                                    <PathIcon Data="{StaticResource AthenaIconClose}" Width="14" Height="14"/>
+                                </Button>
+                            </Grid>
+                        </Border>
 
-                <TabControl x:Name="ContextInspectorTabs" Grid.Row="1" SelectedIndex="{Binding SelectedContextInspectorTab}">
-                    <TabItem Header="{loc:Loc ContextInspector.Tab.Overview}">
-                        <ScrollViewer>
-                            <StackPanel Margin="16" Spacing="14">
-                                <Border Classes="settings-card" Padding="14" BorderThickness="1"
-                                        BorderBrush="{DynamicResource SemiGreyLowBrush}" CornerRadius="8">
-                                    <StackPanel Spacing="7">
-                                        <TextBlock Text="{loc:Loc ContextInspector.Overview.Model}" FontWeight="SemiBold"/>
-                                        <SelectableTextBlock Text="{Binding ContextInspectorModelText}" TextWrapping="Wrap"/>
-                                        <TextBlock Foreground="{DynamicResource App.TextMuted}" Text="{Binding ContextInspectorMatchText}" TextWrapping="Wrap"/>
+                        <TabControl x:Name="ContextInspectorTabs" Grid.Row="1" SelectedIndex="{Binding SelectedContextInspectorTab}">
+                            <TabItem Header="{loc:Loc ContextInspector.Tab.Overview}">
+                                <ScrollViewer>
+                                    <StackPanel Margin="16" Spacing="14">
+                                        <Border Classes="settings-card" Padding="14" BorderThickness="1"
+                                                BorderBrush="{DynamicResource SemiGreyLowBrush}" CornerRadius="8">
+                                            <StackPanel Spacing="7">
+                                                <TextBlock Text="{loc:Loc ContextInspector.Overview.Model}" FontWeight="SemiBold"/>
+                                                <SelectableTextBlock Text="{Binding ContextInspectorModelText}" TextWrapping="Wrap"/>
+                                                <TextBlock Foreground="{DynamicResource App.TextMuted}" Text="{Binding ContextInspectorMatchText}" TextWrapping="Wrap"/>
+                                            </StackPanel>
+                                        </Border>
+                                        <Border Padding="14" BorderThickness="1" BorderBrush="{DynamicResource SemiGreyLowBrush}" CornerRadius="8">
+                                            <StackPanel Spacing="7">
+                                                <TextBlock Text="{loc:Loc ContextInspector.Overview.Policy}" FontWeight="SemiBold"/>
+                                                <SelectableTextBlock Text="{Binding ContextInspectorPolicyText}"
+                                                                     FontFamily="Menlo,Consolas,monospace" TextWrapping="Wrap"/>
+                                                <TextBlock Foreground="{DynamicResource App.TextMuted}" Text="{loc:Loc ContextInspector.Overview.PolicyHint}" TextWrapping="Wrap"/>
+                                            </StackPanel>
+                                        </Border>
+                                        <Border Padding="14" BorderThickness="1" BorderBrush="{DynamicResource SemiGreyLowBrush}" CornerRadius="8">
+                                            <StackPanel Spacing="7">
+                                                <TextBlock Text="{loc:Loc ContextInspector.Overview.Usage}" FontWeight="SemiBold"/>
+                                                <TextBlock Text="{Binding ContextInspectorUsageText}" TextWrapping="Wrap"/>
+                                                <TextBlock Foreground="{DynamicResource App.TextMuted}" Text="{Binding ContextInspectorUsageDetails}" TextWrapping="Wrap"/>
+                                                <TextBlock Foreground="{DynamicResource App.TextMuted}" Text="{loc:Loc ContextInspector.Overview.CachedHint}" TextWrapping="Wrap"/>
+                                                <TextBlock Foreground="{DynamicResource App.TextMuted}" Text="{Binding ClearedToolResultsText}"
+                                                           IsVisible="{Binding HasClearedToolResults}" TextWrapping="Wrap"/>
+                                            </StackPanel>
+                                        </Border>
+                                        <Border Padding="14" BorderThickness="1" BorderBrush="{DynamicResource SemiGreyLowBrush}" CornerRadius="8">
+                                            <StackPanel Spacing="7">
+                                                <TextBlock Text="{loc:Loc ContextInspector.Overview.Ownership}" FontWeight="SemiBold"/>
+                                                <TextBlock Text="{Binding ContextInspectorWorkspaceText}" TextWrapping="Wrap"/>
+                                                <TextBlock Text="{Binding ContextInspectorCompressionModelText}" TextWrapping="Wrap"/>
+                                            </StackPanel>
+                                        </Border>
+                                        <Border Padding="12"
+                                                IsVisible="{Binding HasContextInspectorWarnings}"
+                                                BorderThickness="1"
+                                                BorderBrush="{DynamicResource SemiOrange5}"
+                                                CornerRadius="8">
+                                            <TextBlock Text="{Binding ContextInspectorWarningsText}" TextWrapping="Wrap"/>
+                                        </Border>
                                     </StackPanel>
-                                </Border>
-                                <Border Padding="14" BorderThickness="1" BorderBrush="{DynamicResource SemiGreyLowBrush}" CornerRadius="8">
-                                    <StackPanel Spacing="7">
-                                        <TextBlock Text="{loc:Loc ContextInspector.Overview.Policy}" FontWeight="SemiBold"/>
-                                        <SelectableTextBlock Text="{Binding ContextInspectorPolicyText}"
-                                                             FontFamily="Menlo,Consolas,monospace" TextWrapping="Wrap"/>
-                                        <TextBlock Foreground="{DynamicResource App.TextMuted}" Text="{loc:Loc ContextInspector.Overview.PolicyHint}" TextWrapping="Wrap"/>
-                                    </StackPanel>
-                                </Border>
-                                <Border Padding="14" BorderThickness="1" BorderBrush="{DynamicResource SemiGreyLowBrush}" CornerRadius="8">
-                                    <StackPanel Spacing="7">
-                                        <TextBlock Text="{loc:Loc ContextInspector.Overview.Usage}" FontWeight="SemiBold"/>
-                                        <TextBlock Text="{Binding ContextInspectorUsageText}" TextWrapping="Wrap"/>
-                                        <TextBlock Foreground="{DynamicResource App.TextMuted}" Text="{Binding ContextInspectorUsageDetails}" TextWrapping="Wrap"/>
-                                        <TextBlock Foreground="{DynamicResource App.TextMuted}" Text="{loc:Loc ContextInspector.Overview.CachedHint}" TextWrapping="Wrap"/>
-                                        <TextBlock Foreground="{DynamicResource App.TextMuted}" Text="{Binding ClearedToolResultsText}"
-                                                   IsVisible="{Binding HasClearedToolResults}" TextWrapping="Wrap"/>
-                                    </StackPanel>
-                                </Border>
-                                <Border Padding="14" BorderThickness="1" BorderBrush="{DynamicResource SemiGreyLowBrush}" CornerRadius="8">
-                                    <StackPanel Spacing="7">
-                                        <TextBlock Text="{loc:Loc ContextInspector.Overview.Ownership}" FontWeight="SemiBold"/>
-                                        <TextBlock Text="{Binding ContextInspectorWorkspaceText}" TextWrapping="Wrap"/>
-                                        <TextBlock Text="{Binding ContextInspectorCompressionModelText}" TextWrapping="Wrap"/>
-                                    </StackPanel>
-                                </Border>
-                                <Border Padding="12"
-                                        IsVisible="{Binding HasContextInspectorWarnings}"
-                                        BorderThickness="1"
-                                        BorderBrush="{DynamicResource SemiOrange5}"
-                                        CornerRadius="8">
-                                    <TextBlock Text="{Binding ContextInspectorWarningsText}" TextWrapping="Wrap"/>
-                                </Border>
-                            </StackPanel>
-                        </ScrollViewer>
-                    </TabItem>
+                                </ScrollViewer>
+                            </TabItem>
 
-                    <TabItem Header="{loc:Loc ContextInspector.Tab.Summary}">
-                        <ScrollViewer>
-                            <StackPanel Margin="16" Spacing="14">
-                                <Border Padding="14" BorderThickness="1" BorderBrush="{DynamicResource SemiGreyLowBrush}" CornerRadius="8"
-                                        IsVisible="{Binding HasActiveContextSummary}">
-                                    <StackPanel Spacing="10">
-                                        <TextBlock Text="{loc:Loc ContextInspector.Summary.Active}" FontWeight="SemiBold"/>
-                                        <SelectableTextBlock Text="{Binding ActiveContextSummary}" TextWrapping="Wrap"/>
-                                        <TextBlock Foreground="{DynamicResource App.TextMuted}" Text="{Binding CompressionSummaryDetails}" TextWrapping="Wrap"/>
-                                        <StackPanel Orientation="Horizontal" Spacing="8">
-                                            <Button Content="{loc:Loc Common.Copy}"
-                                                    Command="{Binding CopyContextTextCommand}"
-                                                    CommandParameter="{Binding ActiveContextSummary}"/>
-                                            <Button Content="{loc:Loc ContextInspector.Summary.Undo}"
-                                                    Command="{Binding UndoCompressionCommand}"/>
-                                        </StackPanel>
+                            <TabItem Header="{loc:Loc ContextInspector.Tab.Summary}">
+                                <ScrollViewer>
+                                    <StackPanel Margin="16" Spacing="14">
+                                        <Border Padding="14" BorderThickness="1" BorderBrush="{DynamicResource SemiGreyLowBrush}" CornerRadius="8"
+                                                IsVisible="{Binding HasActiveContextSummary}">
+                                            <StackPanel Spacing="10">
+                                                <TextBlock Text="{loc:Loc ContextInspector.Summary.Active}" FontWeight="SemiBold"/>
+                                                <SelectableTextBlock Text="{Binding ActiveContextSummary}" TextWrapping="Wrap"/>
+                                                <TextBlock Foreground="{DynamicResource App.TextMuted}" Text="{Binding CompressionSummaryDetails}" TextWrapping="Wrap"/>
+                                                <StackPanel Orientation="Horizontal" Spacing="8">
+                                                    <Button Content="{loc:Loc Common.Copy}"
+                                                            Command="{Binding CopyContextTextCommand}"
+                                                            CommandParameter="{Binding ActiveContextSummary}"/>
+                                                    <Button Content="{loc:Loc ContextInspector.Summary.Undo}"
+                                                            Command="{Binding UndoCompressionCommand}"/>
+                                                </StackPanel>
+                                            </StackPanel>
+                                        </Border>
+                                        <TextBlock Foreground="{DynamicResource App.TextMuted}" Text="{loc:Loc ContextInspector.Summary.Empty}"
+                                                   IsVisible="{Binding !HasActiveContextSummary}" TextWrapping="Wrap"/>
+                                        <Border Padding="14" BorderThickness="1" BorderBrush="{DynamicResource SemiOrange5}" CornerRadius="8"
+                                                IsVisible="{Binding HasOrphanedLegacySummary}">
+                                            <StackPanel Spacing="8">
+                                                <TextBlock Text="{loc:Loc ContextInspector.Summary.Orphaned}" FontWeight="SemiBold"/>
+                                                <TextBlock Foreground="{DynamicResource App.TextMuted}" Text="{loc:Loc ContextInspector.Summary.OrphanedHint}" TextWrapping="Wrap"/>
+                                                <SelectableTextBlock Text="{Binding OrphanedLegacySummary}" TextWrapping="Wrap"/>
+                                                <Button Content="{loc:Loc Common.Copy}" HorizontalAlignment="Left"
+                                                        Command="{Binding CopyContextTextCommand}"
+                                                        CommandParameter="{Binding OrphanedLegacySummary}"/>
+                                            </StackPanel>
+                                        </Border>
                                     </StackPanel>
-                                </Border>
-                                <TextBlock Foreground="{DynamicResource App.TextMuted}" Text="{loc:Loc ContextInspector.Summary.Empty}"
-                                           IsVisible="{Binding !HasActiveContextSummary}" TextWrapping="Wrap"/>
-                                <Border Padding="14" BorderThickness="1" BorderBrush="{DynamicResource SemiOrange5}" CornerRadius="8"
-                                        IsVisible="{Binding HasOrphanedLegacySummary}">
-                                    <StackPanel Spacing="8">
-                                        <TextBlock Text="{loc:Loc ContextInspector.Summary.Orphaned}" FontWeight="SemiBold"/>
-                                        <TextBlock Foreground="{DynamicResource App.TextMuted}" Text="{loc:Loc ContextInspector.Summary.OrphanedHint}" TextWrapping="Wrap"/>
-                                        <SelectableTextBlock Text="{Binding OrphanedLegacySummary}" TextWrapping="Wrap"/>
-                                        <Button Content="{loc:Loc Common.Copy}" HorizontalAlignment="Left"
-                                                Command="{Binding CopyContextTextCommand}"
-                                                CommandParameter="{Binding OrphanedLegacySummary}"/>
-                                    </StackPanel>
-                                </Border>
-                            </StackPanel>
-                        </ScrollViewer>
-                    </TabItem>
+                                </ScrollViewer>
+                            </TabItem>
 
-                    <TabItem Header="{loc:Loc ContextInspector.Tab.Preview}">
-                        <ScrollViewer>
-                            <StackPanel Margin="16" Spacing="12">
-                                <Border Padding="12" BorderThickness="1" BorderBrush="{DynamicResource SemiGreyLowBrush}" CornerRadius="8">
-                                    <StackPanel Spacing="8">
-                                        <TextBlock Text="{loc:Loc ContextInspector.CompactNow.Title}" FontWeight="SemiBold"/>
-                                        <TextBlock Foreground="{DynamicResource App.TextMuted}" Text="{loc:Loc ContextInspector.CompactNow.Hint}" TextWrapping="Wrap"/>
-                                        <TextBox Text="{Binding CompactFocusText}"
-                                                 PlaceholderText="{loc:Loc ContextInspector.CompactNow.FocusWatermark}"
-                                                 AcceptsReturn="True" MaxLines="4" TextWrapping="Wrap"/>
-                                        <StackPanel Orientation="Horizontal" Spacing="8">
-                                            <Button Content="{loc:Loc ContextInspector.CompactNow.Button}"
-                                                    Theme="{StaticResource AccentButtonTheme}"
-                                                    Command="{Binding CompactNowCommand}"/>
-                                            <Button Content="{loc:Loc Common.Cancel}"
-                                                    Command="{Binding CancelCompactionCommand}"
-                                                    IsVisible="{Binding IsCompactionRunning}"/>
-                                        </StackPanel>
-                                        <ProgressBar IsIndeterminate="True" IsVisible="{Binding IsCompactionRunning}"/>
-                                        <TextBlock Foreground="{DynamicResource App.TextMuted}" Text="{Binding CompressionStatusMessage}"
-                                                   IsVisible="{Binding HasCompressionStatusMessage}"
+                            <TabItem Header="{loc:Loc ContextInspector.Tab.Preview}">
+                                <ScrollViewer>
+                                    <StackPanel Margin="16" Spacing="12">
+                                        <Border Padding="12" BorderThickness="1" BorderBrush="{DynamicResource SemiGreyLowBrush}" CornerRadius="8">
+                                            <StackPanel Spacing="8">
+                                                <TextBlock Text="{loc:Loc ContextInspector.CompactNow.Title}" FontWeight="SemiBold"/>
+                                                <TextBlock Foreground="{DynamicResource App.TextMuted}" Text="{loc:Loc ContextInspector.CompactNow.Hint}" TextWrapping="Wrap"/>
+                                                <TextBox Text="{Binding CompactFocusText}"
+                                                         PlaceholderText="{loc:Loc ContextInspector.CompactNow.FocusWatermark}"
+                                                         AcceptsReturn="True" MaxLines="4" TextWrapping="Wrap"/>
+                                                <StackPanel Orientation="Horizontal" Spacing="8">
+                                                    <Button Content="{loc:Loc ContextInspector.CompactNow.Button}"
+                                                            Theme="{StaticResource AccentButtonTheme}"
+                                                            Command="{Binding CompactNowCommand}"/>
+                                                    <Button Content="{loc:Loc Common.Cancel}"
+                                                            Command="{Binding CancelCompactionCommand}"
+                                                            IsVisible="{Binding IsCompactionRunning}"/>
+                                                </StackPanel>
+                                                <ProgressBar IsIndeterminate="True" IsVisible="{Binding IsCompactionRunning}"/>
+                                                <TextBlock Foreground="{DynamicResource App.TextMuted}" Text="{Binding CompressionStatusMessage}"
+                                                           IsVisible="{Binding HasCompressionStatusMessage}"
+                                                           TextWrapping="Wrap"/>
+                                            </StackPanel>
+                                        </Border>
+                                        <TextBlock Foreground="{DynamicResource App.TextMuted}" Text="{loc:Loc ContextInspector.Preview.Explanation}" TextWrapping="Wrap"/>
+                                        <Border Padding="12" BorderThickness="1" BorderBrush="{DynamicResource SemiGreyLowBrush}" CornerRadius="8"
+                                                IsVisible="{Binding HasCompressionImpactPreview}">
+                                            <SelectableTextBlock Text="{Binding CompressionImpactPreview}" TextWrapping="Wrap"/>
+                                        </Border>
+                                        <TextBlock Foreground="{DynamicResource App.TextMuted}" Text="{Binding CompressionPreviewStatus}"
+                                                   IsVisible="{Binding HasCompressionPreviewStatus}"
                                                    TextWrapping="Wrap"/>
                                     </StackPanel>
-                                </Border>
-                                <TextBlock Foreground="{DynamicResource App.TextMuted}" Text="{loc:Loc ContextInspector.Preview.Explanation}" TextWrapping="Wrap"/>
-                                <Border Padding="12" BorderThickness="1" BorderBrush="{DynamicResource SemiGreyLowBrush}" CornerRadius="8"
-                                        IsVisible="{Binding HasCompressionImpactPreview}">
-                                    <SelectableTextBlock Text="{Binding CompressionImpactPreview}" TextWrapping="Wrap"/>
-                                </Border>
-                                <TextBlock Foreground="{DynamicResource App.TextMuted}" Text="{Binding CompressionPreviewStatus}"
-                                           IsVisible="{Binding HasCompressionPreviewStatus}"
-                                           TextWrapping="Wrap"/>
-                            </StackPanel>
-                        </ScrollViewer>
-                    </TabItem>
+                                </ScrollViewer>
+                            </TabItem>
 
-                    <TabItem Header="{loc:Loc ContextInspector.Tab.Raw}">
-                        <Grid RowDefinitions="Auto,Auto,*" Margin="12">
-                            <StackPanel Grid.Row="0" Spacing="6">
-                                <TextBlock Foreground="{DynamicResource App.TextMuted}" Text="{loc:Loc ContextInspector.Raw.Warning}" TextWrapping="Wrap"/>
-                                <TextBlock Text="{Binding RawContextSnapshotInfo}" FontSize="{DynamicResource App.FontSize.Caption}"
-                                           FontFamily="Menlo,Consolas,monospace" TextWrapping="Wrap"/>
-                                <StackPanel Orientation="Horizontal" Spacing="8">
-                                    <Button Content="{loc:Loc ContextInspector.Raw.Refresh}" Command="{Binding RefreshRawContextCommand}"/>
-                                    <Button Content="{loc:Loc Common.Cancel}" Command="{Binding CancelRawContextBuildCommand}"
-                                            IsVisible="{Binding IsRawContextLoading}"/>
-                                </StackPanel>
-                            </StackPanel>
-                            <StackPanel Grid.Row="1" Margin="0,8" Spacing="4">
-                                <ProgressBar IsIndeterminate="True" IsVisible="{Binding IsRawContextLoading}"/>
-                                <TextBlock Text="{Binding RawContextStatus}" IsVisible="{Binding HasRawContextStatus}" TextWrapping="Wrap"/>
-                            </StackPanel>
-                            <ListBox Grid.Row="2"
-                                     ItemsSource="{Binding RawContextEntries}"
-                                     Background="Transparent"
-                                     BorderThickness="0"
-                                     ScrollViewer.HorizontalScrollBarVisibility="Disabled">
-                                <ListBox.Styles>
-                                    <!-- 简洁列表：透明背景、无容器嵌套、悬停/选中不变色。 -->
-                                    <Style Selector="ListBoxItem">
-                                        <Setter Property="Padding" Value="0"/>
-                                        <Setter Property="Margin" Value="0,0,0,6"/>
-                                        <Setter Property="Background" Value="Transparent"/>
-                                        <Setter Property="BorderThickness" Value="0"/>
-                                    </Style>
-                                    <Style Selector="ListBoxItem:pointerover /template/ ContentPresenter">
-                                        <Setter Property="Background" Value="Transparent"/>
-                                    </Style>
-                                    <Style Selector="ListBoxItem:selected /template/ ContentPresenter">
-                                        <Setter Property="Background" Value="Transparent"/>
-                                    </Style>
-                                    <Style Selector="ToggleButton.raw-context-toggle">
-                                        <Setter Property="Background" Value="Transparent"/>
-                                        <Setter Property="BorderThickness" Value="0"/>
-                                        <Setter Property="Padding" Value="0"/>
-                                        <Setter Property="HorizontalAlignment" Value="Stretch"/>
-                                        <Setter Property="HorizontalContentAlignment" Value="Left"/>
-                                    </Style>
-                                    <Style Selector="ToggleButton.raw-context-toggle:pointerover /template/ ContentPresenter">
-                                        <Setter Property="Background" Value="Transparent"/>
-                                    </Style>
-                                    <Style Selector="ToggleButton.raw-context-toggle:checked /template/ ContentPresenter">
-                                        <Setter Property="Background" Value="Transparent"/>
-                                    </Style>
-                                    <Style Selector="ToggleButton.raw-context-toggle:pressed /template/ ContentPresenter">
-                                        <Setter Property="Background" Value="Transparent"/>
-                                    </Style>
-                                </ListBox.Styles>
-                                <ListBox.ItemTemplate>
-                                    <DataTemplate x:DataType="models:RawContextEntry">
-                                        <StackPanel>
-                                            <ToggleButton IsChecked="{Binding IsExpanded}"
-                                                          Classes="raw-context-toggle">
-                                                <Grid ColumnDefinitions="Auto,*">
-                                                    <TextBlock Foreground="{DynamicResource App.TextMuted}" Text="▸"
-                                                               IsVisible="{Binding !IsExpanded}"
-                                                               FontFamily="Menlo,Consolas,monospace"
-                                                               VerticalAlignment="Center"/>
-                                                    <TextBlock Foreground="{DynamicResource App.TextMuted}" Text="▾"
-                                                               IsVisible="{Binding IsExpanded}"
-                                                               FontFamily="Menlo,Consolas,monospace"
-                                                               VerticalAlignment="Center"/>
-                                                    <TextBlock Grid.Column="1" Classes="raw-role" Tag="{Binding Role}"
-                                                               Text="{Binding Header}"
-                                                               Margin="4,0,0,0"
-                                                               FontWeight="Bold"
-                                                               FontFamily="Menlo,Consolas,monospace"/>
-                                                </Grid>
-                                            </ToggleButton>
-                                            <SelectableTextBlock Text="{Binding Text}"
-                                                                 IsVisible="{Binding IsExpanded}"
-                                                                 Margin="12,4,0,0"
-                                                                 FontFamily="Menlo,Consolas,monospace"
-                                                                 FontSize="{DynamicResource App.FontSize.Body}"
-                                                                 TextWrapping="Wrap"/>
+                            <TabItem Header="{loc:Loc ContextInspector.Tab.Raw}">
+                                <Grid RowDefinitions="Auto,Auto,*" Margin="12">
+                                    <StackPanel Grid.Row="0" Spacing="6">
+                                        <TextBlock Foreground="{DynamicResource App.TextMuted}" Text="{loc:Loc ContextInspector.Raw.Warning}" TextWrapping="Wrap"/>
+                                        <TextBlock Text="{Binding RawContextSnapshotInfo}" FontSize="{DynamicResource App.FontSize.Caption}"
+                                                   FontFamily="Menlo,Consolas,monospace" TextWrapping="Wrap"/>
+                                        <StackPanel Orientation="Horizontal" Spacing="8">
+                                            <Button Content="{loc:Loc ContextInspector.Raw.Refresh}" Command="{Binding RefreshRawContextCommand}"/>
+                                            <Button Content="{loc:Loc Common.Cancel}" Command="{Binding CancelRawContextBuildCommand}"
+                                                    IsVisible="{Binding IsRawContextLoading}"/>
                                         </StackPanel>
-                                    </DataTemplate>
-                                </ListBox.ItemTemplate>
-                            </ListBox>
-                        </Grid>
-                    </TabItem>
-                </TabControl>
-            </Grid>
+                                    </StackPanel>
+                                    <StackPanel Grid.Row="1" Margin="0,8" Spacing="4">
+                                        <ProgressBar IsIndeterminate="True" IsVisible="{Binding IsRawContextLoading}"/>
+                                        <TextBlock Text="{Binding RawContextStatus}" IsVisible="{Binding HasRawContextStatus}" TextWrapping="Wrap"/>
+                                    </StackPanel>
+                                    <ListBox Grid.Row="2"
+                                             ItemsSource="{Binding RawContextEntries}"
+                                             Background="Transparent"
+                                             BorderThickness="0"
+                                             ScrollViewer.HorizontalScrollBarVisibility="Disabled">
+                                        <ListBox.Styles>
+                                            <!-- 简洁列表：透明背景、无容器嵌套、悬停/选中不变色。 -->
+                                            <Style Selector="ListBoxItem">
+                                                <Setter Property="Padding" Value="0"/>
+                                                <Setter Property="Margin" Value="0,0,0,6"/>
+                                                <Setter Property="Background" Value="Transparent"/>
+                                                <Setter Property="BorderThickness" Value="0"/>
+                                            </Style>
+                                            <Style Selector="ListBoxItem:pointerover /template/ ContentPresenter">
+                                                <Setter Property="Background" Value="Transparent"/>
+                                            </Style>
+                                            <Style Selector="ListBoxItem:selected /template/ ContentPresenter">
+                                                <Setter Property="Background" Value="Transparent"/>
+                                            </Style>
+                                            <Style Selector="ToggleButton.raw-context-toggle">
+                                                <Setter Property="Background" Value="Transparent"/>
+                                                <Setter Property="BorderThickness" Value="0"/>
+                                                <Setter Property="Padding" Value="0"/>
+                                                <Setter Property="HorizontalAlignment" Value="Stretch"/>
+                                                <Setter Property="HorizontalContentAlignment" Value="Left"/>
+                                            </Style>
+                                            <Style Selector="ToggleButton.raw-context-toggle:pointerover /template/ ContentPresenter">
+                                                <Setter Property="Background" Value="Transparent"/>
+                                            </Style>
+                                            <Style Selector="ToggleButton.raw-context-toggle:checked /template/ ContentPresenter">
+                                                <Setter Property="Background" Value="Transparent"/>
+                                            </Style>
+                                            <Style Selector="ToggleButton.raw-context-toggle:pressed /template/ ContentPresenter">
+                                                <Setter Property="Background" Value="Transparent"/>
+                                            </Style>
+                                        </ListBox.Styles>
+                                        <ListBox.ItemTemplate>
+                                            <DataTemplate x:DataType="models:RawContextEntry">
+                                                <StackPanel>
+                                                    <ToggleButton IsChecked="{Binding IsExpanded}"
+                                                                  Classes="raw-context-toggle">
+                                                        <Grid ColumnDefinitions="Auto,*">
+                                                            <TextBlock Foreground="{DynamicResource App.TextMuted}" Text="▸"
+                                                                       IsVisible="{Binding !IsExpanded}"
+                                                                       FontFamily="Menlo,Consolas,monospace"
+                                                                       VerticalAlignment="Center"/>
+                                                            <TextBlock Foreground="{DynamicResource App.TextMuted}" Text="▾"
+                                                                       IsVisible="{Binding IsExpanded}"
+                                                                       FontFamily="Menlo,Consolas,monospace"
+                                                                       VerticalAlignment="Center"/>
+                                                            <TextBlock Grid.Column="1" Classes="raw-role" Tag="{Binding Role}"
+                                                                       Text="{Binding Header}"
+                                                                       Margin="4,0,0,0"
+                                                                       FontWeight="Bold"
+                                                                       FontFamily="Menlo,Consolas,monospace"/>
+                                                        </Grid>
+                                                    </ToggleButton>
+                                                    <SelectableTextBlock Text="{Binding Text}"
+                                                                         IsVisible="{Binding IsExpanded}"
+                                                                         Margin="12,4,0,0"
+                                                                         FontFamily="Menlo,Consolas,monospace"
+                                                                         FontSize="{DynamicResource App.FontSize.Body}"
+                                                                         TextWrapping="Wrap"/>
+                                                </StackPanel>
+                                            </DataTemplate>
+                                        </ListBox.ItemTemplate>
+                                    </ListBox>
+                                </Grid>
+                            </TabItem>
+                        </TabControl>
+                    </Grid>
+                </DataTemplate>
+            </Border.Resources>
         </Border>
 
         <!-- 猫头鹰"飞行层"：dispatch_subagents 时从助手气泡飞向 Sub-Agents 按钮的过场动画。
@@ -1451,11 +1485,9 @@
             <!-- 遮罩：Border（无悬停态，不随光标变色）+ 点击关闭；同时挡住下层 hover -->
             <Border Background="#66000000" PointerPressed="OnSubAgentScrimPressed"/>
             <!-- 居中面板（内部几何已放大，字号不变） -->
-            <Border HorizontalAlignment="Center" VerticalAlignment="Center"
+            <Border x:Name="OwlVillageHost" HorizontalAlignment="Center" VerticalAlignment="Center"
                     Background="{DynamicResource App.SectionBg}"
-                    CornerRadius="14" BorderBrush="{DynamicResource App.SurfaceBorder}" BorderThickness="1">
-                <views:OwlVillageView/>
-            </Border>
+                    CornerRadius="14" BorderBrush="{DynamicResource App.SurfaceBorder}" BorderThickness="1"/>
         </Grid>
     </Grid>
 </UserControl>

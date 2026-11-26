@@ -161,7 +161,7 @@ public partial class WorkspaceEditorTabViewModel : ViewModelBase, IDisposable
     [ObservableProperty]
     private string _text = string.Empty;
 
-    public ObservableCollection<WorkspaceDiffLine> DiffLines { get; } = new();
+    public BulkObservableCollection<WorkspaceDiffLine> DiffLines { get; } = new();
 
     [ObservableProperty]
     private int _diffAddedCount;
@@ -226,8 +226,7 @@ public partial class WorkspaceEditorTabViewModel : ViewModelBase, IDisposable
 
     public void SetDiff(IReadOnlyList<WorkspaceDiffLine> lines)
     {
-        DiffLines.Clear();
-        foreach (var line in lines) DiffLines.Add(line);
+        DiffLines.ReplaceAll(lines);
         DiffAddedCount = lines.Count(line => line.IsAdded);
         DiffRemovedCount = lines.Count(line => line.IsRemoved);
     }

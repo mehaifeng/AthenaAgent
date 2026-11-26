@@ -252,8 +252,9 @@ internal static class ThemeContrastTests
         var editor = window.GetVisualDescendants().OfType<TextBox>().Single(x => x.Text?.Contains("Theme resources", StringComparison.Ordinal) == true);
         Check(editor.Bounds.Height > 200 && editor.VerticalContentAlignment == Avalonia.Layout.VerticalAlignment.Top,
             "editor text must fill its pane and start at the top");
+        var bubbles = chatView.FindControl<ItemsControl>("MessagesItemsControl")!;
         Check(window.GetVisualDescendants().OfType<Border>().Count(b => b.Classes.Contains("message-bubble")) >= 2,
-            "shell preview must contain actual user and assistant messages");
+            $"Shell preview must show both messages. History {vm.DisplayedConversation.Messages.Count}, projected {bubbles.ItemCount}, realized {bubbles.GetRealizedContainers().Count()}, list bounds {bubbles.Bounds}.");
 
         try
         {

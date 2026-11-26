@@ -4,6 +4,7 @@ using Athena.UI.Services.Interfaces;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using System;
+using System.Collections.Generic;
 using System.Collections.Specialized;
 using System.ComponentModel;
 using System.Linq;
@@ -21,6 +22,10 @@ public partial class ConversationSessionItemViewModel : ViewModelBase, IDisposab
     private CancellationTokenSource? _saveDebounce;
     private readonly SemaphoreSlim _persistGate = new(1, 1);
     private bool _metadataTrackingEnabled;
+    private MainConversationViewModel? _chat;
+    private Func<ConversationHistoryItem, MainConversationViewModel>? _restore;
+    private ArchivedConversation? _archive;
+    private Task<ConversationHistoryItem>? _preparation;
 
     /// <summary>手动重命名/分支等显式指定标题后，不再静默覆盖（粘性）。</summary>
     private bool _autoTitleDisabled;
@@ -40,8 +45,19 @@ public partial class ConversationSessionItemViewModel : ViewModelBase, IDisposab
         IConversationArchiveStore? store,
         string? historyId = null,
         ILocalizationService? localizationService = null)
+        : this(workspace, store, historyId, localizationService) => AttachChat(chat);
+
+    internal ConversationSessionItemViewModel(ArchivedConversation history, Func<ConversationHistoryItem, MainConversationViewModel> restore,
+        WorkspaceProfile? workspace, IConversationArchiveStore? store, ILocalizationService? localizationService)
+        : this(workspace, store, history.Id, localizationService)
     {
-        Chat = chat;
+        _archive = history;
+        _restore = restore;
+    }
+
+    private ConversationSessionItemViewModel(WorkspaceProfile? workspace, IConversationArchiveStore? store,
+        string? historyId, ILocalizationService? localizationService)
+    {
         Workspace = workspace;
         HistoryId = string.IsNullOrWhiteSpace(historyId) ? Guid.NewGuid().ToString() : historyId;
         _store = store;
@@ -49,11 +65,6 @@ public partial class ConversationSessionItemViewModel : ViewModelBase, IDisposab
         _newConversationTitle = L("Session.Title.NewConversation", "New chat");
         // 新会话初始标题为占位符（"新对话"）；第一条用户消息发出后由 OnMessagesChanged 替换为前 32 字符。
         Title = _newConversationTitle;
-        Chat.PropertyChanged += OnChatPropertyChanged;
-        Chat.Messages.CollectionChanged += OnMessagesChanged;
-        Chat.PersistenceStateChanged += OnPersistenceStateChanged;
-        Chat.MessageForkRequested += OnChatMessageForkRequested;
-        Chat.AttachCompressionCommitter(this);
         Dispatcher.UIThread.Post(() => _metadataTrackingEnabled = true);
         if (_localizationService != null)
         {
@@ -87,13 +98,48 @@ public partial class ConversationSessionItemViewModel : ViewModelBase, IDisposab
         OnPropertyChanged(nameof(StatusText));
     }
 
-    public MainConversationViewModel Chat { get; }
+    private void AttachChat(MainConversationViewModel chat)
+    {
+        _chat = chat;
+        chat.PropertyChanged += OnChatPropertyChanged;
+        chat.Messages.CollectionChanged += OnMessagesChanged;
+        chat.PersistenceStateChanged += OnPersistenceStateChanged;
+        chat.MessageForkRequested += OnChatMessageForkRequested;
+        chat.AttachCompressionCommitter(this);
+    }
+
+    public MainConversationViewModel Chat
+    {
+        get
+        {
+            if (_chat == null)
+            {
+                ObjectDisposedException.ThrowIf(_restore == null, this);
+                var history = _archive!.Prepared ?? (_preparation is { IsCompletedSuccessfully: true } prepared
+                    ? prepared.Result : _archive.Read());
+                AttachChat(_restore(history));
+                _preparation = null;
+                _restore = null;
+                _archive = null;
+            }
+            return _chat!;
+        }
+    }
+
+    internal MainConversationViewModel? LoadedChat => _chat;
+    internal IEnumerable<ChatMessage>? SearchableMessages => (IEnumerable<ChatMessage>?)_chat?.Messages ?? _archive?.Prepared?.Messages;
+    internal async Task PrepareAsync()
+    {
+        if (_archive == null || _archive.Prepared != null) return;
+        try { await (_preparation ??= Task.Run(_archive.Read)); }
+        catch { _preparation = null; throw; }
+    }
 
     public WorkspaceProfile? Workspace { get; }
 
     public string HistoryId { get; }
 
-    public string ConversationId => Chat.ConversationId;
+    public string ConversationId => _archive?.ConversationId ?? Chat.ConversationId;
 
     public string WorkspaceId => Workspace?.Id ?? string.Empty;
 
@@ -240,9 +286,9 @@ public partial class ConversationSessionItemViewModel : ViewModelBase, IDisposab
     [ObservableProperty]
     private bool _isSearchMatch = true;
 
-    public bool IsRunning => Chat.IsSending && !Chat.IsQueued;
+    public bool IsRunning => _chat is { IsSending: true, IsQueued: false };
 
-    public bool IsQueued => Chat.IsQueued;
+    public bool IsQueued => _chat?.IsQueued == true;
 
     public bool HasStatusIndicator =>
         IsWaitingForApproval || IsQueued || IsRunning || IsArchivePending || IsArchiveFailed
@@ -465,7 +511,7 @@ public partial class ConversationSessionItemViewModel : ViewModelBase, IDisposab
 
     public async Task PersistNowAsync()
     {
-        if (_store == null || (Chat.Messages.Count == 0 && string.IsNullOrWhiteSpace(Chat.InputText))) return;
+        if (_chat == null || _store == null || (Chat.Messages.Count == 0 && string.IsNullOrWhiteSpace(Chat.InputText))) return;
         ConversationPersistenceSnapshot snapshot;
         if (Dispatcher.UIThread.CheckAccess())
         {
@@ -688,15 +734,22 @@ public partial class ConversationSessionItemViewModel : ViewModelBase, IDisposab
         {
             _localizationService.LanguageChanged -= OnLanguageChanged;
         }
-        Chat.PropertyChanged -= OnChatPropertyChanged;
-        Chat.Messages.CollectionChanged -= OnMessagesChanged;
-        Chat.PersistenceStateChanged -= OnPersistenceStateChanged;
-        Chat.MessageForkRequested -= OnChatMessageForkRequested;
+        _restore = null;
+        _archive = null;
+        _preparation = null;
+        if (_chat != null)
+        {
+            _chat.PropertyChanged -= OnChatPropertyChanged;
+            _chat.Messages.CollectionChanged -= OnMessagesChanged;
+            _chat.PersistenceStateChanged -= OnPersistenceStateChanged;
+            _chat.MessageForkRequested -= OnChatMessageForkRequested;
+            _chat.Dispose();
+        }
         _saveDebounce?.Cancel();
         _saveDebounce?.Dispose();
         _saveDebounce = null;
         _persistGate.Dispose();
-        Chat.Dispose();
+
     }
 }
 

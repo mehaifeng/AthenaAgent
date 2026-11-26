@@ -15,7 +15,7 @@ using System.Threading.Tasks;
 namespace Athena.UI.Services;
 
 /// <summary>SQLite 对话存储；消息 JSON 保留完整领域结构，索引字段独立列出。</summary>
-public sealed class ConversationArchiveStore : IConversationArchiveStore, IConversationDraftStore, IDisposable
+public sealed class ConversationArchiveStore : IConversationArchiveStore, IConversationDraftStore, IConversationDirectory, IDisposable
 {
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
@@ -23,6 +23,9 @@ public sealed class ConversationArchiveStore : IConversationArchiveStore, IConve
         PropertyNamingPolicy = JsonNamingPolicy.CamelCase
     };
 
+    // SQLite stores these small fields in the index. Opening an existing installation builds
+    // the index once on the directory reader's worker. Later listings do not touch message JSON.
+    private const string DirectoryMetadata = "json_extract(payload,'$.isPinned','$.runtimeStatus','$.forkedFromHistoryId','$.createdByCronTaskId','$.cronTaskRunId')";
     private readonly string _connectionString;
     private readonly ILogger _logger;
     private readonly SemaphoreSlim _writeGate = new(1, 1);
@@ -79,22 +82,107 @@ public sealed class ConversationArchiveStore : IConversationArchiveStore, IConve
         return items;
     }
 
-    public async Task<ConversationHistoryItem?> LoadByIdAsync(string id)
+    private Task<List<ArchivedConversation>>? _startupDirectory;
+
+    // The normal desktop startup requests this once, before constructing its services
+    // and window. The shell consumes the same task; later listings always see fresh data.
+    internal void PrepareStartupDirectory() => _startupDirectory ??= Task.Run(() =>
+    {
+        var entries = ReadDirectory();
+        if (entries.Count != 0 && ReadById(entries[0].Id) is { } first)
+            entries[0] = entries[0] with { Prepared = first };
+        return entries;
+    });
+
+    Task<List<ArchivedConversation>> IConversationDirectory.ReadDirectoryAsync() =>
+        Interlocked.Exchange(ref _startupDirectory, null) ?? Task.Run(ReadDirectory);
+
+    private List<ArchivedConversation> ReadDirectory()
+    {
+        using var connection = new SqliteConnection(_connectionString);
+        connection.Open();
+        using var cmd = connection.CreateCommand();
+        cmd.CommandText = $"""
+            CREATE INDEX IF NOT EXISTS ix_conversation_directory
+            ON conversations(updated_at DESC,id,conversation_id,workspace_id,parent_conversation_id,title,{DirectoryMetadata})
+            WHERE json_valid(payload)
+            """;
+        cmd.ExecuteNonQuery();
+        cmd.CommandText = $"""
+            SELECT id,conversation_id,workspace_id,parent_conversation_id,title,updated_at,{DirectoryMetadata}
+            FROM conversations INDEXED BY ix_conversation_directory WHERE json_valid(payload) ORDER BY updated_at DESC
+            """;
+        using var reader = cmd.ExecuteReader();
+        var entries = new List<ArchivedConversation>();
+        while (reader.Read())
+        {
+            var id = reader.GetString(0);
+            try
+            {
+                using var metadata = JsonDocument.Parse(reader.GetString(6));
+                var fields = metadata.RootElement;
+                var pinned = fields[0].ValueKind == JsonValueKind.True ||
+                    fields[0].ValueKind == JsonValueKind.Number && fields[0].GetInt32() != 0;
+                entries.Add(new ArchivedConversation(id, reader.GetString(1), reader.IsDBNull(2) ? null : reader.GetString(2),
+                    reader.GetString(4), reader.GetDateTime(5).ToLocalTime(), pinned, fields[1].GetString() ?? "idle",
+                    reader.IsDBNull(3) ? null : reader.GetString(3), fields[2].GetString(), fields[3].GetString(), fields[4].GetString(),
+                    () => ReadById(id) ?? throw new InvalidOperationException($"Conversation {id} is no longer available."))
+                    { OwnsReadMessages = true });
+            }
+            catch (Exception ex) when (ex is JsonException or FormatException or InvalidOperationException)
+            {
+                _logger.Warning(ex, "Skipping an unreadable archive directory entry {HistoryId}", id);
+            }
+        }
+        return entries;
+    }
+
+    HashSet<string> IConversationDirectory.FindByContent(string text, CancellationToken cancellation)
+    {
+        using var connection = new SqliteConnection(_connectionString);
+        connection.Open();
+        connection.CreateFunction("matches_message", (string? content) =>
+        {
+            cancellation.ThrowIfCancellationRequested();
+            return content?.Contains(text, StringComparison.OrdinalIgnoreCase) == true;
+        });
+        using var cmd = connection.CreateCommand();
+        cmd.CommandText = """
+            SELECT id FROM conversations WHERE json_valid(payload) AND EXISTS (
+                SELECT 1 FROM json_each(payload,'$.messages') WHERE type='object' AND matches_message(value ->> '$.content'))
+            """;
+        var matches = new HashSet<string>(StringComparer.Ordinal);
+        try
+        {
+            using var reader = cmd.ExecuteReader();
+            while (reader.Read()) matches.Add(reader.GetString(0));
+        }
+        catch (SqliteException) when (cancellation.IsCancellationRequested)
+        {
+            throw new OperationCanceledException(cancellation);
+        }
+        return matches;
+    }
+
+    public Task<ConversationHistoryItem?> LoadByIdAsync(string id) => Task.Run(() => ReadById(id));
+
+    private ConversationHistoryItem? ReadById(string id)
     {
         try
         {
-            await using var connection = new SqliteConnection(_connectionString);
-            await connection.OpenAsync().ConfigureAwait(false);
-            await using var command = connection.CreateCommand();
+            using var connection = new SqliteConnection(_connectionString);
+            connection.Open();
+            using var command = connection.CreateCommand();
             command.CommandText = "SELECT payload FROM conversations WHERE id = $id";
             command.Parameters.AddWithValue("$id", ValidateId(id));
-            var payload = await command.ExecuteScalarAsync().ConfigureAwait(false) as string;
-            if (payload == null) return null;
+            if (command.ExecuteScalar() is not string payload) return null;
             var item = JsonSerializer.Deserialize<ConversationHistoryItem>(payload, JsonOptions);
             if (item != null && ConversationPersistenceRecovery.Repair(item))
             {
-                _logger.Warning("Idempotently repaired compression session persistence invariant: {HistoryId}, Revision={Revision}", item.Id, item.Revision);
-                await SaveAsync(item).ConfigureAwait(false);
+                _logger.Warning("Repaired compression session persistence invariant: {HistoryId}, Revision={Revision}", item.Id, item.Revision);
+                _writeGate.Wait();
+                try { SaveCore(item, advanceOnDrift: false); }
+                finally { _writeGate.Release(); }
             }
             return item;
         }
@@ -133,35 +221,9 @@ public sealed class ConversationArchiveStore : IConversationArchiveStore, IConve
         await _writeGate.WaitAsync().ConfigureAwait(false);
         try
         {
-            await using var connection = new SqliteConnection(_connectionString);
-            await connection.OpenAsync().ConfigureAwait(false);
-
-            // 至多重试一次：_writeGate 已经把进程内写入者串行化，一次顺延仍被拒绝
-            // 说明有本进程之外的写入者，那就是真冲突，不该继续抬高 revision 硬写。
-            for (var attempt = 0; ; attempt++)
-            {
-                var payload = JsonSerializer.Serialize(item, JsonOptions);
-                var payloadHash = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(payload)));
-                var affected = await ExecuteUpsertAsync(connection, item, payload, payloadHash).ConfigureAwait(false);
-                if (affected > 0) return item.Revision;
-
-                var rejection = await InspectRejectedWriteAsync(connection, item.Id, item.Revision, payloadHash)
-                    .ConfigureAwait(false);
-                switch (rejection.Kind)
-                {
-                    case RejectedWriteKind.Idempotent:
-                        return item.Revision;
-                    case RejectedWriteKind.Stale:
-                        throw new ConversationRevisionConflictException(
-                            $"Stale conversation revision {item.Revision} cannot overwrite {rejection.StoredRevision}.");
-                    default:
-                        if (!advanceOnDrift || attempt > 0)
-                            throw new ConversationRevisionConflictException(
-                                $"Different conversation payloads cannot share revision {item.Revision}.");
-                        item.Revision = rejection.StoredRevision + 1;
-                        continue;
-                }
-            }
+            // Microsoft.Data.Sqlite performs synchronous I/O. Serialization, hashing and the
+            // write all belong off the UI thread, after reserving the writer in submission order.
+            return await Task.Run(() => SaveCore(item, advanceOnDrift)).ConfigureAwait(false);
         }
         finally
         {
@@ -169,13 +231,45 @@ public sealed class ConversationArchiveStore : IConversationArchiveStore, IConve
         }
     }
 
-    private static async Task<int> ExecuteUpsertAsync(
+    private long SaveCore(ConversationHistoryItem item, bool advanceOnDrift)
+    {
+        using var connection = new SqliteConnection(_connectionString);
+        connection.Open();
+
+        // 至多重试一次：_writeGate 已经把进程内写入者串行化，一次顺延仍被拒绝
+        // 说明有本进程之外的写入者，那就是真冲突，不该继续抬高 revision 硬写。
+        for (var attempt = 0; ; attempt++)
+        {
+            var payload = JsonSerializer.Serialize(item, JsonOptions);
+            var payloadHash = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(payload)));
+            var affected = ExecuteUpsert(connection, item, payload, payloadHash);
+            if (affected > 0) return item.Revision;
+
+            var rejection = InspectRejectedWrite(connection, item.Id, item.Revision, payloadHash);
+            switch (rejection.Kind)
+            {
+                case RejectedWriteKind.Idempotent:
+                    return item.Revision;
+                case RejectedWriteKind.Stale:
+                    throw new ConversationRevisionConflictException(
+                        $"Stale conversation revision {item.Revision} cannot overwrite {rejection.StoredRevision}.");
+                default:
+                    if (!advanceOnDrift || attempt > 0)
+                        throw new ConversationRevisionConflictException(
+                            $"Different conversation payloads cannot share revision {item.Revision}.");
+                    item.Revision = rejection.StoredRevision + 1;
+                    continue;
+            }
+        }
+    }
+
+    private static int ExecuteUpsert(
         SqliteConnection connection,
         ConversationHistoryItem item,
         string payload,
         string payloadHash)
     {
-        await using var command = connection.CreateCommand();
+        using var command = connection.CreateCommand();
         command.CommandText = """
             INSERT INTO conversations (id, conversation_id, workspace_id, parent_conversation_id, title, created_at, updated_at, revision, payload_hash, payload)
             VALUES ($id, $conversationId, $workspaceId, $parentId, $title, $createdAt, $updatedAt, $revision, $payloadHash, $payload)
@@ -200,7 +294,7 @@ public sealed class ConversationArchiveStore : IConversationArchiveStore, IConve
         command.Parameters.AddWithValue("$revision", item.Revision);
         command.Parameters.AddWithValue("$payloadHash", payloadHash);
         command.Parameters.AddWithValue("$payload", payload);
-        return await command.ExecuteNonQueryAsync().ConfigureAwait(false);
+        return command.ExecuteNonQuery();
     }
 
     private enum RejectedWriteKind
@@ -215,17 +309,17 @@ public sealed class ConversationArchiveStore : IConversationArchiveStore, IConve
 
     private readonly record struct RejectedWrite(RejectedWriteKind Kind, long StoredRevision);
 
-    private static async Task<RejectedWrite> InspectRejectedWriteAsync(
+    private static RejectedWrite InspectRejectedWrite(
         SqliteConnection connection,
         string id,
         long incomingRevision,
         string incomingPayloadHash)
     {
-        await using var current = connection.CreateCommand();
+        using var current = connection.CreateCommand();
         current.CommandText = "SELECT revision, payload_hash FROM conversations WHERE id = $id";
         current.Parameters.AddWithValue("$id", ValidateId(id));
-        await using var reader = await current.ExecuteReaderAsync().ConfigureAwait(false);
-        if (!await reader.ReadAsync().ConfigureAwait(false))
+        using var reader = current.ExecuteReader();
+        if (!reader.Read())
         {
             throw new InvalidOperationException("Conversation write was rejected but the current row is missing.");
         }

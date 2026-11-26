@@ -19,6 +19,12 @@ public interface IConversationArchiveStore
     Task DeleteAsync(string id);
 }
 
+internal interface IConversationDirectory
+{
+    Task<List<ArchivedConversation>> ReadDirectoryAsync();
+    HashSet<string> FindByContent(string text, System.Threading.CancellationToken cancellation);
+}
+
 public interface IConversationDraftStore
 {
     void Save(ConversationDraftSnapshot snapshot);

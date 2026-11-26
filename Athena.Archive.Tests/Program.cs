@@ -216,6 +216,7 @@ var tests = new (string Name, Func<Task> Run)[]
     ("only whitelisted fields reach the archive; derived and transient state never does", TestPersistedMessageFieldWhitelistAsync),
     ("only whitelisted fields reach config; derived provider metadata never does", TestPersistedProviderInventoryFieldWhitelistAsync),
     ("recognizes a macOS bundle install directory", TestUpdaterResolvesBundleLayoutAsync),
+    ("the updater preserves identical macOS files and installs changed bytes and modes", TestUpdaterCopyAsync),
     ("an in-app update writes the installed version into the bundle's Info.plist", TestUpdaterRewritesBundleVersionAsync),
     ("OrcaRouter PKCE material is S256-derived, url-safe and never reused", TestOrcaRouterPkceAsync),
     ("the shipped OrcaRouter endpoints parse, and a foreign host or plaintext url does not", TestOrcaRouterEndpointsAsync),
@@ -9293,6 +9294,42 @@ static void AssertPersistedFields(JsonElement element, string[] expected, string
         missing.Length == 0,
         $"{typeName} 少写了应持久化的字段: {string.Join(", ", missing)}。"
         + "白名单跟 CloneMessage 对齐——真丢了数据，比多写几个字节严重得多。");
+}
+
+static Task TestUpdaterCopyAsync()
+{
+    var root = Directory.CreateTempSubdirectory("athena-update-copy-").FullName;
+    try
+    {
+        var source = Path.Combine(root, "staged");
+        var target = Path.Combine(root, "installed");
+        var data = new byte[140_000];
+        File.WriteAllBytes(source, data);
+        var copier = new Athena.Updater.UpdateFileCopier();
+        copier.Copy(source, target);
+        var previous = DateTime.UtcNow.AddYears(-2);
+        File.SetLastWriteTimeUtc(target, previous);
+        var stamp = File.GetLastWriteTimeUtc(target);
+        copier.Copy(source, target);
+        if (OperatingSystem.IsMacOS())
+            AssertTrue(File.GetLastWriteTimeUtc(target) == stamp, "An identical installed file was rewritten");
+
+        data[^1] = 81;
+        File.WriteAllBytes(source, data);
+        File.SetLastWriteTimeUtc(source, stamp);
+        copier.Copy(source, target);
+        AssertTrue(File.ReadAllBytes(target).SequenceEqual(data), "A same-size change at the end of a file was missed");
+        if (OperatingSystem.IsMacOS())
+        {
+            var mode = File.GetUnixFileMode(source) | UnixFileMode.UserExecute;
+            File.SetUnixFileMode(source, mode);
+            File.SetUnixFileMode(target, mode & ~UnixFileMode.UserExecute);
+            copier.Copy(source, target);
+            AssertTrue(File.GetUnixFileMode(target) == mode, "Equal bytes masked an executable permission change");
+        }
+        return Task.CompletedTask;
+    }
+    finally { Directory.Delete(root, true); }
 }
 
 static Task TestUpdaterResolvesBundleLayoutAsync()

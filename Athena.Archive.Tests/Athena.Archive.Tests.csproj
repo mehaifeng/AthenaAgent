@@ -24,6 +24,7 @@
     <Compile Include="../Models/OfficeToolsMode.cs" Link="Source/Models/OfficeToolsMode.cs" />
     <Compile Include="../Models/AudioOutputTestResult.cs" Link="Source/Models/AudioOutputTestResult.cs" />
     <Compile Include="../Models/AppConfig.cs" Link="Source/Models/AppConfig.cs" />
+    <Compile Include="../Models/EmbeddedBrowserSettings.cs" Link="Source/Models/EmbeddedBrowserSettings.cs" />
     <Compile Include="../Models/ProviderRetryOptions.cs" Link="Source/Models/ProviderRetryOptions.cs" />
     <Compile Include="../Models/ContextPolicyModels.cs" Link="Source/Models/ContextPolicyModels.cs" />
     <Compile Include="../Models/PreparedChatRequest.cs" Link="Source/Models/PreparedChatRequest.cs" />
@@ -40,6 +41,7 @@
     <Compile Include="../Services/ModelCatalogService.cs" Link="Source/Services/ModelCatalogService.cs" />
     <Compile Include="../Services/ModelMetadata/ProviderReportedMetadataParser.cs" Link="Source/Services/ModelMetadata/ProviderReportedMetadataParser.cs" />
     <Compile Include="../Services/ModelMetadata/ModelIdentityMatcher.cs" Link="Source/Services/ModelMetadata/ModelIdentityMatcher.cs" />
+    <Compile Include="../Services/ModelMetadata/ComputerUseModelSelection.cs" Link="Source/Services/ModelMetadata/ComputerUseModelSelection.cs" />
     <Compile Include="../Services/ModelMetadata/ModelMetadataResolver.cs" Link="Source/Services/ModelMetadata/ModelMetadataResolver.cs" />
     <Compile Include="../Services/ModelMetadata/ModelMetadataCsvExporter.cs" Link="Source/Services/ModelMetadata/ModelMetadataCsvExporter.cs" />
     <Compile Include="../Services/ModelMetadata/OpenRouterModelMetadataStore.cs" Link="Source/Services/ModelMetadata/OpenRouterModelMetadataStore.cs" />
@@ -114,6 +116,7 @@
     <Compile Include="../Models/ConversationContext.cs" Link="Source/Models/ConversationContext.cs" />
     <Compile Include="../Models/ConversationDraftSnapshot.cs" Link="Source/Models/ConversationDraftSnapshot.cs" />
     <Compile Include="../Models/ConversationHistoryItem.cs" Link="Source/Models/ConversationHistoryItem.cs" />
+    <Compile Include="../Models/ArchivedConversation.cs" Link="Source/Models/ArchivedConversation.cs" />
     <Compile Include="../Models/ConversationUsageRecord.cs" Link="Source/Models/ConversationUsageRecord.cs" />
     <Compile Include="../Models/WorkspaceProfile.cs" Link="Source/Models/WorkspaceProfile.cs" />
     <Compile Include="../Models/ConversationPersistenceHelper.cs" Link="Source/Models/ConversationPersistenceHelper.cs" />
@@ -202,6 +205,7 @@
     <!-- 更新器的 .app 布局归位与包内版本读取；不链 Program.cs，它与本项目的入口点冲突。 -->
     <Compile Include="../Athena.Updater/MacAppBundle.cs" Link="Source/Updater/MacAppBundle.cs" />
     <Compile Include="../Athena.Updater/StagedPayload.cs" Link="Source/Updater/StagedPayload.cs" />
+    <Compile Include="../Athena.Updater/UpdateFileCopier.cs" Link="Source/Updater/UpdateFileCopier.cs" />
     <!-- 游戏模式：城邦扫描、建筑汇总、布局账本、存档、差异、归属、意图校验都是纯函数（M1 起在 Services/GameMode，进应用）；
          合成夹具只是开发期数据，留在 Tools/GameMode/Polis，不进应用。 -->
     <Compile Include="../Services/GameMode/*.cs" Link="Source/Services/GameMode/%(Filename)%(Extension)" />

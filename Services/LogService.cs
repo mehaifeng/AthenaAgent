@@ -56,7 +56,10 @@ public class LogService : ILogService, IDisposable
         command.ExecuteNonQuery();
     }
 
-    public async Task<LogQueryResult> QueryLogsAsync(LogQueryParams queryParams)
+    public Task<LogQueryResult> QueryLogsAsync(LogQueryParams queryParams) =>
+        Task.Run(() => QueryLogs(queryParams));
+
+    private LogQueryResult QueryLogs(LogQueryParams queryParams)
     {
         queryParams ??= new LogQueryParams();
         var result = new LogQueryResult
@@ -66,7 +69,7 @@ public class LogService : ILogService, IDisposable
         };
 
         using var connection = new SqliteConnection($"Data Source={_dbPath}");
-        await connection.OpenAsync();
+        connection.Open();
 
         // 构建查询条件
         var whereClauses = new List<string>();
@@ -106,7 +109,7 @@ public class LogService : ILogService, IDisposable
         using (var countCommand = new SqliteCommand(countSql, connection))
         {
             countCommand.Parameters.AddRange(parameters.ToArray());
-            result.TotalCount = Convert.ToInt32(await countCommand.ExecuteScalarAsync());
+            result.TotalCount = Convert.ToInt32(countCommand.ExecuteScalar());
         }
 
         // 查询数据
@@ -125,8 +128,8 @@ public class LogService : ILogService, IDisposable
             dataCommand.Parameters.Add(new SqliteParameter("@PageSize", queryParams.PageSize));
             dataCommand.Parameters.Add(new SqliteParameter("@Offset", offset));
 
-            using var reader = await dataCommand.ExecuteReaderAsync();
-            while (await reader.ReadAsync())
+            using var reader = dataCommand.ExecuteReader();
+            while (reader.Read())
             {
                 result.Entries.Add(new LogEntry
                 {

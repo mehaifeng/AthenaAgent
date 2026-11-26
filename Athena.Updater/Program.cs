@@ -89,6 +89,7 @@ internal static class Program
     private static void ApplyUpdate(UpdateSession session)
     {
         Directory.CreateDirectory(session.InstallDirectory);
+        var files = new UpdateFileCopier();
         var preserveRoots = new HashSet<string>(
             (session.PreservePaths ?? new List<string>())
             .Select(NormalizeRelativePath)
@@ -104,7 +105,7 @@ internal static class Program
             }
 
             var destinationDir = Path.Combine(session.InstallDirectory, relative);
-            CopyDirectory(sourceDir, destinationDir);
+            CopyDirectory(sourceDir, destinationDir, files);
         }
 
         foreach (var sourceFile in Directory.GetFiles(session.StagingDirectory))
@@ -117,7 +118,7 @@ internal static class Program
 
             var destinationFile = Path.Combine(session.InstallDirectory, relative);
             Directory.CreateDirectory(Path.GetDirectoryName(destinationFile) ?? session.InstallDirectory);
-            File.Copy(sourceFile, destinationFile, true);
+            files.Copy(sourceFile, destinationFile);
         }
     }
 
@@ -142,19 +143,19 @@ internal static class Program
         }
     }
 
-    private static void CopyDirectory(string sourceDir, string destinationDir)
+    private static void CopyDirectory(string sourceDir, string destinationDir, UpdateFileCopier files)
     {
         Directory.CreateDirectory(destinationDir);
         foreach (var file in Directory.GetFiles(sourceDir))
         {
             var destinationFile = Path.Combine(destinationDir, Path.GetFileName(file));
-            File.Copy(file, destinationFile, true);
+            files.Copy(file, destinationFile);
         }
 
         foreach (var dir in Directory.GetDirectories(sourceDir))
         {
             var childDestination = Path.Combine(destinationDir, Path.GetFileName(dir));
-            CopyDirectory(dir, childDestination);
+            CopyDirectory(dir, childDestination, files);
         }
     }
 

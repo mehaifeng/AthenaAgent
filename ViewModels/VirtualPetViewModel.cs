@@ -9,6 +9,7 @@ using CommunityToolkit.Mvvm.Input;
 using Serilog;
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Threading.Tasks;
 
 namespace Athena.UI.ViewModels;
@@ -90,7 +91,10 @@ public partial class VirtualPetViewModel : ObservableObject, IDisposable
 
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(CanCatchFiles))]
+    [NotifyPropertyChangedFor(nameof(VisiblePet))]
     private bool _isEnabled = true;
+
+    public VirtualPetViewModel? VisiblePet => IsEnabled ? this : null;
 
     /// <summary>互动闭环总开关。关掉后宠物退回纯状态指示器，拖动与漫游不受影响。</summary>
     [ObservableProperty]
@@ -351,7 +355,11 @@ public partial class VirtualPetViewModel : ObservableObject, IDisposable
     {
         IsEnabled = config.VirtualPetEnabled;
         ReducedMotion = config.VirtualPetReducedMotion;
-        var slug = PetDexPetLibrary.Resolve(config.VirtualPetSlug).Slug;
+        // Built-in package identities are shipped with the application. Geometry and
+        // bitmap decoding are needed when the pet is displayed or its settings are opened.
+        var builtIn = !IsEnabled ? PetDexPetLibrary.BuiltIns.FirstOrDefault(pet =>
+            string.Equals(pet.Slug, config.VirtualPetSlug?.Trim(), StringComparison.OrdinalIgnoreCase)) : null;
+        var slug = builtIn?.Slug ?? PetDexPetLibrary.Resolve(config.VirtualPetSlug).Slug;
         var slugChanged = !string.Equals(slug, PetSlug, StringComparison.OrdinalIgnoreCase);
         PetSlug = slug;
         PetScale = PetDexPetLibrary.ClampScale(config.VirtualPetScale);

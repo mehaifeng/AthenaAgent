@@ -147,6 +147,8 @@ public sealed class AppConfigurationSession : IDisposable
             var previousPreset = provider.ProviderPreset;
             TrackPropertyChanges(provider, (_, args) =>
             {
+                if (args.PropertyName == nameof(OpenAiProviderConfiguration.Models))
+                    RebuildTracking();
                 if (args.PropertyName == nameof(OpenAiProviderConfiguration.ProviderPreset))
                 {
                     var newPreset = provider.ProviderPreset;

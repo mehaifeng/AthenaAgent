@@ -206,8 +206,8 @@ internal static class ThemeResources
         Alias("TabItemButtonHeaderPressedBackground", "App.SelectedBackgroundActive");
 
         var mode = dark ? "Dark" : "Light";
-        result["About.LogoImage"] = Image(mode + "Logo.webp");
-        result["App.BackgroundImage"] = Image(mode + ".webp");
+        result.AddDeferred("About.LogoImage", _ => Image(mode + "Logo.webp"));
+        result.AddDeferred("App.BackgroundImage", _ => Image(mode + ".webp"));
         result.AddDeferred(EmptyConversationLogo.ResourceKey,
             _ => EmptyConversationLogo.Create(scheme.Name == "Default" ? null : accent));
         return result;

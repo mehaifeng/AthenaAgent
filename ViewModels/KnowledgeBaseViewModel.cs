@@ -5,7 +5,6 @@ using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using Serilog;
 using System;
-using System.Collections.ObjectModel;
 using System.IO;
 using System.Linq;
 using System.Threading.Tasks;
@@ -29,7 +28,7 @@ public partial class KnowledgeBaseViewModel : ViewModelBase, IDisposable
     private readonly ILogger _logger = Log.ForContext<KnowledgeBaseViewModel>();
     private bool _disposed;
 
-    public ObservableCollection<KnowledgeFileNode> Files { get; } = new();
+    public BulkObservableCollection<KnowledgeFileNode> Files { get; } = new();
 
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(SelectedFileDisplayPath))]
@@ -295,28 +294,18 @@ public partial class KnowledgeBaseViewModel : ViewModelBase, IDisposable
     {
         if (string.IsNullOrEmpty(_rootPath)) return;
 
-        if (!Directory.Exists(_rootPath))
-        {
-            Directory.CreateDirectory(_rootPath);
-        }
-
-        Files.Clear();
+        var generation = ++_fileRefreshGeneration;
+        var root = _rootPath;
         try
         {
-            var rootNode = new KnowledgeFileNode
+            var tree = await Task.Run(() =>
             {
-                Name = "KnowledgeBase",
-                IsDirectory = true,
-                IsExpanded = true,
-                FullPath = _rootPath
-            };
-
-            await BuildFileTreeAsync(rootNode, _rootPath);
-
-            foreach (var child in rootNode.Children)
-            {
-                Files.Add(child);
-            }
+                Directory.CreateDirectory(root);
+                var node = new KnowledgeFileNode { Name = "KnowledgeBase", FullPath = root, IsDirectory = true, IsExpanded = true };
+                BuildFileTree(node, root);
+                return node;
+            });
+            if (!_disposed && generation == _fileRefreshGeneration) Files.ReplaceAll(tree.Children);
         }
         catch (Exception ex)
         {
@@ -324,7 +313,8 @@ public partial class KnowledgeBaseViewModel : ViewModelBase, IDisposable
         }
     }
 
-    private Task BuildFileTreeAsync(KnowledgeFileNode parentNode, string currentPath)
+    private int _fileRefreshGeneration;
+    private static void BuildFileTree(KnowledgeFileNode parentNode, string currentPath)
     {
         var dirInfo = new DirectoryInfo(currentPath);
 
@@ -340,7 +330,7 @@ public partial class KnowledgeBaseViewModel : ViewModelBase, IDisposable
             };
             parentNode.Children.Add(dirNode);
             // 递归
-            _ = BuildFileTreeAsync(dirNode, dir.FullName);
+            BuildFileTree(dirNode, dir.FullName);
         }
 
         // 再添加文件，过滤出只包含 .md 的文件
@@ -355,7 +345,6 @@ public partial class KnowledgeBaseViewModel : ViewModelBase, IDisposable
             parentNode.Children.Add(fileNode);
         }
 
-        return Task.CompletedTask;
     }
 
     [RelayCommand]

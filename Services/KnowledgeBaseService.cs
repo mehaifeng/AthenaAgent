@@ -31,7 +31,13 @@ public class KnowledgeBaseService : IKnowledgeBaseService, IDisposable
 
     // A refresh publishes one complete snapshot. An invalidation arriving during a
     // refresh remains pending until a later pass loads that revision.
-    private volatile IReadOnlyList<DocumentVector> _vectorCache = [];
+    private sealed class IndexSnapshot(IReadOnlyList<DocumentVector> documents)
+    {
+        public IReadOnlyList<DocumentVector> Documents { get; } = documents;
+        public IReadOnlyDictionary<(string, int), DocumentVector> ByKey { get; } =
+            documents.ToDictionary(document => (document.FilePath, document.ChunkIndex));
+    }
+    private volatile IndexSnapshot _index = new([]);
     private long _indexRevision;
     private long _loadedIndexRevision = -1;
 
@@ -244,7 +250,8 @@ public class KnowledgeBaseService : IKnowledgeBaseService, IDisposable
         try
         {
             if (IndexNeedsRefresh) await LoadOrRefreshVectorsAsync();
-            var vectorCache = _vectorCache;
+            var snapshot = _index;
+            var vectorCache = snapshot.Documents;
 
             var embeddingsOn = _embeddingService != null && _embeddingService.IsConfigured;
 
@@ -274,9 +281,6 @@ public class KnowledgeBaseService : IKnowledgeBaseService, IDisposable
             // 3) RRF 融合：score(d) = Σ 1/(k + rank)，按排名合并两路，规避分数量纲不一致
             var rrf = new Dictionary<(string, int), double>();
             var snippet = new Dictionary<(string, int), (string FilePath, string Text, string Heading)>();
-            var indexedByKey = vectorCache.ToDictionary(
-                document => (document.FilePath, document.ChunkIndex),
-                document => document);
 
             for (int i = 0; i < denseDocs.Count; i++)
             {
@@ -290,7 +294,7 @@ public class KnowledgeBaseService : IKnowledgeBaseService, IDisposable
                 rrf[key] = rrf.GetValueOrDefault(key) + 1.0 / (RrfK + i + 1);
                 if (!snippet.ContainsKey(key))
                 {
-                    var heading = indexedByKey.TryGetValue(key, out var indexed)
+                    var heading = snapshot.ByKey.TryGetValue(key, out var indexed)
                         ? indexed.HeadingPath
                         : string.Empty;
                     snippet[key] = (sparseHits[i].FilePath, sparseHits[i].Content, heading);
@@ -370,7 +374,7 @@ public class KnowledgeBaseService : IKnowledgeBaseService, IDisposable
         try
         {
             if (IndexNeedsRefresh) await LoadOrRefreshVectorsAsync();
-            var vectorCache = _vectorCache;
+            var vectorCache = _index.Documents;
             if (vectorCache.Count == 0) return new List<SimilarKnowledgeFile>();
 
             // 内容可能很长；截断到与分块尺度相当的长度即可代表主题，避免超出嵌入上限。
@@ -417,7 +421,7 @@ public class KnowledgeBaseService : IKnowledgeBaseService, IDisposable
         try
         {
             if (IndexNeedsRefresh) await LoadOrRefreshVectorsAsync();
-            var vectorCache = _vectorCache;
+            var vectorCache = _index.Documents;
             if (vectorCache.Count == 0) return new List<DuplicateFileCluster>();
 
             // 每个文件求分块向量质心（归一化留给 CosineSimilarity 处理）。
@@ -582,7 +586,7 @@ public class KnowledgeBaseService : IKnowledgeBaseService, IDisposable
             var stats = await _vectorStoreService.GetStatisticsAsync();
             _logger.Information("Knowledge base index initialized: {FileCount} file(s), {VectorCount} vector(s), embedding={Enabled}",
                 stats.FileCount, stats.VectorCount, embeddingsOn);
-            _vectorCache = indexedDocuments;
+            _index = new IndexSnapshot(indexedDocuments);
             Volatile.Write(ref _loadedIndexRevision, revision);
         }
         catch (Exception ex)
@@ -612,7 +616,7 @@ public class KnowledgeBaseService : IKnowledgeBaseService, IDisposable
         {
             await _vectorStoreService.InitializeAsync();
             await _vectorStoreService.ClearEmbeddingsAsync();
-            _vectorCache = [];
+            _index = new IndexSnapshot([]);
             await RefreshVectorCacheAsync();
             _logger.Information("Vector layer cleared while keeping local FTS; rebuilding vectors with the current embedding configuration");
         }
@@ -629,7 +633,7 @@ public class KnowledgeBaseService : IKnowledgeBaseService, IDisposable
         {
             EmbeddingConfigured = _embeddingService?.IsConfigured ?? false,
             FileCount = stats.FileCount,
-            ChunkCount = _vectorCache.Count,
+            ChunkCount = _index.Documents.Count,
             VectorCount = stats.VectorCount,
             FullyIndexedFileCount = fullyIndexedFiles.Count
         };

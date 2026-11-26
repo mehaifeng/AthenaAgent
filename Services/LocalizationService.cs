@@ -20,8 +20,9 @@ public partial class LocalizationService : ObservableObject, ILocalizationServic
     private ResourceDictionary? _currentResources;
     private string _currentLanguage = "en-US";
 
-    private readonly List<string> _availableLanguages = new() { "en-US", "zh-CN" };
-    private readonly List<string> _availableLanguageNames = new() { "English", "中文" };
+    private static readonly List<string> _availableLanguages = new() { "en-US", "zh-CN" };
+    private static readonly IReadOnlyList<string> LanguageNames = Array.AsReadOnly(new[] { "English", "中文" });
+    private static readonly IReadOnlyList<string> LanguageCodes = _availableLanguages.AsReadOnly();
 
     /// <inheritdoc />
     public string CurrentLanguage
@@ -37,10 +38,10 @@ public partial class LocalizationService : ObservableObject, ILocalizationServic
     }
 
     /// <inheritdoc />
-    public IReadOnlyList<string> AvailableLanguages => _availableLanguages.AsReadOnly();
+    public IReadOnlyList<string> AvailableLanguages => LanguageCodes;
 
     /// <inheritdoc />
-    public IReadOnlyList<string> AvailableLanguageNames => _availableLanguageNames.AsReadOnly();
+    public IReadOnlyList<string> AvailableLanguageNames => LanguageNames;
 
     /// <inheritdoc />
     public int CurrentLanguageIndex
@@ -60,53 +61,34 @@ public partial class LocalizationService : ObservableObject, ILocalizationServic
 
     public LocalizationService()
     {
-        LoadLanguageResources();
-    }
-
-    private void LoadLanguageResources()
-    {
-        try
-        {
-            // 加载英文资源
-            var enUsUri = new Uri("avares://Athena.UI/Assets/Locales/Locale.en-US.axaml");
-            var enUsResources = AvaloniaXamlLoader.Load(enUsUri) as ResourceDictionary;
-            if (enUsResources != null)
-            {
-                _languages["en-US"] = enUsResources;
-                _logger.Debug("Loaded English language resources");
-            }
-
-            // 加载中文资源
-            var zhCnUri = new Uri("avares://Athena.UI/Assets/Locales/Locale.zh-CN.axaml");
-            var zhCnResources = AvaloniaXamlLoader.Load(zhCnUri) as ResourceDictionary;
-            if (zhCnResources != null)
-            {
-                _languages["zh-CN"] = zhCnResources;
-                _logger.Debug("Loaded Chinese language resources");
-            }
-
-            // 默认使用系统语言或英文
-            var systemLang = CultureInfo.CurrentUICulture.Name;
-            var defaultLang = _availableLanguages.Contains(systemLang) ? systemLang : "en-US";
-            SwitchLanguage(defaultLang);
-
-            _logger.Information("Localization service initialized, default language: {Language}", defaultLang);
-        }
-        catch (Exception ex)
-        {
-            _logger.Error(ex, "Failed to load language resources");
-        }
+        var systemLanguage = CultureInfo.CurrentUICulture.Name;
+        SwitchLanguage(_availableLanguages.Contains(systemLanguage) ? systemLanguage : "en-US");
+        _logger.Information("Localization service initialized, default language: {Language}", CurrentLanguage);
     }
 
     /// <inheritdoc />
     public void SwitchLanguage(string languageCode)
     {
-        if (!_languages.TryGetValue(languageCode, out var resources))
+        if (!_availableLanguages.Contains(languageCode))
         {
             _logger.Warning("Language resource not found: {LanguageCode}", languageCode);
             return;
         }
-
+        if (!_languages.TryGetValue(languageCode, out var resources))
+        {
+            try
+            {
+                var uri = new Uri($"avares://Athena.UI/Assets/Locales/Locale.{languageCode}.axaml");
+                resources = (ResourceDictionary)AvaloniaXamlLoader.Load(uri);
+                _languages.Add(languageCode, resources);
+            }
+            catch (Exception ex)
+            {
+                _logger.Error(ex, "Failed to load language resources: {LanguageCode}", languageCode);
+                return;
+            }
+        }
+        var alreadySelected = CurrentLanguage == languageCode;
         _currentResources = resources;
         CurrentLanguage = languageCode;
 
@@ -123,7 +105,7 @@ public partial class LocalizationService : ObservableObject, ILocalizationServic
         }
 
         // 触发属性变更通知
-        OnPropertyChanged(nameof(CurrentLanguage));
+        if (alreadySelected) OnPropertyChanged(nameof(CurrentLanguage));
         LanguageChanged?.Invoke(this, EventArgs.Empty);
 
         _logger.Information("Language switched to: {LanguageCode}", languageCode);
@@ -153,6 +135,7 @@ public partial class LocalizationService : ObservableObject, ILocalizationServic
 
     private static string NormalizeResourceString(string value)
     {
+        if (!value.Contains('\\')) return value;
         return value
             .Replace("\\r\\n", Environment.NewLine, StringComparison.Ordinal)
             .Replace("\\n", Environment.NewLine, StringComparison.Ordinal)

@@ -2,6 +2,7 @@ using Athena.UI.Models;
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Runtime.CompilerServices;
 using System.Text;
 
 namespace Athena.UI.Services.ModelMetadata;
@@ -44,12 +45,65 @@ public sealed class ModelIdentityMatcher
     // Serving-tier suffixes that change latency rather than model identity/capability.
     // Keep this list deliberately narrow; architectural variants remain hard evidence.
     private static readonly string[] DeliveryOnlySuffixes = ["highspeed"];
+    private readonly ConditionalWeakTable<OpenRouterCatalogSnapshot, CatalogReferences> _catalogReferences = new();
+
+    // The catalogue publishes immutable snapshots. Index possible identities once, then run
+    // the original ordered rules on that subset. Expiration is still checked at query time.
+    private sealed class CatalogReferences
+    {
+        internal readonly Dictionary<string, List<int>> Keys = new(StringComparer.OrdinalIgnoreCase);
+        public CatalogReferences(OpenRouterCatalogSnapshot snapshot)
+        {
+            for (var i = 0; i < snapshot.Models.Count; i++)
+            {
+                var model = snapshot.Models[i];
+                Add(model.Id, i);
+                Add(model.CanonicalSlug, i);
+                Add(ReadRawString(model, "hugging_face_id"), i);
+                if (TrySplitModel(model, out _, out var slug)) Add(slug, i);
+            }
+        }
+
+        private void Add(string? key, int index)
+        {
+            if (string.IsNullOrWhiteSpace(key)) return;
+            AddKey(key, index);
+            AddKey(Normalize(key), index);
+        }
+
+        private void AddKey(string key, int index)
+        {
+            if (!Keys.TryGetValue(key, out var list)) Keys.Add(key, list = []);
+            if (list.Count == 0 || list[^1] != index) list.Add(index);
+        }
+    }
+
+    private OpenRouterModelMetadata[] PossibleMatches(ExternalModelIdentity identity, string external, OpenRouterCatalogSnapshot snapshot)
+    {
+        var keys = _catalogReferences.GetValue(snapshot, static s => new CatalogReferences(s)).Keys;
+        var indices = new SortedSet<int>(); // Ambiguity diagnostics retain the catalogue's order.
+        void Find(string key)
+        {
+            if (keys.TryGetValue(key, out var found)) indices.UnionWith(found);
+        }
+        var unwrapped = UnwrapProtocolPrefix(external);
+        var normalized = Normalize(unwrapped);
+        Find(external);
+        Find(unwrapped);
+        Find(normalized);
+        foreach (var suffix in EnumerateQualifiedIdentitySuffixes(external)) Find(Normalize(suffix));
+        if (TryGetStrongAuthor(identity, out var author)) Find(Normalize($"{author}/{external}"));
+        foreach (var suffix in DeliveryOnlySuffixes)
+            if (normalized.EndsWith("-" + suffix, StringComparison.Ordinal)) Find(normalized[..^(suffix.Length + 1)]);
+        return indices.Select(index => snapshot.Models[index]).ToArray();
+    }
 
     public ModelMatchResult Match(
         ExternalModelIdentity identity,
         OpenRouterCatalogSnapshot snapshot,
         ProviderModelMetadataProfile? profile = null,
-        bool isCatalogStale = false)
+        bool isCatalogStale = false,
+        bool includeSuggestions = true)
     {
         if (profile?.BindingMode == ModelMetadataBindingMode.CustomOnly)
             return Result(ModelMatchStatus.CustomOnly, snapshot, isCatalogStale);
@@ -66,6 +120,7 @@ public sealed class ModelIdentityMatcher
         var external = identity.ExternalModelId.Trim();
         if (external.Length == 0) return Result(ModelMatchStatus.Unmatched, snapshot, isCatalogStale);
 
+        var possible = PossibleMatches(identity, external, snapshot);
         var layers = new (string Name, int Score, Func<OpenRouterModelMetadata, bool> Predicate)[]
         {
             ("M1", 99, model => string.Equals(external, model.Id, StringComparison.Ordinal)),
@@ -93,7 +148,7 @@ public sealed class ModelIdentityMatcher
 
         foreach (var layer in layers)
         {
-            var matches = snapshot.Models
+            var matches = possible
                 .Where(model => !IsExpired(model) && layer.Predicate(model))
                 .ToList();
             if (matches.Count == 1) return Matched(matches[0], layer.Name, layer.Score, snapshot, isCatalogStale);
@@ -106,6 +161,8 @@ public sealed class ModelIdentityMatcher
             }
         }
 
+        // Fuzzy suggestions can never supply capabilities. The picker only needs automatic matches.
+        if (!includeSuggestions) return Result(ModelMatchStatus.Unmatched, snapshot, isCatalogStale);
         var candidates = new List<ModelMatchCandidate>();
         var allConflicts = new HashSet<string>(StringComparer.Ordinal);
         foreach (var model in snapshot.Models.Where(model => !IsExpired(model)))
@@ -301,13 +358,12 @@ public sealed class ModelIdentityMatcher
         var b = Slug(candidate);
         var aTokens = TokenSet(a);
         var bTokens = TokenSet(b);
-        var union = aTokens.Union(bTokens).Count();
-        var jaccard = union == 0 ? 0 : (double)aTokens.Intersect(bTokens).Count() / union;
+        var common = aTokens.Count(bTokens.Contains);
+        var union = aTokens.Count + bTokens.Count - common;
+        var jaccard = union == 0 ? 0 : (double)common / union;
+        var feature = union == 0 ? 0.5 : jaccard;
+        if (0.45 * jaccard + 0.35 + 0.20 * feature < 0.60) return 0;
         var edit = 1.0 - (double)Levenshtein(a, b) / Math.Max(1, Math.Max(a.Length, b.Length));
-        var af = FeatureSet(a);
-        var bf = FeatureSet(b);
-        var featureUnion = af.Union(bf).Count();
-        var feature = featureUnion == 0 ? 0.5 : (double)af.Intersect(bf).Count() / featureUnion;
         return 0.45 * jaccard + 0.35 * edit + 0.20 * feature;
     }
 

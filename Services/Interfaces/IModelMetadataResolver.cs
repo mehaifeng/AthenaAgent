@@ -10,4 +10,8 @@ public interface IModelMetadataResolver
         ProviderModelMetadataProfile? profile,
         OpenRouterCatalogSnapshot snapshot,
         bool isCatalogStale = false);
+
+    ResolvedModelMetadata ResolveForCapabilities(OpenAiProviderConfiguration provider, ProviderModelDescriptor model,
+        ProviderModelMetadataProfile? profile, OpenRouterCatalogSnapshot snapshot, bool isCatalogStale) =>
+        Resolve(provider, model, profile, snapshot, isCatalogStale);
 }

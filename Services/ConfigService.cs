@@ -179,7 +179,7 @@ public class ConfigService : IConfigService
         var config = root?.Deserialize<AppConfig>(JsonOptions) ?? new AppConfig();
         var missingComputerUse = root?["aiModels"] is not JsonObject models || !models.ContainsKey("computerUse");
         if (missingComputerUse)
-            ModelRoleProbeService.MigrateComputerUse(config);
+            Athena.UI.Services.ModelMetadata.ComputerUseModelSelection.MigrateComputerUse(config);
         var droppedLegacyCompressionKeys = MigrateLegacyCompressionKeys(root, config);
         if (version == 5)
         {

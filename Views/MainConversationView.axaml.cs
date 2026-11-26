@@ -5,6 +5,7 @@ using Athena.UI.ViewModels;
 using Athena.UI.ViewModels.GameMode;
 using Avalonia;
 using Avalonia.Controls;
+using Avalonia.Controls.Templates;
 using Avalonia.Input;
 using Avalonia.Input.Platform;
 using Avalonia.Interactivity;
@@ -15,6 +16,7 @@ using Avalonia.Rendering.Composition.Animations;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
 using System;
+using System.Collections.Generic;
 using System.Collections.Specialized;
 using System.ComponentModel;
 using System.Diagnostics;
@@ -217,11 +219,7 @@ public partial class MainConversationView : UserControl
 
     private void UpdateVeil() => IsVeilVisible = (IsSwitching && !IsGameModeActive) || _restoringBubbles;
 
-    /// <summary>
-    /// 游戏模式下不建气泡树：不给消息列表数据源（设计稿 9.2"第二拍可以先不换气泡树"——实测隐藏的列表换绑
-    /// 照样实体化整棵树，可见 648 ms、隐藏 843 ms，见 ProbeHiddenSurfaceSwap）。于是在游戏里切会话没有那 2–3 秒的冻结；
-    /// 切回对话时先升幕布、等它画出一帧，再把数据源给回去，这一次的布局开销和一次普通的会话切换一样，被幕布盖着。
-    /// </summary>
+    /// <summary>暂停隐藏消息列表的数据源与预览，恢复对话时重新定位到末尾。</summary>
     private void OnGameModeActiveChanged(bool active)
     {
         _restoreTimer?.Stop();
@@ -248,8 +246,18 @@ public partial class MainConversationView : UserControl
     {
         var messages = this.FindControl<ItemsControl>("MessagesItemsControl");
         if (messages == null) return;
-        var source = _bubblesWithheld ? null : _viewModel?.Messages;
-        if (!ReferenceEquals(messages.ItemsSource, source)) messages.ItemsSource = source;
+        foreach (var message in _observedMessages) message.PropertyChanged -= OnMessageVisibilityChanged;
+        _observedMessages.Clear();
+        if (_bubblesWithheld || _viewModel == null)
+        {
+            messages.ItemsSource = null;
+            _bubbleMessages.Clear();
+            return;
+        }
+        // Protocol-only carriers have zero height and must not distort the scroll extent.
+        foreach (var message in _viewModel.Messages) ObserveMessage(message);
+        _bubbleMessages.ReplaceAll(_viewModel.Messages.Where(IsBubbleCandidate));
+        messages.ItemsSource = _bubbleMessages;
     }
 
     private void RestoreBubbles()
@@ -267,17 +275,7 @@ public partial class MainConversationView : UserControl
         }, DispatcherPriority.ContextIdle);
     }
 
-    /// <summary>
-    /// 幕布加载动效：标志呼吸 + 三点依次亮灭，全部走 **合成器动画**（渲染线程）。
-    ///
-    /// 这一条是整个会话切换里唯一没有替代方案的地方。幕布存在的那 2~3 秒，UI 线程正冻在
-    /// 气泡树的首次布局上；Avalonia 的 Animation / Transition 由 UI 线程的动画时钟推进，
-    /// 写成 XAML 关键帧就会在那一刻定格在第一帧——一个不动的"加载中"比没有加载动画更像崩溃。
-    /// ElementComposition 拿到的 CompositionVisual 上启动的动画由渲染线程求值，UI 线程冻着也照跑。
-    ///
-    /// 只在幕布升起时启动、落下时停掉：一个常驻的渲染线程动画会让合成器每帧都有活干，
-    /// 而这块面板 99% 的时间是静止的。
-    /// </summary>
+    /// <summary>幕布出现时在合成器上启动动效，隐藏时停止。</summary>
     private void StartVeilAnimations()
     {
         // 幕布刚被设为可见，这一帧还没布局，合成视觉可能尚未建立；退一拍再试一次。
@@ -355,6 +353,11 @@ public partial class MainConversationView : UserControl
     private ScrollViewer? _chatScrollViewer;
     private TextBox? _messageInputTextBox;
     private MainConversationViewModel? _viewModel;
+    private readonly BulkObservableCollection<ChatMessage> _bubbleMessages = new();
+    private readonly HashSet<ChatMessage> _observedMessages = new();
+    private readonly Dictionary<Control, IDisposable> _visiblePreviews = new();
+    private OwlVillageView? _owlVillage;
+    private bool _scrollToBottomQueued;
     private bool _isUserScrolling;
     private double _lastScrollOffset;
 
@@ -368,8 +371,21 @@ public partial class MainConversationView : UserControl
     public MainConversationView()
     {
         InitializeComponent();
+        var messages = this.FindControl<ItemsControl>("MessagesItemsControl")!;
+        messages.ContainerPrepared += (_, e) => AcquirePreviews(e.Container, messages.ItemsView[e.Index]);
+        messages.ContainerClearing += (_, e) =>
+        {
+            if (_visiblePreviews.Remove(e.Container, out var previews)) previews.Dispose();
+        };
         AddHandler(KeyDownEvent, OnContextInspectorKeyDown, RoutingStrategies.Tunnel);
         DataContextChanged += OnDataContextChanged;
+    }
+
+    private void AcquirePreviews(Control container, object? item)
+    {
+        if (this.IsAttachedToVisualTree() && !_visiblePreviews.ContainsKey(container) && item is ChatMessage message
+            && _viewModel?.LoadVisiblePreviews(message) is { } previews)
+            _visiblePreviews.Add(container, previews);
     }
 
     private void OnContextInspectorKeyDown(object? sender, KeyEventArgs e)
@@ -407,6 +423,8 @@ public partial class MainConversationView : UserControl
             }
 
             UpdateMessagesSource();
+            EnsureContextInspector();
+            UpdateOwlVillage();
             // 换会话就回到底部。换 DataContext 时 ItemsSource 是整体替换，不产生 Add 事件，
             // OnAttachedToVisualTree 也早就跑过了——两条既有的滚动触发路径一条都不会命中，
             // ScrollViewer 只会把旧 offset 夹到新内容的范围内。结果是切到更长的会话时
@@ -417,6 +435,7 @@ public partial class MainConversationView : UserControl
         {
             _viewModel = null;
             UpdateMessagesSource();
+            UpdateOwlVillage();
         }
     }
 
@@ -430,16 +449,65 @@ public partial class MainConversationView : UserControl
 
     private void OnViewModelPropertyChanged(object? sender, PropertyChangedEventArgs e)
     {
+        if (e.PropertyName == nameof(MainConversationViewModel.IsContextInspectorOpen))
+            EnsureContextInspector();
+        if (e.PropertyName == nameof(MainConversationViewModel.IsSubAgentPopupOpen))
+            UpdateOwlVillage();
         if (e.PropertyName == nameof(MainConversationViewModel.IsSending))
         {
             if (_viewModel?.IsSending == true) _isUserScrolling = false;
         }
     }
 
+    private void EnsureContextInspector()
+    {
+        if (_viewModel?.IsContextInspectorOpen != true) return;
+        var drawer = this.FindControl<Border>("ContextInspectorDrawer");
+        if (drawer is { Child: null } && drawer.Resources["ContextInspectorBody"] is IDataTemplate body)
+            drawer.Child = body.Build(_viewModel);
+    }
+
+    private void UpdateOwlVillage()
+    {
+        if (this.FindControl<Border>("OwlVillageHost") is { } host)
+            host.Child = _viewModel?.IsSubAgentPopupOpen == true ? _owlVillage ??= new OwlVillageView() : null;
+    }
+
+    private void ObserveMessage(ChatMessage message)
+    {
+        if (_observedMessages.Add(message)) message.PropertyChanged += OnMessageVisibilityChanged;
+    }
+
+    private void OnMessageVisibilityChanged(object? sender, PropertyChangedEventArgs e)
+    {
+        if (e.PropertyName is nameof(ChatMessage.IsHidden) or nameof(ChatMessage.Role) && _viewModel != null)
+            _bubbleMessages.ReplaceAll(_viewModel.Messages.Where(IsBubbleCandidate));
+    }
+
     private void OnMessagesCollectionChanged(object? sender, NotifyCollectionChangedEventArgs e)
     {
-        if (e.Action == NotifyCollectionChangedAction.Add && !_isUserScrolling) ScrollToBottom();
+        if (_viewModel == null || _bubblesWithheld) return;
+        if (e.Action == NotifyCollectionChangedAction.Add && e.NewItems != null)
+        {
+            foreach (ChatMessage message in e.NewItems)
+            {
+                ObserveMessage(message);
+                if (!IsBubbleCandidate(message)) continue;
+                if (e.NewStartingIndex + e.NewItems.Count == _viewModel.Messages.Count)
+                    _bubbleMessages.Add(message);
+                else
+                {
+                    UpdateMessagesSource();
+                    break;
+                }
+            }
+            if (!_isUserScrolling) ScrollToBottom();
+        }
+        else
+            UpdateMessagesSource();
     }
+
+    private static bool IsBubbleCandidate(ChatMessage message) => message.IsVisibleToUser && !message.IsHidden;
 
     public void ScrollToBottomIfHasMessages()
     {
@@ -453,13 +521,16 @@ public partial class MainConversationView : UserControl
     protected override void OnAttachedToVisualTree(VisualTreeAttachmentEventArgs e)
     {
         base.OnAttachedToVisualTree(e);
+        var messages = this.FindControl<ItemsControl>("MessagesItemsControl")!;
+        foreach (var container in messages.GetRealizedContainers())
+            AcquirePreviews(container, messages.ItemFromContainer(container));
         _chatScrollViewer = this.FindControl<ScrollViewer>("ChatScrollViewer");
         if (_chatScrollViewer != null)
         {
             _chatScrollViewer.ScrollChanged += OnScrollChanged;
             _chatScrollViewer.PointerPressed += OnPointerPressed;
             _chatScrollViewer.PointerReleased += OnPointerReleased;
-            _chatScrollViewer.PointerWheelChanged += OnPointerWheelChanged;
+            _chatScrollViewer.AddHandler(PointerWheelChangedEvent, OnPointerWheelChanged, RoutingStrategies.Tunnel, handledEventsToo: true);
         }
 
         _messageInputTextBox = this.FindControl<TextBox>("MessageInputTextBox");
@@ -473,12 +544,14 @@ public partial class MainConversationView : UserControl
 
     protected override void OnDetachedFromVisualTree(VisualTreeAttachmentEventArgs e)
     {
+        foreach (var previews in _visiblePreviews.Values) previews.Dispose();
+        _visiblePreviews.Clear();
         if (_chatScrollViewer != null)
         {
             _chatScrollViewer.ScrollChanged -= OnScrollChanged;
             _chatScrollViewer.PointerPressed -= OnPointerPressed;
             _chatScrollViewer.PointerReleased -= OnPointerReleased;
-            _chatScrollViewer.PointerWheelChanged -= OnPointerWheelChanged;
+            _chatScrollViewer.RemoveHandler(PointerWheelChangedEvent, OnPointerWheelChanged);
         }
         _chatScrollViewer = null;
         if (_messageInputTextBox != null)
@@ -560,10 +633,11 @@ public partial class MainConversationView : UserControl
 
     private void OnScrollChanged(object? sender, ScrollChangedEventArgs e)
     {
-        if (_chatScrollViewer == null) return;
+        if (_chatScrollViewer == null || !ReferenceEquals(e.Source, _chatScrollViewer)) return;
         var currentOffset = _chatScrollViewer.Offset.Y;
         var maxOffset = _chatScrollViewer.Extent.Height - _chatScrollViewer.Viewport.Height;
-        if (currentOffset >= maxOffset - 5) _isUserScrolling = false;
+        if (currentOffset >= maxOffset - 1) _isUserScrolling = false;
+        else if (!_isUserScrolling && e.ExtentDelta.Y != 0) ScrollToBottom();
         else if (currentOffset < _lastScrollOffset - 5) _isUserScrolling = true;
         _lastScrollOffset = currentOffset;
     }
@@ -723,6 +797,19 @@ public partial class MainConversationView : UserControl
     private void OnPointerReleased(object? sender, PointerReleasedEventArgs e) => CheckIfAtBottom();
     private void OnPointerWheelChanged(object? sender, PointerWheelEventArgs e)
     {
+        if (e.Delta.Y != 0 && e.KeyModifiers == KeyModifiers.None
+            && e.Source is Visual source && source.FindAncestorOfType<LiveMarkdown.Avalonia.PanAndZoom>(includeSelf: true) != null
+            && _chatScrollViewer?.Presenter is { } presenter && TopLevel.GetTopLevel(presenter) is { } root)
+        {
+            // An inline diagram consumes every wheel delta, even at its zoom limit.
+            // Forward plain scrolling through the chat's own input path. Modified wheel
+            // events, dragging and touch gestures still reach the diagram.
+            var point = e.GetCurrentPoint(root);
+            e.Handled = true;
+            presenter.RaiseEvent(new PointerWheelEventArgs(presenter, e.Pointer, root, point.Position,
+                e.Timestamp, point.Properties, e.KeyModifiers, e.Delta));
+            return;
+        }
         if (e.Delta.Y > 0) _isUserScrolling = true;
         Avalonia.Threading.Dispatcher.UIThread.Post(CheckIfAtBottom, Avalonia.Threading.DispatcherPriority.Background);
     }
@@ -736,11 +823,14 @@ public partial class MainConversationView : UserControl
     private void ScrollToBottom()
     {
         var scrollViewer = _chatScrollViewer;
-        if (scrollViewer != null)
+        if (scrollViewer == null || _scrollToBottomQueued) return;
+        _scrollToBottomQueued = true;
+        Dispatcher.UIThread.Post(() =>
         {
-            Dispatcher.UIThread.Post(() => scrollViewer.ScrollToEnd(), DispatcherPriority.Loaded);
-            Dispatcher.UIThread.Post(() => scrollViewer.ScrollToEnd(), DispatcherPriority.Background);
-        }
+            _scrollToBottomQueued = false;
+            if (_isUserScrolling || !ReferenceEquals(scrollViewer, _chatScrollViewer)) return;
+            scrollViewer.ScrollToEnd();
+        }, DispatcherPriority.Loaded);
     }
 
     private static bool IsSupportedImageName(string fileName)

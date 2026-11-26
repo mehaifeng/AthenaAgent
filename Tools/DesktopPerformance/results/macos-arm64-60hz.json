@@ -1,0 +1,711 @@
+{
+  "environment": {
+    "date": "2026-11-27",
+    "platform": "macOS 27.3 (26C5047e)",
+    "processor": "Apple M4",
+    "memoryGiB": 24,
+    "displayHz": 60,
+    "runtimeIdentifier": "osx-arm64",
+    "dotnetSdk": "10.0.101",
+    "baselineCommit": "3d936ab022a5",
+    "build": "Release, self-contained",
+    "fixture": "Scripts/benchmark-desktop.py"
+  },
+  "baseline": [
+    {
+      "openedMs": 3383,
+      "startupMs": 9737,
+      "switchMs": 13030.0205,
+      "rows": 1000,
+      "scrollFrames": {
+        "frames": 180,
+        "fps": 59.64496137922478,
+        "travel": 9000,
+        "sufficientMovement": true,
+        "p95Ms": 17.7297,
+        "maxMs": 21.042
+      },
+      "middleJumpMs": 24.3318,
+      "middleFrames": {
+        "frames": 178,
+        "fps": 58.85621542300673,
+        "travel": 9000,
+        "sufficientMovement": true,
+        "p95Ms": 17.6885,
+        "maxMs": 41.1087
+      },
+      "resize": {
+        "frames": 17,
+        "fps": 2.298469920742132,
+        "travel": 94,
+        "sufficientMovement": true,
+        "p95Ms": 3508.4488,
+        "maxMs": 3508.4488
+      },
+      "rightResize": {
+        "frames": 5,
+        "fps": 1.1084779095206236,
+        "travel": 75,
+        "sufficientMovement": true,
+        "p95Ms": 1153.672,
+        "maxMs": 1153.672
+      },
+      "pageMs": 19222.6142,
+      "openMs": 607.6684,
+      "options": 16,
+      "modelFrames": {
+        "frames": 82,
+        "fps": 25.265613232328807,
+        "travel": 3500,
+        "sufficientMovement": true,
+        "p95Ms": 198.0846,
+        "maxMs": 217.353
+      },
+      "refreshHz": 60.0,
+      "launchMode": "installed-files-new-path"
+    }
+  ],
+  "newPublishAndFourRestarts": [
+    {
+      "openedMs": 5458,
+      "startupMs": 5687,
+      "switchMs": 659.2661,
+      "rows": 9,
+      "scrollFrames": {
+        "frames": 181,
+        "fps": 59.71953594291208,
+        "travel": 9100,
+        "sufficientMovement": true,
+        "p95Ms": 17.985,
+        "maxMs": 23.2171
+      },
+      "middleJumpMs": 216.834,
+      "middleFrames": {
+        "frames": 178,
+        "fps": 58.732276999235985,
+        "travel": 9115.5,
+        "sufficientMovement": true,
+        "p95Ms": 19.6134,
+        "maxMs": 35.675
+      },
+      "resize": {
+        "frames": 180,
+        "fps": 59.33878397425593,
+        "travel": 95,
+        "sufficientMovement": true,
+        "p95Ms": 19.6142,
+        "maxMs": 35.2478
+      },
+      "rightResize": {
+        "frames": 181,
+        "fps": 59.82754132769214,
+        "travel": 96,
+        "sufficientMovement": true,
+        "p95Ms": 20.1542,
+        "maxMs": 33.7573
+      },
+      "pageMs": 63.0787,
+      "openMs": 37.6537,
+      "options": 16,
+      "modelFrames": {
+        "frames": 180,
+        "fps": 59.426441735823914,
+        "travel": 4500,
+        "sufficientMovement": true,
+        "p95Ms": 18.6821,
+        "maxMs": 54.0729
+      },
+      "refreshHz": 60.0,
+      "launchMode": "installed-files-new-path"
+    },
+    {
+      "openedMs": 1425,
+      "startupMs": 1639,
+      "switchMs": 682.6492,
+      "rows": 9,
+      "scrollFrames": {
+        "frames": 182,
+        "fps": 59.97673232328342,
+        "travel": 9100,
+        "sufficientMovement": true,
+        "p95Ms": 17.5425,
+        "maxMs": 21.1438
+      },
+      "middleJumpMs": 206.1856,
+      "middleFrames": {
+        "frames": 180,
+        "fps": 59.54867069998635,
+        "travel": 9115.5,
+        "sufficientMovement": true,
+        "p95Ms": 17.786,
+        "maxMs": 35.7146
+      },
+      "resize": {
+        "frames": 179,
+        "fps": 59.02448615969777,
+        "travel": 95,
+        "sufficientMovement": true,
+        "p95Ms": 19.8307,
+        "maxMs": 34.162
+      },
+      "rightResize": {
+        "frames": 181,
+        "fps": 59.810901062129254,
+        "travel": 96,
+        "sufficientMovement": true,
+        "p95Ms": 19.9017,
+        "maxMs": 36.4857
+      },
+      "pageMs": 62.7727,
+      "openMs": 34.3933,
+      "options": 16,
+      "modelFrames": {
+        "frames": 176,
+        "fps": 58.09138381993889,
+        "travel": 4400,
+        "sufficientMovement": true,
+        "p95Ms": 18.8646,
+        "maxMs": 65.5652
+      },
+      "refreshHz": 60.0,
+      "launchMode": "installed-path-new-process"
+    },
+    {
+      "openedMs": 1425,
+      "startupMs": 1645,
+      "switchMs": 693.5315,
+      "rows": 9,
+      "scrollFrames": {
+        "frames": 182,
+        "fps": 59.97853493464597,
+        "travel": 9100,
+        "sufficientMovement": true,
+        "p95Ms": 17.4227,
+        "maxMs": 20.8175
+      },
+      "middleJumpMs": 199.4061,
+      "middleFrames": {
+        "frames": 180,
+        "fps": 59.411077789564644,
+        "travel": 9115.5,
+        "sufficientMovement": true,
+        "p95Ms": 18.4242,
+        "maxMs": 35.7192
+      },
+      "resize": {
+        "frames": 180,
+        "fps": 59.3759292951434,
+        "travel": 95,
+        "sufficientMovement": true,
+        "p95Ms": 19.6862,
+        "maxMs": 35.919
+      },
+      "rightResize": {
+        "frames": 181,
+        "fps": 59.78867050278704,
+        "travel": 96,
+        "sufficientMovement": true,
+        "p95Ms": 19.7995,
+        "maxMs": 33.1592
+      },
+      "pageMs": 65.6351,
+      "openMs": 35.661,
+      "options": 16,
+      "modelFrames": {
+        "frames": 180,
+        "fps": 59.44057110236535,
+        "travel": 4500,
+        "sufficientMovement": true,
+        "p95Ms": 19.1807,
+        "maxMs": 34.582
+      },
+      "refreshHz": 60.0,
+      "launchMode": "installed-path-new-process"
+    },
+    {
+      "openedMs": 1426,
+      "startupMs": 1629,
+      "switchMs": 709.4342,
+      "rows": 9,
+      "scrollFrames": {
+        "frames": 182,
+        "fps": 59.97733515822614,
+        "travel": 9100,
+        "sufficientMovement": true,
+        "p95Ms": 17.6495,
+        "maxMs": 28.1186
+      },
+      "middleJumpMs": 205.5338,
+      "middleFrames": {
+        "frames": 179,
+        "fps": 59.2151197968187,
+        "travel": 9215.5,
+        "sufficientMovement": true,
+        "p95Ms": 18.757,
+        "maxMs": 34.3339
+      },
+      "resize": {
+        "frames": 180,
+        "fps": 59.322906146120026,
+        "travel": 95,
+        "sufficientMovement": true,
+        "p95Ms": 19.9112,
+        "maxMs": 34.2975
+      },
+      "rightResize": {
+        "frames": 181,
+        "fps": 59.836514740543585,
+        "travel": 96,
+        "sufficientMovement": true,
+        "p95Ms": 19.7823,
+        "maxMs": 36.369
+      },
+      "pageMs": 59.6009,
+      "openMs": 37.1461,
+      "options": 16,
+      "modelFrames": {
+        "frames": 180,
+        "fps": 59.376491422010226,
+        "travel": 4500,
+        "sufficientMovement": true,
+        "p95Ms": 18.6892,
+        "maxMs": 35.7065
+      },
+      "refreshHz": 60.0,
+      "launchMode": "installed-path-new-process"
+    },
+    {
+      "openedMs": 1413,
+      "startupMs": 1623,
+      "switchMs": 692.8529,
+      "rows": 9,
+      "scrollFrames": {
+        "frames": 182,
+        "fps": 59.96530051873939,
+        "travel": 9100,
+        "sufficientMovement": true,
+        "p95Ms": 17.4414,
+        "maxMs": 25.2605
+      },
+      "middleJumpMs": 209.8506,
+      "middleFrames": {
+        "frames": 179,
+        "fps": 58.99260730351548,
+        "travel": 9015.5,
+        "sufficientMovement": true,
+        "p95Ms": 18.4457,
+        "maxMs": 34.2546
+      },
+      "resize": {
+        "frames": 179,
+        "fps": 59.02019486424069,
+        "travel": 95,
+        "sufficientMovement": true,
+        "p95Ms": 19.5371,
+        "maxMs": 33.6736
+      },
+      "rightResize": {
+        "frames": 181,
+        "fps": 59.82540566830845,
+        "travel": 96,
+        "sufficientMovement": true,
+        "p95Ms": 19.5965,
+        "maxMs": 33.3507
+      },
+      "pageMs": 67.3795,
+      "openMs": 32.3443,
+      "options": 16,
+      "modelFrames": {
+        "frames": 180,
+        "fps": 59.411832757671185,
+        "travel": 4500,
+        "sufficientMovement": true,
+        "p95Ms": 18.8993,
+        "maxMs": 49.2167
+      },
+      "refreshHz": 60.0,
+      "launchMode": "installed-path-new-process"
+    }
+  ],
+  "firstOpenOfNewFileCopies": [
+    {
+      "openedMs": 3410,
+      "startupMs": 3645,
+      "refreshHz": 60.0,
+      "launchMode": "fresh-copy-first-open"
+    }
+  ],
+  "installedApplication": [
+    {
+      "openedMs": 1743,
+      "startupMs": 1959,
+      "switchMs": 675.8116,
+      "rows": 9,
+      "scrollFrames": {
+        "frames": 182,
+        "fps": 59.94833770835424,
+        "travel": 9100,
+        "sufficientMovement": true,
+        "p95Ms": 17.6343,
+        "maxMs": 27.7979
+      },
+      "middleJumpMs": 226.7842,
+      "middleFrames": {
+        "frames": 179,
+        "fps": 59.04671162265575,
+        "travel": 9215.5,
+        "sufficientMovement": true,
+        "p95Ms": 18.8055,
+        "maxMs": 31.7431
+      },
+      "resize": {
+        "frames": 179,
+        "fps": 59.007653457479286,
+        "travel": 95,
+        "sufficientMovement": true,
+        "p95Ms": 19.4737,
+        "maxMs": 33.4568
+      },
+      "rightResize": {
+        "frames": 182,
+        "fps": 60.1412625732827,
+        "travel": 96,
+        "sufficientMovement": true,
+        "p95Ms": 19.8125,
+        "maxMs": 20.5411
+      },
+      "pageMs": 68.326,
+      "openMs": 32.3254,
+      "options": 16,
+      "modelFrames": {
+        "frames": 180,
+        "fps": 59.48307423993271,
+        "travel": 4500,
+        "sufficientMovement": true,
+        "p95Ms": 19.0146,
+        "maxMs": 53.6629
+      },
+      "refreshHz": 60.0,
+      "launchMode": "installed-files-new-path"
+    },
+    {
+      "openedMs": 1437,
+      "startupMs": 1655,
+      "switchMs": 682.8717,
+      "rows": 9,
+      "scrollFrames": {
+        "frames": 178,
+        "fps": 58.73691090838151,
+        "travel": 8900,
+        "sufficientMovement": true,
+        "p95Ms": 17.7537,
+        "maxMs": 33.2524
+      },
+      "middleJumpMs": 225.9756,
+      "middleFrames": {
+        "frames": 180,
+        "fps": 59.58311482053516,
+        "travel": 9100,
+        "sufficientMovement": true,
+        "p95Ms": 18.7841,
+        "maxMs": 32.4809
+      },
+      "resize": {
+        "frames": 180,
+        "fps": 59.3114826536155,
+        "travel": 95,
+        "sufficientMovement": true,
+        "p95Ms": 19.8281,
+        "maxMs": 36.2135
+      },
+      "rightResize": {
+        "frames": 181,
+        "fps": 59.82645172686244,
+        "travel": 96,
+        "sufficientMovement": true,
+        "p95Ms": 19.796,
+        "maxMs": 36.8122
+      },
+      "pageMs": 63.1998,
+      "openMs": 35.2379,
+      "options": 16,
+      "modelFrames": {
+        "frames": 178,
+        "fps": 58.7260976534503,
+        "travel": 4450,
+        "sufficientMovement": true,
+        "p95Ms": 19.0817,
+        "maxMs": 33.8215
+      },
+      "refreshHz": 60.0,
+      "launchMode": "installed-path-new-process"
+    },
+    {
+      "openedMs": 1417,
+      "startupMs": 1626,
+      "switchMs": 676.1914,
+      "rows": 9,
+      "scrollFrames": {
+        "frames": 182,
+        "fps": 59.9773746888097,
+        "travel": 9100,
+        "sufficientMovement": true,
+        "p95Ms": 17.3181,
+        "maxMs": 27.4969
+      },
+      "middleJumpMs": 206.7932,
+      "middleFrames": {
+        "frames": 180,
+        "fps": 59.56750417915682,
+        "travel": 9115.5,
+        "sufficientMovement": true,
+        "p95Ms": 19.0233,
+        "maxMs": 31.3552
+      },
+      "resize": {
+        "frames": 179,
+        "fps": 59.01255381639955,
+        "travel": 95,
+        "sufficientMovement": true,
+        "p95Ms": 19.5935,
+        "maxMs": 33.3605
+      },
+      "rightResize": {
+        "frames": 181,
+        "fps": 59.81028837414885,
+        "travel": 96,
+        "sufficientMovement": true,
+        "p95Ms": 20.0142,
+        "maxMs": 33.6567
+      },
+      "pageMs": 67.7654,
+      "openMs": 31.643,
+      "options": 16,
+      "modelFrames": {
+        "frames": 180,
+        "fps": 59.445040913049404,
+        "travel": 4500,
+        "sufficientMovement": true,
+        "p95Ms": 19.1396,
+        "maxMs": 36.7908
+      },
+      "refreshHz": 60.0,
+      "launchMode": "installed-path-new-process"
+    },
+    {
+      "openedMs": 1417,
+      "startupMs": 1629,
+      "switchMs": 699.1271,
+      "rows": 9,
+      "scrollFrames": {
+        "frames": 181,
+        "fps": 59.723108490788135,
+        "travel": 9100,
+        "sufficientMovement": true,
+        "p95Ms": 17.5212,
+        "maxMs": 28.7841
+      },
+      "middleJumpMs": 214.497,
+      "middleFrames": {
+        "frames": 180,
+        "fps": 59.43449661391767,
+        "travel": 9115.5,
+        "sufficientMovement": true,
+        "p95Ms": 17.755,
+        "maxMs": 34.5291
+      },
+      "resize": {
+        "frames": 180,
+        "fps": 59.34497000276613,
+        "travel": 95,
+        "sufficientMovement": true,
+        "p95Ms": 19.5586,
+        "maxMs": 33.5413
+      },
+      "rightResize": {
+        "frames": 181,
+        "fps": 59.80244707648633,
+        "travel": 96,
+        "sufficientMovement": true,
+        "p95Ms": 19.8624,
+        "maxMs": 33.5208
+      },
+      "pageMs": 66.9503,
+      "openMs": 30.5224,
+      "options": 16,
+      "modelFrames": {
+        "frames": 179,
+        "fps": 59.08507650263087,
+        "travel": 4450,
+        "sufficientMovement": true,
+        "p95Ms": 18.9163,
+        "maxMs": 51.5032
+      },
+      "refreshHz": 60.0,
+      "launchMode": "installed-path-new-process"
+    },
+    {
+      "openedMs": 1411,
+      "startupMs": 1619,
+      "switchMs": 696.72,
+      "rows": 9,
+      "scrollFrames": {
+        "frames": 180,
+        "fps": 59.46826647756639,
+        "travel": 9000,
+        "sufficientMovement": true,
+        "p95Ms": 17.5718,
+        "maxMs": 31.4933
+      },
+      "middleJumpMs": 216.8731,
+      "middleFrames": {
+        "frames": 179,
+        "fps": 59.050169122653365,
+        "travel": 9215.5,
+        "sufficientMovement": true,
+        "p95Ms": 20.7442,
+        "maxMs": 30.8352
+      },
+      "resize": {
+        "frames": 181,
+        "fps": 59.66699225285091,
+        "travel": 95,
+        "sufficientMovement": true,
+        "p95Ms": 19.5201,
+        "maxMs": 31.9009
+      },
+      "rightResize": {
+        "frames": 181,
+        "fps": 59.829346869794676,
+        "travel": 96,
+        "sufficientMovement": true,
+        "p95Ms": 20.0046,
+        "maxMs": 33.3362
+      },
+      "pageMs": 65.7228,
+      "openMs": 34.1638,
+      "options": 16,
+      "modelFrames": {
+        "frames": 178,
+        "fps": 58.742790106301676,
+        "travel": 4450,
+        "sufficientMovement": true,
+        "p95Ms": 19.0035,
+        "maxMs": 36.6065
+      },
+      "refreshHz": 60.0,
+      "launchMode": "installed-path-new-process"
+    }
+  ],
+  "alternativeFreshCopies": {
+    "singleFileReadyToRun": {
+      "openedMs": 5543,
+      "startupMs": 5742,
+      "refreshHz": 60.0,
+      "launchMode": "fresh-copy-first-open"
+    },
+    "multiFileWithoutReadyToRun": {
+      "openedMs": 5812,
+      "startupMs": 6152,
+      "refreshHz": 60.0,
+      "launchMode": "fresh-copy-first-open"
+    }
+  },
+  "inPlaceUpdate": {
+    "previousApplication": "3d936ab022a5",
+    "beforeUpdater": [
+      {
+        "previousStartupMs": 9785,
+        "updatedStartupMs": 2263,
+        "updatedWindowMs": 2022,
+        "updateAndRelaunchMs": 3218
+      },
+      {
+        "previousStartupMs": 9214,
+        "updatedStartupMs": 2218,
+        "updatedWindowMs": 1998,
+        "updateAndRelaunchMs": 2493
+      },
+      {
+        "previousStartupMs": 9231,
+        "updatedStartupMs": 2254,
+        "updatedWindowMs": 2027,
+        "updateAndRelaunchMs": 2533
+      }
+    ],
+    "afterUpdater": [
+      {
+        "previousStartupMs": 10196,
+        "updatedStartupMs": 1818,
+        "updatedWindowMs": 1607,
+        "updateAndRelaunchMs": 3882
+      },
+      {
+        "previousStartupMs": 10160,
+        "updatedStartupMs": 1810,
+        "updatedWindowMs": 1597,
+        "updateAndRelaunchMs": 2070
+      },
+      {
+        "previousStartupMs": 10510,
+        "updatedStartupMs": 1824,
+        "updatedWindowMs": 1607,
+        "updateAndRelaunchMs": 2082
+      }
+    ]
+  },
+  "finalObserverCheck": [
+    {
+      "openedMs": 1668,
+      "startupMs": 1871,
+      "switchMs": 644.5991,
+      "rows": 9,
+      "scrollFrames": {
+        "frames": 180,
+        "fps": 59.39431263819901,
+        "travel": 9000,
+        "sufficientMovement": true,
+        "p95Ms": 17.8453,
+        "maxMs": 33.5644
+      },
+      "middleJumpMs": 206.9358,
+      "middleFrames": {
+        "frames": 180,
+        "fps": 59.50976647838658,
+        "travel": 9115.5,
+        "sufficientMovement": true,
+        "p95Ms": 18.1194,
+        "maxMs": 35.4427
+      },
+      "resize": {
+        "frames": 180,
+        "fps": 59.34018853169099,
+        "travel": 95,
+        "sufficientMovement": true,
+        "p95Ms": 19.9374,
+        "maxMs": 35.4081
+      },
+      "rightResize": {
+        "frames": 181,
+        "fps": 59.826952028667485,
+        "travel": 96,
+        "sufficientMovement": true,
+        "p95Ms": 19.9264,
+        "maxMs": 33.3717
+      },
+      "pageMs": 63.1624,
+      "openMs": 34.8019,
+      "options": 16,
+      "modelFrames": {
+        "frames": 178,
+        "fps": 58.767554578385386,
+        "travel": 4450,
+        "sufficientMovement": true,
+        "p95Ms": 18.9977,
+        "maxMs": 37.0961
+      },
+      "refreshHz": 60.0,
+      "launchMode": "installed-files-new-path"
+    }
+  ]
+}

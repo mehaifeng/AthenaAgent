@@ -31,25 +31,16 @@ public sealed class ModelRoleProbeService(
     {
         if (model.Capability is ModelCapability.Embedding or ModelCapability.Speech)
             return CapabilitySupport.Unsupported;
-        return Vision(model, Metadata(config, provider, model));
-    }
-
-    private static CapabilitySupport Vision(ProviderModelDescriptor model, ResolvedModelMetadata metadata)
-    {
-        if (model.Capability is ModelCapability.Embedding or ModelCapability.Speech)
-            return CapabilitySupport.Unsupported;
-        if (metadata.OutputModalities.Count != 0 && !metadata.OutputModalities.Contains("text", StringComparer.OrdinalIgnoreCase))
-            return CapabilitySupport.Unsupported;
-        if (metadata.InputModalities.Count != 0)
-            return metadata.InputModalities.Contains("image", StringComparer.OrdinalIgnoreCase)
-                ? CapabilitySupport.Supported : CapabilitySupport.Unsupported;
-        return model.Capability == ModelCapability.Image ? CapabilitySupport.Unsupported : CapabilitySupport.Unknown;
+        return ComputerUseModelSelection.Classify(model, _resolver.ResolveForCapabilities(provider, model, Profile(config, provider, model),
+            catalog?.Current ?? OpenRouterCatalogSnapshot.Empty, catalog?.IsStale ?? false));
     }
 
     private ResolvedModelMetadata Metadata(AppConfig config, OpenAiProviderConfiguration provider, ProviderModelDescriptor model) =>
-        _resolver.Resolve(provider, model, config.AiModels.ModelMetadataProfiles.FirstOrDefault(profile =>
-            profile.ProviderId == provider.Id && profile.ExternalModelId == model.Id),
+        _resolver.Resolve(provider, model, Profile(config, provider, model),
             catalog?.Current ?? OpenRouterCatalogSnapshot.Empty, catalog?.IsStale ?? false);
+
+    private static ProviderModelMetadataProfile? Profile(AppConfig config, OpenAiProviderConfiguration provider, ProviderModelDescriptor model) =>
+        config.AiModels.ModelMetadataProfiles.FirstOrDefault(profile => profile.ProviderId == provider.Id && profile.ExternalModelId == model.Id);
 
     internal RoleModelRequest Resolve(AppConfig config, AiModelRole role)
     {
@@ -62,7 +53,7 @@ public sealed class ModelRoleProbeService(
         var model = provider.Models.FirstOrDefault(item => item.Id == assignment.Model) ?? new() { Id = assignment.Model };
         var effective = OpenAiModelRuntimeFactory.Resolve(config, role);
         var metadata = Metadata(config, provider, model);
-        var officialFlash = IsOfficialDeepSeek(provider) && model.Id == "deepseek-flash";
+        var officialFlash = ComputerUseModelSelection.IsOfficialDeepSeek(provider) && model.Id == "deepseek-flash";
         if (role is AiModelRole.MainConversation or AiModelRole.ComputerUse)
         {
             effective = effective with
@@ -75,7 +66,7 @@ public sealed class ModelRoleProbeService(
         if (role == AiModelRole.ComputerUse && officialFlash && effective.Protocol == ProviderProtocol.Responses)
             effective = effective with { BaseUrl = "https://api.deepseek.com",
                 Effort = effective.Effort == ReasoningEffort.Auto ? ReasoningEffort.Low : effective.Effort };
-        var vision = Vision(model, metadata);
+        var vision = ComputerUseModelSelection.Classify(model, metadata);
         if (vision == CapabilitySupport.Unknown && officialFlash && effective.Protocol == ProviderProtocol.Responses)
             vision = CapabilitySupport.Supported;
         return new(role, provider.Id, effective, config.Timeout, vision,
@@ -145,39 +136,6 @@ public sealed class ModelRoleProbeService(
             throw new InvalidOperationException(image != null ? "The model did not read the digits in the test image."
                 : "The model returned no usable text.");
     }
-
-    internal static void MigrateComputerUse(AppConfig config)
-    {
-        var models = config.AiModels;
-        if (models.Providers.FirstOrDefault(provider => IsOfficialDeepSeek(provider) &&
-            !string.IsNullOrWhiteSpace(provider.ApiKey)) is { } deepSeek)
-        {
-            if (!deepSeek.Models.Any(item => item.Id == "deepseek-flash"))
-                deepSeek.Models.Add(new() { Id = "deepseek-flash", DisplayName = "deepseek-flash", Capability = ModelCapability.Text, IsManual = true });
-            models.ComputerUse = new() { ProviderId = deepSeek.Id, Model = "deepseek-flash" };
-            return;
-        }
-        var service = new ModelRoleProbeService();
-        foreach (var legacy in new[] { models.ImageRecognition, models.MainConversation })
-        {
-            var provider = models.Providers.FirstOrDefault(item => item.Id == legacy.ProviderId && !string.IsNullOrWhiteSpace(item.ApiKey));
-            if (provider == null || string.IsNullOrWhiteSpace(legacy.Model)) continue;
-            var existing = provider.Models.FirstOrDefault(item => item.Id == legacy.Model);
-            var model = existing ?? new() { Id = legacy.Model, DisplayName = legacy.Model, IsManual = true };
-            var vision = service.Vision(config, provider, model);
-            if (vision == CapabilitySupport.Supported ||
-                ReferenceEquals(legacy, models.ImageRecognition) && vision == CapabilitySupport.Unknown)
-            {
-                if (existing == null) provider.Models.Add(model);
-                models.ComputerUse = new() { ProviderId = provider.Id, Model = model.Id };
-                return;
-            }
-        }
-    }
-
-    internal static bool IsOfficialDeepSeek(OpenAiProviderConfiguration provider) =>
-        Uri.TryCreate(provider.BaseUrl, UriKind.Absolute, out var address) && address.Scheme == "https"
-        && address.Host == "api.deepseek.com" && address.IsDefaultPort && address.UserInfo.Length == 0;
 
     internal static byte[] RenderCode(string code)
     {

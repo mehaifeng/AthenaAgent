@@ -9,7 +9,7 @@
              Opacity="1"
              ClipToBounds="False"
              UseLayoutRounding="True"
-             IsVisible="{Binding IsEnabled}">
+             IsVisible="{Binding IsEnabled, FallbackValue=False}">
     <UserControl.RenderTransform>
         <TranslateTransform/>
     </UserControl.RenderTransform>

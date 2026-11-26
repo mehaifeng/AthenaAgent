@@ -227,22 +227,17 @@ public partial class OnboardingViewModel : ObservableObject, IDisposable
                 return;
             }
 
-            var manual = PrimaryProvider.Models.Where(model => model.IsManual).ToList();
-            PrimaryProvider.Models.Clear();
-            foreach (var id in result.Models)
+            var discovered = result.Models.ToHashSet(StringComparer.Ordinal);
+            var inventory = new ObservableCollection<ProviderModelDescriptor>(result.Models.Select(id => new ProviderModelDescriptor
             {
-                PrimaryProvider.Models.Add(new ProviderModelDescriptor
-                {
-                    Id = id,
-                    DisplayName = id,
-                    Capability = ModelCapability.Text,
-                    // 引导流程也要带上自报元数据：否则刚连好的供应商要等用户翻到模型页
-                    // 手动刷新一次，上下文窗口才不是应用默认的那个假设值。
-                    Reported = result.Reported != null && result.Reported.TryGetValue(id, out var metadata) ? metadata : null
-                });
-            }
-            foreach (var model in manual.Where(model => PrimaryProvider.Models.All(candidate => candidate.Id != model.Id)))
-                PrimaryProvider.Models.Add(model);
+                Id = id,
+                DisplayName = id,
+                Capability = ModelCapability.Text,
+                Reported = result.Reported != null && result.Reported.TryGetValue(id, out var metadata) ? metadata : null
+            }));
+            foreach (var model in PrimaryProvider.Models)
+                if (model.IsManual && discovered.Add(model.Id)) inventory.Add(model);
+            PrimaryProvider.Models = inventory;
             PrimaryProvider.ModelsRefreshedAt = DateTimeOffset.Now;
 
             // 刷新后的服务端目录是下拉框的唯一候选源。旧供应商中选过、但新目录中

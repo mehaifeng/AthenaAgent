@@ -57,15 +57,16 @@ public sealed partial class XlsxPackageService : OoxmlPackageService
         foreach (var sheet in sheets)
         {
             var document = ReadXml(RequiredEntry(archive, sheet.PartPath));
-            var cells = document.Descendants(SpreadsheetNs + "c").ToList();
-            var formulaCount = cells.Count(cell => cell.Element(SpreadsheetNs + "f") is not null);
-            var errorCount = cells.Count(cell => (string?)cell.Attribute("t") == "e");
+            int formulaCount = 0, errorCount = 0;
             var usedMaxRow = 0;
             var usedMaxColumn = 0;
             var preview = new List<object>();
 
-            foreach (var cell in cells)
+            foreach (var cell in document.Descendants(SpreadsheetNs + "c"))
             {
+                var formula = cell.Element(SpreadsheetNs + "f");
+                if (formula != null) formulaCount++;
+                if ((string?)cell.Attribute("t") == "e") errorCount++;
                 var address = (string?)cell.Attribute("r") ?? string.Empty;
                 if (!TryParseCellReference(address, out var row, out var column)) continue;
                 usedMaxRow = Math.Max(usedMaxRow, row);
@@ -80,7 +81,7 @@ public sealed partial class XlsxPackageService : OoxmlPackageService
                     value,
                     // Excel keeps dates as serial numbers; surface the readable form so the model never guesses.
                     text = value is double number ? formats.Format(styleIndex, number) : null,
-                    formula = (string?)cell.Element(SpreadsheetNs + "f"),
+                    formula = (string?)formula,
                     styleIndex
                 });
             }

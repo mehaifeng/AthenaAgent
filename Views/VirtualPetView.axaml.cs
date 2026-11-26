@@ -20,8 +20,8 @@ public partial class VirtualPetView : UserControl
     /// <summary>指针位移小于这个距离才算"点了一下"，否则是拖动。</summary>
     private const double ClickDistanceThreshold = 5;
 
-    private readonly DispatcherTimer _spriteTimer;
-    private readonly DispatcherTimer _motionTimer;
+    private readonly DispatcherTimer _spriteTimer = new() { Interval = TimeSpan.FromMilliseconds(60) };
+    private readonly DispatcherTimer _motionTimer = new() { Interval = TimeSpan.FromMilliseconds(16) };
     private readonly VirtualPetMotionEngine _motion = new();
     private VirtualPetViewModel? _boundPet;
     private bool _profileRequestedFromMenu;
@@ -53,29 +53,36 @@ public partial class VirtualPetView : UserControl
     protected override void OnPropertyChanged(AvaloniaPropertyChangedEventArgs change)
     {
         base.OnPropertyChanged(change);
+        if (change.Property == IsVisibleProperty) UpdateTimers();
         if (change.Property != IsSuppressedProperty) return;
         var suppressed = change.GetNewValue<bool>();
         Opacity = suppressed ? 0 : 1;
         IsHitTestVisible = !suppressed;
-        if (suppressed)
-        {
-            _spriteTimer.Stop();
-            _motionTimer.Stop();
-        }
-        else if (VisualRoot != null)
+        UpdateTimers();
+    }
+
+    private void UpdateTimers()
+    {
+        // The shell can clear suppression before its parent grid becomes visible.
+        // Its explicit suppression flag follows page activation regardless of binding order.
+        if (VisualRoot != null && IsVisible && !IsSuppressed && _boundPet is { IsEnabled: true })
         {
             _lastMotionAt = Stopwatch.GetTimestamp();
             _spriteTimer.Start();
             _motionTimer.Start();
+        }
+        else
+        {
+            _spriteTimer.Stop();
+            _motionTimer.Stop();
+            _motion.StopAutomaticMotion();
         }
     }
 
     public VirtualPetView()
     {
         InitializeComponent();
-        _spriteTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(60) };
         _spriteTimer.Tick += (_, _) => AdvanceSprite();
-        _motionTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(16) };
         _motionTimer.Tick += (_, _) => AdvanceMotion();
 
         AddHandler(PointerPressedEvent, OnPetPointerPressed, RoutingStrategies.Tunnel, handledEventsToo: true);
@@ -97,9 +104,7 @@ public partial class VirtualPetView : UserControl
             AdvanceSprite();
             UpdateMotionBounds();
             ApplyMotion();
-            if (IsSuppressed) return;
-            _spriteTimer.Start();
-            _motionTimer.Start();
+            UpdateTimers();
         };
         DetachedFromVisualTree += (_, _) =>
         {
@@ -120,6 +125,7 @@ public partial class VirtualPetView : UserControl
         if (_boundPet != null) _boundPet.PlayBurstRequested -= OnPlayBurstRequested;
         _boundPet = pet;
         if (_boundPet != null) _boundPet.PlayBurstRequested += OnPlayBurstRequested;
+        UpdateTimers();
     }
 
     /// <summary>右键菜单里点了"档案"。只记下来，真正打开推迟到菜单关完——原因见 OnPetMenuClosed。</summary>

@@ -290,6 +290,9 @@ public partial class App : Application, IAsyncDisposable
                 return;
             }
 
+            if (config.OnboardingCompleted)
+                Services.GetRequiredService<ConversationArchiveStore>().PrepareStartupDirectory();
+
             // 元数据目录先同步发布磁盘 last-known-good/内置 seed；网络刷新后台执行，不阻塞首屏。
             var metadataCatalog = Services.GetService<IOpenRouterModelMetadataCatalog>();
             if (metadataCatalog != null)

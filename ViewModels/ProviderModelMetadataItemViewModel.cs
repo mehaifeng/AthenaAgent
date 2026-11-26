@@ -54,17 +54,6 @@ public sealed partial class ProviderModelMetadataItemViewModel : ViewModelBase
         _getString = getString;
         // 展示顺序按强度从高到低；Auto 放最后表示"不设置"。枚举新增档位不得改变既有数字含义
         // （config.json 以数字持久化），新档位一律追加在末尾。
-        ReasoningEffortOptions =
-        [
-            new ReasoningEffortOption(ReasoningEffort.Max, GetEffortLabel(ReasoningEffort.Max)),
-            new ReasoningEffortOption(ReasoningEffort.XHigh, GetEffortLabel(ReasoningEffort.XHigh)),
-            new ReasoningEffortOption(ReasoningEffort.High, GetEffortLabel(ReasoningEffort.High)),
-            new ReasoningEffortOption(ReasoningEffort.Medium, GetEffortLabel(ReasoningEffort.Medium)),
-            new ReasoningEffortOption(ReasoningEffort.Low, GetEffortLabel(ReasoningEffort.Low)),
-            new ReasoningEffortOption(ReasoningEffort.Minimal, GetEffortLabel(ReasoningEffort.Minimal)),
-            new ReasoningEffortOption(ReasoningEffort.None, GetEffortLabel(ReasoningEffort.None)),
-            new ReasoningEffortOption(ReasoningEffort.Auto, GetEffortLabel(ReasoningEffort.Auto))
-        ];
         ReloadFromProfile();
     }
 
@@ -78,7 +67,9 @@ public sealed partial class ProviderModelMetadataItemViewModel : ViewModelBase
         ? _getString("ProviderModels.Metadata.Available", "Available")
         : _getString("ProviderModels.Metadata.ProviderUnavailable", "Provider unavailable");
 
-    public ResolvedModelMetadata Resolved { get; private set; } = null!;
+    private ResolvedModelMetadata? _resolved;
+    public ResolvedModelMetadata Resolved => _resolved ??=
+        _resolver.Resolve(Provider, Model, _findProfile(), _snapshot(), _isCatalogStale());
     public ModelMatchStatus MatchStatus => Resolved.Match.Status;
     public string MatchStatusText => _getString($"ProviderModels.Match.{Resolved.Match.Status}", Resolved.Match.Status.ToString());
     public string MatchDetails => string.Format(
@@ -99,7 +90,18 @@ public sealed partial class ProviderModelMetadataItemViewModel : ViewModelBase
     public string ReasoningEffortText => Resolved.ReasoningEffort is { } effort
         ? $"{GetEffortLabel(effort.Value)} · {FormatSource(effort.Source)}"
         : "—";
-    public IReadOnlyList<ReasoningEffortOption> ReasoningEffortOptions { get; }
+    private IReadOnlyList<ReasoningEffortOption>? _effortOptions;
+    public IReadOnlyList<ReasoningEffortOption> ReasoningEffortOptions => _effortOptions ??=
+        [
+            new ReasoningEffortOption(ReasoningEffort.Max, GetEffortLabel(ReasoningEffort.Max)),
+            new ReasoningEffortOption(ReasoningEffort.XHigh, GetEffortLabel(ReasoningEffort.XHigh)),
+            new ReasoningEffortOption(ReasoningEffort.High, GetEffortLabel(ReasoningEffort.High)),
+            new ReasoningEffortOption(ReasoningEffort.Medium, GetEffortLabel(ReasoningEffort.Medium)),
+            new ReasoningEffortOption(ReasoningEffort.Low, GetEffortLabel(ReasoningEffort.Low)),
+            new ReasoningEffortOption(ReasoningEffort.Minimal, GetEffortLabel(ReasoningEffort.Minimal)),
+            new ReasoningEffortOption(ReasoningEffort.None, GetEffortLabel(ReasoningEffort.None)),
+            new ReasoningEffortOption(ReasoningEffort.Auto, GetEffortLabel(ReasoningEffort.Auto))
+        ];
     public string InputModalitiesText => Resolved.InputModalities.Count == 0 ? "—" : string.Join(", ", Resolved.InputModalities.Order(StringComparer.OrdinalIgnoreCase));
     public string OutputModalitiesText => Resolved.OutputModalities.Count == 0 ? "—" : string.Join(", ", Resolved.OutputModalities.Order(StringComparer.OrdinalIgnoreCase));
     public string WarningText
@@ -142,7 +144,7 @@ public sealed partial class ProviderModelMetadataItemViewModel : ViewModelBase
             return JsonSerializer.Serialize(matched, new JsonSerializerOptions { WriteIndented = true });
         }
     }
-    public bool HasRawOpenRouterJson => !string.IsNullOrWhiteSpace(RawOpenRouterJson);
+    public bool HasRawOpenRouterJson => MatchedOpenRouterModel != null;
 
     public ModelMetadataBindingMode BindingMode
     {
@@ -265,7 +267,7 @@ public sealed partial class ProviderModelMetadataItemViewModel : ViewModelBase
 
     public void RefreshResolved()
     {
-        Resolved = _resolver.Resolve(Provider, Model, _findProfile(), _snapshot(), _isCatalogStale());
+        _resolved = null;
         _loading = true;
         _selectedPinnedModel = _findProfile()?.PinnedOpenRouterModelId is { } pinned
             ? _snapshot().Models.FirstOrDefault(model => string.Equals(model.Id, pinned, StringComparison.Ordinal))

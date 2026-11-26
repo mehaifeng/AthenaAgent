@@ -10,6 +10,7 @@
     <ApplicationManifest>app.manifest</ApplicationManifest>
 
     <!-- macOS 打包配置 -->
+    <PublishReadyToRun Condition="'$(Configuration)' == 'Release' And '$(RuntimeIdentifier)' != '' And '$(PublishReadyToRun)' == ''">true</PublishReadyToRun>
     <CFBundleName>Athena</CFBundleName>
     <CFBundleDisplayName>Athena</CFBundleDisplayName>
     <CFBundleIdentifier>com.athena.ai</CFBundleIdentifier>

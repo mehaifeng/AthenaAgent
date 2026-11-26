@@ -419,7 +419,7 @@ public partial class MainConversationViewModel : ViewModelBase, IDisposable
 
     private ConversationContext _currentContext = new();
     private CancellationTokenSource? _responseCts;
-    private CancellationTokenSource? _previewLoadCts;
+
     /// <summary>只取消自动压缩、不取消整轮请求的令牌源，每轮发送重建一次。</summary>
     private CancellationTokenSource? _compressionSkipCts;
     /// <summary>用量条徽标的代次，用来让后到的隐藏任务不误伤新一次压缩的徽标。</summary>
@@ -824,7 +824,7 @@ public partial class MainConversationViewModel : ViewModelBase, IDisposable
         _revision++;
         InvalidateCompressionPreview();
         OnPropertyChanged(nameof(ContextTokensInfo));
-        UpdateBubbleButtonVisibility();
+        UpdateBubbleButtonVisibility(e.Action == NotifyCollectionChangedAction.Add ? e.NewItems?.Cast<ChatMessage>() : null);
         RefreshContextInspectorProperties();
     }
 
@@ -1958,7 +1958,6 @@ public partial class MainConversationViewModel : ViewModelBase, IDisposable
         _responseCts?.Cancel();
         _rawContextCts?.Cancel();
         IsContextInspectorOpen = false;
-        CancelPendingPreviewLoading();
         CancelPendingAudio();
         FinalizePendingAssistantMessages();
         IsSending = false;
@@ -2902,30 +2901,19 @@ public partial class MainConversationViewModel : ViewModelBase, IDisposable
         OnPropertyChanged(nameof(ContextTokensInfo));
     }
 
-    private void UpdateBubbleButtonVisibility()
+    private void UpdateBubbleButtonVisibility(IEnumerable<ChatMessage>? changed = null)
     {
         // 语音功能开关回填到每条消息，驱动「生成语音」按钮显隐。
         // 放在早退之前：发送/压缩中也应保持该状态正确。
-        var audioEnabled = _configService?.Load().ChatAudioEnabled == true;
-        var analysisEnabled = _configService?.Load().ExecutionAnalysisEnabled == true;
-        foreach (var msg in Messages)
+        var config = _configService?.Load();
+        var canRewind = !IsSending && !IsCompressing;
+        foreach (var msg in changed ?? Messages)
         {
-            msg.CanRewind = false;
-            msg.AudioFeatureEnabled = audioEnabled;
-            msg.ExecutionAnalysisEnabled = analysisEnabled;
+            msg.CanRewind = canRewind && !msg.IsCompressed && msg.IsUser;
+            msg.AudioFeatureEnabled = config?.ChatAudioEnabled == true;
+            msg.ExecutionAnalysisEnabled = config?.ExecutionAnalysisEnabled == true;
         }
-
-        // 发送中或压缩中，所有操作按钮不可用
-        if (IsSending || IsCompressing || Messages.Count == 0) return;
-
-        foreach (var msg in Messages)
-        {
-            // 已归档的消息不可回滚/fork
-            if (!msg.IsCompressed && msg.Role == "user")
-            {
-                msg.CanRewind = true;
-            }
-        }
+        if (!canRewind || Messages.Count == 0) return;
 
         // CanRewind 是逐消息状态，变化时需手动刷新命令可用性（IsSending/IsCompressing
         // 已通过 NotifyCanExecuteChangedFor 自动刷新）。
@@ -3639,7 +3627,9 @@ public partial class MainConversationViewModel : ViewModelBase, IDisposable
     /// Restores messages and request state from an archive or a durable compression snapshot.
     /// The conversation tree supplies the workspace, including on subsequent restores in the same session.
     /// </summary>
-    public void RestorePersistedConversation(ConversationHistoryItem history)
+    public void RestorePersistedConversation(ConversationHistoryItem history) => RestorePersistedConversation(history, false);
+
+    internal void RestorePersistedConversation(ConversationHistoryItem history, bool ownsMessages)
     {
         BeginConversationTransition();
         ResetConversationForRestore();
@@ -3676,7 +3666,7 @@ public partial class MainConversationViewModel : ViewModelBase, IDisposable
         SetOrphanedLegacySummary(history.OrphanedLegacySummary);
         UndoCompressionCommand.NotifyCanExecuteChanged();
 
-        var restoredMessages = ConversationPersistenceHelper.CloneMessages(history.Messages ?? []);
+        var restoredMessages = ownsMessages ? history.Messages ?? [] : ConversationPersistenceHelper.CloneMessages(history.Messages ?? []);
         foreach (var message in restoredMessages)
         {
             ConversationPersistenceHelper.PrepareRestoredMessage(message);
@@ -3691,7 +3681,6 @@ public partial class MainConversationViewModel : ViewModelBase, IDisposable
             _isBulkLoadingMessages = false;
         }
         RestoreCompressionHistory(history.CompressionHistory, restoredMessages);
-        LoadPreviewsInBackground(restoredMessages);
 
         _ = ReconcileImageGenerationSessionAsync();
         _initialConversationSignature = CreateConversationSignature();
@@ -3747,51 +3736,58 @@ public partial class MainConversationViewModel : ViewModelBase, IDisposable
         UndoCompressionCommand.NotifyCanExecuteChanged();
     }
 
-    /// <summary>
-    /// 后台逐张解码附件预览图，存储服务在 UI 线程回填绑定属性。
-    /// </summary>
-    private void LoadPreviewsInBackground(IEnumerable<ChatMessage> messages)
+    // The attached bubble owns the decoded history images. Import and pending attachments
+    // already own their previews and are deliberately excluded from this lease.
+    private readonly Dictionary<ChatMessage, VisiblePreviews> _visiblePreviews = new();
+
+    internal IDisposable? LoadVisiblePreviews(ChatMessage message)
     {
-        CancelPendingPreviewLoading();
-        if (_attachmentStoreService == null) return;
-
-        var snapshot = messages
-            .Where(m => m.Attachments.Count > 0)
-            .SelectMany(m => m.Attachments)
-            .ToList();
-        if (snapshot.Count == 0) return;
-
-        var cts = new CancellationTokenSource();
-        _previewLoadCts = cts;
-        _ = LoadPreviewsAsync(snapshot, cts);
+        if (_disposed || _attachmentStoreService == null || message.Attachments.Count == 0) return null;
+        if (_visiblePreviews.TryGetValue(message, out var existing)) return existing.Retain();
+        var images = message.Attachments.Where(a => a.IsImage && a.PreviewImage == null).ToArray();
+        if (images.Length == 0) return null;
+        var previews = new VisiblePreviews(_attachmentStoreService, images, () => _visiblePreviews.Remove(message));
+        _visiblePreviews.Add(message, previews);
+        return previews;
     }
 
-    private async Task LoadPreviewsAsync(
-        IReadOnlyList<ChatAttachment> attachments,
-        CancellationTokenSource cts)
+    private sealed class VisiblePreviews : IDisposable
     {
-        try
+        private readonly ChatAttachment[] _images;
+        private readonly CancellationTokenSource _cancellation = new();
+        private readonly Task _load;
+        private readonly Action _remove;
+        private int _references = 1;
+        public VisiblePreviews(IAttachmentStoreService store, ChatAttachment[] images, Action remove)
         {
-            await _attachmentStoreService!.LoadPreviewsAsync(attachments, cts.Token);
+            _images = images;
+            _remove = remove;
+            _load = LoadAsync(store);
         }
-        catch (OperationCanceledException) when (cts.IsCancellationRequested)
-        {
-            // 切换会话时的预期取消。
-        }
-        catch (Exception ex)
-        {
-            _logger.Warning(ex, "Background attachment preview backfill failed");
-        }
-        finally
-        {
-            Interlocked.CompareExchange(ref _previewLoadCts, null, cts);
-            cts.Dispose();
-        }
-    }
 
-    private void CancelPendingPreviewLoading()
-    {
-        Interlocked.Exchange(ref _previewLoadCts, null)?.Cancel();
+        internal IDisposable Retain() { _references++; return this; }
+
+        private async Task LoadAsync(IAttachmentStoreService store)
+        {
+            try { await store.LoadPreviewsAsync(_images, _cancellation.Token); }
+            catch (OperationCanceledException) when (_cancellation.IsCancellationRequested) { }
+            catch (Exception ex) { Serilog.Log.Warning(ex, "Could not load message previews"); }
+        }
+
+        public void Dispose()
+        {
+            if (_references > 0 && --_references == 0) Close();
+        }
+
+        internal void Close()
+        {
+            _references = 0;
+            _remove();
+            _cancellation.Cancel();
+            ReleaseAttachmentPreviews(_images);
+            if (_load.IsCompleted) _cancellation.Dispose();
+            else _ = _load.ContinueWith(_ => _cancellation.Dispose(), TaskScheduler.Default);
+        }
     }
 
     public void PersistDraft()
@@ -3865,7 +3861,10 @@ public partial class MainConversationViewModel : ViewModelBase, IDisposable
         _currentContext.ConversationId = _conversationId;
         _currentHistoryId = snapshot.CurrentHistoryId;
         _revision = Math.Max(0, snapshot.Revision);
-        _initialConversationSignature = snapshot.InitialConversationSignature;
+        // Older drafts stored the complete serialized projection as their signature.
+        var signature = snapshot.InitialConversationSignature;
+        _initialConversationSignature = signature?.StartsWith('{') == true
+            ? Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(signature))) : signature;
         _forkedFromConversationId = snapshot.ForkedFromConversationId;
         _forkedFromHistoryId = snapshot.ForkedFromHistoryId;
         _forkedAtMessageId = snapshot.ForkedAtMessageId;
@@ -3907,7 +3906,6 @@ public partial class MainConversationViewModel : ViewModelBase, IDisposable
                 _isBulkLoadingMessages = false;
             }
 
-            LoadPreviewsInBackground(snapshot.Messages);
             RestoreCompressionHistory(snapshot.CompressionHistory, snapshot.Messages);
         }
         else
@@ -3972,7 +3970,7 @@ public partial class MainConversationViewModel : ViewModelBase, IDisposable
                         a.SizeBytes,
                         a.Width,
                         a.Height
-                    }).ToList(),
+                    }),
                     Segments = msg.Segments.Select(segment => new
                     {
                         segment.Kind,
@@ -3986,13 +3984,16 @@ public partial class MainConversationViewModel : ViewModelBase, IDisposable
                             t.Arguments,
                             t.Result,
                             t.Status
-                        }).ToList()
-                    }).ToList()
+                        })
+                    })
                 })
-                .ToList()
         };
 
-        return JsonSerializer.Serialize(signatureModel);
+        using var hash = SHA256.Create();
+        using var stream = new CryptoStream(Stream.Null, hash, CryptoStreamMode.Write);
+        JsonSerializer.Serialize(stream, signatureModel);
+        stream.FlushFinalBlock();
+        return Convert.ToHexString(hash.Hash!);
     }
 
     private void ClearPendingAttachments(bool deleteStoredFiles)
@@ -4661,7 +4662,6 @@ public partial class MainConversationViewModel : ViewModelBase, IDisposable
         _rawContextCts?.Cancel();
         _rawContextCts = null;
 
-        CancelPendingPreviewLoading();
         _screenshotBackgroundPollCts?.Cancel();
         _screenshotBackgroundPollCts = null;
 
@@ -4669,6 +4669,7 @@ public partial class MainConversationViewModel : ViewModelBase, IDisposable
         _audioSessionCts.Dispose();
         StopAudioPlayback();
 
+        foreach (var preview in _visiblePreviews.Values.ToArray()) preview.Close();
         ReleaseAttachmentPreviews(
             Messages.SelectMany(message => message.Attachments)
                 .Concat(PendingAttachments));

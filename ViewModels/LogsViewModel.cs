@@ -1,3 +1,4 @@
+using Athena.UI.Models;
 using Athena.UI.Services.Interfaces;
 using Avalonia;
 using Avalonia.Media;
@@ -11,6 +12,8 @@ using CommunityToolkit.Mvvm.Input;
 using Serilog;
 using System;
 using System.Collections.ObjectModel;
+using System.Linq;
+using System.Threading;
 using System.Threading.Tasks;
 
 namespace Athena.UI.ViewModels;
@@ -22,11 +25,13 @@ public partial class LogsViewModel : ViewModelBase, IDisposable
     private readonly IUserInteractionService? _userInteractionService;
     private readonly ILogger _logger = Log.ForContext<LogsViewModel>();
     private bool _disposed;
+    private int _refreshPosted;
+    private int _queryGeneration;
 
     [ObservableProperty]
     private string _searchLogText = string.Empty;
 
-    public ObservableCollection<LogEntryViewModel> LogEntries { get; } = new();
+    public BulkObservableCollection<LogEntryViewModel> LogEntries { get; } = new();
 
     /// <summary>
     /// 时间筛选档位：0=全部时间，1=今天，2=近7天，3=近30天，4=自定义范围（与历史页一致）
@@ -103,9 +108,12 @@ public partial class LogsViewModel : ViewModelBase, IDisposable
 
     private void OnLogsChanged()
     {
-        if (_disposed) return;
-        // SQLiteSink 在后台线程触发，需切回 UI 线程刷新。
-        Dispatcher.UIThread.Post(async () => await LoadLogsAsync());
+        if (_disposed || Interlocked.Exchange(ref _refreshPosted, 1) != 0) return;
+        Dispatcher.UIThread.Post(async () =>
+        {
+            Interlocked.Exchange(ref _refreshPosted, 0);
+            await LoadLogsAsync();
+        });
     }
 
     public void Dispose()
@@ -273,10 +281,11 @@ public partial class LogsViewModel : ViewModelBase, IDisposable
 
     private async Task LoadLogsAsync()
     {
-        if (_logService == null) return;
+        if (_logService == null || _disposed) return;
+        var generation = ++_queryGeneration;
         var result = await _logService.QueryLogsAsync(BuildQuery());
-        LogEntries.Clear();
-        foreach (var entry in result.Entries) LogEntries.Add(new LogEntryViewModel(entry));
+        if (_disposed || generation != _queryGeneration) return;
+        LogEntries.ReplaceAll(result.Entries.Select(entry => new LogEntryViewModel(entry)));
         TotalLogCount = result.TotalCount;
         TotalPages = result.TotalPages;
         if (TotalPages > 0 && CurrentPage > TotalPages)

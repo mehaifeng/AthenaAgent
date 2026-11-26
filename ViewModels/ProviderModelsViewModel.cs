@@ -12,6 +12,7 @@ using CommunityToolkit.Mvvm.Input;
 using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
+using System.Collections.Specialized;
 using System.ComponentModel;
 using System.Diagnostics;
 using System.IO;
@@ -70,7 +71,7 @@ public partial class ProviderModelsViewModel : ViewModelBase, IDisposable
 
     public ObservableCollection<OpenAiProviderConfiguration> Providers => Config.AiModels.Providers;
     public ObservableCollection<ProviderRoleSelectionViewModel> Roles { get; } = new();
-    public ObservableCollection<ProviderModelMetadataItemViewModel> MetadataModels { get; } = new();
+    public BulkObservableCollection<ProviderModelMetadataItemViewModel> MetadataModels { get; } = new();
     private readonly List<ProviderModelMetadataItemViewModel> _allMetadataModels = [];
     public ObservableCollection<ProviderMetadataFilterOption<ProviderMetadataCapabilityFilter>> CapabilityFilters { get; } = new();
     public ObservableCollection<ProviderMetadataFilterOption<ProviderMetadataMatchFilter>> MatchFilters { get; } = new();
@@ -252,8 +253,7 @@ public partial class ProviderModelsViewModel : ViewModelBase, IDisposable
             if (!CanApplyRefresh(provider, cancellation, generation, fingerprint)) return;
             var referencedIds = GetReferencedModelIds(provider.Id);
             var merged = ProviderModelInventoryMerger.Merge(provider.Models, modelIds, referencedIds, Classify, reported);
-            provider.Models.Clear();
-            foreach (var model in merged) provider.Models.Add(model);
+            provider.Models = new ObservableCollection<ProviderModelDescriptor>(merged);
             provider.ModelsRefreshedAt = DateTimeOffset.Now;
             SetProviderStatus(provider, string.Format(
                 GetString("ProviderModels.Status.InventoryCount", "Discovered {0} models"),
@@ -427,8 +427,7 @@ public partial class ProviderModelsViewModel : ViewModelBase, IDisposable
                 || string.Equals(item.Capability.ToString(), capability.ToString(), StringComparison.Ordinal))
             && (match == ProviderMetadataMatchFilter.All
                 || string.Equals(item.MatchStatus.ToString(), match.ToString(), StringComparison.Ordinal)));
-        MetadataModels.Clear();
-        foreach (var item in filtered) MetadataModels.Add(item);
+        MetadataModels.ReplaceAll(filtered);
         if (SelectedMetadataModel != null && !MetadataModels.Contains(SelectedMetadataModel))
             SelectedMetadataModel = MetadataModels.FirstOrDefault();
     }
@@ -640,25 +639,25 @@ public partial class ProviderRoleSelectionViewModel : ViewModelBase, IDisposable
             _selectedProvider = Providers[0];
             Settings.ProviderId = Providers[0].Id;
         }
-        _selectedModel = AvailableModels.FirstOrDefault(model => model.Id == Settings.Model);
-        if (_selectedProvider != null) _selectedProvider.PropertyChanged += OnProviderChanged;
+        if (!string.IsNullOrEmpty(Settings.Model))
+            _selectedModel = AvailableModels.FirstOrDefault(model => model.Id == Settings.Model);
+        ObserveProvider(_selectedProvider);
     }
 
     public string Name { get; }
     public ModelRoleSettings Settings { get; }
     public ObservableCollection<OpenAiProviderConfiguration> Providers => _config.AiModels.Providers;
 
-    public IEnumerable<ProviderModelDescriptor> AvailableModels
-    {
-        get
+    private ProviderModelDescriptor[]? _availableModels;
+    private ObservableCollection<ProviderModelDescriptor>? _observedModels;
+    public IReadOnlyList<ProviderModelDescriptor> AvailableModels => _availableModels ??= SelectedProvider is { } provider
+        ? provider.Models.Where(model => _role switch
         {
-            if (SelectedProvider is not { } provider) return [];
-            if (_role == AiModelRole.Embedding) return provider.Models.Where(model => model.Capability == ModelCapability.Embedding);
-            if (_role == AiModelRole.ComputerUse)
-                return provider.Models.Where(model => _probes.Vision(_config, provider, model) != CapabilitySupport.Unsupported);
-            return provider.Models.Where(model => model.Capability != ModelCapability.Embedding);
-        }
-    }
+            AiModelRole.Embedding => model.Capability == ModelCapability.Embedding,
+            AiModelRole.ComputerUse => _probes.Vision(_config, provider, model) != CapabilitySupport.Unsupported,
+            _ => model.Capability != ModelCapability.Embedding
+        }).ToArray()
+        : [];
 
     private string TestLabel => _text("ProviderModels.RoleTest.Run", "Test model");
     public string TestAccessibleName => $"{Name} · {TestLabel}";
@@ -686,9 +685,10 @@ public partial class ProviderRoleSelectionViewModel : ViewModelBase, IDisposable
     partial void OnSelectedProviderChanged(OpenAiProviderConfiguration? oldValue, OpenAiProviderConfiguration? newValue)
     {
         if (oldValue != null) oldValue.PropertyChanged -= OnProviderChanged;
-        if (newValue != null) newValue.PropertyChanged += OnProviderChanged;
+        ObserveProvider(newValue);
         Settings.ProviderId = newValue?.Id ?? string.Empty;
-        var available = AvailableModels.ToList();
+        _availableModels = null;
+        var available = AvailableModels;
         SelectedModel = available.FirstOrDefault(model => model.Id == Settings.Model)
             ?? (_role != AiModelRole.ComputerUse ? available.FirstOrDefault() : null);
         Settings.Model = SelectedModel?.Id ?? string.Empty;
@@ -703,6 +703,14 @@ public partial class ProviderRoleSelectionViewModel : ViewModelBase, IDisposable
 
     private void OnProviderChanged(object? sender, PropertyChangedEventArgs e)
     {
+        if (e.PropertyName == nameof(OpenAiProviderConfiguration.Models))
+        {
+            ObserveModels(SelectedProvider?.Models);
+            InvalidateModelChoices();
+        }
+        if (e.PropertyName is nameof(OpenAiProviderConfiguration.BaseUrl) or nameof(OpenAiProviderConfiguration.ProviderPreset)
+            or nameof(OpenAiProviderConfiguration.Id))
+            RefreshModelChoices();
         if (e.PropertyName is nameof(OpenAiProviderConfiguration.BaseUrl) or nameof(OpenAiProviderConfiguration.ApiKey)
             or nameof(OpenAiProviderConfiguration.Protocol))
             ResetTest();
@@ -710,7 +718,28 @@ public partial class ProviderRoleSelectionViewModel : ViewModelBase, IDisposable
 
     internal void RefreshModelChoices()
     {
-        if (_role == AiModelRole.ComputerUse) OnPropertyChanged(nameof(AvailableModels));
+        if (_role == AiModelRole.ComputerUse) InvalidateModelChoices();
+    }
+
+    private void ObserveProvider(OpenAiProviderConfiguration? provider)
+    {
+        if (provider != null) provider.PropertyChanged += OnProviderChanged;
+        ObserveModels(provider?.Models);
+    }
+
+    private void ObserveModels(ObservableCollection<ProviderModelDescriptor>? models)
+    {
+        if (_observedModels != null) _observedModels.CollectionChanged -= OnModelsChanged;
+        _observedModels = models;
+        if (models != null) models.CollectionChanged += OnModelsChanged;
+    }
+
+    private void OnModelsChanged(object? sender, NotifyCollectionChangedEventArgs e) => InvalidateModelChoices();
+
+    private void InvalidateModelChoices()
+    {
+        _availableModels = null;
+        OnPropertyChanged(nameof(AvailableModels));
     }
 
     private bool CanTest() => !_disposed && !IsTesting && SelectedModel != null;
@@ -771,6 +800,7 @@ public partial class ProviderRoleSelectionViewModel : ViewModelBase, IDisposable
     {
         _disposed = true;
         if (SelectedProvider != null) SelectedProvider.PropertyChanged -= OnProviderChanged;
+        ObserveModels(null);
         ResetTest();
     }
 }

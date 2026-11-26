@@ -17,11 +17,18 @@ public sealed class ModelMetadataResolver(ModelIdentityMatcher matcher) : IModel
         ProviderModelDescriptor model,
         ProviderModelMetadataProfile? profile,
         OpenRouterCatalogSnapshot snapshot,
-        bool isCatalogStale = false)
+        bool isCatalogStale = false) => ResolveCore(provider, model, profile, snapshot, isCatalogStale, includeSuggestions: true);
+
+    public ResolvedModelMetadata ResolveForCapabilities(OpenAiProviderConfiguration provider, ProviderModelDescriptor model,
+        ProviderModelMetadataProfile? profile, OpenRouterCatalogSnapshot snapshot, bool isCatalogStale) =>
+        ResolveCore(provider, model, profile, snapshot, isCatalogStale, includeSuggestions: false);
+
+    private ResolvedModelMetadata ResolveCore(OpenAiProviderConfiguration provider, ProviderModelDescriptor model,
+        ProviderModelMetadataProfile? profile, OpenRouterCatalogSnapshot snapshot, bool isCatalogStale, bool includeSuggestions)
     {
         var host = Uri.TryCreate(provider.BaseUrl, UriKind.Absolute, out var uri) ? uri.Host : null;
         var identity = new ExternalModelIdentity(provider.Id, provider.ProviderPreset, host, model.Id, model.DisplayName);
-        var match = matcher.Match(identity, snapshot, profile, isCatalogStale);
+        var match = matcher.Match(identity, snapshot, profile, isCatalogStale, includeSuggestions);
         var matched = match.SelectedOpenRouterModelId == null
             ? null
             : snapshot.Models.FirstOrDefault(candidate => string.Equals(candidate.Id, match.SelectedOpenRouterModelId, StringComparison.Ordinal));
