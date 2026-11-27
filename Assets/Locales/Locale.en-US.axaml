@@ -1859,7 +1859,7 @@
     <x:String x:Key="Timeline.State.Incomplete">Incomplete</x:String>
 
     <!-- Computer Use -->
-    <x:String x:Key="ComputerUse.PreviewHint">Window preview and AI cursor</x:String>
+    <x:String x:Key="ComputerUse.PreviewHint">Screen preview and AI cursor</x:String>
     <x:String x:Key="Browser.Title">Built-in browser</x:String>
     <x:String x:Key="Browser.Browse">Browse</x:String>
     <x:String x:Key="Browser.Task">Task</x:String>
@@ -1877,20 +1877,23 @@
     <x:String x:Key="ComputerUse.DesktopTitle">Desktop computer use</x:String>
     <x:String x:Key="ComputerUse.PlayDemo">Run demo</x:String>
     <x:String x:Key="ComputerUse.Stop">Stop</x:String>
-    <x:String x:Key="ComputerUse.Target">Target window</x:String>
+    <x:String x:Key="ComputerUse.Target">Control scope</x:String>
     <x:String x:Key="ComputerUse.SelectTarget">Select a window to operate</x:String>
-    <x:String x:Key="ComputerUse.Refresh">Refresh</x:String>
-    <x:String x:Key="ComputerUse.EmptyPreview">The window appears here when a task starts</x:String>
+    <x:String x:Key="ComputerUse.Refresh">List windows</x:String>
+    <x:String x:Key="ComputerUse.EmptyPreview">The task preview appears here when it starts</x:String>
+    <x:String x:Key="ComputerUse.CurrentDesktop">Current desktop</x:String>
+    <x:String x:Key="ComputerUse.DesktopReady">Ask Athena in chat to operate the current desktop across applications.</x:String>
     <x:String x:Key="ComputerUse.Ready">Ready</x:String>
     <x:String x:Key="ComputerUse.TargetReady">Window selected. Ask Athena to operate it in chat.</x:String>
     <x:String x:Key="ComputerUse.Unavailable">Computer Use unavailable</x:String>
-    <x:String x:Key="ComputerUse.Observing">Observing window</x:String>
+    <x:String x:Key="ComputerUse.Observing">Observing the screen</x:String>
     <x:String x:Key="ComputerUse.Moving">Moving the AI cursor</x:String>
     <x:String x:Key="ComputerUse.Clicking">Clicked</x:String>
     <x:String x:Key="ComputerUse.Typing">Entering text</x:String>
     <x:String x:Key="ComputerUse.OtherAction">Input sent</x:String>
     <x:String x:Key="ComputerUse.Completed">Completed</x:String>
     <x:String x:Key="ComputerUse.Stopped">Stopped</x:String>
+    <x:String x:Key="ComputerUse.TimedOut">The desktop task reached its time limit.</x:String>
     <x:String x:Key="ComputerUse.Failed">Computer Use could not finish</x:String>
     <x:String x:Key="ComputerUse.DemoTarget">Athena · CU Demo Target</x:String>
     <x:String x:Key="ComputerUse.DemoForm">Demo form</x:String>

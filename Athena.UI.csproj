@@ -77,15 +77,39 @@
           CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
   </ItemGroup>
 
-  <!-- The .NET 10 run target is also used by the IDE to launch a source build. -->
-  <Target Name="PrepareBrowserRuntimeForRun" BeforeTargets="ComputeRunArguments" Condition="'$(DesignTimeBuild)' != 'true'">
+  <PropertyGroup>
+    <CuaDriverRid Condition="'$(RuntimeIdentifier)' != ''">$(RuntimeIdentifier)</CuaDriverRid>
+    <CuaDriverRid Condition="'$(CuaDriverRid)' == ''">$(NETCoreSdkPortableRuntimeIdentifier)</CuaDriverRid>
+    <CuaDriverDir>$(MSBuildProjectDirectory)/obj/cua-driver/$(CuaDriverRid)</CuaDriverDir>
+    <CuaDriverLibrary Condition="$(CuaDriverRid.StartsWith('win-'))">cua_driver_sdk.dll</CuaDriverLibrary>
+    <CuaDriverLibrary Condition="$(CuaDriverRid.StartsWith('osx-'))">libcua_driver_sdk.dylib</CuaDriverLibrary>
+    <CuaDriverLibrary Condition="$(CuaDriverRid.StartsWith('linux-'))">libcua_driver_sdk.so</CuaDriverLibrary>
+    <CuaPython Condition="$([MSBuild]::IsOSPlatform('Windows'))">python</CuaPython>
+    <CuaPython Condition="'$(CuaPython)' == ''">python3</CuaPython>
+  </PropertyGroup>
+  <ItemGroup Condition="'$(CuaDriverLibrary)' != ''">
+    <Content Include="$(CuaDriverDir)/$(CuaDriverLibrary)" Link="$(CuaDriverLibrary)" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+    <Content Include="$(CuaDriverDir)/CuaDriver-LICENSE.txt" Link="CuaDriver-LICENSE.txt" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+  </ItemGroup>
+  <Target Name="PrepareNativeDesktopDriver" BeforeTargets="PrepareForBuild" Condition="'$(DesignTimeBuild)' != 'true' And '$(CuaDriverLibrary)' != ''"
+          Inputs="$(MSBuildProjectDirectory)/Scripts/stage-cua-driver.py" Outputs="$(CuaDriverDir)/$(CuaDriverLibrary);$(CuaDriverDir)/CuaDriver-LICENSE.txt">
+    <Exec WorkingDirectory="$(MSBuildProjectDirectory)" Command="$(CuaPython) Scripts/stage-cua-driver.py &quot;$(CuaDriverRid)&quot; &quot;$(CuaDriverDir)&quot;" />
+  </Target>
+
+  <Target Name="PrepareBrowserRuntimeForReleaseBuild" AfterTargets="Build"
+          Condition="'$(Configuration)' == 'Release'" DependsOnTargets="PrepareBrowserRuntime" />
+
+  <!-- The CLI and IDE also prepare the runtime when launching a source build. -->
+  <Target Name="PrepareBrowserRuntime" BeforeTargets="ComputeRunArguments" Condition="'$(DesignTimeBuild)' != 'true'">
     <PropertyGroup>
       <_BrowserRuntimeRid Condition="'$(RuntimeIdentifier)' != ''">$(RuntimeIdentifier)</_BrowserRuntimeRid>
       <_BrowserRuntimeRid Condition="'$(_BrowserRuntimeRid)' == ''">$(NETCoreSdkPortableRuntimeIdentifier)</_BrowserRuntimeRid>
       <_BrowserRuntimePython Condition="$([MSBuild]::IsOSPlatform('Windows'))">python</_BrowserRuntimePython>
       <_BrowserRuntimePython Condition="'$(_BrowserRuntimePython)' == ''">python3</_BrowserRuntimePython>
+      <_BrowserRuntimeFailureMode>WarnAndContinue</_BrowserRuntimeFailureMode>
+      <_BrowserRuntimeFailureMode Condition="'$(Configuration)' == 'Release'">ErrorAndStop</_BrowserRuntimeFailureMode>
     </PropertyGroup>
-    <Exec WorkingDirectory="$(MSBuildProjectDirectory)" ContinueOnError="WarnAndContinue"
+    <Exec WorkingDirectory="$(MSBuildProjectDirectory)" ContinueOnError="$(_BrowserRuntimeFailureMode)"
           Command="$(_BrowserRuntimePython) Scripts/stage-browser-runtime.py &quot;$(_BrowserRuntimeRid)&quot; &quot;$(TargetDir).&quot;" />
   </Target>
 

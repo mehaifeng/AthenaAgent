@@ -236,20 +236,16 @@ internal static class BrowserRuntimeTests
         var page = await browser.OpenTaskAsync(new Uri(site, "shadow-search"), token);
         var viewport = new BrowserViewportSize(469, 761, 2);
         await page.ResizeAsync(viewport, token);
-        var session = new BrowserComputerUseSession(browser, page);
-        try
-        {
-            var frame = await session.ObserveAsync(token);
-            Assert(frame.Width == viewport.PixelWidth && frame.Height == viewport.PixelHeight,
-                "The model must observe the physical-pixel viewport.");
-            await session.ActAsync(frame, new ComputerUseAction("type_text", Text: "Array.map"), 120, 64, token);
-            Assert(await IsTrue(page, """
-                document.activeElement.id === 'search' &&
-                document.activeElement.shadowRoot.activeElement.value === 'Array.map'
-                """, token), "2× model coordinates must map to the visible field inside the shadow-root dialog.");
-            Console.WriteLine("[PASS] A 2× hidden browser observation maps model pixels to the editable field inside a shadow-root dialog");
-        }
-        finally { await session.EndAsync(token); }
+        await using var session = new BrowserComputerUseSession(browser, page);
+        var frame = await session.ObserveAsync(token);
+        Assert(frame.Width == viewport.PixelWidth && frame.Height == viewport.PixelHeight,
+            "The model must observe the physical-pixel viewport.");
+        await session.ActAsync(frame, new ComputerUseAction("type_text", Text: "Array.map"), 120, 64, token);
+        Assert(await IsTrue(page, """
+            document.activeElement.id === 'search' &&
+            document.activeElement.shadowRoot.activeElement.value === 'Array.map'
+            """, token), "2× model coordinates must map to the visible field inside the shadow-root dialog.");
+        Console.WriteLine("[PASS] A 2× hidden browser observation maps model pixels to the editable field inside a shadow-root dialog");
     }
 
     private static async Task VerifyHorizontalScrollingAsync(EmbeddedBrowser browser, Uri site, CancellationToken token)

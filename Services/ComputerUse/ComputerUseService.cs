@@ -14,6 +14,8 @@ namespace Athena.UI.Services.ComputerUse;
 
 public sealed record ComputerUseTarget(int Pid, long WindowId, string Title, string App, Uri? BrowserUri = null)
 {
+    public static ComputerUseTarget Desktop { get; } = new(0, 0, "Current desktop", "");
+    public bool IsDesktop => BrowserUri is null && Pid == 0 && WindowId == 0;
     public string DisplayName => string.IsNullOrWhiteSpace(App) ? Title : $"{Title} · {App}";
 
     public static ComputerUseTarget? FromBrowserAddress(string address) =>
@@ -22,7 +24,11 @@ public sealed record ComputerUseTarget(int Pid, long WindowId, string Title, str
 }
 
 public sealed record ComputerUseFrame(byte[] Image, string MimeType, int Width, int Height, string Tree,
-    string? CaptureId, IReadOnlyList<ComputerUseElement> Elements, Uri? BrowserUri = null);
+    string? CaptureId, IReadOnlyList<ComputerUseElement> Elements, Uri? BrowserUri = null, bool IsDesktop = false)
+{
+    internal Avalonia.PixelRect? PortalMonitor { get; init; }
+    internal bool FromPortal { get; init; }
+}
 
 public sealed record ComputerUseElement(int Index, string Token, string Role, string Label, double? X = null, double? Y = null);
 
@@ -34,13 +40,29 @@ public enum ComputerUsePhase { Observing, Moving, Clicking, Typing, Navigating, 
 
 public sealed record ComputerUseProgress(ComputerUsePhase Phase, ComputerUseFrame? Frame = null,
     double? X = null, double? Y = null, string? Detail = null, bool InBrowser = false,
-    Uri? Address = null);
+    Uri? Address = null)
+{
+    internal ComputerUseCursor? DesktopCursor { get; init; }
+}
 
-internal interface IComputerUseSession
+internal interface IDesktopCursorDisplay
+{
+    Task ShowAsync(ComputerUseFrame frame, ComputerUseCursor cursor);
+    Task<bool> HideForCaptureAsync();
+    Task CloseAsync();
+}
+
+internal interface IComputerUseSession : IAsyncDisposable
 {
     Task<ComputerUseFrame> ObserveAsync(CancellationToken token);
     Task<string> ActAsync(ComputerUseFrame frame, ComputerUseAction action, double x, double y, CancellationToken token);
     Task EndAsync(CancellationToken token);
+    async ValueTask IAsyncDisposable.DisposeAsync()
+    {
+        using var cleanup = new CancellationTokenSource(TimeSpan.FromSeconds(3));
+        try { await EndAsync(cleanup.Token).ConfigureAwait(false); }
+        catch (Exception exception) { Log.Debug(exception, "Computer Use session cleanup ended"); }
+    }
 }
 
 public sealed class ComputerUseService(IConfigService config, ILogger logger, EmbeddedBrowser browser,
@@ -62,9 +84,12 @@ public sealed class ComputerUseService(IConfigService config, ILogger logger, Em
     private BrowserTaskControl? _browserControl;
     private bool _disposed;
     private ComputerUseTarget? _selectedTarget;
+    internal IDesktopCursorDisplay? CursorDisplay { get; init; }
+    private ComputerUseCursor? _desktopCursor;
 
     public event Action<ComputerUseProgress>? ProgressChanged;
-    public bool IsDesktopAvailable => File.Exists(CuaDriverNative.LibraryPath);
+    public bool HasWindowDriver => File.Exists(CuaDriverNative.LibraryPath);
+    public bool IsDesktopAvailable => PortalDesktopSession.IsWayland || HasWindowDriver;
     public bool IsAvailable => IsDesktopAvailable || browser.IsAvailable;
     internal bool HasBrowserTask => Volatile.Read(ref _browserControl) != null;
     internal bool IsBrowserPaused => Volatile.Read(ref _browserControl)?.IsPaused == true;
@@ -90,7 +115,7 @@ public sealed class ComputerUseService(IConfigService config, ILogger logger, Em
     public async Task<IReadOnlyList<ComputerUseTarget>> ListWindowsAsync(
         CancellationToken cancellationToken, int? pid = null)
     {
-        if (!IsDesktopAvailable)
+        if (!HasWindowDriver)
             return [];
         var arguments = new Dictionary<string, object> { ["on_screen_only"] = true };
         if (pid is not null)
@@ -110,27 +135,21 @@ public sealed class ComputerUseService(IConfigService config, ILogger logger, Em
         var browserSettings = current.EmbeddedBrowser;
         var model = roleProbes.Resolve(current, AiModelRole.ComputerUse);
         var needsProof = roleProbes.NeedsVisionProof(model);
-        var planner = new ComputerUsePlanner(model, goal, target.BrowserUri is not null, modelTransport, browserSettings.ActionRetryCount);
-        return RunAsync(target, async (frame, previous, step, token) =>
-        {
-            if (needsProof)
-            {
-                await roleProbes.TestAsync(model, token, modelTransport).ConfigureAwait(false);
-                needsProof = false;
-            }
-            return await planner.DecideAsync(frame, previous, step, token).ConfigureAwait(false);
-        }, cancellationToken, planner.RememberProgress, TimeSpan.FromMinutes(browserSettings.TaskTimeoutMinutes));
+        var planner = new ComputerUsePlanner(model, goal, target.BrowserUri is not null, modelTransport, browserSettings.ActionRetryCount, target.IsDesktop);
+        return RunAsync(target, planner.DecideAsync, cancellationToken, planner.RememberProgress,
+            TimeSpan.FromMinutes(browserSettings.TaskTimeoutMinutes),
+            needsProof ? token => roleProbes.TestAsync(model, token, modelTransport) : null);
     }
 
     internal async Task<FunctionResult> RunAsync(ComputerUseTarget target,
         Func<ComputerUseFrame, string, int, CancellationToken, Task<ComputerUseAction>> decide,
         CancellationToken cancellationToken, Action<ComputerUseFrame, ComputerUseAction>? remember = null,
-        TimeSpan? browserTimeLimit = null)
+        TimeSpan? browserTimeLimit = null, Func<CancellationToken, Task>? prepare = null)
     {
         var inBrowser = target.BrowserUri is not null;
         var timeLimit = inBrowser
             ? browserTimeLimit ?? TimeSpan.FromMinutes(config.Load().EmbeddedBrowser.TaskTimeoutMinutes)
-            : TimeSpan.FromMinutes(3);
+            : TimeSpan.FromMinutes(target.IsDesktop ? 10 : 3);
         using var deadline = new CancellationTokenSource();
         using var run = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, deadline.Token);
         BrowserTaskControl? control = null;
@@ -151,13 +170,11 @@ public sealed class ComputerUseService(IConfigService config, ILogger logger, Em
         if (control == null) deadline.CancelAfter(timeLimit);
         var token = run.Token;
         ComputerUseFrame? frame = null;
-        IComputerUseSession? session = null;
         try
         {
             Publish(new(ComputerUsePhase.Observing, Detail: target.Title, InBrowser: inBrowser, Address: target.BrowserUri));
-            session = target.BrowserUri is { } address
-                ? await OpenBrowserAsync(address, token).ConfigureAwait(false)
-                : await OpenWindowAsync(target, token).ConfigureAwait(false);
+            if (prepare is not null) await prepare(token).ConfigureAwait(false);
+            await using var session = await OpenSessionAsync(target, token).ConfigureAwait(false);
             var previousResult = "";
             var generation = 0;
             for (var step = 0; ;)
@@ -171,16 +188,15 @@ public sealed class ComputerUseService(IConfigService config, ILogger logger, Em
                         ? "The user returned control. Observe the current page before acting."
                         : "The user interacted with the browser. Observe the current page before acting.";
                 }
-                using var observation = CancellationTokenSource.CreateLinkedTokenSource(token, observationToken);
                 ComputerUseAction action;
                 try
                 {
-                    frame = await session.ObserveAsync(observation.Token).ConfigureAwait(false);
-                    observation.Token.ThrowIfCancellationRequested();
+                    frame = await ObserveAsync(session, target.IsDesktop, observationToken).ConfigureAwait(false);
+                    observationToken.ThrowIfCancellationRequested();
                     Publish(new(ComputerUsePhase.Observing, frame, Detail: target.Title, InBrowser: inBrowser));
-                    action = await decide(frame, previousResult, step, observation.Token).ConfigureAwait(false);
+                    action = await decide(frame, previousResult, step, observationToken).ConfigureAwait(false);
                 }
-                catch (OperationCanceledException) when (!token.IsCancellationRequested && observation.IsCancellationRequested)
+                catch (OperationCanceledException) when (!token.IsCancellationRequested && observationToken.IsCancellationRequested)
                 {
                     continue;
                 }
@@ -200,21 +216,22 @@ public sealed class ComputerUseService(IConfigService config, ILogger logger, Em
                             Detail: summary, InBrowser: inBrowser));
                         return action.Success ? FunctionResult.SuccessResult(summary) : FunctionResult.FailureResult(summary);
                     }
-                    if (!inBrowser && step == MaxWindowSteps)
+                    if (!inBrowser && !target.IsDesktop && step == MaxWindowSteps)
                         throw new InvalidOperationException("Computer Use reached its action limit.");
                     remember?.Invoke(frame, action);
                     previousResult = await ExecuteAsync(session, frame, action, token).ConfigureAwait(false);
                 }
                 step++;
-                await Task.Delay(160, token).ConfigureAwait(false);
+                // A desktop compositor can still show the outgoing window during a focus or overview animation.
+                await Task.Delay(target.IsDesktop ? 500 : 160, token).ConfigureAwait(false);
             }
         }
         catch (OperationCanceledException) when (token.IsCancellationRequested)
         {
-            if (inBrowser && deadline.IsCancellationRequested && !cancellationToken.IsCancellationRequested)
+            if ((inBrowser || target.IsDesktop) && deadline.IsCancellationRequested && !cancellationToken.IsCancellationRequested)
             {
-                Publish(new(ComputerUsePhase.TimedOut, frame, InBrowser: true));
-                return FunctionResult.FailureResult("The browser task reached its active time limit.");
+                Publish(new(ComputerUsePhase.TimedOut, frame, InBrowser: inBrowser));
+                return FunctionResult.FailureResult(inBrowser ? "The browser task reached its active time limit." : "The desktop task reached its time limit.");
             }
             Publish(new(ComputerUsePhase.Stopped, frame, InBrowser: inBrowser));
             return FunctionResult.FailureResult("Computer Use stopped.");
@@ -227,16 +244,13 @@ public sealed class ComputerUseService(IConfigService config, ILogger logger, Em
         }
         finally
         {
-            if (session is not null)
+            if (target.IsDesktop)
             {
-                try
+                _desktopCursor = null;
+                if (CursorDisplay is { } display)
                 {
-                    using var cleanup = new CancellationTokenSource(TimeSpan.FromSeconds(3));
-                    await session.EndAsync(cleanup.Token).ConfigureAwait(false);
-                }
-                catch (Exception exception)
-                {
-                    logger.Debug("Computer Use session cleanup ended: {Error}", exception.Message);
+                    try { await display.CloseAsync().ConfigureAwait(false); }
+                    catch (Exception e) { logger.Debug(e, "Desktop cursor presentation ended during shutdown"); }
                 }
             }
             lock (_gate)
@@ -259,11 +273,30 @@ public sealed class ComputerUseService(IConfigService config, ILogger logger, Em
         }
     }
 
+    private async Task<IComputerUseSession> OpenSessionAsync(ComputerUseTarget target, CancellationToken token)
+    {
+        if (target.BrowserUri is { } address) return await OpenBrowserAsync(address, token).ConfigureAwait(false);
+        if (target.IsDesktop && PortalDesktopSession.IsWayland) return await PortalDesktopSession.OpenAsync(token).ConfigureAwait(false);
+        return await OpenWindowAsync(target, token).ConfigureAwait(false);
+    }
+
     private async Task<IComputerUseSession> OpenWindowAsync(ComputerUseTarget target, CancellationToken token)
     {
         var session = $"athena-{Guid.NewGuid():N}";
-        await CallAsync("start_session", new { session }, token).ConfigureAwait(false);
-        return new WindowSession(this, target, session);
+        await CallAsync("start_session", new { session, capture_scope = target.IsDesktop ? "desktop" : "window" }, token).ConfigureAwait(false);
+        if (!target.IsDesktop) return new WindowSession(this, target, session);
+        var desktop = new NativeDesktopSession(session, CallAsync);
+        try
+        {
+            if (CursorDisplay is not null)
+                await CallAsync("set_agent_cursor_enabled", new { session, enabled = false }, token).ConfigureAwait(false);
+            return desktop;
+        }
+        catch
+        {
+            await ((IAsyncDisposable)desktop).DisposeAsync().ConfigureAwait(false);
+            throw;
+        }
     }
 
     private async Task<IComputerUseSession> OpenBrowserAsync(Uri address, CancellationToken token) =>
@@ -316,13 +349,14 @@ public sealed class ComputerUseService(IConfigService config, ILogger logger, Em
         var validAction = action.Action switch
         {
             "click" => true,
+            "double_click" or "right_click" => frame.IsDesktop,
             "type_text" => action.Text is { Length: > 0 and <= 4000 },
-            "press_key" => action.Key is { } key && NavigationKeys.Contains(key),
+            "press_key" => action.Key is { } key && (NavigationKeys.Contains(key) || frame.IsDesktop && DesktopKeys.TryParse(key, out _)),
             "scroll" => action.Direction is "up" or "down" or "left" or "right",
             _ => false
         };
         var inBrowser = frame.BrowserUri is not null;
-        if (!validAction && inBrowser)
+        if (!validAction && (inBrowser || frame.IsDesktop))
             return "No input was sent. Choose one supported action in the requested JSON format.";
         if (!validAction)
             throw new InvalidOperationException("The model returned an unsupported Computer Use action.");
@@ -332,27 +366,69 @@ public sealed class ComputerUseService(IConfigService config, ILogger logger, Em
         {
             (x, y) = ResolveActionPoint(frame, action);
         }
-        catch (InvalidOperationException) when (inBrowser)
+        catch (InvalidOperationException) when (inBrowser || frame.IsDesktop)
         {
             return "No input was sent. Pick a numbered control from the new observation or give x and y in screenshot pixels.";
         }
         var px = x / frame.Width;
         var py = y / frame.Height;
-        Publish(new(ComputerUsePhase.Moving, frame, px, py, InBrowser: inBrowser));
-        if (!inBrowser)
-            await Task.Delay(270, token).ConfigureAwait(false);
+        bool hasDesktopTypePoint = frame.IsDesktop && action.Action == "type_text" && action.X is not null && action.Y is not null;
+        bool usesPointer = !frame.IsDesktop || action.Action is "click" or "double_click" or "right_click" or "scroll" || hasDesktopTypePoint;
+        if (usesPointer && frame.IsDesktop)
+            await ShowCursorAsync(frame, ComputerUseCursor.Move(_desktopCursor, px, py)).ConfigureAwait(false);
+        var cursorX = usesPointer ? px : _desktopCursor?.X;
+        var cursorY = usesPointer ? py : _desktopCursor?.Y;
+        Publish(new(ComputerUsePhase.Moving, frame, cursorX, cursorY, InBrowser: inBrowser));
+        if (usesPointer && !inBrowser) await Task.Delay(ComputerUseCursor.MoveMilliseconds, token).ConfigureAwait(false);
+        if (hasDesktopTypePoint)
+        {
+            if (_desktopCursor is { } focusPointer)
+                await ShowCursorAsync(frame, focusPointer.Click()).ConfigureAwait(false);
+            Publish(new(ComputerUsePhase.Clicking, frame, cursorX, cursorY, InBrowser: inBrowser));
+        }
         if (action.Action == "type_text")
-            Publish(new(ComputerUsePhase.Typing, frame, px, py, InBrowser: inBrowser));
+        {
+            if (frame.IsDesktop && _desktopCursor is { } cursor)
+                await ShowCursorAsync(frame, cursor with { IsTyping = true }).ConfigureAwait(false);
+            Publish(new(ComputerUsePhase.Typing, frame, cursorX, cursorY, InBrowser: inBrowser));
+        }
         var result = await session.ActAsync(frame, action, x, y, token).ConfigureAwait(false);
-        Publish(new(action.Action == "click" ? ComputerUsePhase.Clicking
+        if (frame.IsDesktop && _desktopCursor is { } pointer && action.Action is "click" or "double_click" or "right_click")
+            await ShowCursorAsync(frame, pointer.Click()).ConfigureAwait(false);
+        Publish(new(action.Action is "click" or "double_click" or "right_click" ? ComputerUsePhase.Clicking
             : action.Action == "type_text" ? ComputerUsePhase.Typing : ComputerUsePhase.OtherAction,
-            frame, px, py, InBrowser: inBrowser));
+            frame, cursorX, cursorY, Detail: frame.IsDesktop ? ComputerUsePlanner.DescribeDesktopInput(action) : null, InBrowser: inBrowser));
         return result;
+    }
+
+    private async Task<ComputerUseFrame> ObserveAsync(IComputerUseSession session, bool desktop, CancellationToken token)
+    {
+        if (!desktop)
+            return await session.ObserveAsync(token).ConfigureAwait(false);
+        var cursor = _desktopCursor ?? ComputerUseCursor.Resting;
+        bool hidden = _desktopCursor != null && CursorDisplay is { } display && await display.HideForCaptureAsync().ConfigureAwait(false);
+        if (hidden) await Task.Delay(40, token).ConfigureAwait(false);
+        var frame = hidden && session is PortalDesktopSession portal
+            ? await portal.ObserveAsync(token, fresh: true).ConfigureAwait(false)
+            : await session.ObserveAsync(token).ConfigureAwait(false);
+        token.ThrowIfCancellationRequested();
+        await ShowCursorAsync(frame, cursor.IsTyping ? cursor with { IsTyping = false } : cursor).ConfigureAwait(false);
+        return frame;
+    }
+
+    private Task ShowCursorAsync(ComputerUseFrame frame, ComputerUseCursor cursor)
+    {
+        _desktopCursor = cursor;
+        return CursorDisplay?.ShowAsync(frame, cursor) ?? Task.CompletedTask;
     }
 
     internal static (double X, double Y) ResolveActionPoint(ComputerUseFrame frame, ComputerUseAction action)
     {
         var inBrowser = frame.BrowserUri is not null;
+        if (frame.IsDesktop && action.Element is not null)
+            throw new InvalidOperationException("Desktop actions use the latest screenshot and keyboard focus.");
+        if (frame.IsDesktop && (action.Action == "press_key" || action.Action == "type_text" && action.X is null && action.Y is null))
+            return (frame.Width / 2.0, frame.Height / 2.0);
         if (inBrowser && action is { Action: "scroll" or "press_key", Element: null, X: null, Y: null })
             return (frame.Width / 2.0, frame.Height / 2.0);
 
@@ -406,8 +482,8 @@ public sealed class ComputerUseService(IConfigService config, ILogger logger, Em
 
     private async Task<JsonElement> CallAsync(string tool, object arguments, CancellationToken token)
     {
-        if (!IsDesktopAvailable)
-            throw new InvalidOperationException("Cua Driver SDK is missing. Run Scripts/run-computer-use-demo.sh or set ATHENA_CUA_DRIVER_LIBRARY.");
+        if (!HasWindowDriver)
+            throw new InvalidOperationException("The native desktop driver is missing from this Athena installation.");
         var result = await _driver.Value.CallAsync(tool, arguments, token).ConfigureAwait(false);
         if (result.TryGetProperty("isError", out var error) && error.ValueKind == JsonValueKind.True)
             throw new InvalidOperationException(ReadText(result));
@@ -434,7 +510,8 @@ public sealed class ComputerUseService(IConfigService config, ILogger logger, Em
         element.TryGetProperty(property, out var value) && value.ValueKind == JsonValueKind.String
             ? value.GetString() ?? "" : "";
 
-    private void Publish(ComputerUseProgress progress) => ProgressChanged?.Invoke(progress);
+    private void Publish(ComputerUseProgress progress) => ProgressChanged?.Invoke(
+        progress.Frame?.IsDesktop == true ? progress with { DesktopCursor = _desktopCursor } : progress);
 
     public async ValueTask DisposeAsync()
     {

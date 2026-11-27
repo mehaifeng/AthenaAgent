@@ -5,24 +5,16 @@ using Avalonia.Media;
 using Avalonia.Media.Imaging;
 using Avalonia.Threading;
 using System;
-using System.Globalization;
 using System.IO;
 
 namespace Athena.UI.Controls;
 
 public sealed class ComputerUsePreview : Control, IDisposable
 {
-    private static readonly StreamGeometry Pointer = StreamGeometry.Parse("M 0,0 L 4,24 L 10,17 L 18,19 Z");
-    private static readonly IBrush PointerBrush = new SolidColorBrush(Color.Parse("#5EEAD4"));
-    private static readonly Pen PointerOutline = new(new SolidColorBrush(Color.Parse("#132625")), 1.5);
-    private static readonly IBrush LabelBackground = new SolidColorBrush(Color.Parse("#09242A"));
-    private static readonly FormattedText AgentLabel = CreateLabel("Athena");
-    private static readonly FormattedText TypingLabel = CreateLabel("Athena · Typing");
     private readonly DispatcherTimer _timer;
     private ComputerUseFrame? _frame;
     private Bitmap? _image;
     private ComputerUseCursor? _cursor;
-    private bool _showLabel;
 
     public ComputerUsePreview()
     {
@@ -40,16 +32,21 @@ public sealed class ComputerUsePreview : Control, IDisposable
             _image = image;
             _frame = frame;
         }
-        if (progress.Phase == ComputerUsePhase.Moving && progress.X is { } x && progress.Y is { } y)
+        if (progress.Frame?.IsDesktop == true)
+            SetCursor(progress.DesktopCursor);
+        else if (progress.Phase == ComputerUsePhase.Moving && progress.X is { } x && progress.Y is { } y)
             SetCursor(ComputerUseCursor.Move(_cursor, x, y));
-        if (progress.Phase == ComputerUsePhase.Clicking && _cursor is { } cursor)
+        else if (progress.Phase == ComputerUsePhase.Clicking && _cursor is { } cursor)
             SetCursor(cursor.Click());
+        else if (progress.Phase == ComputerUsePhase.Typing && _cursor is { } typing)
+            SetCursor(typing with { IsTyping = true });
+        if (progress.Phase is ComputerUsePhase.Completed or ComputerUsePhase.Stopped or ComputerUsePhase.Failed or ComputerUsePhase.TimedOut)
+            SetCursor(null);
         InvalidateVisual();
     }
 
     internal void ShowBrowserCursor(ComputerUseCursor? cursor)
     {
-        _showLabel = true;
         SetCursor(cursor);
     }
 
@@ -82,22 +79,7 @@ public sealed class ComputerUsePreview : Control, IDisposable
 
         var (x, y) = cursor.Position;
         var position = new Point(content.X + x * content.Width, content.Y + y * content.Height);
-        var pulse = cursor.Pulse;
-        if (pulse < 1)
-        {
-            var ring = new Pen(new SolidColorBrush(Color.FromArgb((byte)(255 * (1 - pulse)), 94, 234, 212)), 2.5);
-            context.DrawEllipse(null, ring, position, 5 + pulse * 20, 5 + pulse * 20);
-        }
-        using (context.PushTransform(Matrix.CreateTranslation(position.X, position.Y)))
-            context.DrawGeometry(PointerBrush, PointerOutline, Pointer);
-
-        if (_showLabel)
-        {
-            var label = cursor.IsTyping ? TypingLabel : AgentLabel;
-            var bounds = new Rect(position.X + 21, position.Y + 21, label.Width + 14, label.Height + 8);
-            context.DrawRectangle(LabelBackground, null, bounds, 6, 6);
-            context.DrawText(label, bounds.TopLeft + new Vector(7, 4));
-        }
+        ComputerUseCursorDrawing.Draw(context, position, content, cursor);
     }
 
     public void Reset()
@@ -115,9 +97,6 @@ public sealed class ComputerUsePreview : Control, IDisposable
         if (_cursor?.IsAnimating != true)
             _timer.Stop();
     }
-
-    private static FormattedText CreateLabel(string text) =>
-        new(text, CultureInfo.InvariantCulture, FlowDirection.LeftToRight, Typeface.Default, 12, Brushes.White);
 
     public void Dispose() => Reset();
 }

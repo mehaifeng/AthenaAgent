@@ -1859,7 +1859,7 @@
     <x:String x:Key="Timeline.State.Incomplete">不完整</x:String>
 
     <!-- Computer Use -->
-    <x:String x:Key="ComputerUse.PreviewHint">窗口画面与 AI 光标</x:String>
+    <x:String x:Key="ComputerUse.PreviewHint">操作画面与 AI 光标</x:String>
     <x:String x:Key="Browser.Title">内置浏览器</x:String>
     <x:String x:Key="Browser.Browse">浏览</x:String>
     <x:String x:Key="Browser.Task">任务</x:String>
@@ -1877,20 +1877,23 @@
     <x:String x:Key="ComputerUse.DesktopTitle">桌面操作</x:String>
     <x:String x:Key="ComputerUse.PlayDemo">运行演示</x:String>
     <x:String x:Key="ComputerUse.Stop">停止</x:String>
-    <x:String x:Key="ComputerUse.Target">目标窗口</x:String>
+    <x:String x:Key="ComputerUse.Target">操作范围</x:String>
     <x:String x:Key="ComputerUse.SelectTarget">选择要操作的窗口</x:String>
-    <x:String x:Key="ComputerUse.Refresh">刷新</x:String>
-    <x:String x:Key="ComputerUse.EmptyPreview">窗口画面会在任务开始后显示</x:String>
+    <x:String x:Key="ComputerUse.Refresh">列出窗口</x:String>
+    <x:String x:Key="ComputerUse.EmptyPreview">任务开始后显示操作画面</x:String>
+    <x:String x:Key="ComputerUse.CurrentDesktop">当前桌面</x:String>
+    <x:String x:Key="ComputerUse.DesktopReady">在主对话描述任务，Athena 可跨应用操作当前桌面。</x:String>
     <x:String x:Key="ComputerUse.Ready">就绪</x:String>
     <x:String x:Key="ComputerUse.TargetReady">已选中窗口。可以在聊天中让 Athena 操作它。</x:String>
     <x:String x:Key="ComputerUse.Unavailable">Computer Use 暂不可用</x:String>
-    <x:String x:Key="ComputerUse.Observing">正在观察窗口</x:String>
+    <x:String x:Key="ComputerUse.Observing">正在观察画面</x:String>
     <x:String x:Key="ComputerUse.Moving">AI 光标正在移动</x:String>
     <x:String x:Key="ComputerUse.Clicking">已执行点击</x:String>
     <x:String x:Key="ComputerUse.Typing">正在录入文字</x:String>
     <x:String x:Key="ComputerUse.OtherAction">已发送输入</x:String>
     <x:String x:Key="ComputerUse.Completed">已完成</x:String>
     <x:String x:Key="ComputerUse.Stopped">已停止</x:String>
+    <x:String x:Key="ComputerUse.TimedOut">桌面任务已达到运行时限。</x:String>
     <x:String x:Key="ComputerUse.Failed">Computer Use 未完成</x:String>
     <x:String x:Key="ComputerUse.DemoTarget">Athena · CU 演示目标</x:String>
     <x:String x:Key="ComputerUse.DemoForm">演示表单</x:String>

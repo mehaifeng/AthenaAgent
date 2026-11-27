@@ -25,20 +25,29 @@ public sealed partial class ComputerUseViewModel : ViewModelBase
     {
         _service = service;
         _localization = localization;
-        Status = L("ComputerUse.Ready", "Ready");
+        Windows = [DesktopTarget];
+        SelectedWindow = Windows[0];
     }
+
+    private ComputerUseTarget DesktopTarget => ComputerUseTarget.Desktop with
+    {
+        Title = L("ComputerUse.CurrentDesktop", "Current desktop")
+    };
 
     public async Task RefreshAsync(CancellationToken token)
     {
+        var desktop = DesktopTarget;
         try
         {
             var previous = SelectedWindow;
-            Windows = await _service.ListWindowsAsync(token);
-            SelectedWindow = Windows.FirstOrDefault(candidate => candidate == previous);
+            Windows = [desktop, ..await _service.ListWindowsAsync(token)];
+            SelectedWindow = Windows.FirstOrDefault(candidate => candidate == previous) ?? desktop;
         }
         catch (Exception exception) when (exception is not OperationCanceledException)
         {
-            Status = L("ComputerUse.Unavailable", "Computer Use unavailable");
+            Windows = [desktop];
+            SelectedWindow = desktop;
+            Status = L("ComputerUse.DesktopReady", "Ask Athena in chat to operate the current desktop.");
             Detail = exception.Message;
         }
     }
@@ -48,7 +57,7 @@ public sealed partial class ComputerUseViewModel : ViewModelBase
         _service.SelectedTarget = value;
         if (value is not null && !Busy)
         {
-            Status = L("ComputerUse.TargetReady", "Window selected. Ask Athena to operate it in chat.");
+            Status = value.IsDesktop ? L("ComputerUse.DesktopReady", "Ask Athena in chat to operate the current desktop.") : L("ComputerUse.TargetReady", "Window selected. Ask Athena to operate it in chat.");
             Detail = value.Title;
         }
     }
@@ -58,13 +67,14 @@ public sealed partial class ComputerUseViewModel : ViewModelBase
         HasFrame |= progress.Frame is not null;
         Status = progress.Phase switch
         {
-            ComputerUsePhase.Observing => L("ComputerUse.Observing", "Observing window"),
+            ComputerUsePhase.Observing => L("ComputerUse.Observing", "Observing the screen"),
             ComputerUsePhase.Moving => L("ComputerUse.Moving", "Moving the AI cursor"),
             ComputerUsePhase.Clicking => L("ComputerUse.Clicking", "Clicked"),
             ComputerUsePhase.Typing => L("ComputerUse.Typing", "Entering text"),
             ComputerUsePhase.OtherAction => L("ComputerUse.OtherAction", "Input sent"),
             ComputerUsePhase.Completed => L("ComputerUse.Completed", "Completed"),
             ComputerUsePhase.Stopped => L("ComputerUse.Stopped", "Stopped"),
+            ComputerUsePhase.TimedOut => L("ComputerUse.TimedOut", "The desktop task reached its time limit."),
             _ => L("ComputerUse.Failed", "Computer Use could not finish")
         };
         if (progress.Detail is not null)

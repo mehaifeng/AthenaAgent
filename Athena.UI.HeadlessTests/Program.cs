@@ -56,6 +56,9 @@ using Serilog.Events;
 
 try
 {
+if (Environment.GetEnvironmentVariable("ATHENA_DESKTOP_SMOKE_GOAL") is { Length: > 0 } desktopGoal)
+    Environment.Exit(DesktopComputerUseTests.RunLive(desktopGoal));
+
 if (Environment.GetEnvironmentVariable("ATHENA_BROWSER_PREVIEW_BENCHMARK") is { Length: > 0 } browserBenchmark)
     Environment.Exit(BrowserPreviewBenchmark.Run(browserBenchmark));
 
@@ -210,6 +213,7 @@ if (Environment.GetEnvironmentVariable("ATHENA_HEADLESS_ONLY") == "browser-runti
 if (Environment.GetEnvironmentVariable("ATHENA_HEADLESS_ONLY") == "computer-use")
 {
     TestComputerUseToolPolicy();
+    PumpForCompletion(DesktopComputerUseTests.VerifyNativeContractAsync(), "checking native desktop input contracts");
     TestComputerUseBrowserTarget();
     TestEmbeddedBrowserExecutionSettings();
     PumpForCompletion(ModelRoleProbeTests.RunAsync(), "proving each role protocol and visual input");
@@ -231,6 +235,7 @@ if (Environment.GetEnvironmentVariable("ATHENA_OWL_TEST_ONLY") == "1")
 TestMermaidMarkdownRendering();
 PumpForCompletion(DesktopPerformanceTests.RunMarkdownAsync(), "testing chat Markdown rendering");
 TestComputerUseToolPolicy();
+PumpForCompletion(DesktopComputerUseTests.VerifyNativeContractAsync(), "checking native desktop input contracts");
 TestComputerUseBrowserTarget();
 TestEmbeddedBrowserExecutionSettings();
 PumpForCompletion(ModelRoleProbeTests.RunAsync(), "proving each role protocol and visual input");
@@ -2552,6 +2557,13 @@ static void TestComputerUseBrowserTarget()
         throw new InvalidOperationException("Browser Computer Use must resolve the configured official Flash connection.");
 
     var planner = new ComputerUsePlanner(request, "Check two articles.", browser: true);
+    var desktopPlanner = new ComputerUsePlanner(request, "Read a total, then enter it in a document.", browser: false, desktop: true);
+    var desktopFrame = frame with { BrowserUri = null, IsDesktop = true };
+    desktopPlanner.RememberProgress(desktopFrame, new("click", X: 90, Y: 40, Summary: "The total reads 845."));
+    desktopPlanner.RememberProgress(desktopFrame, new("press_key", Key: "End", Summary: "The editor has focus."));
+    var desktopReport = desktopPlanner.BuildObservationReport(desktopFrame, "Key sent.", 2);
+    if (!desktopReport.Contains("The total reads 845.") || !desktopReport.Contains("The editor has focus."))
+        throw new InvalidOperationException("Changing desktop focus must preserve the value observed in the previous app.");
     var firstPage = frame with { BrowserUri = new Uri("https://example.org/article-a") };
     var secondPage = frame with { BrowserUri = new Uri("https://example.org/article-b"), Tree = "Article B" };
     planner.RememberProgress(firstPage, new ComputerUseAction("click", Summary: "Article A confirmed the date."));

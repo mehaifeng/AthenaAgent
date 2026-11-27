@@ -25,10 +25,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - { os: ubuntu-22.04, rid: linux-x64 }
-          - { os: windows-latest, rid: win-x64 }
-          - { os: macos-15, rid: osx-arm64 }
+        os: [ubuntu-22.04, windows-latest, macos-15]
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v5
@@ -38,18 +35,17 @@ jobs:
       - uses: actions/setup-python@v6
         with:
           python-version: '3.13'
-      - name: Stage the release browser payload
-        shell: bash
-        run: python Scripts/stage-browser-runtime.py "${{ matrix.rid }}" "${{ runner.temp }}/athena-browser"
       - name: Build local PTC packages
         shell: bash
         run: bash Libraries/Ptc/scripts/build-local-feed.sh
+      - name: Build the Release app with its browser runtime
+        run: dotnet build Athena.UI.csproj -c Release
       - name: Exercise the bundled browser and model roles
         shell: bash
         env:
           ATHENA_HEADLESS_ONLY: computer-use
           ATHENA_BROWSER_SMOKE: '1'
-          ATHENA_BROWSER_RUNTIME_DIRECTORY: ${{ runner.temp }}/athena-browser/BrowserRuntime
+          ATHENA_BROWSER_RUNTIME_DIRECTORY: ${{ github.workspace }}/bin/Release/net10.0/BrowserRuntime
         run: |
           if [ "$RUNNER_OS" = Linux ]; then
             xvfb-run -a bash Scripts/run-headless-tests.sh

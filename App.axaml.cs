@@ -1130,7 +1130,7 @@ public partial class App : Application, IAsyncDisposable
         services.AddSingleton<EmbeddedBrowser>();
         services.AddSingleton(sp => new ComputerUseService(sp.GetRequiredService<IConfigService>(),
             Log.ForContext<ComputerUseService>(), sp.GetRequiredService<EmbeddedBrowser>(),
-            sp.GetRequiredService<ModelRoleProbeService>()));
+            sp.GetRequiredService<ModelRoleProbeService>()) { CursorDisplay = new Athena.UI.Controls.DesktopCursorDisplay() });
         services.AddSingleton<EmbeddedBrowserViewModel>();
         services.AddSingleton<ComputerUseFunctions>();
 

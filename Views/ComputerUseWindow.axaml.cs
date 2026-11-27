@@ -40,7 +40,7 @@ public sealed partial class ComputerUseWindow : Window, IDisposable
         InitializeComponent();
         DataContext = _viewModel;
         Targets.IsVisible = !demoOnly;
-        DemoButton.IsVisible = service.IsDesktopAvailable;
+        DemoButton.IsVisible = service.HasWindowDriver;
         _service.ProgressChanged += OnProgress;
         Opened += OnOpened;
         Closed += OnClosed;
@@ -50,8 +50,6 @@ public sealed partial class ComputerUseWindow : Window, IDisposable
     {
         if (_demoOnly)
             await PlayDemoAsync();
-        else
-            await RefreshAsync();
     }
 
     private async void OnRefresh(object? sender, RoutedEventArgs e) => await RefreshAsync();
@@ -225,7 +223,7 @@ public sealed partial class ComputerUseWindow : Window, IDisposable
             _viewModel.Update(new(ComputerUsePhase.Failed, Detail: exception.Message));
             _service.StopDesktop();
         }
-        if (progress.Phase is ComputerUsePhase.Completed or ComputerUsePhase.Failed or ComputerUsePhase.Stopped)
+        if (progress.Phase is ComputerUsePhase.Completed or ComputerUsePhase.Failed or ComputerUsePhase.Stopped or ComputerUsePhase.TimedOut)
             _viewModel.Busy = false;
     });
 

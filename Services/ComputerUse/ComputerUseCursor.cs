@@ -7,6 +7,7 @@ internal sealed record ComputerUseCursor(double FromX, double FromY, double X, d
     long ClickStarted = 0, bool IsTyping = false)
 {
     public const int MoveMilliseconds = 265;
+    public static ComputerUseCursor Resting { get; } = new(.12, .16, .12, .16, 0);
     public double Pulse => Elapsed(ClickStarted, 390);
     public bool IsAnimating => Elapsed(MoveStarted, MoveMilliseconds) < 1 || Pulse < 1;
 
@@ -22,7 +23,7 @@ internal sealed record ComputerUseCursor(double FromX, double FromY, double X, d
 
     public static ComputerUseCursor Move(ComputerUseCursor? previous, double x, double y)
     {
-        var (fromX, fromY) = previous?.Position ?? (0.12, 0.16);
+        var (fromX, fromY) = (previous ?? Resting).Position;
         return new(fromX, fromY, x, y, Stopwatch.GetTimestamp(), previous?.ClickStarted ?? 0);
     }
 

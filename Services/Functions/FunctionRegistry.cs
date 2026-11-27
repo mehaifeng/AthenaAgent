@@ -442,8 +442,8 @@ public class FunctionRegistry : IFunctionRegistry
             });
 
         RegisterFunction("run_computer_task", computerUseFunctions.RunComputerTaskAsync,
-            "Operates a browser page or a user-selected desktop window. Provide startingUrl to launch a browser task for a known website. "
-            + "For an already open page, the existing browser address can be used when no desktop window is selected. "
+            "Operates the current foreground desktop across applications and dialogs. No window selection is needed. "
+            + "Use startingUrl for a known website, or target=browser for the current built-in browser page. "
             + "The browser can navigate to HTTP(S) addresses during the task. Put the user's requested address-bar navigation in the instruction. "
             + "The call returns the task result when it finishes. Prefer web_search for ordinary public research.",
             new
@@ -452,9 +452,11 @@ public class FunctionRegistry : IFunctionRegistry
                 properties = new
                 {
                     instruction = new { type = "string", minLength = 1, maxLength = 4000,
-                        description = "The user's goal, scope, and observable completion condition for the selected page or window." },
+                        description = "The user's goal, scope, and observable completion condition for the desktop or web page." },
                     startingUrl = new { type = "string", minLength = 1,
-                        description = "Complete HTTP or HTTPS start address for a browser task. Pass it when the user's browser destination is known. Omit for a selected desktop window." }
+                        description = "Complete HTTP or HTTPS start address for a browser task. Pass it when the user's browser destination is known. Omit for desktop tasks." },
+                    target = new { type = "string", @enum = new[] { "desktop", "browser" },
+                        description = "Use desktop for the whole current display, including switching apps. Without arguments other than instruction, desktop is the default unless the user explicitly selected a window." }
                 },
                 required = new[] { "instruction" }
             });
