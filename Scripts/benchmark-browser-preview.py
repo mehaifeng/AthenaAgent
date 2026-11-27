@@ -1,9 +1,11 @@
 #!/usr/bin/env python3
-"""Run the real Avalonia browser pane on macOS with a repeatable local workload."""
+"""Measure the Avalonia browser pane on Linux or macOS with local fixtures or live TestUFO."""
 import argparse
+from contextlib import contextmanager
 import http.server
 import json
 import os
+import platform
 from pathlib import Path
 import statistics
 import subprocess
@@ -12,7 +14,8 @@ import threading
 
 
 ROOT = Path(__file__).resolve().parents[1]
-MODES = ("bitmap-opengl", "bitmap-metal", "iosurface-metal")
+LINUX = platform.system() == "Linux"
+MODES = ("bitmap-default", "bitmap-egl", "dmabuf-egl") if LINUX else ("bitmap-opengl", "bitmap-metal", "iosurface-metal")
 SCROLL = b"""<!doctype html><meta charset=utf-8><title>Browser scrolling fixture</title>
 <style>
 html { background:#f5f6f7; color:#131d2a; font:16px system-ui }
@@ -66,11 +69,28 @@ def serve(clip):
     return server
 
 
+@contextmanager
+def benchmark_url(directory, testufo):
+    if testufo:
+        yield "https://testufo.com/"
+        return
+    clip = directory / "clip.webm"
+    subprocess.run(["ffmpeg", "-hide_banner", "-loglevel", "error", "-f", "lavfi", "-i", "testsrc2=size=1280x720:rate=60",
+                    "-t", "13", "-an", "-c:v", "libvpx", "-deadline", "realtime", "-cpu-used", "6", str(clip)], check=True)
+    with serve(clip.read_bytes()) as server:
+        try:
+            yield f"http://127.0.0.1:{server.server_port}/"
+        finally:
+            server.shutdown()
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--trials", type=int, default=2)
-    parser.add_argument("--mode", action="append", choices=MODES, help="Run a specific rendering path. Can be repeated.")
+    choices = (*MODES, "bitmap-fallback", "bitmap-no-device", "dmabuf-loss") if LINUX else MODES
+    parser.add_argument("--mode", action="append", choices=choices, help="Run a specific rendering path. Can be repeated.")
     parser.add_argument("--skip-build", action="store_true")
+    parser.add_argument("--testufo", action="store_true", help="Read the live TestUFO FPS counter alongside the window measurement.")
     args = parser.parse_args()
     if not 1 <= args.trials <= 10:
         parser.error("trials must be between 1 and 10")
@@ -80,46 +100,56 @@ def main():
     runtime = ROOT / "bin/Debug/net10.0/BrowserRuntime"
     bridge = ROOT / "obj/browser-gpu"
     if not args.skip_build:
-        subprocess.run(["bash", "Scripts/build-browser-gpu-macos.sh", bridge], check=True)
+        host = "linux" if LINUX else "macos"
+        subprocess.run(["bash", f"Scripts/build-browser-gpu-{host}.sh", bridge], check=True)
         subprocess.run(["dotnet", "build", "Athena.UI.HeadlessTests", "-p:UseAppHost=false", "--nologo", "-v", "q"], check=True)
-        subprocess.run(["python3", "Scripts/stage-browser-runtime.py", "osx-" + ("arm64" if os.uname().machine == "arm64" else "x64"), runtime.parent], check=True)
+        arch = "arm64" if platform.machine() in ("aarch64", "arm64") else "x64"
+        subprocess.run(["python3", "Scripts/stage-browser-runtime.py", ("linux-" if LINUX else "osx-") + arch, runtime.parent], check=True)
 
     with tempfile.TemporaryDirectory(prefix="athena-preview-benchmark-") as directory:
         path = Path(directory)
-        clip = path / "clip.webm"
-        subprocess.run(["ffmpeg", "-hide_banner", "-loglevel", "error", "-f", "lavfi", "-i", "testsrc2=size=1280x720:rate=60",
-                        "-t", "13", "-an", "-c:v", "libvpx", "-deadline", "realtime", "-cpu-used", "6", str(clip)], check=True)
-        with serve(clip.read_bytes()) as server:
+        with benchmark_url(path, args.testufo) as url:
             results = []
+            prefix = "BROWSER_LIVE_FPS " if args.testufo else "BROWSER_BENCHMARK "
             for trial in range(args.trials):
                 for mode in modes if trial % 2 == 0 else reversed(modes):
                     env = dict(os.environ)
                     env.pop("ATHENA_BROWSER_GPU_DIRECTORY", None)
                     env.update({"ATHENA_BROWSER_PREVIEW_BENCHMARK": mode,
-                                "ATHENA_BROWSER_BENCHMARK_URL": f"http://127.0.0.1:{server.server_port}/",
+                                "ATHENA_BROWSER_BENCHMARK_URL": url,
                                 "ATHENA_BROWSER_BENCHMARK_PROFILE": str(path / "browser"),
                                 "ATHENA_BROWSER_BENCHMARK_SEED": "0" if results else "1",
                                 "ATHENA_BROWSER_RUNTIME_DIRECTORY": str(runtime)})
-                    if mode == "iosurface-metal":
+                    if mode in ("iosurface-metal", "dmabuf-egl", "bitmap-fallback", "bitmap-no-device", "dmabuf-loss"):
                         env["ATHENA_BROWSER_GPU_DIRECTORY"] = str(bridge)
                     print(f"Trial {trial + 1}, {mode}", flush=True)
                     run = subprocess.run(["dotnet", str(output / "Athena.UI.HeadlessTests.dll")], capture_output=True,
                                          text=True, env=env, timeout=90)
-                    lines = [line for line in run.stdout.splitlines() if line.startswith("BROWSER_BENCHMARK ")]
+                    lines = [line for line in run.stdout.splitlines() if line.startswith(prefix)]
                     if run.returncode != 0 or not lines:
                         raise RuntimeError(run.stdout + run.stderr)
                     print(lines[0], flush=True)
-                    results.append(json.loads(lines[0].removeprefix("BROWSER_BENCHMARK ")))
-            server.shutdown()
+                    results.append(json.loads(lines[0].removeprefix(prefix)))
     if len({(row["Width"], row["Height"]) for row in results}) != 1:
         raise RuntimeError("Display scaling or the preview viewport changed between runs")
-    print("\nMode             Workload   FPS   p95 gap (ms)   Gaps >25 ms (%)   Athena CPU (% 1 core)")
+    if args.testufo:
+        print("\nMode             TestUFO FPS (median)   Window FPS   p95 gap (ms)")
+        for mode in dict.fromkeys(modes):
+            rows = [row for row in results if row["Mode"] == mode]
+            fps = [sample["fps"] for row in rows for sample in row["TestUfo"] if sample["fps"] is not None]
+            window = statistics.median(row["Window"]["Fps"] for row in rows)
+            gap = statistics.median(row["Window"]["P95Ms"] for row in rows)
+            print(f"{mode:<16} {statistics.median(fps):20.1f} {window:12.1f} {gap:14.1f}")
+        return
+    print("\nMode             Workload   FPS   p95 gap (ms)   Gaps >25 ms (%)   Athena CPU (% 1 core)"
+          + ("   Athena + Electron (% 1 core)" if LINUX else ""))
     for mode in dict.fromkeys(modes):
         for workload in ("Scroll", "Video"):
             rows = [row[workload] for row in results if row["Mode"] == mode]
             median = [statistics.median(row[field] for row in rows)
                       for field in ("Fps", "P95Ms", "Over25MsPercent", "AthenaCpuPercent")]
-            print(f"{mode:<16} {workload:<8} {median[0]:5.1f} {median[1]:14.1f} {median[2]:17.1f} {median[3]:21.1f}")
+            tree = f" {statistics.median(row['ProcessTreeCpuPercent'] for row in rows):28.1f}" if LINUX else ""
+            print(f"{mode:<16} {workload:<8} {median[0]:5.1f} {median[1]:14.1f} {median[2]:17.1f} {median[3]:21.1f}{tree}")
 
 
 if __name__ == "__main__":

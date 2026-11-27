@@ -14,7 +14,7 @@ internal sealed class BrowserTaskControl : IDisposable
     private readonly CancellationTokenSource _deadline;
     private readonly Action<string?> _paused;
     private readonly Action _resumed;
-    private CancellationTokenSource _observation = new();
+    private CancellationTokenSource _observation;
     private TaskCompletionSource? _resume;
     private long _activeSince;
     private TimeSpan _remaining;
@@ -25,6 +25,7 @@ internal sealed class BrowserTaskControl : IDisposable
     public BrowserTaskControl(CancellationToken run, CancellationTokenSource deadline, TimeSpan limit, Action<string?> paused, Action resumed)
     {
         _run = run;
+        _observation = CancellationTokenSource.CreateLinkedTokenSource(run);
         _deadline = deadline;
         _paused = paused;
         _resumed = resumed;
@@ -61,7 +62,7 @@ internal sealed class BrowserTaskControl : IDisposable
                 if (_disposed || _resume == null || _run.IsCancellationRequested) return;
                 var resume = _resume;
                 _observation.Dispose();
-                _observation = new();
+                _observation = CancellationTokenSource.CreateLinkedTokenSource(_run);
                 _resume = null;
                 _activeSince = Stopwatch.GetTimestamp();
                 _deadline.CancelAfter(_remaining);

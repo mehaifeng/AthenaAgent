@@ -1,5 +1,6 @@
 using System;
 using System.Buffers;
+using Microsoft.Win32.SafeHandles;
 using System.Threading;
 using System.Threading.Channels;
 using System.Threading.Tasks;
@@ -14,8 +15,8 @@ internal sealed class BrowserPreview(BrowserHostConnection connection, string ta
     private bool _complete;
     private int _viewportChanged;
 
-    public Task ConfigureAsync(int revision, CancellationToken token, bool sharedTextures = false) =>
-        connection.CallAsync("previewStart", new { id, revision, sharedTextures }, token, tab);
+    public Task ConfigureAsync(int revision, CancellationToken token, bool sharedTextures = false, int? frameRate = null) =>
+        connection.CallAsync("previewStart", new { id, revision, sharedTextures, frameRate }, token, tab);
 
     public Task AcknowledgeAsync(CancellationToken token) =>
         connection.CallAsync("previewAck", new { id }, token, tab);
@@ -82,24 +83,42 @@ internal sealed class BrowserPreviewFrame(int revision, int width, int height, b
     IntPtr surface = default, Action? releaseTexture = null) : IDisposable
 {
     private byte[]? _pixels = pixels;
-    private IntPtr _surface = surface;
-    private Action? _releaseTexture = releaseTexture;
+    private BrowserTexture? _texture = surface != IntPtr.Zero ? new BrowserTexture(surface, releaseTexture) : null;
 
     public int Revision { get; } = revision;
     public int Width { get; } = width;
     public int Height { get; } = height;
-    public IntPtr Surface => _surface;
+    public bool HasTexture => _texture is not null;
     public byte[] Pixels => _pixels ?? throw new ObjectDisposedException(nameof(BrowserPreviewFrame));
 
-    // If a GPU blit never completes, keep Chromium's lease rather than let it overwrite a surface in use.
-    public void KeepProducerLease() => Interlocked.Exchange(ref _releaseTexture, null);
+    public BrowserTexture TakeTexture() => Interlocked.Exchange(ref _texture, null)
+        ?? throw new InvalidOperationException("The preview frame has no shared texture.");
 
     public void Dispose()
     {
         if (Interlocked.Exchange(ref _pixels, null) is { } buffer)
             ArrayPool<byte>.Shared.Return(buffer);
-        if (Interlocked.Exchange(ref _surface, IntPtr.Zero) is var reference && reference != IntPtr.Zero)
-            MacBrowserSurfaces.Release(reference);
-        Interlocked.Exchange(ref _releaseTexture, null)?.Invoke();
+        Interlocked.Exchange(ref _texture, null)?.Dispose();
+    }
+}
+
+internal sealed class BrowserTexture : SafeHandleZeroOrMinusOneIsInvalid
+{
+    private Action? _acknowledge;
+
+    public BrowserTexture(IntPtr reference, Action? acknowledge = null) : base(true)
+    {
+        SetHandle(reference);
+        _acknowledge = acknowledge;
+    }
+
+    // Do not let Chromium overwrite the source if a submitted GPU copy has not finished.
+    public void KeepProducerLease() => Interlocked.Exchange(ref _acknowledge, null);
+
+    protected override bool ReleaseHandle()
+    {
+        BrowserSurfaces.Release(handle);
+        Interlocked.Exchange(ref _acknowledge, null)?.Invoke();
+        return true;
     }
 }

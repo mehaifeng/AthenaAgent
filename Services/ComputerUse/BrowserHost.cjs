@@ -8,7 +8,7 @@ const { randomUUID } = require('node:crypto');
 
 const profile = path.resolve(process.argv[2]);
 let textureBridge;
-if (process.platform === 'darwin' && process.argv[3] && process.argv[4]) {
+if (['darwin', 'linux'].includes(process.platform) && process.argv[3] && process.argv[4]) {
   try {
     const addon = require(process.argv[3]);
     if (addon.connect(process.argv[4])) textureBridge = addon;
@@ -28,10 +28,13 @@ const tabs = new Map();
 const interactions = new Map();
 const grants = new Set();
 const texturesInFlight = new Map();
+// Linux imports on Avalonia's render thread. Let Chromium queue the next capture while that thread presents.
+const maxPreviewTextures = process.platform === 'linux' ? 3 : 1;
 const downloads = path.join(profile, 'PendingDownloads');
 const popupPaintWaitMs = 150;
 let shared;
 let stopping = false;
+let gpuLost = false;
 let nextInteraction = 0;
 let nextTextureSequence = 0;
 
@@ -51,26 +54,30 @@ function send(message, pixels) {
 function sendPreview(tab, preview) {
   if (preview.inFlight || !preview.latest) return;
   const { image, texture } = preview.latest;
+  if (texture && preview.textureSequences.size >= maxPreviewTextures) return;
   preview.latest = null;
   if (texture) {
     const { handle, codedSize, visibleRect, pixelFormat } = texture.textureInfo;
     const { width, height } = codedSize;
     const sequence = ++nextTextureSequence;
-    if (texturesInFlight.size >= 8 || pixelFormat !== 'bgra' || visibleRect.x !== 0 || visibleRect.y !== 0
+    const surface = process.platform === 'linux' ? handle?.nativePixmap : handle?.ioSurface;
+    if (!surface || texturesInFlight.size >= 8 || pixelFormat !== 'bgra' || visibleRect.x !== 0 || visibleRect.y !== 0
         || visibleRect.width !== width || visibleRect.height !== height
-        || !textureBridge.send(handle.ioSurface, sequence)) {
+        || !textureBridge.send(surface, sequence)) {
       texture.release();
       subscribeToPreviewFrames(tab, preview);
       return;
     }
     texturesInFlight.set(sequence, { tab, texture });
-    preview.inFlight = true;
-    preview.textureSequence = sequence;
+    preview.textureSequences.add(sequence);
+    setPreviewFrameRate(tab, true);
     send({ event: 'previewTexture', sequence, preview: preview.id, revision: preview.revision, width, height });
     return;
   }
   const { width, height } = image.getSize();
   if (!width || !height) return;
+  // A software Chromium compositor can paint bitmaps even when the window requested shared textures.
+  setPreviewFrameRate(tab, false);
   const pixels = image.toBitmap();
   if (pixels.length !== width * height * 4) return;
   // One frame awaiting Athena and one newest paint to send when it catches up.
@@ -95,10 +102,21 @@ function invalidatePreview(tab) {
   tab.contents.invalidate();
 }
 
+function setPreviewFrameRate(tab, sharedTexture) {
+  const displayRate = tab.preview?.frameRate ?? 60;
+  // Full bitmap readbacks compete with presentation at high rates. Keep that path within 60 Hz.
+  const rate = sharedTexture ? displayRate : Math.min(displayRate, 60);
+  if (tab.contents.getFrameRate() !== rate) tab.contents.setFrameRate(rate);
+}
+
 function subscribeToPreviewFrames(tab, preview) {
+  if (preview.subscribed) return;
   clearTimeout(preview.paintDeadline);
   discardPendingPreview(preview);
   tab.contents.stopPainting();
+  setPreviewFrameRate(tab, false);
+  // Outstanding surfaces retain their individual release ACKs even after switching this preview to bitmaps.
+  preview.textureSequences.clear();
   preview.subscribed = true;
   tab.contents.beginFrameSubscription(false, image => {
     if (tab.preview !== preview || !preview.subscribed || image.isEmpty()) return;
@@ -119,11 +137,11 @@ function requestPreviewPaint(tab) {
   if (!preview) return;
   stopPreviewFallback(tab, preview);
   discardPendingPreview(preview);
-  if (textureBridge && !preview.sharedTextures) {
+  if (tab.usesSharedTextures && (!preview.sharedTextures || gpuLost)) {
     subscribeToPreviewFrames(tab, preview);
     return;
   }
-  if (tab.opener !== null || textureBridge) {
+  if (tab.opener !== null || tab.usesSharedTextures) {
     // Electron can leave a popup's first renderer view with a no-op paint callback.
     // Subscribe to that view's compositor frames so the live page can stay loaded.
     preview.paintDeadline = setTimeout(() => {
@@ -147,7 +165,7 @@ function windowOptions(width, height) {
     show: false, width, height, useContentSize: true,
     enableLargerThanScreen: true,
     webPreferences: {
-      session: shared, offscreen: textureBridge ? { useSharedTexture: true, sharedTexturePixelFormat: 'bgra' } : true,
+      session: shared, offscreen: textureBridge && !gpuLost ? { useSharedTexture: true, sharedTexturePixelFormat: 'bgra' } : true,
       backgroundThrottling: false,
       nodeIntegration: false, contextIsolation: true, sandbox: true, webSecurity: true,
       preload: path.join(__dirname, 'BrowserPrompt.cjs')
@@ -172,7 +190,7 @@ function ask(tab, kind, values) {
 function register(window, group, opener) {
   const contents = window.webContents;
   const id = String(contents.id);
-  const tab = { id, group, window, contents, opener };
+  const tab = { id, group, window, contents, opener, usesSharedTextures: !!textureBridge && !gpuLost };
   tabs.set(id, tab);
   contents.setWindowOpenHandler(details => allowed(details.url, true)
     ? { action: 'allow', overrideBrowserWindowOptions: windowOptions(window.getContentSize()[0], window.getContentSize()[1]) }
@@ -189,7 +207,7 @@ function register(window, group, opener) {
     send({ ...tabInfo(tab, opener), event, url });
   };
   contents.on('did-navigate', (_event, url, status) => {
-    if (opener !== null || textureBridge) requestPreviewPaint(tab);
+    if (opener !== null || tab.usesSharedTextures) requestPreviewPaint(tab);
     if (status >= 200 && status < 400) report('visit', url);
     else if (allowed(url)) report('address', url);
   });
@@ -198,7 +216,6 @@ function register(window, group, opener) {
   contents.on('dom-ready', () => invalidatePreview(tab));
   contents.on('did-stop-loading', () => invalidatePreview(tab));
   contents.setZoomMode('isolated');
-  contents.setFrameRate(60);
   contents.stopPainting();
   contents.on('paint', (event, _dirty, image) => {
     const preview = tab.preview;
@@ -234,7 +251,7 @@ function register(window, group, opener) {
   debuggerApi.attach('1.3');
   debuggerApi.on('message', async (_event, method, params) => {
     try {
-      if (method === 'Page.frameResized' && textureBridge && tab.preview && tab.viewport && !tab.settingViewport) {
+      if (method === 'Page.frameResized' && tab.usesSharedTextures && tab.preview && tab.viewport && !tab.settingViewport) {
         // Capture surfaces can retain their dimensions even when Chromium's CSS viewport drifts.
         const { preview, viewport } = tab;
         const { result } = await debuggerApi.sendCommand('Runtime.evaluate', {
@@ -367,9 +384,7 @@ async function dispatch(request) {
       frame.texture.release();
       const { tab } = frame;
       const preview = tab.preview;
-      if (preview?.textureSequence === sequence && !tab.contents.isDestroyed()) {
-        preview.textureSequence = null;
-        preview.inFlight = false;
+      if (preview?.textureSequences.delete(sequence) && !tab.contents.isDestroyed()) {
         if (fallback && !preview.subscribed) subscribeToPreviewFrames(tab, preview);
         else sendPreview(tab, preview);
       }
@@ -392,15 +407,16 @@ async function dispatch(request) {
         return {};
       }
       if (request.method === 'previewStart') {
-        const { id, revision, sharedTextures } = request.parameters;
+        const { id, revision, sharedTextures, frameRate } = request.parameters;
         const previous = tab.preview;
         const samePreview = previous?.id === id;
-        const inFlight = samePreview && previous.inFlight && (!previous.textureSequence || sharedTextures);
+        const inFlight = samePreview && previous.inFlight;
         const subscribed = samePreview && previous.subscribed;
         if (previous) stopPreviewFallback(tab, previous);
         discardPendingPreview(previous);
         tab.preview = { id, revision, inFlight, latest: null, subscribed: false, paintDeadline: null, sharedTextures,
-          textureSequence: samePreview && sharedTextures ? previous.textureSequence : null };
+          frameRate: Number.isInteger(frameRate) && frameRate > 0 ? frameRate : 60,
+          textureSequences: samePreview && sharedTextures ? previous.textureSequences : new Set() };
         if (subscribed) subscribeToPreviewFrames(tab, tab.preview);
         else requestPreviewPaint(tab);
         return {};
@@ -418,6 +434,7 @@ async function dispatch(request) {
           discardPendingPreview(tab.preview);
           tab.preview = null;
           tab.contents.stopPainting();
+          setPreviewFrameRate(tab, false);
         }
         return {};
       }
@@ -446,6 +463,14 @@ async function dispatch(request) {
 }
 
 app.on('window-all-closed', () => {});
+app.on('child-process-gone', (_event, details) => {
+  if (stopping || process.platform !== 'linux' || !textureBridge || details.type !== 'GPU' || details.reason === 'clean-exit') return;
+  gpuLost = true;
+  for (const tab of tabs.values()) {
+    if (tab.usesSharedTextures && tab.preview && !tab.preview.subscribed && !tab.contents.isDestroyed())
+      subscribeToPreviewFrames(tab, tab.preview);
+  }
+});
 app.whenReady().then(async () => {
   await setup();
   const pipe = readline.createInterface({ input: process.stdin, crlfDelay: Infinity });

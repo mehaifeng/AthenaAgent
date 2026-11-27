@@ -97,10 +97,11 @@ class Program
             // 参见 AvaloniaUI/Avalonia#14829、#17025），故退回 OpenGL。
             .With(new AvaloniaNativePlatformOptions
             {
-                RenderingMode = MacBrowserSurfaces.Requested
+                RenderingMode = BrowserSurfaces.Requested
                     ? [AvaloniaNativeRenderingMode.Metal, AvaloniaNativeRenderingMode.OpenGl, AvaloniaNativeRenderingMode.Software]
                     : [AvaloniaNativeRenderingMode.OpenGl, AvaloniaNativeRenderingMode.Software]
             })
+            .With(Athena.UI.Controls.BrowserGpuPreview.X11Options)
             .WithInterFont()
             .LogToTrace();
 

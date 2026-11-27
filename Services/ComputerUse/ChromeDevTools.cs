@@ -29,7 +29,7 @@ internal sealed class BrowserHostConnection : IAsyncDisposable
     private const int MaxMetadataBytes = 32 * 1024 * 1024;
     private const int MaxPixelBytes = 128 * 1024 * 1024;
     private readonly Process _process;
-    private readonly MacBrowserSurfaces? _surfaces;
+    private readonly BrowserSurfaces? _surfaces;
     private readonly Action<JsonElement> _event;
     private readonly SemaphoreSlim _writer = new(1, 1);
     private readonly ConcurrentDictionary<int, TaskCompletionSource<JsonElement>> _requests = new();
@@ -55,7 +55,7 @@ internal sealed class BrowserHostConnection : IAsyncDisposable
         start.Environment.Remove("NODE_OPTIONS");
         start.Environment.Remove("NODE_PATH");
         _event = onEvent;
-        var surfaces = MacBrowserSurfaces.TryOpen();
+        var surfaces = BrowserSurfaces.TryOpen();
         try
         {
             if (surfaces is not null)
@@ -154,6 +154,8 @@ internal sealed class BrowserHostConnection : IAsyncDisposable
                             throw new IOException("The browser runtime returned an unexpected version.");
                         SupportsSharedTextures = _surfaces is not null && message.TryGetProperty("sharedTextures", out var shared)
                             && shared.ValueKind == JsonValueKind.True;
+                        if (_surfaces is not null && !SupportsSharedTextures)
+                            Log.Warning("The browser could not connect to the shared texture channel. Using bitmap frames");
                         _ready.TrySetResult();
                         break;
                     case "previewTexture":
@@ -200,7 +202,7 @@ internal sealed class BrowserHostConnection : IAsyncDisposable
         var surface = _surfaces.Read(_process.Id, sequence, width, height);
         if (surface == IntPtr.Zero)
         {
-            Log.Warning("Could not receive the browser IOSurface. Falling back to bitmap frames");
+            Log.Warning("Could not receive the shared browser texture. Falling back to bitmap frames");
             _ = ReleaseTextureAsync(sequence, fallback: true);
             return;
         }

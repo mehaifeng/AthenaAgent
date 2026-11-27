@@ -36,6 +36,8 @@ public sealed partial class EmbeddedBrowserView : UserControl
     private BrowserPreview? _preview;
     internal event Action<bool, BrowserViewportSize>? PreviewFramePresented;
     private WriteableBitmap? _bitmap;
+    private Screen? _previewScreen;
+    private int? _displayRefreshRate;
     private BrowserViewportSize? _preferredViewport;
     private BrowserViewportSize? _renderedViewport;
     private bool _attached;
@@ -81,6 +83,8 @@ public sealed partial class EmbeddedBrowserView : UserControl
             _owner = owner;
             owner.PropertyChanged += OnOwnerPropertyChanged;
             owner.ScalingChanged += OnOwnerScalingChanged;
+            owner.PositionChanged += OnOwnerPositionChanged;
+            owner.Screens.Changed += OnScreensChanged;
         }
         BindModel();
     }
@@ -92,8 +96,12 @@ public sealed partial class EmbeddedBrowserView : UserControl
         {
             _owner.PropertyChanged -= OnOwnerPropertyChanged;
             _owner.ScalingChanged -= OnOwnerScalingChanged;
+            _owner.PositionChanged -= OnOwnerPositionChanged;
+            _owner.Screens.Changed -= OnScreensChanged;
         }
         _owner = null;
+        _previewScreen = null;
+        _displayRefreshRate = null;
         BindModel();
         base.OnDetachedFromVisualTree(e);
     }
@@ -112,6 +120,25 @@ public sealed partial class EmbeddedBrowserView : UserControl
     }
 
     private void OnOwnerScalingChanged(object? sender, EventArgs e) => UpdatePreferredViewport();
+
+    private void OnOwnerPositionChanged(object? sender, EventArgs e) => UpdateDisplayRefreshRate();
+
+    private void OnScreensChanged(object? sender, EventArgs e)
+    {
+        _previewScreen = null; // A mode switch can keep the same monitor and window size.
+        _displayRefreshRate = null;
+        UpdateDisplayRefreshRate();
+    }
+
+    private void UpdateDisplayRefreshRate()
+    {
+        if (!OperatingSystem.IsLinux() || !CanShowPreview || _owner is null) return;
+        var screen = _owner.Screens.ScreenFromWindow(_owner);
+        if (Equals(screen, _previewScreen)) return;
+        _previewScreen = screen;
+        _displayRefreshRate = X11DisplayRefreshRate.Read(screen);
+        _preview?.Signal();
+    }
 
     private void BindModel()
     {
@@ -167,6 +194,7 @@ public sealed partial class EmbeddedBrowserView : UserControl
         }
         var size = new BrowserViewportSize(
             Math.Max(1, (int)Math.Round(bounds.Width)), Math.Max(1, (int)Math.Round(bounds.Height)), _owner?.RenderScaling ?? 1);
+        UpdateDisplayRefreshRate();
         _model?.SetPreferredViewport(size);
         if (size == _preferredViewport) return;
         _preferredViewport = size;
@@ -179,17 +207,18 @@ public sealed partial class EmbeddedBrowserView : UserControl
         {
             var token = lease.Token;
             var viewer = page.Driver;
-            MacBrowserGpuPreview? gpu = null;
+            BrowserGpuPreview? gpu = null;
             try
             {
                 if (!ReferenceEquals(lease, _viewLifetime)) return;
                 _viewer = viewer;
                 if (viewer.SupportsSharedTextures)
                 {
-                    try { gpu = await MacBrowserGpuPreview.TryCreateAsync(BrowserGpuLayer, preview.Signal); }
+                    try { gpu = await BrowserGpuPreview.TryCreateAsync(BrowserGpuLayer, preview.Signal); }
                     catch (Exception exception) { Log.Warning("Browser GPU preview initialization failed: {Error}", exception.Message); }
                 }
                 BrowserViewportSize? appliedSize = null;
+                int? appliedRate = null;
                 var revision = 0;
                 var repair = false;
                 while (!token.IsCancellationRequested)
@@ -202,8 +231,9 @@ public sealed partial class EmbeddedBrowserView : UserControl
                         gpu = null;
                         appliedSize = null;
                     }
+                    var rate = _displayRefreshRate;
                     if (!_pressed && _preferredViewport is { } size
-                        && (size != appliedSize || repair || page.ViewportRevision != revision))
+                        && (size != appliedSize || repair || page.ViewportRevision != revision || appliedRate != rate))
                     {
                         InvalidateFrame();
                         try
@@ -214,8 +244,9 @@ public sealed partial class EmbeddedBrowserView : UserControl
                                 ClearBitmap();
                             token.ThrowIfCancellationRequested();
                             revision = page.ViewportRevision;
-                            await preview.ConfigureAsync(revision, token, sharedTextures: gpu is not null);
+                            await preview.ConfigureAsync(revision, token, sharedTextures: gpu is not null, frameRate: rate);
                             appliedSize = size;
+                            appliedRate = rate;
                             repair = false;
                         }
                         catch (Exception exception) when (viewer.IsOpen && !token.IsCancellationRequested
@@ -236,7 +267,7 @@ public sealed partial class EmbeddedBrowserView : UserControl
                             continue;
                         }
                         token.ThrowIfCancellationRequested();
-                        acknowledgeBitmap = frame.Surface == IntPtr.Zero;
+                        acknowledgeBitmap = !frame.HasTexture;
                         if (!repair && appliedSize is { } frameSize && _preferredViewport == frameSize
                             && frame.Revision == revision && page.ViewportRevision == revision)
                         {
