@@ -22,7 +22,7 @@ public interface IConversationArchiveStore
 internal interface IConversationDirectory
 {
     Task<List<ArchivedConversation>> ReadDirectoryAsync();
-    HashSet<string> FindByContent(string text, System.Threading.CancellationToken cancellation);
+    HashSet<string> FindByContent(IReadOnlySet<string> historyIds, System.Func<string, bool> matchesText, System.Threading.CancellationToken cancellation);
 }
 
 public interface IConversationDraftStore

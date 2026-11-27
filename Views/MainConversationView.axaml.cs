@@ -378,6 +378,9 @@ public partial class MainConversationView : UserControl
             if (_visiblePreviews.Remove(e.Container, out var previews)) previews.Dispose();
         };
         AddHandler(KeyDownEvent, OnContextInspectorKeyDown, RoutingStrategies.Tunnel);
+        AddHandler(LiveMarkdown.Avalonia.MarkdownTextBlock.LinkPointerOverChangedEvent, OnMarkdownLinkHoverChanged);
+        AddHandler(PointerMovedEvent, TrackLinkPointer, RoutingStrategies.Tunnel);
+        AddHandler(PointerPressedEvent, (_, _) => CloseLinkPreview(), RoutingStrategies.Tunnel);
         DataContextChanged += OnDataContextChanged;
     }
 
@@ -397,6 +400,7 @@ public partial class MainConversationView : UserControl
 
     private void OnDataContextChanged(object? sender, System.EventArgs e)
     {
+        CloseLinkPreview();
         if (_viewModel != null)
         {
             _viewModel.Messages.CollectionChanged -= OnMessagesCollectionChanged;
@@ -544,6 +548,7 @@ public partial class MainConversationView : UserControl
 
     protected override void OnDetachedFromVisualTree(VisualTreeAttachmentEventArgs e)
     {
+        CloseLinkPreview();
         foreach (var previews in _visiblePreviews.Values) previews.Dispose();
         _visiblePreviews.Clear();
         if (_chatScrollViewer != null)
@@ -634,6 +639,7 @@ public partial class MainConversationView : UserControl
     private void OnScrollChanged(object? sender, ScrollChangedEventArgs e)
     {
         if (_chatScrollViewer == null || !ReferenceEquals(e.Source, _chatScrollViewer)) return;
+        if (e.OffsetDelta != default) CloseLinkPreview();
         var currentOffset = _chatScrollViewer.Offset.Y;
         var maxOffset = _chatScrollViewer.Extent.Height - _chatScrollViewer.Viewport.Height;
         if (currentOffset >= maxOffset - 1) _isUserScrolling = false;

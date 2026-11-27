@@ -14,7 +14,7 @@ using LiveMarkdown.Avalonia;
 using Microsoft.Data.Sqlite;
 using Serilog;
 
-internal static class DesktopPerformanceTests
+internal static partial class DesktopPerformanceTests
 {
     internal static async Task RunAsync()
     {
@@ -50,7 +50,9 @@ internal static class DesktopPerformanceTests
                 native.Measure(size);
                 reference.Measure(size);
                 Check(native.TextLayout.TextLines.Select(line => line.Length).SequenceEqual(reference.TextLayout.TextLines.Select(line => line.Length))
-                    && Math.Abs(native.TextLayout.Height - reference.TextLayout.Height) < .01, "Plain Markdown wrapping diverged from native text");
+                    && Math.Abs(native.TextLayout.Height - reference.TextLayout.Height) < .01,
+                    $"Plain Markdown at {width} wrapped to [{string.Join(',', native.TextLayout.TextLines.Select(l => l.Length))}] " +
+                    $"({native.TextLayout.Height}px), expected [{string.Join(',', reference.TextLayout.TextLines.Select(l => l.Length))}] ({reference.TextLayout.Height}px)");
             }
             foreach (var width in new[] { 480d, 355, 220, 500 }) CheckLines(width);
             paragraph!.FontSize += 5;
@@ -133,7 +135,8 @@ internal static class DesktopPerformanceTests
                 {
                     Id = Guid.NewGuid().ToString(), ConversationId = $"chat-{i}", Summary = $"Title {i}",
                     UpdatedAt = date.AddMinutes(-i), Revision = 1,
-                    Messages = [new ChatMessage { Role = "user", Content = i == 5 ? "档案 Φ%_hi" : $"Body {i}" }]
+                    Messages = [new ChatMessage { Role = "user", Content = i switch
+                        { 5 => "档案 Φ%_hi", 6 => "Read **these** notes", _ => $"Body {i}" } }]
                 });
             using var shell = new MainWindowViewModel(null, null, null, null, null, null, null, paths, null, null, null, null, null, null, conversationStore: store);
             await UntilAsync(() => !shell.IsConversationTreeLoading && shell.SelectedConversation != null && !shell.IsConversationSwitching);
@@ -154,6 +157,10 @@ internal static class DesktopPerformanceTests
             shell.ConversationSearchText = "φ%_HI";
             await UntilAsync(() => sessions.Single(s => s.Title == "Title 5").IsSearchMatch);
             Check(sessions.Count(s => s.IsSearchMatch) == 1 && sessions.Count(s => s.LoadedChat != null) == 1, "Literal Unicode content search must preserve closed sessions");
+            shell.ConversationSearchText = "read these notes";
+            await UntilAsync(() => sessions.Single(s => s.Title == "Title 6").IsSearchMatch);
+            Check(sessions.Count(s => s.IsSearchMatch) == 1 && sessions.Count(s => s.LoadedChat != null) == 1,
+                "Rendered Markdown search must find a phrase across emphasis without opening the archive");
             shell.ConversationSearchText = "";
             var target = sessions.Single(s => s.Title == "Title 4");
             shell.SelectedConversation = unopened;

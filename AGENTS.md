@@ -13,7 +13,7 @@ This file serves as foundational guidance for AI interactions within the AthenaA
 - **Architectural Pattern**: MVVM (using `CommunityToolkit.Mvvm`)
 - **Dependency Injection**: `Microsoft.Extensions.DependencyInjection`
 - **AI Integration**: OpenAI SDK 2.x (Chat, Embeddings, Image Generation, Audio/TTS, Tool Calling; shared retry and timeout policy)
-- **Markdown Rendering**: `LiveMarkdown.Avalonia` for streaming chat output with inline images, math, and native Mermaid diagrams (via `LiveMarkdown.Avalonia.Mermaid`, without JavaScript/WebView).
+- **Markdown Rendering** uses LiveMarkdown.Avalonia 2.8.0 for streaming replies, RaTeX math, inline images and native Mermaid diagrams. General settings control the reveal effect for new text and code. Chat search projects formatted text in unopened conversations, selection spans the Markdown segments of a single reply, and hovered links show an anchored preview.
 - **Computer Use** uses the Cua Driver C ABI for desktop windows and Chrome DevTools for browser pages.
 - **Audio**: no audio library. `SystemAudioService` shells out to the OS player (`afplay` on macOS, PowerShell on Windows, format-specific player fallbacks on Linux) through `ICliService`; there is deliberately no pause or seek. Do not reintroduce an audio component.
 - **Logging**: Serilog with File and Console sinks.

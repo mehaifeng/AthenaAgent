@@ -291,7 +291,7 @@ public partial class App : Application, IAsyncDisposable
             }
 
             if (config.OnboardingCompleted)
-                Services.GetRequiredService<ConversationArchiveStore>().PrepareStartupDirectory();
+                Services.GetRequiredService<ConversationArchiveStore>().PrepareStartupDirectory(Markup.ChatMarkdownDocuments.PrepareHistory);
 
             // 元数据目录先同步发布磁盘 last-known-good/内置 seed；网络刷新后台执行，不阻塞首屏。
             var metadataCatalog = Services.GetService<IOpenRouterModelMetadataCatalog>();
@@ -1126,6 +1126,7 @@ public partial class App : Application, IAsyncDisposable
             return new ImageGenerationFunctions(imageGenerationService, imageGenerationSessionService, conversationSessionAccessor, logger);
         });
 
+        services.AddSingleton(_ => MarkdownWebPreview.Create());
         services.AddSingleton<EmbeddedBrowser>();
         services.AddSingleton(sp => new ComputerUseService(sp.GetRequiredService<IConfigService>(),
             Log.ForContext<ComputerUseService>(), sp.GetRequiredService<EmbeddedBrowser>(),

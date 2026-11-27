@@ -57,6 +57,9 @@ public partial class AppConfig : ObservableObject
     private string _fontScale = "Medium";
 
     [ObservableProperty]
+    private string _streamingReplyEffect = "Character";
+
+    [ObservableProperty]
     private double _topP = 1.0;
 
     [ObservableProperty]

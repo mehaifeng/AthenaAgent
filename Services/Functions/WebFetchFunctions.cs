@@ -220,7 +220,7 @@ public sealed class WebFetchFunctions
         }
     }
 
-    private static bool IsNonPublic(IPAddress address)
+    internal static bool IsNonPublic(IPAddress address)
     {
         if (IPAddress.IsLoopback(address)) return true;
 

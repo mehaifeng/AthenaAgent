@@ -153,6 +153,16 @@ public sealed partial class GeneralSettingsViewModel : ViewModelBase, IDisposabl
         }
     }
 
+    public int StreamingReplyEffectIndex
+    {
+        get => State.Config.StreamingReplyEffect switch { "Line" => 1, "None" => 2, _ => 0 };
+        set
+        {
+            if (value is >= 0 and <= 2)
+                State.Config.StreamingReplyEffect = value switch { 1 => "Line", 2 => "None", _ => "Character" };
+        }
+    }
+
     /// <summary>宠物漫游范围在设置下拉框中的索引。</summary>
     public int PetRoamAreaIndex
     {
@@ -241,6 +251,8 @@ public sealed partial class GeneralSettingsViewModel : ViewModelBase, IDisposabl
     {
         if (e.PropertyName == nameof(AppConfig.FontScale))
             OnPropertyChanged(nameof(FontScaleIndex));
+        else if (e.PropertyName == nameof(AppConfig.StreamingReplyEffect))
+            OnPropertyChanged(nameof(StreamingReplyEffectIndex));
         else if (e.PropertyName == nameof(AppConfig.VirtualPetRoamArea))
             OnPropertyChanged(nameof(PetRoamAreaIndex));
         else if (e.PropertyName is nameof(AppConfig.VirtualPetSlug) or nameof(AppConfig.VirtualPetEnabled))

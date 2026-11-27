@@ -8,7 +8,6 @@
              xmlns:semi="https://irihi.tech/semi"
              xmlns:u-semi="https://irihi.tech/ursa/themes/semi"
              xmlns:lmd="clr-namespace:LiveMarkdown.Avalonia;assembly=LiveMarkdown.Avalonia"
-             xmlns:csm="clr-namespace:CSharpMath.Avalonia;assembly=CSharpMath.Avalonia"
              RequestedThemeVariant="Default">
 
     <Application.DataTemplates>
@@ -38,6 +37,7 @@
                 <ResourceInclude Source="avares://Athena.UI/Styles/Overlays.axaml" />
                 <ResourceInclude Source="avares://LiveMarkdown.Avalonia/Defaults.axaml"/>
             </ResourceDictionary.MergedDictionaries>
+            <lmd:MarkdownStreamingRevealMode x:Key="Markdown.StreamingReplyEffect">Character</lmd:MarkdownStreamingRevealMode>
             
             <!-- 主题字典定义 -->
             <!-- Complete palettes are installed by ThemeResources in App.Initialize. -->
@@ -152,6 +152,8 @@
 
         <Style Selector="lmd|MarkdownRenderer">
             <Setter Property="CodeBlockColorTheme" Value="{DynamicResource Markdown.CodeTheme}"/>
+            <Setter Property="CodeBlockCustomColorTheme" Value="{DynamicResource Markdown.CustomCodeTheme}"/>
+            <Setter Property="lmd:MarkdownTextBlock.HighlightStyles" Value="{DynamicResource Markdown.SearchHighlights}"/>
             <Setter Property="TextElement.FontFamily" Value="{DynamicResource MainFontFamily}"/>
             <!-- 对话气泡中的 Markdown 正文显式跟随全局正文大小，避免受组件默认字号影响。 -->
             <Setter Property="TextElement.FontSize" Value="{DynamicResource App.FontSize.Body}"/>
@@ -162,6 +164,13 @@
             <Style Selector="^ lmd|Link:clicked">
                 <Setter Property="Foreground" Value="{DynamicResource App.TextSecondary}"/>
             </Style>
+            <Style Selector="^ lmd|Link:pointerover">
+                <Setter Property="Foreground" Value="{DynamicResource App.EmphasisPointeroverForeground}"/>
+                <Setter Property="TextDecorations" Value="Underline"/>
+            </Style>
+            <Style Selector="^ lmd|Link:pressed">
+                <Setter Property="Foreground" Value="{DynamicResource App.EmphasisActiveForeground}"/>
+            </Style>
 
             <Style Selector="^ Span.Emphasis.Subscript">
                 <Setter Property="BaselineAlignment" Value="Subscript"/>
@@ -171,10 +180,6 @@
             <Style Selector="^ Span.Emphasis.Superscript">
                 <Setter Property="BaselineAlignment" Value="Superscript"/>
                 <Setter Property="FontSize" Value="{DynamicResource App.FontSize.Caption}"/>
-            </Style>
-
-            <Style Selector="^ csm|MathView">
-                <Setter Property="TextColor" Value="{DynamicResource ForegroundColor}"/>
             </Style>
 
             <Style Selector="^ Expander.DetailsBlock">

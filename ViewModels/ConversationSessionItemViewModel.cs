@@ -130,8 +130,16 @@ public partial class ConversationSessionItemViewModel : ViewModelBase, IDisposab
     internal IEnumerable<ChatMessage>? SearchableMessages => (IEnumerable<ChatMessage>?)_chat?.Messages ?? _archive?.Prepared?.Messages;
     internal async Task PrepareAsync()
     {
-        if (_archive == null || _archive.Prepared != null) return;
-        try { await (_preparation ??= Task.Run(_archive.Read)); }
+        if (_archive is not { Prepared: null } archive) return;
+        try
+        {
+            await (_preparation ??= Task.Run(() =>
+            {
+                var item = archive.Read();
+                Markup.ChatMarkdownDocuments.PrepareHistory(item);
+                return item;
+            }));
+        }
         catch { _preparation = null; throw; }
     }
 

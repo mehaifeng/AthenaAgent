@@ -78,6 +78,7 @@ public sealed class AppConfigurationApplier : IDisposable
 
         void ApplyOnUiThread()
         {
+            Markup.MarkdownConfiguration.ApplyStreamingEffect(config.StreamingReplyEffect);
             if (shouldApplyTheme)
                 App.SetTheme(nextThemeIdentity);
             if (shouldApplyColorScheme)

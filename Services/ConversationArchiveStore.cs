@@ -86,11 +86,14 @@ public sealed class ConversationArchiveStore : IConversationArchiveStore, IConve
 
     // The normal desktop startup requests this once, before constructing its services
     // and window. The shell consumes the same task; later listings always see fresh data.
-    internal void PrepareStartupDirectory() => _startupDirectory ??= Task.Run(() =>
+    internal void PrepareStartupDirectory(Action<ConversationHistoryItem> prepareHistory) => _startupDirectory ??= Task.Run(() =>
     {
         var entries = ReadDirectory();
         if (entries.Count != 0 && ReadById(entries[0].Id) is { } first)
+        {
+            prepareHistory(first);
             entries[0] = entries[0] with { Prepared = first };
+        }
         return entries;
     });
 
@@ -137,20 +140,26 @@ public sealed class ConversationArchiveStore : IConversationArchiveStore, IConve
         return entries;
     }
 
-    HashSet<string> IConversationDirectory.FindByContent(string text, CancellationToken cancellation)
+    HashSet<string> IConversationDirectory.FindByContent(IReadOnlySet<string> historyIds, Func<string, bool> matchesText, CancellationToken cancellation)
     {
         using var connection = new SqliteConnection(_connectionString);
         connection.Open();
         connection.CreateFunction("matches_message", (string? content) =>
         {
             cancellation.ThrowIfCancellationRequested();
-            return content?.Contains(text, StringComparison.OrdinalIgnoreCase) == true;
+            return !string.IsNullOrEmpty(content) && matchesText(content);
         });
         using var cmd = connection.CreateCommand();
         cmd.CommandText = """
-            SELECT id FROM conversations WHERE json_valid(payload) AND EXISTS (
-                SELECT 1 FROM json_each(payload,'$.messages') WHERE type='object' AND matches_message(value ->> '$.content'))
+            SELECT id FROM conversations WHERE id IN (SELECT value FROM json_each($ids)) AND json_valid(payload) AND EXISTS (
+                SELECT 1 FROM json_each(payload,'$.messages') AS m WHERE m.type='object' AND (
+                    matches_message(m.value ->> '$.content') OR EXISTS (
+                        SELECT 1 FROM json_each(m.value,'$.segments') AS s
+                        WHERE s.type='object' AND coalesce(s.value ->> '$.kind',0) IN (0,'Markdown')
+                          AND (s.value ->> '$.text') IS NOT (m.value ->> '$.content')
+                          AND matches_message(s.value ->> '$.text'))))
             """;
+        cmd.Parameters.AddWithValue("$ids", JsonSerializer.Serialize(historyIds));
         var matches = new HashSet<string>(StringComparer.Ordinal);
         try
         {

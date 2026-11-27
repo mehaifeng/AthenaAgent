@@ -1,11 +1,15 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
+using System.Text;
 using Avalonia.Controls;
 using Avalonia.Media;
 using Avalonia.Media.Imaging;
 using Avalonia.Platform;
 using Athena.UI.Models;
+using LiveMarkdown.Avalonia;
 using TextMateSharp.Grammars;
+using TextMateSharp.Internal.Themes.Reader;
 
 namespace Athena.UI.Styles;
 
@@ -16,6 +20,28 @@ internal static class ThemeResources
 {
     // Images belong to the application lifetime; all palettes share these four decodes.
     private static readonly Dictionary<string, Bitmap> Images = new();
+
+    private static string RegisterCodeTheme(string scheme, bool dark, AppPalettes.Palette palette,
+        Color stringColor, Color numberColor)
+    {
+        var name = $"Athena.{scheme}.{(dark ? "Dark" : "Light")}";
+        static string Rgb(Color c) => $"#{c.R:X2}{c.G:X2}{c.B:X2}";
+        var json = $$"""
+            {
+              "name": "{{name}}",
+              "tokenColors": [
+                { "settings": { "foreground": "{{palette.Text}}", "background": "{{palette.Canvas}}" } },
+                { "scope": "comment", "settings": { "foreground": "{{palette.Muted}}", "fontStyle": "italic" } },
+                { "scope": "keyword, storage, entity.name, support.type", "settings": { "foreground": "{{palette.Accent}}" } },
+                { "scope": "string", "settings": { "foreground": "{{Rgb(stringColor)}}" } },
+                { "scope": "constant, support.constant", "settings": { "foreground": "{{Rgb(numberColor)}}" } }
+              ]
+            }
+            """;
+        using var reader = new StreamReader(new MemoryStream(Encoding.UTF8.GetBytes(json)));
+        SyntaxHighlighting.RegisterCustomTheme(name, ThemeReader.ReadThemeSync(reader));
+        return name;
+    }
 
     public static ResourceDictionary Create(AppPalettes.Scheme scheme, bool dark)
     {
@@ -108,6 +134,14 @@ internal static class ThemeResources
         result["SecondaryCardBackgroundColor"] = raised;
         result["CodeInlineColor"] = accent;
         result["Markdown.CodeTheme"] = dark ? ThemeName.DarkPlus : ThemeName.LightPlus;
+        result["Markdown.CustomCodeTheme"] = RegisterCodeTheme(scheme.Name, dark, palette, success, warning);
+        var highlights = new TextHighlightStyles();
+        highlights.Set(MarkdownRenderer.DefaultTextSearchHighlightName, new TextHighlightStyle
+        {
+            Background = new SolidColorBrush(Mix(surface, accent, 0.32)),
+            Foreground = new SolidColorBrush(text)
+        });
+        result["Markdown.SearchHighlights"] = highlights;
         result["QuoteBorderColor"] = accent;
         Brushes(border, "BorderBrush");
         Brushes(text, "ForegroundBrush");

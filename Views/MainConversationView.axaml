@@ -177,6 +177,10 @@
     </UserControl.KeyBindings>
 
     <UserControl.Styles>
+        <Style Selector="Border.assistant-bubble.streaming lmd|MarkdownRenderer">
+            <Setter Property="loc:MarkdownHelper.IsStreaming" Value="True"/>
+            <Setter Property="StreamingRevealMode" Value="{DynamicResource Markdown.StreamingReplyEffect}"/>
+        </Style>
         <Style Selector="diagram|PanAndZoom">
             <Setter Property="ToolTip.Tip" Value="{loc:Loc Chat.DiagramZoomHint}"/>
         </Style>
@@ -561,6 +565,8 @@
 
                                 <Border Classes="message-bubble"
                                         Classes.user-bubble="{Binding IsUser}"
+                                        Classes.streaming="{Binding IsStreaming}"
+                                        lmd:MarkdownTextBlock.IsSelectionScope="True"
                                         Classes.assistant-bubble="{Binding !IsUser}">
                                     <StackPanel Spacing="4">
                                         <!-- Content 为 null 时不实例化重型 Markdown 模板。 -->
@@ -1471,6 +1477,21 @@
                 </DataTemplate>
             </Border.Resources>
         </Border>
+
+        <Popup x:Name="MarkdownLinkPreviewPopup" Placement="BottomEdgeAlignedLeft"
+               VerticalOffset="4" IsHitTestVisible="False">
+            <Border MaxWidth="380" Padding="12,8" CornerRadius="6" Background="{DynamicResource App.SurfaceBackground}"
+                    BorderBrush="{DynamicResource App.SurfaceBorder}" BorderThickness="1">
+                <StackPanel Spacing="3">
+                    <TextBlock x:Name="LinkPreviewTitle" FontWeight="SemiBold" MaxLines="2" TextWrapping="Wrap"
+                               TextTrimming="CharacterEllipsis" Foreground="{DynamicResource App.TextPrimary}"/>
+                    <TextBlock x:Name="LinkPreviewDescription" IsVisible="False" MaxLines="3" TextWrapping="Wrap"
+                               TextTrimming="CharacterEllipsis" Foreground="{DynamicResource App.TextSecondary}"/>
+                    <TextBlock x:Name="LinkPreviewAddress" MaxLines="2" TextWrapping="Wrap" TextTrimming="CharacterEllipsis"
+                               FontSize="{DynamicResource App.FontSize.Caption}" Foreground="{DynamicResource App.TextMuted}"/>
+                </StackPanel>
+            </Border>
+        </Popup>
 
         <!-- 猫头鹰"飞行层"：dispatch_subagents 时从助手气泡飞向 Sub-Agents 按钮的过场动画。
              覆盖全部行、不拦截交互；owl 图元由 code-behind 动态增删。 -->

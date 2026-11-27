@@ -70,7 +70,7 @@ Athena 是一款高度自主的桌面 AI 助手，基于 **.NET 10** 和 **Avalo
 - **运行时**：.NET 10
 - **UI 主题**：Semi.Avalonia、Irihi.Ursa.Themes.Semi
 - **AI SDK**：OpenAI SDK 2.x（对话、嵌入、图像生成、Audio/TTS、工具调用；统一重试与超时策略）
-- **Markdown**：LiveMarkdown.Avalonia（流式输出、内联图片、数学公式与原生 Mermaid 图表）
+- **Markdown** 使用 LiveMarkdown.Avalonia 2.8 渲染流式正文和代码、内联图片、RaTeX 公式及原生 Mermaid 图表。在「设置 → 通用」可以选择「新增文字淡入」「按行淡入」或「关闭」。Windows ARM64 原生版本以 TeX 文本显示公式。
 - **Computer Use** 使用 Cua Driver 原生 SDK。
 - **音频**：供应商语音合成和平台播放器命令
 - **数据库**：SQLite（向量存储）

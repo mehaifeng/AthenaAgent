@@ -114,6 +114,15 @@
                         </ComboBox>
                     </Grid>
                     <Grid ColumnDefinitions="180,260,*">
+                        <TextBlock Text="{loc:Loc Settings.General.StreamingReplyEffect}" VerticalAlignment="Center"/>
+                        <ComboBox x:Name="StreamingReplyEffectComboBox" Grid.Column="1" Width="164"
+                                  SelectedIndex="{Binding StreamingReplyEffectIndex}">
+                            <ComboBoxItem Content="{loc:Loc Settings.General.StreamingReplyEffect.Character}"/>
+                            <ComboBoxItem Content="{loc:Loc Settings.General.StreamingReplyEffect.Line}"/>
+                            <ComboBoxItem Content="{loc:Loc Settings.General.StreamingReplyEffect.None}"/>
+                        </ComboBox>
+                    </Grid>
+                    <Grid ColumnDefinitions="180,260,*">
                         <TextBlock Text="{loc:Loc Settings.General.PanelOpacity}" VerticalAlignment="Center"/>
                         <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
                             <Slider Minimum="0" Maximum="0.8"

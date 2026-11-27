@@ -19,10 +19,14 @@ public sealed class ChatParagraphNode : BlockNode<ParagraphBlock>
 
     public override Control Control => _formatted?.Control ?? _literal!;
 
+    protected override void ReleaseChildren() => _formatted?.Release();
+
     protected override bool UpdateCore(DocumentNode document, ParagraphBlock block,
         in ObservableStringBuilderChangedEventArgs change, CancellationToken token)
     {
-        if (block.Inline?.FirstChild is LiteralInline { NextSibling: null } literal)
+        // The upstream paragraph captures the previous glyph positions for a streamed append.
+        if (!MarkdownHelper.GetIsStreaming(document.Owner) && document.Owner.StreamingRevealMode == MarkdownStreamingRevealMode.None &&
+            block.Inline?.FirstChild is LiteralInline { NextSibling: null } literal)
         {
             if (_formatted != null) return false; // Streaming changed the kind of paragraph.
             _literal ??= new LiteralTextBlock { Classes = { "ParagraphBlock" } };
@@ -41,14 +45,24 @@ public sealed class ChatParagraphNode : BlockNode<ParagraphBlock>
 
         protected override TextLayout CreateTextLayout(string? text)
         {
-            if (SelectionStart != SelectionEnd || LineSpacing != 0)
+            if (SelectionStart != SelectionEnd || Highlights.Count > 0 || LineSpacing != 0 ||
+                text.AsSpan().ContainsAny("\r\n\u0085\u2028\u2029"))
                 return base.CreateTextLayout(text);
             // Wrapping changes at every width. Glyph shaping is independent of width.
             var size = GetMaxSizeFromConstraint();
-            return new TextLayout(text ?? string.Empty, new Typeface(FontFamily, FontStyle, FontWeight, FontStretch),
-                FontSize, Foreground, TextAlignment, TextWrapping, TextTrimming, TextDecorations,
-                FlowDirection, size.Width, size.Height, LineHeight, LetterSpacing, MaxLines, FontFeatures,
-                null, _shaping ??= new TextRunCache());
+            var run = new GenericTextRunProperties(new Typeface(FontFamily, FontStyle, FontWeight, FontStretch),
+                FontSize, TextDecorations, Foreground, fontFeatures: FontFeatures);
+            var paragraph = new GenericTextParagraphProperties(FlowDirection, TextAlignment, true, false,
+                run, TextWrapping, LineHeight, 0, LetterSpacing);
+            return new TextLayout(new LiteralSource(text ?? string.Empty, run), paragraph, TextTrimming,
+                size.Width, size.Height, MaxLines, _shaping ??= new TextRunCache());
+        }
+
+        // LiveMarkdown 2.8 includes the terminal paragraph marker in the final line's coordinates.
+        private readonly struct LiteralSource(string text, TextRunProperties run) : ITextSource
+        {
+            public TextRun GetTextRun(int index) => index >= text.Length
+                ? new TextEndOfParagraph() : new TextCharacters(text.AsMemory(index), run);
         }
 
         protected override void OnMeasureInvalidated()

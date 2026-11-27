@@ -402,6 +402,10 @@
     <system:String x:Key="Settings.General.Theme">主题</system:String>
     <system:String x:Key="Settings.General.ColorScheme">配色方案</system:String>
     <system:String x:Key="Settings.General.Language">语言</system:String>
+    <system:String x:Key="Settings.General.StreamingReplyEffect">流式回复动画</system:String>
+    <system:String x:Key="Settings.General.StreamingReplyEffect.Character">新增文字淡入</system:String>
+    <system:String x:Key="Settings.General.StreamingReplyEffect.Line">按行淡入</system:String>
+    <system:String x:Key="Settings.General.StreamingReplyEffect.None">关闭</system:String>
     <system:String x:Key="Settings.General.FontScale">字体大小</system:String>
     <system:String x:Key="Settings.General.FontScale.Minimum">最小</system:String>
     <system:String x:Key="Settings.General.FontScale.Small">小</system:String>

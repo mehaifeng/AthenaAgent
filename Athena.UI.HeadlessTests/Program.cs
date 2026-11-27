@@ -100,6 +100,11 @@ if (Environment.GetEnvironmentVariable("ATHENA_HEADLESS_ONLY") == "desktop-perfo
     TestDesktopPerformance();
     return;
 }
+if (Environment.GetEnvironmentVariable("ATHENA_HEADLESS_ONLY") == "markdown")
+{
+    PumpForCompletion(DesktopPerformanceTests.RunMarkdownAsync(), "testing chat Markdown rendering");
+    return;
+}
 
 if (Environment.GetEnvironmentVariable("ATHENA_HEADLESS_ONLY") == "onboarding")
 {
@@ -224,6 +229,7 @@ if (Environment.GetEnvironmentVariable("ATHENA_OWL_TEST_ONLY") == "1")
     Environment.Exit(0);
 }
 TestMermaidMarkdownRendering();
+PumpForCompletion(DesktopPerformanceTests.RunMarkdownAsync(), "testing chat Markdown rendering");
 TestComputerUseToolPolicy();
 TestComputerUseBrowserTarget();
 TestEmbeddedBrowserExecutionSettings();
@@ -4580,6 +4586,18 @@ static void TestConfigurationSession(string artifactDirectory)
     Dispatcher.UIThread.RunJobs();
     Thread.Sleep(650);
 
+    var streamingEffect = appSettingsWindow.GetVisualDescendants().OfType<ComboBox>()
+        .Single(c => c.Name == "StreamingReplyEffectComboBox");
+    if (streamingEffect.ItemCount != 3 || streamingEffect.SelectedIndex != 0 || session.Current.StreamingReplyEffect != "Character")
+        throw new InvalidOperationException("New reply text should fade in by default.");
+    service.ResetSaveCount();
+    streamingEffect.SelectedIndex = 1;
+    Dispatcher.UIThread.RunJobs();
+    Thread.Sleep(650);
+    AssertSaveCount(service, 1, "streaming effect edit");
+    if (session.Current.StreamingReplyEffect != "Line")
+        throw new InvalidOperationException("The selected reply animation did not reach the saved configuration.");
+
     // —— 字号档位：ComboBox 渲染、VM 映射、配置持久化、资源整体缩放。 ——
     var fontScaleComboBox = appSettingsWindow.GetVisualDescendants().OfType<ComboBox>()
         .FirstOrDefault(c => c.Name == "FontScaleComboBox")
@@ -4711,8 +4729,7 @@ static void TestMermaidMarkdownRendering()
     {
         Athena.UI.Markup.MarkdownHelper.SetText(renderer, markdown);
 
-        // LiveMarkdown 2.2.1 parses pending text from ArrangeCore, so the renderer must be
-        // attached to a laid-out window; this also matches the real conversation-bubble path.
+        // Wait for the asynchronous producer and the native presenter's attachment.
         PumpUntil(
             () => renderer.GetLogicalDescendants().OfType<LiveMarkdown.Avalonia.MermaidPresenter>().Any(),
             5_000,

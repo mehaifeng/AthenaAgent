@@ -402,6 +402,10 @@
     <system:String x:Key="Settings.General.Theme">Theme</system:String>
     <system:String x:Key="Settings.General.ColorScheme">Color scheme</system:String>
     <system:String x:Key="Settings.General.Language">Language</system:String>
+    <system:String x:Key="Settings.General.StreamingReplyEffect">Streaming reply animation</system:String>
+    <system:String x:Key="Settings.General.StreamingReplyEffect.Character">Fade in new text</system:String>
+    <system:String x:Key="Settings.General.StreamingReplyEffect.Line">Fade in by line</system:String>
+    <system:String x:Key="Settings.General.StreamingReplyEffect.None">Off</system:String>
     <system:String x:Key="Settings.General.FontScale">Font size</system:String>
     <system:String x:Key="Settings.General.FontScale.Minimum">Tiny</system:String>
     <system:String x:Key="Settings.General.FontScale.Small">Small</system:String>

@@ -173,8 +173,7 @@ public partial class MainWindowViewModel : ViewModelBase, IDisposable, ICronSess
         _historySearch?.Cancel();
         var query = value.Trim();
         ApplySearch(query, null);
-        if (query.Length == 0 || _conversationStore is not IConversationDirectory directory ||
-            !ConversationGroups.SelectMany(g => g.Conversations).Any(s => s.SearchableMessages == null)) return;
+        if (query.Length == 0) return;
         var cancellation = new CancellationTokenSource();
         _historySearch = cancellation;
         AsyncEventGuard.Run(async () =>
@@ -182,7 +181,23 @@ public partial class MainWindowViewModel : ViewModelBase, IDisposable, ICronSess
             try
             {
                 await Task.Delay(100, cancellation.Token);
-                var matches = await Task.Run(() => directory.FindByContent(query, cancellation.Token), cancellation.Token);
+                // Snapshot immutable strings on the UI thread. Parse formatted text off screen,
+                // leaving closed conversations in SQLite and live message collections on the UI.
+                var pending = ConversationGroups.SelectMany(g => g.Conversations).Where(s => !s.IsSearchMatch).ToArray();
+                var closed = pending.Where(s => s.SearchableMessages == null).Select(s => s.HistoryId).ToHashSet();
+                var loaded = pending.Where(s => s.SearchableMessages != null).Select(s => (s.HistoryId,
+                    Sources: SearchSources(s.SearchableMessages!).Where(Markup.ChatMarkdownDocuments.MayContainFormatting).ToArray())).ToArray();
+                var matches = await Task.Run(() =>
+                {
+                    var pattern = new LiveMarkdown.Avalonia.TextSearchPattern(query);
+                    bool Matches(string text) => Markup.ChatMarkdownDocuments.Matches(text, pattern, cancellation.Token);
+                    var found = closed.Count > 0 && _conversationStore is IConversationDirectory directory
+                        ? directory.FindByContent(closed, Matches, cancellation.Token)
+                        : new HashSet<string>(StringComparer.Ordinal);
+                    foreach (var (id, sources) in loaded)
+                        if (sources.Any(Matches)) found.Add(id);
+                    return found;
+                }, cancellation.Token);
                 if (!cancellation.IsCancellationRequested) ApplySearch(query, matches);
             }
             catch (OperationCanceledException) when (cancellation.IsCancellationRequested) { }
@@ -194,7 +209,18 @@ public partial class MainWindowViewModel : ViewModelBase, IDisposable, ICronSess
         }, "SearchConversationHistory");
     }
 
-    private void ApplySearch(string query, HashSet<string>? archivedMatches)
+    private static IEnumerable<string> SearchSources(IEnumerable<ChatMessage> messages)
+    {
+        foreach (var message in messages)
+        {
+            if (!string.IsNullOrEmpty(message.Content)) yield return message.Content;
+            foreach (var segment in message.Segments)
+                if (segment.IsMarkdown && !string.IsNullOrEmpty(segment.Text) && segment.Text != message.Content)
+                    yield return segment.Text;
+        }
+    }
+
+    private void ApplySearch(string query, HashSet<string>? contentMatches)
     {
         foreach (var group in ConversationGroups)
         {
@@ -205,9 +231,9 @@ public partial class MainWindowViewModel : ViewModelBase, IDisposable, ICronSess
             {
                 session.IsSearchMatch = groupMatches
                                         || session.Title.Contains(query, StringComparison.OrdinalIgnoreCase)
-                                        || (session.SearchableMessages is { } messages
-                                            ? messages.Any(m => m.Content.Contains(query, StringComparison.OrdinalIgnoreCase))
-                                            : archivedMatches?.Contains(session.HistoryId) == true);
+                                        || contentMatches?.Contains(session.HistoryId) == true
+                                        || (session.SearchableMessages is { } messages && SearchSources(messages)
+                                            .Any(text => text.Contains(query, StringComparison.OrdinalIgnoreCase)));
             }
             group.IsSearchMatch = groupMatches || group.Conversations.Any(session => session.IsSearchMatch);
             if (!string.IsNullOrEmpty(query) && group.IsSearchMatch) group.IsExpanded = true;

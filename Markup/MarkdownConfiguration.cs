@@ -1,9 +1,13 @@
+using System;
+using System.Runtime.InteropServices;
 using System.Threading;
+using Avalonia;
 using Avalonia.Controls.Documents;
 using Avalonia.Media;
 using LiveMarkdown.Avalonia;
 using Markdig;
 using Markdig.Extensions.Emoji;
+using LinkInline = Markdig.Syntax.Inlines.LinkInline;
 
 namespace Athena.UI.Markup;
 
@@ -14,6 +18,22 @@ namespace Athena.UI.Markup;
 public static class MarkdownConfiguration
 {
     private static int _configured;
+    internal static bool SupportsNativeMath =>
+        !(OperatingSystem.IsWindows() && RuntimeInformation.ProcessArchitecture == Architecture.Arm64);
+    internal static readonly AttachedProperty<string?> LinkTitleProperty =
+        AvaloniaProperty.RegisterAttached<MarkdownHelper, Link, string?>("LinkTitle");
+
+    internal static void ApplyStreamingEffect(string effect)
+    {
+        var mode = effect switch
+        {
+            "Line" => MarkdownStreamingRevealMode.Line,
+            "None" => MarkdownStreamingRevealMode.None,
+            _ => MarkdownStreamingRevealMode.Character
+        };
+        if (Application.Current?.Resources is { } resources && !Equals(resources["Markdown.StreamingReplyEffect"], mode))
+            resources["Markdown.StreamingReplyEffect"] = mode;
+    }
 
     public static void Configure()
     {
@@ -29,11 +49,7 @@ public static class MarkdownConfiguration
             DefaultBitmapDecoder.Shared,
         ];
 
-        MarkdownRenderer.ConfigurePipeline += pipeline => pipeline
-            .UseEmojiAndSmiley()
-            .UseMathematics()
-            .UseMermaid()
-            .UseDetailsBlocks();
+        MarkdownUpdateProducer.ConfigurePipeline += pipeline => ConfigurePipeline(pipeline, SupportsNativeMath);
 
         MarkdownNode.Edit(builder => builder
             .Unregister<ParagraphBlockNode>().Register<ChatParagraphNode>()
@@ -42,6 +58,25 @@ public static class MarkdownConfiguration
             .Register<MathBlockNode>()
             .Register<MermaidBlockNode>()
             .Register<DetailsBlockNode>());
+
+        // The Markdig title belongs to the current link, including when a stream reuses its inline.
+        MarkdownNode.GlobalHooks.Register<LinkInlineNode>(
+            afterUpdate: context =>
+            {
+                if (context.Result == NodeUpdateResult.Applied && context.Update.MarkdownObject is LinkInline link)
+                    context.Node.Inline.SetValue(LinkTitleProperty, link.Title);
+            },
+            cleanup: context => context.Node.Inline.ClearValue(LinkTitleProperty));
+    }
+
+    internal static void ConfigurePipeline(MarkdownPipelineBuilder pipeline, bool nativeMathAvailable)
+    {
+        pipeline.UseEmojiAndSmiley().UseMermaid().UseDetailsBlocks();
+        if (nativeMathAvailable)
+            pipeline.UseExtendedMathematics();
+        else
+            // RaTeX 1.0.0 ships no win-arm64 binary. Leave TeX visible in the Markdown text.
+            pipeline.Extensions.TryRemove<Markdig.Extensions.Mathematics.MathExtension>();
     }
 }
 
