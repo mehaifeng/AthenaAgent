@@ -83,7 +83,7 @@ Launch Athena normally and describe a desktop task in chat. The default target i
 
 Select the Computer Use vision role in model settings. Open Desktop computer use to preview or stop a task, or explicitly restrict it to a window. The development form demo is available through `bash Scripts/run-computer-use-demo.sh`.
 
-Running `dotnet build -c Release` puts the Electron runtime alongside Athena. Launch the built application and click a chat link or use the built-in browser button in the conversation header. Web links open in the right panel's Browse tab. Right-click a chat link to open it in the system browser.
+Running `dotnet build -c Release` stages the pinned Chromium Embedded Framework (CEF) runtime and native bridge alongside Athena. Launch the built application and click a chat link or use the built-in browser button in the conversation header. Web links open in the right panel's Browse tab. Right-click a chat link to open it in the system browser.
 
 Describe the website and task in the main conversation. Browser Computer Use runs through `run_computer_task` with the selected Computer Use vision model. It can navigate directly to an address as instructed. The Task tab shows the current address, page, cursor, and status. Browse and Task use separate tabs in one persistent profile. Closing or collapsing the pane pauses the preview. Completed results return to the main model for a reply. Use Stop next to the chat input to cancel the task and reply.
 

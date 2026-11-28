@@ -27,6 +27,8 @@ options
 sidebar
 chevron-double-left
 chevron-double-right
+fullscreen
+fullscreen-exit
 
 # --- primary navigation ----------------------------------------------------
 storage
@@ -62,6 +64,7 @@ check-circle
 x-circle
 warning
 volume-high
+volume-off
 media-play
 media-stop
 bolt

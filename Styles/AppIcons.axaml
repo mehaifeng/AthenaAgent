@@ -23,6 +23,11 @@
     <!-- 右栏收起/展开按钮：按"往哪边推"命名，因为方向随 SidePanelsSwapped 镜像。 -->
     <StaticResource x:Key="AthenaIconPanelTowardLeft" ResourceKey="CoreIconChevronDoubleLeft"/>
     <StaticResource x:Key="AthenaIconPanelTowardRight" ResourceKey="CoreIconChevronDoubleRight"/>
+    <StaticResource x:Key="AthenaIconOpenExternal" ResourceKey="CoreIconExternalLink"/>
+    <StaticResource x:Key="AthenaIconBrowserMute" ResourceKey="CoreIconVolumeOff"/>
+    <StaticResource x:Key="AthenaIconBrowserUnmute" ResourceKey="CoreIconVolumeHigh"/>
+    <StaticResource x:Key="AthenaIconBrowserEnterFullView" ResourceKey="CoreIconFullscreen"/>
+    <StaticResource x:Key="AthenaIconBrowserExitFullView" ResourceKey="CoreIconFullscreenExit"/>
 
     <!-- Feature launchers and navigation -->
     <StaticResource x:Key="AthenaIconModelProvider" ResourceKey="CoreIconStorage"/>

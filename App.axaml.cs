@@ -250,6 +250,20 @@ public partial class App : Application, IAsyncDisposable
         // Linux 上 Avalonia 不替 X11 窗口切换系统标题栏的浅/深色，这里补上（其他平台为空操作）。
         Athena.UI.Services.Platform.LinuxWindowFrameTheme.Register();
 
+        // CEF 原生桥接：macOS 要求 cef_initialize / do_message_loop_work / cef_shutdown 运行在主线程；
+        // 无头环境（Avalonia.Headless）自动启用 Windowless 模式。
+        CefNativeBridge.IsHeadlessRuntime = ApplicationLifetime is not IClassicDesktopStyleApplicationLifetime;
+        CefNativeBridge.RunOnMainThreadAsync = static action =>
+        {
+            if (Avalonia.Threading.Dispatcher.UIThread.CheckAccess())
+            {
+                action();
+                return Task.CompletedTask;
+            }
+            return Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(action).GetTask();
+        };
+        CefNativeBridge.PostToMainThread = static action => Avalonia.Threading.Dispatcher.UIThread.Post(action);
+
         // 配置依赖注入
         var services = new ServiceCollection();
         ConfigureServices(services);
@@ -508,6 +522,8 @@ public partial class App : Application, IAsyncDisposable
             await asyncDisposable.DisposeAsync().ConfigureAwait(false);
         else if (services is IDisposable disposable)
             disposable.Dispose();
+
+        await CefNativeBridge.ShutdownProcessAsync().ConfigureAwait(false);
     }
 
     private async Task PersistSessionStateAsync()

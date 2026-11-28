@@ -15,9 +15,9 @@ flowchart LR
     Chat["主对话"] --> Tool["run_computer_task"]
     Tool --> Loop["Athena 观察、决策、执行、复查"]
     Loop --> Desktop["GNOME 共享显示器 / Cua Driver 桌面或指定窗口"]
-    Loop --> Browser["Electron 网页与 Chrome DevTools"]
+    Loop --> Browser["CEF 原生子窗口与私有 CDP"]
     Desktop --> NativePreview["桌面操作预览"]
-    Browser --> TaskPreview["右栏任务预览"]
+    Browser --> TaskPreview["右栏原生浏览器视图"]
     Loop -->|结果或取消| Chat
 ```
 
@@ -25,8 +25,7 @@ flowchart LR
 - **动作输出**。供应商支持结构化输出时，网页规划器用 JSON Schema 指定动作和字段类型。解析时按当前动作检查字段，控件编号 `"[7]"` 和坐标 `"24.5"` 等可明确还原的写法可以使用。控件必须来自当前观察，坐标必须处于截图内。正文为空、输出截断或动作必需字段有误时，按「无效动作重试次数」使用同一张截图再请求模型，提示需要改正的字段并提高输出额度。每次决策可重试 0–3 次，默认 1 次。官方 DeepSeek Responses 重试时还会关闭推理。达到重试上限时，工具将具体原因返回主对话。
 - **网页文字输入**。`type_text` 先点中可编辑控件，再通过 Chrome DevTools 逐字发送带文字的按下与释放事件。短文本在右栏有逐字出现的间隔。由多个 Unicode 码点组合成的字符及换行等控制字符按原样插入。网页出现自动补全候选时，规划器会先观察并选择匹配项，再移动焦点。[Chrome DevTools Input](https://github.com/ChromeDevTools/devtools-protocol/blob/master/pdl/domains/Input.pdl)
 - **网页横向滚动**。每轮截图覆盖当前视口。整页存在横向溢出时，观察会提供还可以滚动的方向。模型用 `scroll` 的 `left` 或 `right` 横向滚动，可指定截图中表格或轮播内的坐标。每次横移取滚动区域可见宽度的约 80%，下一次截图保留一段重叠，便于连续阅读和定位。滚动后按新截图上的坐标操作。
-- **浏览器与右栏**。发布包包含固定版本的 Electron 运行时。首次打开从本地包校验并解包，Athena 通过父子进程管道调用 DevTools。「浏览」和「任务」有各自的页签，共用 Athena 的持久 Cookie 和站点存储。历史写入本机用户数据目录。当前可见页签由 Chromium 合成器在页面变化时推送原始像素，更新上限为 60 FPS。右栏按窗口的 DPI 分配位图，浏览器按 CSS 视口布局和接收输入。界面跟不上时，运行时保留最新一帧。关闭右栏会暂停预览绘制，网页任务使用上一次有效视口继续。页面尺寸发生变化时，界面收到匹配的新帧后恢复鼠标定位。Avalonia 在网页原生弹层上方绘制 Athena 光标、点击波纹和输入提示。模型在每轮观察时通过 DevTools 获取对应视口的 PNG。[Electron 离屏渲染](https://www.electronjs.org/docs/latest/tutorial/offscreen-rendering)
-- **网页打开的新页签**。Electron 45.5.0 的首个渲染视图可能保留初始化时的空绘制回调，DOM 和媒体仍可运行。可见子页签等待 `paint` 150 毫秒后改用同一页面的合成帧订阅，订阅上限为 30 FPS。切走时停止订阅，下一次主导航提交后重新尝试常规绘制。回归测试检查高 DPI 下的首帧、同页更新和切回后的页面状态。[Electron 渲染视图](https://github.com/electron/electron/blob/v45.5.0/shell/browser/osr/osr_web_contents_view.cc) · [合成帧订阅](https://github.com/electron/electron/blob/v45.5.0/shell/browser/api/frame_subscriber.cc)
+- **内置 CEF 原生浏览器与右栏**。发布包包含固定版本的 CEF Minimal（`158.0.6+g23f1736+chromium-158.0.8127.89`）与极薄自研原生 C ABI 桥接层（[athena_cef_abi.h](../Native/CefBridge/athena_cef_abi.h)）及轻量原生子进程（`athena_cef_helper`）。主窗口通过 Avalonia `NativeControlHost`（[CefBrowserHostControl.cs](../Controls/CefBrowserHostControl.cs)）以 `CEF_RUNTIME_STYLE_ALLOY` 真原生子视图嵌入网页（macOS `NSView`、Windows `HWND`、Linux X11 `XID`），支持原生高刷滚动、触控板惯性回弹、指针样式与输入法；macOS 下 4 个 Helper `.app` 均配置 `LSUIElement=true` 与 `LSBackgroundOnly=true`，Dock 仅保留唯一 Athena 图标。CDP 通过 CEF 纯内存通道 `send_dev_tools_message` 执行，不开启 TCP 调试端口。「浏览」和「任务」有各自的页签，共用 Athena 的持久 Cookie 和站点存储，并保留页签排序、静音与批量关闭领域能力。人工输入提示条与登录/权限/JS 对话框置于画布上方独立非重叠行以避免原生子窗口 Airspace 遮挡；任务运行期间通过点击穿透透明浮窗（[DesktopCursorDisplay.cs](../Controls/DesktopCursorDisplay.cs) 中的 `BrowserCursorOverlay`）在网页区域上方绘制 Athena 光标，不会污染 `Page.captureScreenshot` 观察截图。无头测试环境下自动以 `SetAsWindowless` 运行同一真 Chromium 158 回归。关闭或收起右栏会停放原生子视图并保持后台任务继续运行。
 - **目标选择**。仅传 `instruction` 即可操作当前桌面。显式传 `target="desktop"` 始终控制整块显示器。若用户在预览中限定了窗口，省略目标时遵循该选择。`startingUrl` 启动 HTTP(S) 网页任务，`target="browser"` 可沿用右栏当前页面。[工具入口](../Services/Functions/ComputerUseFunctions.cs)
 - **结果与停止**。任务通过主对话工具调用进入原有审批流程。网页任务开始时读取时限和重试次数，最长运行时间可设为 1–60 分钟，默认 3 分钟。用户直接滚动、点击、输入或切换任务标签时，任务继续运行，右栏短暂提醒用户操作可能影响结果。手动输入和模型动作依次送给浏览器。手动操作使未执行的模型决定过期，Agent 自动重新观察。用户点「接管」时显式暂停，也可以由 Agent 交回控制权。暂停期间停止发送新观察并暂停计时。点击「继续」重新观察，点击聊天「停止」结束任务。
 - **网站权限**。自动执行期间出现的新权限请求立即收到拒绝结果，右栏提示用户可在接管后重试。已有站点授权仍由浏览器的权限检查处理。手动浏览或暂停时，新请求由用户确认。登录、文件选择和需要回答的网页对话继续交给用户。
@@ -53,119 +52,25 @@ GNOME 的 RemoteDesktop v2 支持记住选择。首次共享显示器时保留�
 
 ### 内置浏览器与网页任务
 
-正式包自带浏览器运行时。普通浏览可点击聊天链接或打开右栏地球入口。模型角色中的图标可测试连接与能力，绿色数字是完整测试耗时。起始页、下载目录与资料清理由「应用设置 → 内置浏览器」管理。浏览资料保存在操作系统的 AthenaAgent 用户数据目录下，持久 Cookie 的过期与注销遵循网站规则。下面这条指令可用于验证跨站导航。
+正式包自带浏览器运行时。普通浏览可点击聊天链接或打开右栏地球入口；首次打开面板时即自动选中一个空白新标签页（若已配置起始页则直接加载该主页，支持不显式输入 `https://` 直接输入域名或本地地址）。右侧浏览器采用统一横向并列标签栏（普通浏览与网页任务页签以专属图标区分），支持拖拽排序、右键菜单（单独关闭 / 关闭其他 / 关闭右侧 / 关闭全部 / 静音与取消静音 / 在外部浏览器打开 / 复制 URL）、窄宽溢出时右缘 `OpacityMask` 渐变虚化与滚轮/触控板横向滑动；标签栏右侧常驻「进入/退出完整视图」与关闭按钮，也支持在分屏下将右分割栏越过 540px 主对话最小宽度继续拖动 ≥ 56 DIP 触发完整视图。完整视图占据「中间 + 右侧」两列并保留左侧会话列表栏，顶部最左侧固定不可关闭的「主对话」标签与 `>` 分屏恢复按钮（点击「主对话」标签暂停 CEF 预览并将主对话扩展至全宽，点击任意网页标签或 `+` 切回全宽浏览器，点击 `>` 或退出按钮恢复分屏；当最后一个网页标签页被关闭时，分屏下自动关闭浏览器面板切回工作台/日志，完整视图下自动退出完整视图并恢复分屏）。模型角色中的图标可测试连接与能力，绿色数字是完整测试耗时。起始页、下载目录与资料清理由「应用设置 → 内置浏览器」管理。浏览资料保存在操作系统的 AthenaAgent 用户数据目录下，持久 Cookie 的过期与注销遵循网站规则。下面这条指令可用于验证跨站导航。
 
 > 用 Computer Use 从 https://example.org/ 开始。点击地址栏，输入 https://www.iana.org/help/example-domains 并回车。打开后读取网页标题，在对话里告诉我。
 
-「任务」页会显示实际打开的网址与网页。要结束正在运行的任务，点击聊天输入框右侧的「停止」。
+网页任务页签带专属图标徽章并显示实际打开的网址与网页。要结束正在运行的任务，点击聊天输入框右侧的「停止」。
 
-发布脚本按 RID 读取锁定的 Electron 版本和 SHA-256，将校验后的原始压缩包放入 `BrowserRuntime/runtime.zip`。安装包、应用内更新包和本地调试可使用相同的准备脚本。首次打开浏览器时，从随包资源解包到用户目录中的版本化缓存，浏览资料位于独立的资料目录。更新替换安装目录中的运行时包时，会继续使用现有浏览资料。
+准备脚本（[stage-browser-runtime.py](../Scripts/stage-browser-runtime.py)）按目标 RID 读取 [BrowserRuntime.json](../Services/ComputerUse/BrowserRuntime.json) 中锁定的 CEF Minimal 版本与哈希，完成下载校验、零 CMake 原生编译（macOS `xcrun clang++`、Linux `clang++`/`g++`、Windows MSVC `cl.exe`）与精简打包，输出至 `<output>/BrowserRuntime/`。macOS 发布包在 `release.sh` 组装 `Athena.app` 时将 `Chromium Embedded Framework.framework` 与 4 个 `Athena Helper*.app` 规范放入 `Contents/Frameworks/` 并由内而外执行 ad-hoc 签名。浏览资料保存在操作系统的独立用户数据目录下，版本升级替换运行时后仍沿用原资料。
 
-`dotnet build -c Release` 会用 Python 3 将目标平台的 Electron 包放入应用输出目录的 `BrowserRuntime/runtime.zip`。首次构建需要下载，后续构建复用通过 SHA-256 校验的文件。运行时准备失败会使 Release 构建报错。构建成功后可直接启动输出目录中的 Athena。
-
-源码调试使用 `dotnet run --project Athena.UI.csproj` 或 VS Code 的 `Debug Athena.UI`，启动前会调用同一准备脚本。若直接运行本地 Debug 产物，可先将运行时准备到对应的输出目录。Apple Silicon 上的原生 .NET 使用 `osx-arm64`，Intel Mac 或 Rosetta 下运行的 x64 .NET 使用 `osx-x64`。
+`dotnet build -c Release` 会自动准备对应平台的 CEF 运行时与桥接库；准备失败会使 Release 构建报错。源码调试使用 `dotnet run --project Athena.UI.csproj` 或手动执行准备脚本：
 
 ```bash
 python3 Scripts/stage-browser-runtime.py osx-arm64 bin/Debug/net10.0
 ```
 
-### macOS 共享纹理原型
-
-源码构建可以显式开启 IOSurface 预览。需要 Xcode 命令行工具和带 Node-API 头文件的 Node.js。`ATHENA_NODE_HEADERS` 可以指向头文件目录。
-
-```bash
-bash Scripts/build-browser-gpu-macos.sh
-ATHENA_BROWSER_GPU_DIRECTORY="$PWD/obj/browser-gpu" dotnet run --project Athena.UI.csproj
-```
-
-开启后，Avalonia 优先使用 Metal。Electron 主进程经 Mach 端口送出 IOSurface，接收端验证 Electron 进程身份。Athena 在 GPU 上复制到独立纹理，以便 Chromium 安全复用原有帧池，再由 Avalonia 合成线程绘制新纹理。浏览和任务沿用同一个 Chromium 资料目录、CDP、输入坐标和 Athena 光标叠层。运行环境缺少互操作能力或未收到纹理时，预览回退到位图。捕获帧的像素尺寸保持不变时，`Page.frameResized` 仍可触发 CSS 视口校验。原型显示页面主表面，Chromium 单独输出的原生子弹层尚未接入共享纹理合成。
-
-性能测试使用真实的 Avalonia 窗口和同一个临时 Chromium 资料目录。脚本需要 FFmpeg，生成本地的 60 FPS 视频并与连续滚动一起测试。两轮以相反顺序运行，比较 OpenGL 位图、Metal 位图和 Metal IOSurface。统计量是有新预览内容的 Avalonia 动画帧频率与间隔，CPU 为 Athena 进程独占的单核百分比。测试也会在切换渲染路径后读取原有 Cookie 和站点存储，并对一个网页任务执行显式接管与恢复。
-
-```bash
-python3 Scripts/benchmark-browser-preview.py
-```
-
-2026-11-27 在 Apple M4 上使用真实的 2× 窗口，网页像素尺寸为 1076 × 1336。每个场景预热 2 秒，测量 8 秒，两轮取中位数。长帧为两次新画面节拍间隔超过 25 毫秒。
-
-| 路径 | 场景 | FPS | p95 帧间隔（ms） | 长帧（%） | Athena CPU（% 单核） |
-| --- | --- | ---: | ---: | ---: | ---: |
-| OpenGL 位图 | 滚动 | 60.0 | 17.1 | 0.1 | 41.5 |
-| OpenGL 位图 | 视频 | 59.9 | 18.6 | 0.1 | 38.2 |
-| Metal 位图 | 滚动 | 59.9 | 17.3 | 0.1 | 31.8 |
-| Metal 位图 | 视频 | 60.0 | 17.2 | 0.0 | 28.0 |
-| Metal IOSurface | 滚动 | 58.3 | 17.5 | 1.4 | 26.2 |
-| Metal IOSurface | 视频 | 59.5 | 17.5 | 0.4 | 22.4 |
-
-同为 Metal 时，共享纹理分别减少约 18% 和 20% 的 Athena CPU 用量。两轮共享纹理均验证了同一资料目录的 Cookie 和站点存储，并用本地网页验证了接管与恢复。[跑分脚本](../Scripts/benchmark-browser-preview.py)
-
-接上 CSS 视口变化事件后，浏览器专项在默认路径和实验模式的位图回退上均通过。共享纹理单次补测录得滚动 59.0 FPS、视频 60.0 FPS，仍使用相同的 1076 × 1336 视口。
-
-### Linux 共享纹理原型
-
-Linux 源码版可用同一个环境变量开启 DMA-BUF 预览。Fedora 构建需要 C 编译器、pkg-config、Node-API 头文件、`libglvnd-devel` 和 `libdrm-devel`。如果 Node.js 的安装目录没有头文件，请将 `ATHENA_NODE_HEADERS` 指向包含 `node_api.h` 的目录。
-
-```bash
-bash Scripts/build-browser-gpu-linux.sh
-ATHENA_BROWSER_GPU_DIRECTORY="$PWD/obj/browser-gpu" dotnet run --project Athena.UI.csproj
-```
-
-Electron 主进程通过 Unix 域套接字传递 DMA-BUF 文件描述符。Athena 核对发送进程、用户和帧序号，按每个平面的偏移、步长及 DRM modifier 导入 EGL。Avalonia 的 Skia 渲染线程在 GPU 上复制一份可重复绘制的纹理，完成栅栏确认复制结束后才允许 Chromium 复用原帧。传输中的纹理数量有上限，渲染较慢时保留最新帧。原型支持 BGRA 网页主表面。[Electron 的共享纹理句柄](https://www.electronjs.org/docs/latest/api/structures/shared-texture-handle) · [EGL DMA-BUF 导入](https://registry.khronos.org/EGL/extensions/EXT/EGL_EXT_image_dma_buf_import.txt)
-
-开启原型时，Linux 的 Avalonia X11 后端优先选 EGL，在 GNOME Wayland 下通过 XWayland 显示。缺少桥接库时直接用常规位图。EGL 导入失败、软件渲染或 Chromium 的 GPU 进程退出时，已打开的网页可切到位图，继续使用原页签、登录状态和输入通道。取消环境变量即可使用默认预览。
-
-下面的对照测试需要 FFmpeg 和持续刷新的显示器。脚本在同一个临时浏览资料目录测试滚动、60 FPS 视频和任务接管，并在实际窗口采样红蓝色块，检查通道和上下方向。
-
-```bash
-python3 Scripts/benchmark-browser-preview.py
-python3 Scripts/benchmark-browser-preview.py --skip-build --trials 1 --mode bitmap-fallback --mode dmabuf-loss
-```
-
-2026-11-27 在 Fedora 45、Intel Arrow Lake-P 核显（i915，Mesa 26.2.7）上实测。使用独立 Mutter 60 Hz 虚拟显示器、XWayland 和真实 GPU，2× 网页预览为 1076 × 1336 像素。每个场景预热 2 秒、测量 8 秒，两轮按相反顺序运行并取中位数。FPS 统计窗口呈现新预览内容的动画节拍。CPU 以一个逻辑核心为 100%，进程树包括 Athena、Electron 渲染器和 GPU 进程。锁屏时物理桌面的窗口时钟被限到约 1 Hz，此组数据已排除。
-
-| 路径 | 场景 | FPS | p95 帧间隔（ms） | Athena CPU | Athena + Electron CPU |
-| --- | --- | ---: | ---: | ---: | ---: |
-| 默认位图 | 连续滚动 | 59.9 | 25.4 | 56.8% | 139.4% |
-| 默认位图 | 60 FPS 视频 | 60.0 | 22.9 | 57.9% | 135.1% |
-| EGL 位图 | 连续滚动 | 59.5 | 24.4 | 58.0% | 143.3% |
-| EGL 位图 | 60 FPS 视频 | 59.8 | 24.1 | 55.9% | 135.8% |
-| DMA-BUF / EGL | 连续滚动 | 56.6 | 30.9 | 8.3% | 22.4% |
-| DMA-BUF / EGL | 60 FPS 视频 | 56.5 | 31.8 | 7.7% | 21.9% |
-
-相对默认位图，滚动与视频的进程树 CPU 均降低约 84%，显示帧率分别下降 3.3 和 3.5 FPS。两轮计时区间收到的共享纹理帧占比均为 100%。故障测试分别隐藏 `/dev/dri` 并让 Mesa 使用软件渲染，以及在共享纹理已经显示时通过 CDP 结束测试浏览器的 GPU 进程。两种情况下均核对了原页签的实际像素、后续滚动和视频位图帧，以及网页任务的接管和恢复。缺少 OpenGL 的 Avalonia 渲染器在订阅前就选择位图，静态页签重选也能显示首帧。[跑分脚本](../Scripts/benchmark-browser-preview.py)
-
-### Fedora 高刷新率与 TestUFO 实测
-
-此前每个 Electron 离屏标签页都设置为 60 FPS。Linux 共享纹理预览现在按 Athena 窗口所在显示器的 XRandR 活动模式设置帧率，移窗和显示模式变化会更新上限。此机在 GNOME Wayland 下，Electron 报告的 `displayFrequency` 为 0，XWayland 查询内屏得到 164.98 Hz。无法取得刷新率时使用 60 FPS。位图预览以 60 FPS 为上限，GPU 在运行中失效后也恢复这个上限。[Electron 离屏渲染实现](https://github.com/electron/electron/blob/v45.5.0/shell/browser/osr/osr_render_widget_host_view.cc)
-
-以下命令在真实 Avalonia 窗口中打开在线 TestUFO 首页，保留默认的三架 UFO、星空背景和 960 像素/秒。等待网页出现帧率并预热后，每秒读取网页的 Frame Rate、Refresh Rate 和同步状态，同时统计 8 秒内有新预览画面的窗口动画节拍。该窗口指标反映 Athena 提交给窗口的画面，物理面板逐帧扫描输出需另外测量。[TestUFO](https://testufo.com/)
-
-```bash
-python3 Scripts/benchmark-browser-preview.py --testufo --trials 2 --mode bitmap-default --mode dmabuf-egl
-```
-
-2026-11-27 使用 Fedora 45 的 3072 × 1920、165 Hz 实体内屏，Athena 预览为 1076 × 1336 像素。Chrome 的 10 次页面读数中有 9 次为 165 FPS、1 次为 160 FPS。Codex Desktop 的 8 次读数为 102–106 FPS，TestUFO 最终提示垂直同步失败。Athena 的两种路径在修复前各测一轮，修复后交换顺序各测两轮。
-
-| Athena 路径 | TestUFO 网页 FPS | 右栏新画面 FPS | Athena 与 Electron 进程树 CPU |
-| --- | ---: | ---: | ---: |
-| 修复前，位图 | 60 | 60.0 | 140% |
-| 修复前，共享纹理 | 60 | 59.5 | 24.9% |
-| 修复后，位图 | 60 | 60.1、60.0 | 138.2%、143.1% |
-| 修复后，共享纹理 | 165 | 140.0、143.6 | 57.9%、50.7% |
-
-修复后共享纹理的 16 次页面采样全部显示 165 FPS、165 Hz 和 `READY*`。右栏帧间隔 p95 为 17.8 毫秒（两轮中位数），进程树 CPU 比默认位图低约 61%。单独尝试让位图也按 165 Hz 运行时，网页显示 165 FPS，右栏只收到 24.2–25.5 FPS。这是保留位图上限的实测依据。
-
-在隔离进程中屏蔽 `/dev/dri` 并强制 Mesa 软件渲染后，同一测试页显示 60 FPS，8 秒内右栏提交了 480 帧，全部为位图。共享帧率在浏览器实际交付可用纹理时才提高。另一次在正常纹理已经显示后结束 Electron GPU 进程，原页签切换到位图订阅，TestUFO 显示 60 FPS，右栏为 30.1 FPS，8 秒内收到的 241 帧全部为位图。
-
-另在 60 Hz 的独立 Mutter 虚拟显示器复核了显示器选择逻辑。TestUFO 的 8 次读数均为 60 FPS，同尺寸右栏测得 56.0 FPS，448 帧全部使用共享纹理。
-
-### Windows 验证范围
-
-在这台 Fedora 主机上已交叉构建 `win-x64` 的 Athena.UI 托管程序。Windows 共享纹理需要把 Electron 主进程中的 NT 句柄复制到 Athena 进程，再用 D3D11 打开纹理。显示、驱动同步、设备丢失后的回退和性能需要在配有 GPU 的 Windows 环境中验收。[Electron 共享句柄](https://www.electronjs.org/docs/latest/api/structures/shared-texture-handle) · [D3D11 打开共享资源](https://learn.microsoft.com/en-us/windows/win32/api/d3d11_1/nf-d3d11_1-id3d11device1-opensharedresource1)
+> 历史注记：早期版本曾采用 Electron 离屏渲染及 macOS IOSurface / Linux DMA-BUF 共享纹理原型，现已全量移除并由原生 CEF Windowed 架构取代。
 
 ### 回归测试
 
-从仓库根目录构建 Release，再让浏览器专项测试使用该构建携带的 Electron。
+从仓库根目录构建 Release，再让浏览器专项测试使用该构建携带的 CEF 运行时：
 
 ```bash
 dotnet build -c Release

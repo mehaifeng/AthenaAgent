@@ -55,7 +55,17 @@ public partial class MainWindowViewModel : ViewModelBase, IDisposable, ICronSess
     public WorkspaceWorkbenchViewModel? Workbench { get; }
     public EmbeddedBrowserViewModel? Browser { get; }
     public bool ShowEmbeddedBrowser => Browser?.IsOpen == true;
-    public bool IsBrowserPreviewActive => ShowEmbeddedBrowser && !IsRightPanelCollapsed && IsConversationPageActive;
+    public bool IsBrowserFullView => ShowEmbeddedBrowser && Browser?.IsFullView == true;
+    public bool IsFullViewConversationSelected => IsBrowserFullView && Browser?.IsConversationTabSelected == true;
+    public bool IsBrowserFullViewWebActive => IsBrowserFullView && !IsFullViewConversationSelected;
+    public bool IsBrowserPreviewActive => ShowEmbeddedBrowser && !IsRightPanelCollapsed && IsConversationPageActive && !IsFullViewConversationSelected;
+    public bool ShowRightSideSplitter => !IsRightPanelCollapsed && !IsBrowserFullView;
+    public bool ShowRightPanelGrid => !IsRightPanelCollapsed || IsBrowserFullView;
+    public bool IsConversationPanelVisible => !IsBrowserFullView || IsFullViewConversationSelected;
+    public int RightPanelGridColumn => IsBrowserFullView ? 2 : (IsSidePanelsSwapped ? 0 : 4);
+    public int RightPanelGridRowSpan => IsFullViewConversationSelected ? 1 : 2;
+    public int ConversationPanelRow => IsFullViewConversationSelected ? 1 : 0;
+    public int ConversationPanelRowSpan => IsFullViewConversationSelected ? 1 : 2;
 
     /// <summary>
     /// 游戏模式（中间区域的另一种呈现）。设计器与单独挂载的测试外壳里为空：标题栏不出现切换按钮。
@@ -1293,6 +1303,7 @@ public partial class MainWindowViewModel : ViewModelBase, IDisposable, ICronSess
         _logger.Information("MainWindow toggled side panels: NewValue={Value}", Config.MainLayout.SidePanelsSwapped);
         OnPropertyChanged(nameof(IsSidePanelsSwapped));
         OnPropertyChanged(nameof(RightPanelToggleIconKey));
+        RaiseBrowserLayoutPropertiesChanged();
         await _configurationSession.SaveNowAsync();
     }
 
@@ -1300,11 +1311,15 @@ public partial class MainWindowViewModel : ViewModelBase, IDisposable, ICronSess
     private async Task ToggleRightPanelAsync()
     {
         if (Config == null || _configurationSession == null) return;
+        if (IsBrowserFullView)
+            Browser?.ExitFullViewCommand.Execute(null);
         // 通知由 OnMainLayoutPropertyChanged 统一抛出，这里只改值和落盘。
         Config.MainLayout.RightPanelCollapsed = !Config.MainLayout.RightPanelCollapsed;
         _logger.Information("MainWindow toggled right panel: Collapsed={Value}", Config.MainLayout.RightPanelCollapsed);
         await _configurationSession.SaveNowAsync();
     }
+
+    internal void EnterBrowserFullView() => Browser?.EnterFullView();
 
     /// <summary>
     /// 自动展开：工作台在用户主动要看文件/diff 时请求可见。展开同样写回持久化配置——
@@ -1329,17 +1344,35 @@ public partial class MainWindowViewModel : ViewModelBase, IDisposable, ICronSess
 
     private void OnBrowserPropertyChanged(object? sender, PropertyChangedEventArgs e)
     {
-        if (e.PropertyName != nameof(EmbeddedBrowserViewModel.IsOpen)) return;
+        if (e.PropertyName is not (nameof(EmbeddedBrowserViewModel.IsOpen)
+            or nameof(EmbeddedBrowserViewModel.IsFullView)
+            or nameof(EmbeddedBrowserViewModel.IsConversationTabSelected)))
+            return;
+        RaiseBrowserLayoutPropertiesChanged();
+    }
+
+    private void RaiseBrowserLayoutPropertiesChanged()
+    {
         OnPropertyChanged(nameof(ShowEmbeddedBrowser));
+        OnPropertyChanged(nameof(IsBrowserFullView));
+        OnPropertyChanged(nameof(IsFullViewConversationSelected));
+        OnPropertyChanged(nameof(IsBrowserFullViewWebActive));
         OnPropertyChanged(nameof(IsBrowserPreviewActive));
+        OnPropertyChanged(nameof(ShowRightSideSplitter));
+        OnPropertyChanged(nameof(ShowRightPanelGrid));
+        OnPropertyChanged(nameof(IsConversationPanelVisible));
+        OnPropertyChanged(nameof(RightPanelGridColumn));
+        OnPropertyChanged(nameof(RightPanelGridRowSpan));
+        OnPropertyChanged(nameof(ConversationPanelRow));
+        OnPropertyChanged(nameof(ConversationPanelRowSpan));
     }
 
     private void RaiseRightPanelStateChanged()
     {
         OnPropertyChanged(nameof(IsRightPanelCollapsed));
-        OnPropertyChanged(nameof(IsBrowserPreviewActive));
         OnPropertyChanged(nameof(RightPanelToggleIconKey));
         OnPropertyChanged(nameof(RightPanelToggleTip));
+        RaiseBrowserLayoutPropertiesChanged();
     }
 
     public Task SaveConfigurationNowAsync() =>

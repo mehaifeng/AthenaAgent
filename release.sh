@@ -227,11 +227,21 @@ create_app_bundle() {
 
   mkdir -p "$app_bundle/Contents/MacOS"
   mkdir -p "$app_bundle/Contents/Resources"
+  mkdir -p "$app_bundle/Contents/Frameworks"
 
   cp -R "$package_dir"/. "$app_bundle/Contents/MacOS/"
 
+  # Move CEF Framework & 4 LSUIElement Helper .app bundles to the canonical
+  # macOS Contents/Frameworks/ location so Chromium finds them cleanly and
+  # never spawns a second Dock icon.
+  if [ -d "$app_bundle/Contents/MacOS/BrowserRuntime/Frameworks" ]; then
+    cp -R "$app_bundle/Contents/MacOS/BrowserRuntime/Frameworks"/. "$app_bundle/Contents/Frameworks/"
+    rm -rf "$app_bundle/Contents/MacOS/BrowserRuntime/Frameworks"
+    rm -rf "$app_bundle/Contents/MacOS/BrowserRuntime/Contents"
+  fi
+
   # Built-in Skills may contain standalone .NET project directories whose dotted
-  # names (for example MiniMaxAIDocx.Cli) are mistaken by codesign --deep for
+  # names (for example MiniMaxAIDocx.Cli) are mistaken by codesign for
   # nested bundles when they live under Contents/MacOS. Keep them as sealed data
   # in Resources and expose the path expected by Athena through an internal symlink.
   if [ -d "$app_bundle/Contents/MacOS/AthenaData/Skills" ]; then
@@ -279,17 +289,25 @@ PLIST
     generate_icns && cp "$REPO_ROOT/Assets/Athena.icns" "$app_bundle/Contents/Resources/" 2>/dev/null || true
   fi
 
-  # Ad-hoc sign the whole .app bundle. dotnet publish signs the
-  # individual executables ad-hoc, but leaves the bundle top level
-  # unsigned — Gatekeeper interprets that mismatch on quarantined
-  # downloads as "app is damaged" and refuses to launch.
-  # codesign -s - (ad-hoc, no identity) over the whole bundle fixes
-  # this without requiring a Developer ID.
-  # NOTE: signing failure must abort the build. Shipping a bundle whose
-  # signature is missing or invalid makes Gatekeeper report the app as
-  # damaged; never tolerate that with a warning.
+  # Inside-out ad-hoc signing: sign nested CEF framework, helper .app bundles,
+  # and native dylibs before signing the outer Athena.app bundle. Avoid --deep
+  # over CEF because it can break nested Chromium framework code directories.
   if command -v codesign >/dev/null 2>&1; then
-    codesign --force --deep --sign - "$app_bundle" || \
+    local cef_fw="$app_bundle/Contents/Frameworks/Chromium Embedded Framework.framework"
+    if [ -d "$cef_fw" ]; then
+      find "$cef_fw/Libraries" -maxdepth 1 -name '*.dylib' -exec codesign --force --sign - {} \; 2>/dev/null || true
+      codesign --force --sign - "$cef_fw" || die "ad-hoc codesign of CEF framework failed"
+    fi
+    local helper_app
+    for helper_app in "$app_bundle/Contents/Frameworks"/Athena\ Helper*.app; do
+      [ -d "$helper_app" ] || continue
+      codesign --force --sign - "$helper_app" || die "ad-hoc codesign of $helper_app failed"
+    done
+    if [ -f "$app_bundle/Contents/MacOS/BrowserRuntime/libathena_cef_bridge.dylib" ]; then
+      codesign --force --sign - "$app_bundle/Contents/MacOS/BrowserRuntime/libathena_cef_bridge.dylib" || \
+        die "ad-hoc codesign of libathena_cef_bridge.dylib failed"
+    fi
+    codesign --force --sign - "$app_bundle" || \
       die "ad-hoc codesign of $app_bundle failed"
   fi
 }

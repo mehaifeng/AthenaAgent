@@ -1,5 +1,4 @@
 using Avalonia;
-using Athena.UI.Services.ComputerUse;
 using System;
 using System.IO;
 using System.Text;
@@ -50,6 +49,13 @@ class Program
             return;
         }
 
+        // macOS 上在任何后台线程、Serilog/SQLite 或 Avalonia 启动前预加载 CEF framework：
+        // Chromium 的 PartitionAlloc 静态构造器在 dlopen 期间会短暂注销再重新注册系统 DefaultMallocZone，
+        // 若延迟到运行期加载，与并发执行 free/malloc_zone_free 的线程（如 libsqlite3mc）竞态会触发
+        // TryFreeDefaultFallbackToFindZoneAndFree 的 brk #0 陷阱并在 CoreCLR 下持锁死锁。
+        if (OperatingSystem.IsMacOS())
+            Services.ComputerUse.CefNativeBridge.TryPreloadFramework();
+
         AppDomain.CurrentDomain.UnhandledException += (_, e) =>
             WriteCrashLog("AppDomain.UnhandledException", e.ExceptionObject as Exception);
 
@@ -95,13 +101,11 @@ class Program
             // macOS 专用（其他平台忽略此选项）：Avalonia 12 默认优先 Metal 后端，
             // 连续出帧时中间调颜色会产生肉眼可见的频闪（Metal 后端尚不稳定，
             // 参见 AvaloniaUI/Avalonia#14829、#17025），故退回 OpenGL。
+            // CEF 原生子视图独立使用 Metal 合成器，与 Avalonia 互不干扰。
             .With(new AvaloniaNativePlatformOptions
             {
-                RenderingMode = BrowserSurfaces.Requested
-                    ? [AvaloniaNativeRenderingMode.Metal, AvaloniaNativeRenderingMode.OpenGl, AvaloniaNativeRenderingMode.Software]
-                    : [AvaloniaNativeRenderingMode.OpenGl, AvaloniaNativeRenderingMode.Software]
+                RenderingMode = [AvaloniaNativeRenderingMode.OpenGl, AvaloniaNativeRenderingMode.Software]
             })
-            .With(Athena.UI.Controls.BrowserGpuPreview.X11Options)
             .WithInterFont()
             .LogToTrace();
 

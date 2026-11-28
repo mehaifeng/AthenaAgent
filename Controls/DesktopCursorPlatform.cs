@@ -7,7 +7,7 @@ namespace Athena.UI.Controls;
 // Hit testing has to pass through to windows in other processes, including native Wayland clients.
 internal static class DesktopCursorPlatform
 {
-    internal static void MakeClickThrough(Window window)
+    internal static void MakeClickThrough(Window window, bool desktopWide = true)
     {
         var handle = window.TryGetPlatformHandle() ?? throw new InvalidOperationException("No native cursor window.");
         if (OperatingSystem.IsWindows() && handle.HandleDescriptor == "HWND")
@@ -22,8 +22,18 @@ internal static class DesktopCursorPlatform
             if (nsWindow == 0) throw new InvalidOperationException("No Cocoa cursor window.");
             SendBool(nsWindow, Selector("setIgnoresMouseEvents:"), 1);
             SendBool(nsWindow, Selector("setHasShadow:"), 0);
-            // Join the active Space, including full-screen apps, and skip window cycling.
-            SendNumber(nsWindow, Selector("setCollectionBehavior:"), 1 | (1u << 3) | (1u << 6) | (1u << 8));
+            if (desktopWide)
+            {
+                // Join the active Space, including full-screen apps, and skip window cycling.
+                SendNumber(nsWindow, Selector("setCollectionBehavior:"), 1 | (1u << 3) | (1u << 6) | (1u << 8));
+            }
+            else
+            {
+                // Owned child window for the embedded browser: stay at normal window level
+                // (never float above unrelated third-party apps) and skip Cmd+` cycling.
+                SendNumber(nsWindow, Selector("setCollectionBehavior:"), 1u << 6);
+                SendSigned(nsWindow, Selector("setLevel:"), 0); // NSNormalWindowLevel
+            }
         }
         else if (OperatingSystem.IsLinux() && handle.HandleDescriptor == "XID")
         {
@@ -33,8 +43,11 @@ internal static class DesktopCursorPlatform
             {
                 if (XShapeQueryExtension(display, out _, out _) == 0)
                     throw new InvalidOperationException("A click-through cursor requires the X Shape extension.");
-                var attributes = new XWindowAttributes { OverrideRedirect = 1 };
-                XChangeWindowAttributes(display, handle.Handle, 1u << 9, ref attributes);
+                if (desktopWide)
+                {
+                    var attributes = new XWindowAttributes { OverrideRedirect = 1 };
+                    XChangeWindowAttributes(display, handle.Handle, 1u << 9, ref attributes);
+                }
                 XShapeCombineRectangles(display, handle.Handle, 2, 0, 0, 0, 0, 0, 0);
                 XSync(display, 0);
             }
@@ -66,4 +79,5 @@ internal static class DesktopCursorPlatform
     [DllImport(ObjC, EntryPoint = "objc_msgSend")] private static extern nint Send(nint obj, nint selector);
     [DllImport(ObjC, EntryPoint = "objc_msgSend")] private static extern void SendBool(nint obj, nint selector, byte value);
     [DllImport(ObjC, EntryPoint = "objc_msgSend")] private static extern void SendNumber(nint obj, nint selector, nuint value);
+    [DllImport(ObjC, EntryPoint = "objc_msgSend")] private static extern void SendSigned(nint obj, nint selector, nint value);
 }

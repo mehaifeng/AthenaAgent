@@ -5,6 +5,9 @@ on:
     paths:
       - '.github/workflows/browser-runtime.yml'
       - '.github/workflows/release.yml'
+      - 'Native/**'
+      - 'Controls/CefBrowserHostControl.cs'
+      - 'Controls/DesktopCursorDisplay.cs'
       - 'Services/ComputerUse/**'
       - 'Services/ModelRoleProbeService.cs'
       - 'ViewModels/*Browser*.cs'
@@ -35,12 +38,15 @@ jobs:
       - uses: actions/setup-python@v6
         with:
           python-version: '3.13'
+      - name: Install Linux native CEF build dependencies
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y libx11-dev
       - name: Build local PTC packages
         shell: bash
         run: bash Libraries/Ptc/scripts/build-local-feed.sh
-      - name: Build the Release app with its browser runtime
+      - name: Build the Release app with its CEF browser runtime
         run: dotnet build Athena.UI.csproj -c Release
-      - name: Exercise the bundled browser and model roles
+      - name: Exercise the bundled CEF browser and model roles
         shell: bash
         env:
           ATHENA_HEADLESS_ONLY: computer-use

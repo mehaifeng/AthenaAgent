@@ -137,6 +137,10 @@
                 </Transitions>
             </Setter>
         </Style>
+        <Style Selector="Border.shell-panel.full-view-tabbed">
+            <Setter Property="CornerRadius" Value="0,0,10,10"/>
+            <Setter Property="BorderThickness" Value="1,0,1,1"/>
+        </Style>
         <!-- ══ 微交互动效层 ════════════════════════════════════════════════════
              时长三档：120ms 按下反馈 / 180ms 悬停与选中 / 260ms 材质切换，缓动统一
              CubicEaseOut。这三档和曲线是取值，没有测量撑着，随便调。
@@ -382,6 +386,10 @@
         <Image x:Name="ThemeTransitionImage" Stretch="UniformToFill" Opacity="0" IsHitTestVisible="False"/>
 
         <Grid x:Name="MainShellGrid" Margin="5">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="0"/>
+                <RowDefinition Height="*"/>
+            </Grid.RowDefinitions>
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="292" MinWidth="260"/>
                 <ColumnDefinition Width="5" MinWidth="5"/>
@@ -391,6 +399,8 @@
             </Grid.ColumnDefinitions>
             <!-- 左侧：入口 + 工作区会话树。语义区域可与右侧整体对调。 -->
             <Border x:Name="LeftPanel"
+                    Grid.Row="0"
+                    Grid.RowSpan="2"
                     Grid.Column="{Binding IsSidePanelsSwapped, Converter={StaticResource SidePanelColumnConverter}, ConverterParameter=LeftPanel}"
                     Classes="shell-panel" MinWidth="260">
                 <Grid RowDefinitions="Auto,Auto,Auto,*,Auto">
@@ -588,6 +598,8 @@
 
             <GridSplitter x:Name="LeftSideSplitter"
                           Classes="layout-splitter"
+                          Grid.Row="0"
+                          Grid.RowSpan="2"
                           Grid.Column="{Binding IsSidePanelsSwapped, Converter={StaticResource SidePanelColumnConverter}, ConverterParameter=LeftSplitter}"
                           Width="5"
                           MinWidth="5"
@@ -598,7 +610,14 @@
 
             <!-- 中间始终是当前主对话，会话切换不销毁其他 Chat VM。间隙由相邻 ColumnDefinition 控制，
                  不要在这里再加 Margin，否则会和 5px 列间隙叠加成 10px。 -->
-            <Border x:Name="ConversationPanel" Grid.Column="2" MinWidth="540" Classes="shell-panel"
+            <Border x:Name="ConversationPanel"
+                    Grid.Row="{Binding ConversationPanelRow}"
+                    Grid.RowSpan="{Binding ConversationPanelRowSpan}"
+                    Grid.Column="2"
+                    MinWidth="540"
+                    IsVisible="{Binding IsConversationPanelVisible}"
+                    Classes="shell-panel"
+                    Classes.full-view-tabbed="{Binding IsFullViewConversationSelected}"
                     loc:MarkdownHelper.SearchText="{Binding ConversationSearchText}">
                 <!-- 绑 DisplayedConversation 而不是 MainConversationViewModel：这是整棵气泡树的
                      DataContext，也是会话切换里唯一贵的那个绑定，它要比选中态晚一拍落地，
@@ -621,21 +640,26 @@
 
             <GridSplitter x:Name="RightSideSplitter"
                           Classes="layout-splitter"
-                          IsVisible="{Binding !IsRightPanelCollapsed}"
+                          Grid.Row="0"
+                          Grid.RowSpan="2"
+                          IsVisible="{Binding ShowRightSideSplitter}"
                           Grid.Column="{Binding IsSidePanelsSwapped, Converter={StaticResource SidePanelColumnConverter}, ConverterParameter=RightSplitter}"
                           Width="5"
                           MinWidth="5"
                           ResizeDirection="Columns"
                           ResizeBehavior="PreviousAndNext"
                           ShowsPreview="False"
+                          DragStarted="OnRightSideSplitterDragStarted"
                           DragCompleted="OnSideSplitterDragCompleted"/>
 
             <!-- 右侧整体：上部编辑器/文件浏览器，下部日志。不再包外层 shell-panel 边框，
                  工作区与日志区各自成独立圆角面板悬浮（各自自带背景，透明度跟随 App.PanelBackgroundBrush）。
                  面板直接占满右列，距窗口边缘仅剩外壳 5px，与左/中面板一致。 -->
             <Grid x:Name="RightPanelGrid"
-                  IsVisible="{Binding !IsRightPanelCollapsed}"
-                  Grid.Column="{Binding IsSidePanelsSwapped, Converter={StaticResource SidePanelColumnConverter}, ConverterParameter=RightPanel}"
+                  Grid.Row="0"
+                  Grid.RowSpan="{Binding RightPanelGridRowSpan}"
+                  IsVisible="{Binding ShowRightPanelGrid}"
+                  Grid.Column="{Binding RightPanelGridColumn}"
                   MinWidth="360">
                     <Grid.RowDefinitions>
                         <RowDefinition Height="*" MinHeight="280"/>
@@ -745,6 +769,8 @@
         <!-- 窗口级宠物覆盖层：根据漫游区域锚定到不同面板的底部。
              游戏模式里收起来（设计稿 12.1）：原生 WebView 永远在最上层，宠物会被它盖住；IsSuppressed 同时停掉它的计时器。 -->
         <views:VirtualPetView x:Name="VirtualPet"
+                              Grid.Row="0"
+                              Grid.RowSpan="2"
                               Grid.ColumnSpan="5"
                               ZIndex="60"
                               HorizontalAlignment="Left"
@@ -754,6 +780,7 @@
                 <MultiBinding Converter="{x:Static BoolConverters.Or}">
                     <Binding Path="$parent[Window].((vm:MainWindowViewModel)DataContext).IsGameModeActive"/>
                     <Binding Path="!$parent[Window].((vm:MainWindowViewModel)DataContext).IsConversationPageActive"/>
+                    <Binding Path="$parent[Window].((vm:MainWindowViewModel)DataContext).IsBrowserFullViewWebActive"/>
                 </MultiBinding>
             </views:VirtualPetView.IsSuppressed>
         </views:VirtualPetView>

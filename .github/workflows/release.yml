@@ -26,8 +26,8 @@ permissions:
   contents: write
 
 jobs:
-  release:
-    name: Build Release
+  build-linux:
+    name: Build Linux (linux-x64)
     runs-on: ubuntu-latest
 
     steps:
@@ -42,6 +42,193 @@ jobs:
         with:
           dotnet-version: 10.0.x
 
+      - name: Install native CEF bridge build dependencies
+        run: sudo apt-get update && sudo apt-get install -y libx11-dev
+
+      - name: Resolve release tag
+        id: options
+        shell: bash
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "tag=${{ inputs.tag }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "tag=${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Build linux-x64 package
+        run: |
+          chmod +x ./release.sh
+          TAG="${{ steps.options.outputs.tag }}"
+          ./release.sh "${TAG}" \
+            --platforms linux-x64 \
+            --repo "${GITHUB_REPOSITORY}" \
+            --skip-upload \
+            --output-dir "release-artifacts/linux-x64"
+
+      - name: Upload Linux release artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-linux-x64
+          path: |
+            release-artifacts/linux-x64/Athena-linux-x64.tar.gz
+            release-artifacts/linux-x64/update-manifest.json
+
+  build-macos:
+    name: Build macOS (osx-arm64 + DMG)
+    runs-on: macos-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref }}
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: 10.0.x
+
+      - name: Resolve release tag
+        id: options
+        shell: bash
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "tag=${{ inputs.tag }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "tag=${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Build osx-arm64 package and DMG
+        run: |
+          chmod +x ./release.sh
+          TAG="${{ steps.options.outputs.tag }}"
+          ./release.sh "${TAG}" \
+            --platforms osx-arm64 \
+            --dmg \
+            --repo "${GITHUB_REPOSITORY}" \
+            --skip-upload \
+            --output-dir "release-artifacts/osx-arm64"
+
+      - name: Upload macOS release artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-osx-arm64
+          path: |
+            release-artifacts/osx-arm64/Athena-osx-arm64.tar.gz
+            release-artifacts/osx-arm64/Athena-*.dmg
+            release-artifacts/osx-arm64/update-manifest.json
+
+  build-windows:
+    name: Build Windows (win-x64 + Installer)
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref }}
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: 10.0.x
+
+      - name: Resolve release tag
+        id: options
+        shell: bash
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "tag=${{ inputs.tag }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "tag=${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Build local PTC packages
+        shell: bash
+        run: bash Libraries/Ptc/scripts/build-local-feed.sh
+
+      - name: Publish win-x64, stage CEF runtime, and archive zip
+        shell: pwsh
+        run: |
+          $tag = "${{ steps.options.outputs.tag }}"
+          $version = $tag -replace '^v', ''
+          "VERSION=$version" | Out-File -FilePath $env:GITHUB_ENV -Append
+          $out = "publish/win-x64"
+          dotnet publish Athena.UI.csproj -c Release -r win-x64 --self-contained true `
+            -p:Version=$version -p:InformationalVersion=$version `
+            -p:FileVersion=$version -p:AssemblyVersion=$version `
+            -p:PublishSingleFile=false -p:UseAppHost=true -o $out
+          dotnet publish Athena.Updater/Athena.Updater.csproj -c Release -r win-x64 --self-contained true `
+            -p:Version=$version -p:InformationalVersion=$version `
+            -p:FileVersion=$version -p:AssemblyVersion=$version `
+            -p:PublishSingleFile=false -p:UseAppHost=true -o "$out/updater"
+          if (-not (Test-Path "$out/Athena.UI.exe")) { throw "Athena.UI.exe missing in publish output" }
+          if (-not (Test-Path "$out/updater/Athena.Updater.exe")) { throw "Athena.Updater.exe missing in publish output" }
+          python Scripts/stage-browser-runtime.py win-x64 $out
+          if ($LASTEXITCODE -ne 0) { throw "Bundled CEF browser runtime failed to build or stage" }
+          New-Item -ItemType Directory -Force -Path "release-artifacts/win-x64" | Out-Null
+          $zipPath = "release-artifacts/win-x64/Athena-win-x64.zip"
+          Compress-Archive -Path "$out/*" -DestinationPath $zipPath -Force
+          $sha256 = (Get-FileHash -Path $zipPath -Algorithm SHA256).Hash.ToLowerInvariant()
+          $manifest = @{
+            version = $version
+            releaseNotesUrl = "https://github.com/${env:GITHUB_REPOSITORY}/releases/tag/$tag"
+            preservePaths = @("AthenaData")
+            packages = @{
+              "win-x64" = @{
+                url = "https://github.com/${env:GITHUB_REPOSITORY}/releases/download/$tag/Athena-win-x64.zip"
+                sha256 = $sha256
+                archiveType = "zip"
+                entryExecutable = "Athena.UI.exe"
+              }
+            }
+          } | ConvertTo-Json -Depth 5
+          Set-Content -Path "release-artifacts/win-x64/update-manifest.json" -Value $manifest -Encoding utf8
+
+      - name: Install Inno Setup
+        shell: pwsh
+        run: choco install innosetup --no-progress -y
+
+      - name: Ensure Simplified Chinese language file
+        shell: pwsh
+        run: |
+          $langDir = "${env:ProgramFiles(x86)}\Inno Setup 6\Languages"
+          $dest = "$langDir\ChineseSimplified.isl"
+          if (-not (Test-Path $dest)) {
+            $url = "https://raw.githubusercontent.com/jrsoftware/issrc/main/Files/Languages/ChineseSimplified.isl"
+            Invoke-WebRequest -Uri $url -OutFile $dest
+          }
+          if (-not (Test-Path $dest)) { throw "ChineseSimplified.isl is unavailable" }
+
+      - name: Build installer
+        shell: pwsh
+        run: |
+          $root = (Get-Location).Path
+          & "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" `
+            "/DMyAppVersion=$env:VERSION" `
+            "/DSourceDir=$root\publish\win-x64" `
+            "/DRepoRoot=$root" `
+            "/O$root\release-artifacts\win-x64" `
+            "$root\Scripts\windows-installer.iss"
+          Get-ChildItem "$root\release-artifacts\win-x64"
+
+      - name: Upload Windows release artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-win-x64
+          path: |
+            release-artifacts/win-x64/Athena-win-x64.zip
+            release-artifacts/win-x64/Athena-*-win-x64-setup.exe
+            release-artifacts/win-x64/update-manifest.json
+
+  publish-release:
+    name: Merge Manifest & Publish GitHub Release
+    needs: [build-linux, build-macos, build-windows]
+    runs-on: ubuntu-latest
+
+    steps:
       - name: Resolve release options
         id: options
         shell: bash
@@ -58,168 +245,56 @@ jobs:
             echo "tag=${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Build and upload release
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          chmod +x ./release.sh
-          ./release.sh "${{ steps.options.outputs.tag }}" \
-            --repo "${GITHUB_REPOSITORY}" \
-            --upload \
-            --generate-notes \
-            ${{ steps.options.outputs.prerelease }} \
-            ${{ steps.options.outputs.draft }}
-
-  dmg:
-    name: Build macOS DMG
-    needs: release
-    runs-on: macos-latest
-    if: ${{ needs.release.result == 'success' }}
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v5
+      - name: Download all platform artifacts
+        uses: actions/download-artifact@v4
         with:
-          fetch-depth: 0
-          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref }}
+          path: downloaded
 
-      - name: Setup .NET
-        uses: actions/setup-dotnet@v5
-        with:
-          dotnet-version: 10.0.x
-
-      - name: Resolve release options
-        id: options
+      - name: Merge update-manifest.json and collect assets
         shell: bash
         run: |
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            echo "tag=${{ inputs.tag }}" >> "$GITHUB_OUTPUT"
-          else
-            echo "tag=${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
-          fi
+          mkdir -p combined
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          import shutil
 
-      - name: Build DMG for osx-arm64
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          chmod +x ./release.sh
-          TAG="${{ steps.options.outputs.tag }}"
-          # Build only the macOS platform with DMG; --skip-upload prevents
-          # gh release create so we can append the DMG to the release
-          # the upstream job already created.
-          ./release.sh "${TAG#v}" \
-            --platforms osx-arm64 \
-            --dmg \
-            --skip-upload \
-            --repo "${GITHUB_REPOSITORY}"
-          ls -lh "artifacts/releases/${TAG#v}/"
+          combined = Path("combined")
+          merged = None
+          for sub in sorted(Path("downloaded").iterdir()):
+              if not sub.is_dir():
+                  continue
+              manifest_file = sub / "update-manifest.json"
+              if manifest_file.is_file():
+                  data = json.loads(manifest_file.read_text(encoding="utf-8-sig"))
+                  if merged is None:
+                      merged = data
+                  else:
+                      merged["packages"].update(data["packages"])
+              for item in sub.iterdir():
+                  if item.name != "update-manifest.json":
+                      shutil.copy2(item, combined / item.name)
+          assert merged is not None, "No platform manifests found"
+          (combined / "update-manifest.json").write_text(
+              json.dumps(merged, indent=2) + "\n", encoding="utf-8"
+          )
+          PY
+          ls -lh combined/
+          cat combined/update-manifest.json
 
-      - name: Upload DMG to release
+      - name: Publish GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           TAG="${{ steps.options.outputs.tag }}"
-          cd "artifacts/releases/${TAG#v}"
-          gh release upload "${TAG}" \
-            --repo "${GITHUB_REPOSITORY}" \
-            --clobber \
-            Athena-*.dmg
-
-  windows-installer:
-    name: Build Windows Installer
-    needs: release
-    runs-on: windows-latest
-    if: ${{ needs.release.result == 'success' }}
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v5
-        with:
-          fetch-depth: 0
-          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref }}
-
-      - name: Setup .NET
-        uses: actions/setup-dotnet@v5
-        with:
-          dotnet-version: 10.0.x
-
-      - name: Resolve release options
-        id: options
-        shell: bash
-        run: |
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            echo "tag=${{ inputs.tag }}" >> "$GITHUB_OUTPUT"
+          if gh release view "${TAG}" --repo "${GITHUB_REPOSITORY}" >/dev/null 2>&1; then
+            gh release upload "${TAG}" --repo "${GITHUB_REPOSITORY}" --clobber combined/*
           else
-            echo "tag=${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
+            gh release create "${TAG}" \
+              --repo "${GITHUB_REPOSITORY}" \
+              --title "${TAG}" \
+              --generate-notes \
+              ${{ steps.options.outputs.prerelease }} \
+              ${{ steps.options.outputs.draft }} \
+              combined/*
           fi
-
-      - name: Build local PTC packages
-        # The same local nupkg references are used by development and packaged Athena.
-        # Building them does not publish anything to NuGet.
-        shell: bash
-        run: bash Libraries/Ptc/scripts/build-local-feed.sh
-
-      - name: Publish win-x64
-        shell: pwsh
-        run: |
-          $tag = "${{ steps.options.outputs.tag }}"
-          $version = $tag -replace '^v', ''
-          "VERSION=$version" | Out-File -FilePath $env:GITHUB_ENV -Append
-          $out = "publish/win-x64"
-          # App + updater go into the same folder the installer bundles.
-          dotnet publish Athena.UI.csproj -c Release -r win-x64 --self-contained true `
-            -p:Version=$version -p:InformationalVersion=$version `
-            -p:FileVersion=$version -p:AssemblyVersion=$version `
-            -p:PublishSingleFile=false -p:UseAppHost=true -o $out
-          dotnet publish Athena.Updater/Athena.Updater.csproj -c Release -r win-x64 --self-contained true `
-            -p:Version=$version -p:InformationalVersion=$version `
-            -p:FileVersion=$version -p:AssemblyVersion=$version `
-            -p:PublishSingleFile=false -p:UseAppHost=true -o "$out/updater"
-          if (-not (Test-Path "$out/Athena.UI.exe")) { throw "Athena.UI.exe missing in publish output" }
-          if (-not (Test-Path "$out/updater/Athena.Updater.exe")) { throw "Athena.Updater.exe missing in publish output" }
-          python Scripts/stage-browser-runtime.py win-x64 $out
-          if ($LASTEXITCODE -ne 0) { throw "Bundled browser runtime is missing" }
-
-      - name: Install Inno Setup
-        shell: pwsh
-        run: choco install innosetup --no-progress -y
-
-      - name: Ensure Simplified Chinese language file
-        shell: pwsh
-        run: |
-          # Prefer the ChineseSimplified.isl that ships with the installed Inno
-          # Setup (guaranteed to match the compiler version). Only fall back to
-          # downloading from upstream if this Inno Setup build does not bundle it.
-          $langDir = "${env:ProgramFiles(x86)}\Inno Setup 6\Languages"
-          $dest = "$langDir\ChineseSimplified.isl"
-          if (-not (Test-Path $dest)) {
-            $url = "https://raw.githubusercontent.com/jrsoftware/issrc/main/Files/Languages/ChineseSimplified.isl"
-            Invoke-WebRequest -Uri $url -OutFile $dest
-          }
-          if (-not (Test-Path $dest)) { throw "ChineseSimplified.isl is unavailable" }
-
-      - name: Build installer
-        shell: pwsh
-        run: |
-          # Inno Setup resolves relative paths against the .iss file's folder,
-          # not the working directory — pass absolute paths so SourceDir and the
-          # SetupIconFile under RepoRoot\Assets resolve correctly.
-          $root = (Get-Location).Path
-          & "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" `
-            "/DMyAppVersion=$env:VERSION" `
-            "/DSourceDir=$root\publish\win-x64" `
-            "/DRepoRoot=$root" `
-            "/O$root\Output" `
-            "$root\Scripts\windows-installer.iss"
-          Get-ChildItem "$root\Output"
-
-      - name: Upload installer to release
-        shell: pwsh
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          $tag = "${{ steps.options.outputs.tag }}"
-          gh release upload "$tag" `
-            --repo "${env:GITHUB_REPOSITORY}" `
-            --clobber `
-            "Output\Athena-$env:VERSION-win-x64-setup.exe"

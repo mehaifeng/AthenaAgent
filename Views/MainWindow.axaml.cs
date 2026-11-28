@@ -62,6 +62,7 @@ public partial class MainWindow : Window
     private const double RightTopMinHeight = 280;
     private const double RightLogMinHeight = 120;
     private const double RightRowSplitterHeight = 5;
+    private const double FullViewSplitterOverscrollThreshold = 56;
 
     private Panel? _backdropLayer;
     private Border? _mainPageHost;
@@ -76,11 +77,16 @@ public partial class MainWindow : Window
     private ColumnDefinition? _rightShellColumn;
     private ColumnDefinition? _leftSplitterColumn;
     private ColumnDefinition? _rightSplitterColumn;
+    private RowDefinition? _mainShellTopRow;
     private RowDefinition? _rightTopRow;
+    private RowDefinition? _rightMiddleSplitterRow;
     private RowDefinition? _rightLogRow;
+    private GridSplitter? _rightSideSplitter;
     private WorkspaceWorkbenchView? _workspaceWorkbench;
     private MainWindowViewModel? _viewModel;
     private readonly List<Border> _shellPanels = new();
+    private bool _rightSplitterDragActive;
+    private bool _rightSplitterTriggeredFullView;
 
     public MainWindow()
     {
@@ -91,13 +97,22 @@ public partial class MainWindow : Window
         _themeTransitionImage = this.FindControl<Image>("ThemeTransitionImage");
         _glassBackdropImage = this.FindControl<Image>("GlassBackdropImage");
         _mainShellGrid = this.FindControl<Grid>("MainShellGrid");
+        _mainShellTopRow = _mainShellGrid?.RowDefinitions[0];
         _leftShellColumn = _mainShellGrid?.ColumnDefinitions[0];
         _rightShellColumn = _mainShellGrid?.ColumnDefinitions[4];
         _leftSplitterColumn = _mainShellGrid?.ColumnDefinitions[1];
         _rightSplitterColumn = _mainShellGrid?.ColumnDefinitions[3];
         _rightPanelGrid = this.FindControl<Grid>("RightPanelGrid");
         _rightTopRow = _rightPanelGrid?.RowDefinitions[0];
+        _rightMiddleSplitterRow = _rightPanelGrid?.RowDefinitions[1];
         _rightLogRow = _rightPanelGrid?.RowDefinitions[2];
+        _rightSideSplitter = this.FindControl<GridSplitter>("RightSideSplitter");
+        if (_rightSideSplitter != null)
+        {
+            _rightSideSplitter.AddHandler(PointerMovedEvent, OnRightSideSplitterPointerMoved, RoutingStrategies.Bubble, handledEventsToo: true);
+            _rightSideSplitter.AddHandler(PointerReleasedEvent, OnRightSideSplitterPointerReleased, RoutingStrategies.Bubble, handledEventsToo: true);
+            _rightSideSplitter.AddHandler(PointerCaptureLostEvent, OnRightSideSplitterCaptureLost, RoutingStrategies.Bubble, handledEventsToo: true);
+        }
         _workspaceWorkbench = this.FindControl<WorkspaceWorkbenchView>("WorkspaceWorkbench");
         _utilityTabControl = this.FindControl<TabControl>("UtilityTabControl");
         if (_utilityTabControl != null)
@@ -178,7 +193,9 @@ public partial class MainWindow : Window
     {
         if (e.PropertyName is nameof(MainWindowViewModel.IsSidePanelsSwapped)
             or nameof(MainWindowViewModel.IsRightPanelCollapsed)
-            or nameof(MainWindowViewModel.ShowEmbeddedBrowser)) ApplySavedLayout();
+            or nameof(MainWindowViewModel.ShowEmbeddedBrowser)
+            or nameof(MainWindowViewModel.IsBrowserFullView)
+            or nameof(MainWindowViewModel.IsFullViewConversationSelected)) ApplySavedLayout();
         else if (e.PropertyName == nameof(MainWindowViewModel.ShellPanelOpacity)) ApplyShellPanelMaterial();
         else if (e.PropertyName == nameof(MainWindowViewModel.PanelGlassEnabled)) ApplyShellPanelMaterial();
         else if (e.PropertyName == nameof(MainWindowViewModel.IsConversationPageActive))
@@ -419,11 +436,14 @@ public partial class MainWindow : Window
         if (layout == null
             || _leftShellColumn == null || _rightShellColumn == null
             || _leftSplitterColumn == null || _rightSplitterColumn == null) return;
-        // 收起时语义右栏连同它那条分隔线一起归零（列宽 0、MinWidth 0），宽度全部让给中间对话。
-        // 折叠时直接应用列宽；拖动时由 GridSplitter 实时调整。
+        // 收起或浏览器完整视图时，语义右栏连同它那条分隔线一起归零（列宽 0、MinWidth 0），
+        // 宽度全部让给中间 * 主区域（左侧会话列表栏与左分割线保持可用）。
         var collapsed = layout.RightPanelCollapsed;
-        var semanticRightMinWidth = collapsed ? 0 : GetSemanticRightMinWidth();
-        var semanticRightSplitterWidth = collapsed ? 0 : ShellSplitterWidth;
+        var fullView = _viewModel?.IsBrowserFullView == true;
+        var fullViewChat = _viewModel?.IsFullViewConversationSelected == true;
+        var hideSemanticRight = collapsed || fullView;
+        var semanticRightMinWidth = hideSemanticRight ? 0 : GetSemanticRightMinWidth();
+        var semanticRightSplitterWidth = hideSemanticRight ? 0 : ShellSplitterWidth;
         var contentMinWidth = Math.Max(
             WindowBaseMinWidth,
             ShellHorizontalMargin
@@ -443,7 +463,7 @@ public partial class MainWindow : Window
             Width = contentMinWidth;
         }
         var leftSemanticWidth = Math.Max(LeftPanelMinWidth, layout.LeftWidth);
-        var rightSemanticWidth = collapsed ? 0 : Math.Max(semanticRightMinWidth, layout.RightWidth);
+        var rightSemanticWidth = hideSemanticRight ? 0 : Math.Max(semanticRightMinWidth, layout.RightWidth);
         var physicalLeftMinWidth = layout.SidePanelsSwapped ? semanticRightMinWidth : LeftPanelMinWidth;
         var physicalRightMinWidth = layout.SidePanelsSwapped ? LeftPanelMinWidth : semanticRightMinWidth;
         var physicalLeftWidth = layout.SidePanelsSwapped ? rightSemanticWidth : leftSemanticWidth;
@@ -453,7 +473,8 @@ public partial class MainWindow : Window
             ref physicalLeftWidth,
             ref physicalRightWidth,
             physicalLeftMinWidth,
-            physicalRightMinWidth);
+            physicalRightMinWidth,
+            hideSemanticRight);
         _leftShellColumn.MinWidth = physicalLeftMinWidth;
         _rightShellColumn.MinWidth = physicalRightMinWidth;
         _leftShellColumn.Width = new GridLength(physicalLeftWidth);
@@ -464,7 +485,34 @@ public partial class MainWindow : Window
         _leftSplitterColumn.Width = new GridLength(physicalLeftSplitterWidth);
         _rightSplitterColumn.MinWidth = physicalRightSplitterWidth;
         _rightSplitterColumn.Width = new GridLength(physicalRightSplitterWidth);
-        if (!collapsed) ApplySavedLogHeight(layout.RightLogHeight);
+
+        if (_mainShellTopRow != null)
+            _mainShellTopRow.Height = fullViewChat ? GridLength.Auto : new GridLength(0);
+
+        if (_rightTopRow != null && _rightMiddleSplitterRow != null && _rightLogRow != null)
+        {
+            if (fullViewChat)
+            {
+                // 完整视图选中「主对话」标签时，RightPanelGrid 只承载顶部单行标签栏，
+                // 必须清空工作台与日志行的 MinHeight，避免 280+120 撑高标签栏。
+                _rightTopRow.MinHeight = 0;
+                _rightTopRow.Height = GridLength.Auto;
+                _rightMiddleSplitterRow.Height = new GridLength(0);
+                _rightLogRow.MinHeight = 0;
+                _rightLogRow.Height = new GridLength(0);
+            }
+            else
+            {
+                _rightTopRow.MinHeight = RightTopMinHeight;
+                _rightMiddleSplitterRow.Height = new GridLength(RightRowSplitterHeight);
+                _rightLogRow.MinHeight = RightLogMinHeight;
+                if (!collapsed) ApplySavedLogHeight(layout.RightLogHeight);
+            }
+        }
+        else if (!collapsed)
+        {
+            ApplySavedLogHeight(layout.RightLogHeight);
+        }
     }
 
     private double GetSemanticRightMinWidth() => _viewModel?.ShowEmbeddedBrowser == true
@@ -495,7 +543,8 @@ public partial class MainWindow : Window
         ref double leftWidth,
         ref double rightWidth,
         double leftMinWidth,
-        double rightMinWidth)
+        double rightMinWidth,
+        bool hideSemanticRight)
     {
         var shellWidth = _mainShellGrid?.Bounds.Width ?? 0;
         if (shellWidth <= 0) shellWidth = Math.Max(0, ClientSize.Width - 10);
@@ -504,7 +553,7 @@ public partial class MainWindow : Window
         var sideBudget = Math.Max(
             leftMinWidth + rightMinWidth,
             shellWidth - ConversationMinWidth - ShellSplitterWidth
-            - (_viewModel?.IsRightPanelCollapsed == true ? 0 : ShellSplitterWidth));
+            - (hideSemanticRight ? 0 : ShellSplitterWidth));
         var requestedWidth = leftWidth + rightWidth;
         if (requestedWidth <= sideBudget) return;
 
@@ -524,18 +573,74 @@ public partial class MainWindow : Window
         rightWidth = rightMinWidth + (rightExtra * scale);
     }
 
+    private void OnRightSideSplitterDragStarted(object? sender, VectorEventArgs e)
+    {
+        _rightSplitterDragActive = true;
+        _rightSplitterTriggeredFullView = false;
+    }
+
+    private void OnRightSideSplitterPointerMoved(object? sender, PointerEventArgs e)
+    {
+        if (!_rightSplitterDragActive || _rightSplitterTriggeredFullView
+            || _mainShellGrid == null || _leftShellColumn == null || _rightShellColumn == null
+            || _viewModel is not { ShowEmbeddedBrowser: true, IsBrowserFullView: false, Config.MainLayout: { } layout })
+            return;
+        if (!e.GetCurrentPoint(_mainShellGrid).Properties.IsLeftButtonPressed)
+            return;
+
+        var pointerX = e.GetPosition(_mainShellGrid).X;
+        double overscroll;
+        if (!layout.SidePanelsSwapped)
+        {
+            var minSplitterLeft = _leftShellColumn.ActualWidth + ShellSplitterWidth + ConversationMinWidth;
+            overscroll = minSplitterLeft - pointerX;
+        }
+        else
+        {
+            var maxSplitterRight = _mainShellGrid.Bounds.Width
+                - _rightShellColumn.ActualWidth - ShellSplitterWidth - ConversationMinWidth;
+            overscroll = pointerX - maxSplitterRight;
+        }
+
+        if (overscroll >= FullViewSplitterOverscrollThreshold)
+        {
+            _rightSplitterTriggeredFullView = true;
+            _rightSplitterDragActive = false;
+            e.Pointer.Capture(null);
+            _viewModel.EnterBrowserFullView();
+        }
+    }
+
+    private void OnRightSideSplitterPointerReleased(object? sender, PointerReleasedEventArgs e)
+    {
+        _rightSplitterDragActive = false;
+    }
+
+    private void OnRightSideSplitterCaptureLost(object? sender, PointerCaptureLostEventArgs e)
+    {
+        _rightSplitterDragActive = false;
+    }
+
     private void OnSideSplitterDragCompleted(object? sender, Avalonia.Input.VectorEventArgs e)
         => AsyncEventGuard.Run(() => OnSideSplitterDragCompletedAsync(sender, e), nameof(OnSideSplitterDragCompleted));
 
     private async Task OnSideSplitterDragCompletedAsync(object? sender, Avalonia.Input.VectorEventArgs e)
     {
+        var isRightSplitter = ReferenceEquals(sender, _rightSideSplitter);
+        var triggeredFullView = isRightSplitter && _rightSplitterTriggeredFullView;
+        if (isRightSplitter)
+        {
+            _rightSplitterDragActive = false;
+            _rightSplitterTriggeredFullView = false;
+        }
+
         var layout = _viewModel?.Config?.MainLayout;
         if (layout == null || _viewModel == null || _leftShellColumn == null || _rightShellColumn == null) return;
         var semanticLeftColumn = layout.SidePanelsSwapped ? _rightShellColumn : _leftShellColumn;
         var semanticRightColumn = layout.SidePanelsSwapped ? _leftShellColumn : _rightShellColumn;
         layout.LeftWidth = semanticLeftColumn.ActualWidth;
-        // 收起态下右栏列宽是 0：写回去就等于把用户调好的宽度换成了最小宽度，下次展开时才发现。
-        if (!layout.RightPanelCollapsed)
+        // 收起态或触发完整视图时右栏列宽是 0 或极限值：不写回 RightWidth，确保退出完整视图后平滑恢复原分屏宽度。
+        if (!layout.RightPanelCollapsed && !_viewModel.IsBrowserFullView && !triggeredFullView)
             layout.RightWidth = semanticRightColumn.ActualWidth;
         await _viewModel.SaveConfigurationNowAsync();
     }

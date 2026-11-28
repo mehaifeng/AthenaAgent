@@ -1,11 +1,39 @@
 {
-  "version": "45.5.0",
+  "engine": "cef",
+  "version": "158.0.6+g23f1736+chromium-158.0.8127.89",
+  "chromiumVersion": "158.0.8127.89",
+  "apiVersion": 15800,
   "packages": {
-    "linux-x64":   { "asset": "linux-x64",    "sha256": "36b44cd0c3d355ee74557bea2353e4539f96e1a09733a52a052bd093134a6142" },
-    "linux-arm64": { "asset": "linux-arm64",  "sha256": "f2bd21b4167dbf0d27968347127afa6703161fdb513b1f3c61da5de9289cac0a" },
-    "win-x64":     { "asset": "win32-x64",    "sha256": "20155c8b8aa5b1f575f3757bdf21490e0bac2f19a65a26ce9ba99bcf9f2c69bd" },
-    "win-arm64":   { "asset": "win32-arm64",  "sha256": "5b00f9a9fb4dff9ce448b7ff33eae14af9318b3207f7a66170254cd541becd48" },
-    "osx-arm64":   { "asset": "darwin-arm64", "sha256": "00d345b061064de7e6e2c02bec7ffa1adb7ef488fe4b673bd8ad3e059a182245" },
-    "osx-x64":     { "asset": "darwin-x64",   "sha256": "9ce4b0e25ce95e743b2d8f04ebfbfd76027060ff8b47829de22334fbdbdd4cc4" }
+    "osx-arm64": {
+      "platform": "macosarm64",
+      "file": "cef_binary_158.0.6+g23f1736+chromium-158.0.8127.89_macosarm64_minimal.tar.bz2",
+      "sha1": "63faae7ccd6a497430c06d26b17c4cac20dca387",
+      "sha256": "53f687e1a662820c352ceb884e342ddcf5ff1610bc166c4ae09f1e0cbb278d9d"
+    },
+    "osx-x64": {
+      "platform": "macosx64",
+      "file": "cef_binary_158.0.6+g23f1736+chromium-158.0.8127.89_macosx64_minimal.tar.bz2",
+      "sha1": "49f270a76788af4ff8d5d6de05b1adf22377108c"
+    },
+    "win-x64": {
+      "platform": "windows64",
+      "file": "cef_binary_158.0.6+g23f1736+chromium-158.0.8127.89_windows64_minimal.tar.bz2",
+      "sha1": "2abb78fcd3b07ea0fb2014e3867a0902f19f1731"
+    },
+    "win-arm64": {
+      "platform": "windowsarm64",
+      "file": "cef_binary_158.0.6+g23f1736+chromium-158.0.8127.89_windowsarm64_minimal.tar.bz2",
+      "sha1": "59bd106c079ab46137d9e7b2ae0fe25181044e49"
+    },
+    "linux-x64": {
+      "platform": "linux64",
+      "file": "cef_binary_158.0.6+g23f1736+chromium-158.0.8127.89_linux64_minimal.tar.bz2",
+      "sha1": "ec558d6b418d5e31c8ee630f53c3983128d1cbe0"
+    },
+    "linux-arm64": {
+      "platform": "linuxarm64",
+      "file": "cef_binary_158.0.6+g23f1736+chromium-158.0.8127.89_linuxarm64_minimal.tar.bz2",
+      "sha1": "ba2969fecbb1cd305f5f3d532ee62e703e83c8ce"
+    }
   }
 }

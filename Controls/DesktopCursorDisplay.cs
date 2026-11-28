@@ -56,20 +56,24 @@ internal sealed class DesktopCursorDisplay : IDesktopCursorDisplay
             && Math.Abs(logical.Height * factor - pixels.Height) <= 2;
     }
 
-    private sealed class CursorWindow : Window
+    internal sealed class CursorWindow : Window
     {
         private readonly CursorGlyph _glyph = new();
         private readonly DispatcherTimer _timer = new(DispatcherPriority.Render) { Interval = TimeSpan.FromMilliseconds(16) };
-        private Screen? _screen;
+        private readonly bool _desktopWide;
+        private PixelRect? _targetRegion;
+        private double _targetScale = 1;
+        private bool _configured;
 
-        internal CursorWindow()
+        internal CursorWindow(bool desktopWide = true)
         {
+            _desktopWide = desktopWide;
             Title = "Athena Computer Use Cursor";
             Width = 164;
             Height = 86;
             CanResize = CanMinimize = CanMaximize = false;
             ShowActivated = Focusable = IsHitTestVisible = false;
-            Topmost = true;
+            Topmost = desktopWide;
             WindowStartupLocation = WindowStartupLocation.Manual;
             WindowDecorations = WindowDecorations.None;
             Background = TransparencyBackgroundFallback = Brushes.Transparent;
@@ -79,23 +83,39 @@ internal sealed class DesktopCursorDisplay : IDesktopCursorDisplay
             Closed += (_, _) => _timer.Stop();
         }
 
-        private bool _configured;
         internal void Present(ComputerUseFrame frame, ComputerUseCursor cursor)
         {
             var screens = Screens.All;
-            _screen = screens.Count == 1 ? screens[0]
+            var screen = screens.Count == 1 ? screens[0]
                 : frame.FromPortal ? Match(screens, frame.PortalMonitor) : Screens.Primary;
-            if (_screen is null) { HideCursor(); return; }
+            if (screen is null) { HideCursor(); return; }
+            var scale = OperatingSystem.IsMacOS() ? 1d : screen.Scaling;
+            PresentInRegion(screen.Bounds, scale, cursor, owner: null);
+        }
+
+        internal void PresentInRegion(PixelRect screenRegion, double coordinateScale, ComputerUseCursor cursor, Window? owner = null)
+        {
+            if (screenRegion.Width <= 0 || screenRegion.Height <= 0)
+            {
+                HideCursor();
+                return;
+            }
+            _targetRegion = screenRegion;
+            _targetScale = coordinateScale > 0 ? coordinateScale : 1d;
             if (!_configured)
             {
                 // Configure native hit testing before the very first map, including on XWayland.
-                DesktopCursorPlatform.MakeClickThrough(this);
+                DesktopCursorPlatform.MakeClickThrough(this, _desktopWide);
                 ShowInTaskbar = false;
                 _configured = true;
             }
             _glyph.CursorState = cursor;
             DrawPosition();
-            if (!IsVisible) Show();
+            if (!IsVisible)
+            {
+                if (!_desktopWide && owner is not null) Show(owner);
+                else Show();
+            }
             if (cursor.IsAnimating) _timer.Start();
         }
 
@@ -122,13 +142,11 @@ internal sealed class DesktopCursorDisplay : IDesktopCursorDisplay
 
         private void DrawPosition()
         {
-            if (_screen is not { } screen || _glyph.CursorState is not { } cursor) return;
+            if (_targetRegion is not { } bounds || _glyph.CursorState is not { } cursor) return;
             var (nx, ny) = cursor.Position;
-            var bounds = screen.Bounds;
-            // Cocoa positions top-level windows in points even when the backing store is Retina.
-            var scale = OperatingSystem.IsMacOS() ? 1d : screen.Scaling;
-            var x = bounds.X + Math.Clamp((int)Math.Round(nx * bounds.Width), 0, bounds.Width - 1);
-            var y = bounds.Y + Math.Clamp((int)Math.Round(ny * bounds.Height), 0, bounds.Height - 1);
+            var scale = _targetScale;
+            var x = bounds.X + Math.Clamp((int)Math.Round(nx * bounds.Width), 0, Math.Max(0, bounds.Width - 1));
+            var y = bounds.Y + Math.Clamp((int)Math.Round(ny * bounds.Height), 0, Math.Max(0, bounds.Height - 1));
             var left = Math.Clamp(x - (int)(28 * scale), bounds.X, Math.Max(bounds.X, bounds.Right - (int)Math.Ceiling(Width * scale)));
             var top = Math.Clamp(y - (int)(28 * scale), bounds.Y, Math.Max(bounds.Y, bounds.Bottom - (int)Math.Ceiling(Height * scale)));
             var origin = new PixelPoint(left, top);
@@ -148,5 +166,41 @@ internal sealed class DesktopCursorDisplay : IDesktopCursorDisplay
             if (CursorState is { } cursor)
                 ComputerUseCursorDrawing.Draw(context, Hotspot, new Rect(Bounds.Size), cursor);
         }
+    }
+}
+
+/// <summary>
+/// Owned, click-through floating cursor overlay bound directly to the Athena host window (never globally
+/// topmost) so it stays strictly above the embedded CEF child view yet beneath any unrelated third-party
+/// app covering Athena, without polluting CDP page screenshots or mutating page DOM.
+/// </summary>
+internal sealed class BrowserCursorOverlay : IDisposable
+{
+    private DesktopCursorDisplay.CursorWindow? _window;
+    private bool _unavailable;
+
+    public void Show(Window owner, PixelRect screenRegion, double coordinateScale, ComputerUseCursor cursor)
+    {
+        if (_unavailable || CefNativeBridge.IsHeadlessRuntime) return;
+        try
+        {
+            _window ??= new DesktopCursorDisplay.CursorWindow(desktopWide: false);
+            _window.PresentInRegion(screenRegion, coordinateScale, cursor, owner);
+        }
+        catch (Exception ex)
+        {
+            _unavailable = true;
+            _window?.Close();
+            _window = null;
+            Log.Warning(ex, "Could not display the embedded browser Computer Use cursor overlay");
+        }
+    }
+
+    public void Hide() => _window?.HideCursor();
+
+    public void Dispose()
+    {
+        _window?.Close();
+        _window = null;
     }
 }

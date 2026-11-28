@@ -25,6 +25,12 @@ permits such adaptation; this notice records that the shipped artwork is modifie
 trademark of GitHub, Inc. It is used solely to label a link to this project's GitHub repository.
 Do not reuse brand marks for anything other than referring to the product they depict.
 
+## Chromium Embedded Framework (CEF)
+
+- **Used for:** the built-in desktop browser engine staged into `BrowserRuntime/` (macOS `Chromium Embedded Framework.framework` + `Athena Helper*.app`, Windows `libcef.dll`, Linux `libcef.so`), driven through our in-process C ABI bridge (`Native/CefBridge/`).
+- **Upstream:** https://bitbucket.org/chromiumembedded/cef · https://www.chromium.org/
+- **Licence:** BSD 3-Clause License (CEF) and Chromium / third-party open-source licences. The full upstream CEF licence text is staged alongside every distribution as `BrowserRuntime/CEF-LICENSE.txt`.
+
 ## Athena's own artwork
 
 The owl mark (`AthenaIconSubAgentsOwl` in `Styles/AppIcons.axaml`), the application icons under

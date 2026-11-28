@@ -1,56 +1,57 @@
-using Athena.UI.Services.ComputerUse;
 using Athena.UI.Controls;
+using Athena.UI.Services.ComputerUse;
 using Athena.UI.ViewModels;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.Input.Platform;
 using Avalonia.Interactivity;
-using Avalonia.Media.Imaging;
-using Avalonia.Platform;
-using Avalonia.Rendering.Composition;
+using Avalonia.Media;
 using Avalonia.Threading;
+using Avalonia.VisualTree;
 using Serilog;
 using System;
+using System.Collections.Specialized;
 using System.ComponentModel;
 using System.Diagnostics.CodeAnalysis;
-using System.IO;
-using System.Runtime.InteropServices;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 
 namespace Athena.UI.Views;
 
 [SuppressMessage("Design", "CA1001",
-    Justification = "The frame reader owns and disposes its lease. The view cancels it when hidden or detached.")]
+    Justification = "The cursor overlay and headless resize token are disposed when the view detaches from the visual tree.")]
 public sealed partial class EmbeddedBrowserView : UserControl
 {
+    private const double TabWheelStepDip = 48d;
+    private const double TabDragThresholdDip = 6d;
+    private const double TabSpacingDip = 4d;
+    private const double TabEdgeAutoScrollZoneDip = 24d;
+    private const double TabEdgeAutoScrollStepDip = 18d;
+
     public static readonly StyledProperty<bool> PreviewEnabledProperty =
         AvaloniaProperty.Register<EmbeddedBrowserView, bool>(nameof(PreviewEnabled));
 
+    private readonly BrowserCursorOverlay _cursorOverlay = new();
     private EmbeddedBrowserViewModel? _model;
     private Window? _owner;
     private ChromeBrowserPage? _page;
-    private ChromeDevTools? _viewer;
-    private CancellationTokenSource? _viewLifetime;
-    private BrowserPreview? _preview;
-    internal event Action<bool, BrowserViewportSize>? PreviewFramePresented;
-    private WriteableBitmap? _bitmap;
-    private Screen? _previewScreen;
-    private int? _displayRefreshRate;
-    private BrowserViewportSize? _preferredViewport;
-    private BrowserViewportSize? _renderedViewport;
+    private CancellationTokenSource? _headlessResizeCts;
+    private BrowserViewportSize? _lastHeadlessSize;
     private bool _attached;
-    private bool _pressed;
-    private int _clickCount;
-    private string _button = "left";
-    private int _buttons;
-    private bool _moving;
-    private Point _lastPoint;
-    private long _lastMove;
-    private readonly SemaphoreSlim _manualInput = new(1, 1);
 
-    private bool CanShowPreview => _attached && PreviewEnabled
+    // Tab edge fade state
+    private double _lastFadeViewportWidth = -1;
+
+    // Intra-strip tab drag reorder state
+    private BrowserTabItemViewModel? _dragTab;
+    private Border? _dragTabBorder;
+    private double _dragStartX;
+    private bool _isDraggingTab;
+
+    private bool CanShowSurface => _attached && PreviewEnabled && IsEffectivelyVisible
+        && _model?.IsConversationTabSelected != true
         && _owner is not { WindowState: WindowState.Minimized } && _owner is not { IsVisible: false };
 
     public bool PreviewEnabled
@@ -59,19 +60,29 @@ public sealed partial class EmbeddedBrowserView : UserControl
         set => SetValue(PreviewEnabledProperty, value);
     }
 
+    internal ComputerUseCursor? ActiveCursor { get; private set; }
+    internal bool IsRightTabEdgeFaded { get; private set; }
+    internal bool IsLeftTabEdgeFaded { get; private set; }
+
     public EmbeddedBrowserView()
     {
         InitializeComponent();
         DataContextChanged += (_, _) => BindModel();
-        BrowserSurface.SizeChanged += (_, _) => UpdatePreferredViewport();
-        BrowserSurface.PointerPressed += OnPointerPressed;
-        BrowserSurface.PointerReleased += OnPointerReleased;
-        BrowserSurface.PointerMoved += OnPointerMoved;
-        BrowserSurface.PointerWheelChanged += OnWheel;
-        BrowserSurface.AddHandler(InputElement.KeyDownEvent, OnBrowserKeyDown, RoutingStrategies.Tunnel);
-        BrowserSurface.AddHandler(InputElement.TextInputEvent, OnBrowserTextInput, RoutingStrategies.Tunnel);
+        BrowserSurface.SizeChanged += (_, _) => SyncSurfaceAndCursor();
+        CefHost.SizeChanged += (_, _) => SyncSurfaceAndCursor();
+        CefHost.NativeHandleChanged += _ => SyncSurfaceAndCursor();
         AddressBox.GotFocus += (_, _) => _model?.SetAddressEditing(true);
         AddressBox.LostFocus += (_, _) => _model?.SetAddressEditing(false);
+
+        TabStripScrollViewer.ScrollChanged += (_, _) => UpdateTabStripEdgeFade();
+        TabStripScrollViewer.SizeChanged += (_, _) => UpdateTabStripEdgeFade();
+        BrowserTabsControl.SizeChanged += (_, _) => UpdateTabStripEdgeFade();
+        TabStripScrollViewer.AddHandler(PointerWheelChangedEvent, OnTabStripPointerWheelChanged, RoutingStrategies.Tunnel);
+
+        BrowserTabsControl.AddHandler(PointerPressedEvent, OnTabsPointerPressed, RoutingStrategies.Tunnel);
+        BrowserTabsControl.AddHandler(PointerMovedEvent, OnTabsPointerMoved, RoutingStrategies.Tunnel);
+        BrowserTabsControl.AddHandler(PointerReleasedEvent, OnTabsPointerReleased, RoutingStrategies.Tunnel, handledEventsToo: true);
+        BrowserTabsControl.AddHandler(PointerCaptureLostEvent, OnTabsPointerCaptureLost, RoutingStrategies.Bubble, handledEventsToo: true);
     }
 
     protected override void OnAttachedToVisualTree(VisualTreeAttachmentEventArgs e)
@@ -84,24 +95,32 @@ public sealed partial class EmbeddedBrowserView : UserControl
             owner.PropertyChanged += OnOwnerPropertyChanged;
             owner.ScalingChanged += OnOwnerScalingChanged;
             owner.PositionChanged += OnOwnerPositionChanged;
-            owner.Screens.Changed += OnScreensChanged;
         }
         BindModel();
+        UpdateTabStripEdgeFade();
     }
 
     protected override void OnDetachedFromVisualTree(VisualTreeAttachmentEventArgs e)
     {
         _attached = false;
+        ResetTabDrag();
         if (_owner is not null)
         {
             _owner.PropertyChanged -= OnOwnerPropertyChanged;
             _owner.ScalingChanged -= OnOwnerScalingChanged;
             _owner.PositionChanged -= OnOwnerPositionChanged;
-            _owner.Screens.Changed -= OnScreensChanged;
         }
         _owner = null;
-        _previewScreen = null;
-        _displayRefreshRate = null;
+        _headlessResizeCts?.Cancel();
+        _headlessResizeCts?.Dispose();
+        _headlessResizeCts = null;
+        _cursorOverlay.Dispose();
+        if (_page is not null)
+        {
+            _page.CursorChanged -= OnCursorChanged;
+            _page = null;
+        }
+        _model?.DetachSurface();
         BindModel();
         base.OnDetachedFromVisualTree(e);
     }
@@ -109,268 +128,413 @@ public sealed partial class EmbeddedBrowserView : UserControl
     protected override void OnPropertyChanged(AvaloniaPropertyChangedEventArgs change)
     {
         base.OnPropertyChanged(change);
-        if (change.Property == PreviewEnabledProperty)
-            Reconnect();
+        if (change.Property == PreviewEnabledProperty || change.Property == IsVisibleProperty)
+            SyncSurfaceAndCursor();
     }
 
     private void OnOwnerPropertyChanged(object? sender, AvaloniaPropertyChangedEventArgs e)
     {
         if (e.Property == Window.WindowStateProperty || e.Property == IsVisibleProperty)
-            Reconnect();
+        {
+            SyncSurfaceAndCursor();
+            // Window maximize/restore/fullscreen transitions finalize native bounds on the next render pass.
+            Dispatcher.UIThread.Post(SyncSurfaceAndCursor, DispatcherPriority.Render);
+        }
     }
 
-    private void OnOwnerScalingChanged(object? sender, EventArgs e) => UpdatePreferredViewport();
+    private void OnOwnerScalingChanged(object? sender, EventArgs e) => SyncSurfaceAndCursor();
 
-    private void OnOwnerPositionChanged(object? sender, EventArgs e) => UpdateDisplayRefreshRate();
-
-    private void OnScreensChanged(object? sender, EventArgs e)
-    {
-        _previewScreen = null; // A mode switch can keep the same monitor and window size.
-        _displayRefreshRate = null;
-        UpdateDisplayRefreshRate();
-    }
-
-    private void UpdateDisplayRefreshRate()
-    {
-        if (!OperatingSystem.IsLinux() || !CanShowPreview || _owner is null) return;
-        var screen = _owner.Screens.ScreenFromWindow(_owner);
-        if (Equals(screen, _previewScreen)) return;
-        _previewScreen = screen;
-        _displayRefreshRate = X11DisplayRefreshRate.Read(screen);
-        _preview?.Signal();
-    }
+    private void OnOwnerPositionChanged(object? sender, EventArgs e) => RefreshCursor();
 
     private void BindModel()
     {
         if (_model is not null)
+        {
             _model.PropertyChanged -= OnModelPropertyChanged;
+            _model.Tabs.CollectionChanged -= OnTabsCollectionChanged;
+            _model.SetClipboardHandler(null);
+        }
         _model = _attached ? DataContext as EmbeddedBrowserViewModel : null;
         if (_model is not null)
+        {
             _model.PropertyChanged += OnModelPropertyChanged;
-        Reconnect();
+            _model.Tabs.CollectionChanged += OnTabsCollectionChanged;
+            _model.SetClipboardHandler(CopyTextToTopLevelClipboardAsync);
+            CefHost.SetRuntimeDirectory(_model.RuntimeDirectory);
+        }
+        SyncSurfaceAndCursor();
+        UpdateTabStripEdgeFade();
+    }
+
+    private Task CopyTextToTopLevelClipboardAsync(string text)
+    {
+        var clipboard = TopLevel.GetTopLevel(this)?.Clipboard;
+        return clipboard is not null ? clipboard.SetTextAsync(text) : Task.CompletedTask;
+    }
+
+    private void OnTabsCollectionChanged(object? sender, NotifyCollectionChangedEventArgs e)
+    {
+        Dispatcher.UIThread.Post(() =>
+        {
+            if (!_attached) return;
+            UpdateTabStripEdgeFade();
+            if (!_isDraggingTab && e.Action == NotifyCollectionChangedAction.Add)
+                BringActiveTabIntoView();
+        }, DispatcherPriority.Render);
     }
 
     private void OnModelPropertyChanged(object? sender, PropertyChangedEventArgs e)
     {
-        if (e.PropertyName == nameof(EmbeddedBrowserViewModel.CurrentPage))
-            Reconnect();
-        else if (e.PropertyName == nameof(EmbeddedBrowserViewModel.CanTakeOver))
-            RefreshCursor();
-    }
-
-    private void Reconnect()
-    {
-        UpdatePreferredViewport();
-        var page = CanShowPreview ? _model?.CurrentPage : null;
-        if (ReferenceEquals(page, _page) && (page is null || _viewLifetime is not null)) return;
-
-        if (_page is not null) _page.CursorChanged -= OnCursorChanged;
-        var previous = _viewLifetime;
-        _viewLifetime = null;
-        _viewer = null;
-        _preview = null;
-        _page = page;
-        previous?.Cancel();
-        _pressed = false;
-        InvalidateFrame();
-        ClearBitmap();
-        if (ElementComposition.GetElementChildVisual(BrowserGpuLayer) is not null)
-            ElementComposition.SetElementChildVisual(BrowserGpuLayer, null);
-        if (page is not null)
+        if (e.PropertyName is nameof(EmbeddedBrowserViewModel.CurrentPage) or nameof(EmbeddedBrowserViewModel.HasPage)
+            or nameof(EmbeddedBrowserViewModel.HasLivePage) or nameof(EmbeddedBrowserViewModel.ActivePage))
         {
-            page.CursorChanged += OnCursorChanged;
-            _viewLifetime = new CancellationTokenSource();
-            _preview = page.Driver.OpenPreview();
-            _ = ReadFramesAsync(page, _preview, _viewLifetime);
+            SyncSurfaceAndCursor();
+            if (!_isDraggingTab)
+                Dispatcher.UIThread.Post(BringActiveTabIntoView, DispatcherPriority.Render);
+        }
+        else if (e.PropertyName is nameof(EmbeddedBrowserViewModel.IsFullView)
+                 or nameof(EmbeddedBrowserViewModel.IsConversationTabSelected))
+        {
+            SyncSurfaceAndCursor();
+            Dispatcher.UIThread.Post(() =>
+            {
+                if (!_attached) return;
+                SyncSurfaceAndCursor();
+                UpdateTabStripEdgeFade();
+            }, DispatcherPriority.Render);
+        }
+        else if (e.PropertyName == nameof(EmbeddedBrowserViewModel.CanTakeOver))
+        {
+            RefreshCursor();
         }
     }
 
-    private void UpdatePreferredViewport()
+    private void OnTabStripPointerWheelChanged(object? sender, PointerWheelEventArgs e)
     {
-        if (!CanShowPreview || BrowserSurface.Bounds is not { Width: > 0, Height: > 0 } bounds)
+        var extent = TabStripScrollViewer.Extent.Width;
+        var viewport = TabStripScrollViewer.Viewport.Width;
+        var maxOffset = Math.Max(0d, extent - viewport);
+        if (maxOffset <= 0.5)
+            return;
+
+        var rawDelta = Math.Abs(e.Delta.X) > Math.Abs(e.Delta.Y) ? -e.Delta.X : -e.Delta.Y;
+        if (Math.Abs(rawDelta) < 0.0001)
+            return;
+
+        var nextX = Math.Clamp(TabStripScrollViewer.Offset.X + rawDelta * TabWheelStepDip, 0d, maxOffset);
+        TabStripScrollViewer.Offset = new Vector(nextX, 0d);
+        e.Handled = true;
+        UpdateTabStripEdgeFade();
+    }
+
+    private void UpdateTabStripEdgeFade()
+    {
+        var viewport = TabStripScrollViewer.Viewport.Width;
+        var extent = TabStripScrollViewer.Extent.Width;
+        var offset = TabStripScrollViewer.Offset.X;
+        var hasOverflow = extent > viewport + 1d && viewport > 1d;
+        var hasLeft = hasOverflow && offset > 1d;
+        var hasRight = hasOverflow && (offset + viewport) < extent - 1d;
+
+        if (hasLeft == IsLeftTabEdgeFaded && hasRight == IsRightTabEdgeFaded
+            && (!hasOverflow || Math.Abs(viewport - _lastFadeViewportWidth) <= 2d))
+            return;
+
+        IsLeftTabEdgeFaded = hasLeft;
+        IsRightTabEdgeFaded = hasRight;
+        _lastFadeViewportWidth = viewport;
+
+        if (!hasLeft && !hasRight)
         {
-            _preferredViewport = null;
+            TabStripScrollViewer.OpacityMask = null;
             return;
         }
-        var size = new BrowserViewportSize(
-            Math.Max(1, (int)Math.Round(bounds.Width)), Math.Max(1, (int)Math.Round(bounds.Height)), _owner?.RenderScaling ?? 1);
-        UpdateDisplayRefreshRate();
-        _model?.SetPreferredViewport(size);
-        if (size == _preferredViewport) return;
-        _preferredViewport = size;
-        _preview?.Signal();
+
+        var fadeWidth = Math.Min(36d, viewport * 0.28);
+        var fadeFraction = Math.Clamp(fadeWidth / Math.Max(1d, viewport), 0.04, 0.45);
+        var opaque = Colors.Black;
+        var transparent = Color.FromArgb(0, 0, 0, 0);
+        var stops = new GradientStops();
+        if (hasLeft)
+        {
+            stops.Add(new GradientStop(transparent, 0d));
+            stops.Add(new GradientStop(opaque, fadeFraction));
+        }
+        else
+        {
+            stops.Add(new GradientStop(opaque, 0d));
+        }
+
+        if (hasRight)
+        {
+            stops.Add(new GradientStop(opaque, 1d - fadeFraction));
+            stops.Add(new GradientStop(transparent, 1d));
+        }
+        else
+        {
+            stops.Add(new GradientStop(opaque, 1d));
+        }
+
+        TabStripScrollViewer.OpacityMask = new LinearGradientBrush
+        {
+            StartPoint = new RelativePoint(0d, 0.5, RelativeUnit.Relative),
+            EndPoint = new RelativePoint(1d, 0.5, RelativeUnit.Relative),
+            GradientStops = stops
+        };
     }
 
-    private async Task ReadFramesAsync(ChromeBrowserPage page, BrowserPreview preview, CancellationTokenSource lease)
+    private void BringActiveTabIntoView()
     {
-        using (lease)
-        {
-            var token = lease.Token;
-            var viewer = page.Driver;
-            BrowserGpuPreview? gpu = null;
-            try
-            {
-                if (!ReferenceEquals(lease, _viewLifetime)) return;
-                _viewer = viewer;
-                if (viewer.SupportsSharedTextures)
-                {
-                    try { gpu = await BrowserGpuPreview.TryCreateAsync(BrowserGpuLayer, preview.Signal); }
-                    catch (Exception exception) { Log.Warning("Browser GPU preview initialization failed: {Error}", exception.Message); }
-                }
-                BrowserViewportSize? appliedSize = null;
-                int? appliedRate = null;
-                var revision = 0;
-                var repair = false;
-                while (!token.IsCancellationRequested)
-                {
-                    repair |= preview.TakeViewportChange();
-                    if (gpu?.Failure is { } failure)
-                    {
-                        Log.Warning("Browser GPU preview fell back to bitmap frames: {Error}", failure);
-                        gpu.Dispose();
-                        gpu = null;
-                        appliedSize = null;
-                    }
-                    var rate = _displayRefreshRate;
-                    if (!_pressed && _preferredViewport is { } size
-                        && (size != appliedSize || repair || page.ViewportRevision != revision || appliedRate != rate))
-                    {
-                        InvalidateFrame();
-                        try
-                        {
-                            if (page.ViewportSize != size)
-                                await page.ResizeAsync(size, token);
-                            else if (repair && await page.RepairPreviewViewportAsync(size, token))
-                                ClearBitmap();
-                            token.ThrowIfCancellationRequested();
-                            revision = page.ViewportRevision;
-                            await preview.ConfigureAsync(revision, token, sharedTextures: gpu is not null, frameRate: rate);
-                            appliedSize = size;
-                            appliedRate = rate;
-                            repair = false;
-                        }
-                        catch (Exception exception) when (viewer.IsOpen && !token.IsCancellationRequested
-                            && exception is ChromeDevToolsException { IsNavigation: true } or OperationCanceledException)
-                        {
-                            await Task.Delay(200, token);
-                            continue;
-                        }
-                        if (_preferredViewport != size && !_pressed) continue;
-                    }
+        if (!_attached || _model is null || _model.IsConversationTabSelected || _model.ActivePage is null)
+            return;
+        var index = _model.Tabs.IndexOf(_model.ActivePage);
+        if (index < 0) return;
+        if (BrowserTabsControl.ContainerFromIndex(index) is not Control container) return;
 
-                    bool acknowledgeBitmap;
-                    using (var frame = preview.TakeFrame())
-                    {
-                        if (frame is null)
-                        {
-                            await preview.WaitAsync(token);
-                            continue;
-                        }
-                        token.ThrowIfCancellationRequested();
-                        acknowledgeBitmap = !frame.HasTexture;
-                        if (!repair && appliedSize is { } frameSize && _preferredViewport == frameSize
-                            && frame.Revision == revision && page.ViewportRevision == revision)
-                        {
-                            if (frame.Width == frameSize.PixelWidth && frame.Height == frameSize.PixelHeight)
-                            {
-                                if (acknowledgeBitmap)
-                                {
-                                    await Dispatcher.UIThread.InvokeAsync(() =>
-                                    {
-                                        if (_preferredViewport == frameSize && page.ViewportRevision == revision)
-                                        {
-                                            gpu?.Hide();
-                                            PresentFrame(frame, frameSize);
-                                        }
-                                    }, DispatcherPriority.Background, token);
-                                }
-                                else if (gpu is not null)
-                                {
-                                    try
-                                    {
-                                        await gpu.UploadAsync(frame, () =>
-                                        {
-                                            if (token.IsCancellationRequested || _preferredViewport != frameSize
-                                                || page.ViewportRevision != frame.Revision || gpu?.IsVisible != true) return;
-                                            if (_bitmap is not null) ClearBitmap();
-                                            MarkFramePresented(frameSize, sharedTexture: true);
-                                        });
-                                        if (!token.IsCancellationRequested && _preferredViewport == frameSize && page.ViewportRevision == revision)
-                                            gpu.Show();
-                                    }
-                                    catch (Exception exception)
-                                    {
-                                        gpu.ReportFailure(exception);
-                                    }
-                                }
-                            }
-                            else
-                            {
-                                repair = true;
-                                InvalidateFrame();
-                            }
-                        }
-                    }
-                    if (acknowledgeBitmap) await preview.AcknowledgeAsync(token);
-                    if (repair && !_pressed) await Task.Delay(80, token);
-                }
-            }
-            catch (OperationCanceledException) when (token.IsCancellationRequested) { }
-            catch (Exception exception)
+        var viewport = TabStripScrollViewer.Viewport.Width;
+        var extent = TabStripScrollViewer.Extent.Width;
+        var maxOffset = Math.Max(0d, extent - viewport);
+        if (maxOffset <= 0.5)
+        {
+            UpdateTabStripEdgeFade();
+            return;
+        }
+
+        var left = container.Bounds.Left;
+        var right = container.Bounds.Right;
+        var current = TabStripScrollViewer.Offset.X;
+        var next = current;
+        if (left < current)
+            next = left;
+        else if (right > current + viewport)
+            next = right - viewport;
+
+        next = Math.Clamp(next, 0d, maxOffset);
+        if (Math.Abs(next - current) > 0.5)
+            TabStripScrollViewer.Offset = new Vector(next, 0d);
+        UpdateTabStripEdgeFade();
+    }
+
+    private void OnTabsPointerPressed(object? sender, PointerPressedEventArgs e)
+    {
+        if (_model is null) return;
+        if (!e.GetCurrentPoint(BrowserTabsControl).Properties.IsLeftButtonPressed)
+            return;
+
+        if (e.Source is not Visual sourceVisual) return;
+        var tabBorder = FindTabBorderFromSource(sourceVisual, out var hitCloseButton);
+        if (tabBorder is null || hitCloseButton || tabBorder.DataContext is not BrowserTabItemViewModel tab)
+            return;
+
+        _model.SelectTab(tab);
+        _dragTab = tab;
+        _dragTabBorder = tabBorder;
+        _dragStartX = e.GetPosition(BrowserTabsControl).X;
+        _isDraggingTab = false;
+        e.Pointer.Capture(BrowserTabsControl);
+    }
+
+    private void OnTabsPointerMoved(object? sender, PointerEventArgs e)
+    {
+        if (_dragTab is null || _model is null) return;
+        if (!e.GetCurrentPoint(BrowserTabsControl).Properties.IsLeftButtonPressed)
+        {
+            ResetTabDrag();
+            return;
+        }
+
+        var currentX = e.GetPosition(BrowserTabsControl).X;
+        var deltaX = currentX - _dragStartX;
+        if (!_isDraggingTab)
+        {
+            if (Math.Abs(deltaX) < TabDragThresholdDip) return;
+            _isDraggingTab = true;
+            if (_dragTabBorder is not null)
+                _dragTabBorder.ZIndex = 10;
+        }
+
+        // Auto-scroll when dragging near left/right edge of the tab viewport
+        var scrollPos = e.GetPosition(TabStripScrollViewer).X;
+        var viewport = TabStripScrollViewer.Viewport.Width;
+        var maxOffset = Math.Max(0d, TabStripScrollViewer.Extent.Width - viewport);
+        if (maxOffset > 0.5)
+        {
+            if (scrollPos < TabEdgeAutoScrollZoneDip && TabStripScrollViewer.Offset.X > 0d)
             {
-                if (ReferenceEquals(lease, _viewLifetime))
-                    _model?.ReportPreviewError(exception.Message);
+                var nextOffset = Math.Max(0d, TabStripScrollViewer.Offset.X - TabEdgeAutoScrollStepDip);
+                TabStripScrollViewer.Offset = new Vector(nextOffset, 0d);
+                UpdateTabStripEdgeFade();
             }
-            finally
+            else if (scrollPos > viewport - TabEdgeAutoScrollZoneDip && TabStripScrollViewer.Offset.X < maxOffset)
             {
-                if (ReferenceEquals(lease, _viewLifetime))
-                {
-                    _viewLifetime = null;
-                    _viewer = null;
-                    _preview = null;
-                    InvalidateFrame();
-                }
-                preview.Dispose();
-                if (viewer.IsOpen)
-                {
-                    using var stop = new CancellationTokenSource(TimeSpan.FromSeconds(2));
-                    try { await preview.StopAsync(stop.Token); }
-                    catch (Exception exception) when (exception is ChromeDevToolsException or OperationCanceledException or IOException) { }
-                }
-                gpu?.Dispose();
+                var nextOffset = Math.Min(maxOffset, TabStripScrollViewer.Offset.X + TabEdgeAutoScrollStepDip);
+                TabStripScrollViewer.Offset = new Vector(nextOffset, 0d);
+                UpdateTabStripEdgeFade();
             }
+        }
+
+        var currentIndex = _model.Tabs.IndexOf(_dragTab);
+        if (currentIndex < 0)
+        {
+            ResetTabDrag();
+            return;
+        }
+
+        // Handle single-step and fast-flick multi-tab swaps smoothly within one pointer move.
+        while (BrowserTabsControl.ContainerFromIndex(currentIndex) is Control currentContainer)
+        {
+            var draggedCenter = currentContainer.Bounds.Center.X + deltaX;
+            if (deltaX > 0 && currentIndex < _model.Tabs.Count - 1
+                && BrowserTabsControl.ContainerFromIndex(currentIndex + 1) is Control nextContainer
+                && draggedCenter > nextContainer.Bounds.Center.X)
+            {
+                var shift = nextContainer.Bounds.Width + TabSpacingDip;
+                ClearDraggedBorderTransform();
+                if (!_model.MoveTab(_dragTab.Id, currentIndex + 1)) break;
+                _dragStartX += shift;
+                deltaX = currentX - _dragStartX;
+                currentIndex++;
+                BrowserTabsControl.UpdateLayout();
+                RebindDraggedBorder(_dragTab);
+                continue;
+            }
+            if (deltaX < 0 && currentIndex > 0
+                && BrowserTabsControl.ContainerFromIndex(currentIndex - 1) is Control prevContainer
+                && draggedCenter < prevContainer.Bounds.Center.X)
+            {
+                var shift = prevContainer.Bounds.Width + TabSpacingDip;
+                ClearDraggedBorderTransform();
+                if (!_model.MoveTab(_dragTab.Id, currentIndex - 1)) break;
+                _dragStartX -= shift;
+                deltaX = currentX - _dragStartX;
+                currentIndex--;
+                BrowserTabsControl.UpdateLayout();
+                RebindDraggedBorder(_dragTab);
+                continue;
+            }
+            break;
+        }
+
+        if (_dragTabBorder is not null)
+            _dragTabBorder.RenderTransform = new TranslateTransform(deltaX, 0d);
+        e.Handled = true;
+    }
+
+    private void OnTabsPointerReleased(object? sender, PointerReleasedEventArgs e)
+    {
+        if (_dragTab is null) return;
+        if (Equals(e.Pointer.Captured, BrowserTabsControl))
+            e.Pointer.Capture(null);
+        ResetTabDrag();
+    }
+
+    private void OnTabsPointerCaptureLost(object? sender, PointerCaptureLostEventArgs e) => ResetTabDrag();
+
+    private void ClearDraggedBorderTransform()
+    {
+        if (_dragTabBorder is null) return;
+        _dragTabBorder.RenderTransform = null;
+        _dragTabBorder.ZIndex = 0;
+    }
+
+    private void RebindDraggedBorder(BrowserTabItemViewModel tab)
+    {
+        if (_model is null) return;
+        var index = _model.Tabs.IndexOf(tab);
+        if (index < 0) return;
+        if (BrowserTabsControl.ContainerFromIndex(index) is Control container)
+        {
+            _dragTabBorder = container.GetVisualDescendants()
+                .OfType<Border>()
+                .FirstOrDefault(b => b.Classes.Contains("browser-tab"));
+            if (_dragTabBorder is not null)
+                _dragTabBorder.ZIndex = 10;
         }
     }
 
-    private void PresentFrame(BrowserPreviewFrame frame, BrowserViewportSize size)
+    private void ResetTabDrag()
     {
-        var pixels = new PixelSize(frame.Width, frame.Height);
-        if (_bitmap is null || _bitmap.PixelSize != pixels)
+        ClearDraggedBorderTransform();
+        _dragTab = null;
+        _dragTabBorder = null;
+        _isDraggingTab = false;
+    }
+
+    private static Border? FindTabBorderFromSource(Visual source, out bool hitCloseButton)
+    {
+        hitCloseButton = false;
+        for (Visual? current = source; current is not null; current = current.GetVisualParent())
         {
-            ClearBitmap();
-            // Skia samples the source rectangle in pixels. The Image fits the full raster to the panel.
-            _bitmap = new WriteableBitmap(pixels, new Vector(96, 96), PixelFormat.Bgra8888, AlphaFormat.Premul);
-            BrowserImage.Source = _bitmap;
+            if (current is Button button && button.Classes.Contains("browser-tab-close"))
+                hitCloseButton = true;
+            if (current is Border border && border.Classes.Contains("browser-tab"))
+                return border;
         }
-        using (var buffer = _bitmap.Lock())
+        return null;
+    }
+
+    private void SyncSurfaceAndCursor()
+    {
+        var visible = CanShowSurface;
+        var page = visible && _model?.CurrentPage is { IsPlaceholder: false } live ? live : null;
+
+        if (!ReferenceEquals(page, _page))
         {
-            var rowLength = frame.Width * 4;
-            if (buffer.RowBytes == rowLength)
-                Marshal.Copy(frame.Pixels, 0, buffer.Address, rowLength * frame.Height);
+            if (_page is not null) _page.CursorChanged -= OnCursorChanged;
+            _page = page;
+            _lastHeadlessSize = null;
+            if (_page is not null) _page.CursorChanged += OnCursorChanged;
+        }
+
+        if (_model is not null)
+        {
+            var bounds = BrowserSurface.Bounds;
+            var scale = _owner?.RenderScaling ?? 1d;
+            if (visible && bounds.Width > 0 && bounds.Height > 0)
+            {
+                var size = new BrowserViewportSize(
+                    Math.Max(1, (int)Math.Round(bounds.Width)),
+                    Math.Max(1, (int)Math.Round(bounds.Height)),
+                    scale);
+                _model.UpdateSurface(CefHost.NativeHandle, size, visible: page is not null, displayedPage: page);
+                if (CefNativeBridge.IsHeadlessRuntime && page is not null && size != _lastHeadlessSize)
+                {
+                    _lastHeadlessSize = size;
+                    ScheduleHeadlessResize(page, size);
+                }
+            }
             else
-                for (var y = 0; y < frame.Height; y++)
-                    Marshal.Copy(frame.Pixels, y * rowLength, buffer.Address + y * buffer.RowBytes, rowLength);
+            {
+                _model.UpdateSurface(CefHost.NativeHandle, new BrowserViewportSize(800, 720, scale), visible: false, displayedPage: null);
+            }
         }
-        BrowserImage.InvalidateVisual();
-        MarkFramePresented(size, sharedTexture: false);
+
+        RefreshCursor();
     }
 
-    private void MarkFramePresented(BrowserViewportSize size, bool sharedTexture)
+    private void ScheduleHeadlessResize(ChromeBrowserPage page, BrowserViewportSize size)
     {
-        var changed = _renderedViewport != size;
-        _renderedViewport = size;
-        if (changed) RefreshCursor();
-        PreviewFramePresented?.Invoke(sharedTexture, size);
+        _headlessResizeCts?.Cancel();
+        _headlessResizeCts?.Dispose();
+        var cts = new CancellationTokenSource();
+        _headlessResizeCts = cts;
+        _ = ApplyHeadlessResizeAsync(page, size, cts);
+    }
+
+    private static async Task ApplyHeadlessResizeAsync(ChromeBrowserPage page, BrowserViewportSize size, CancellationTokenSource cts)
+    {
+        try
+        {
+            await page.ResizeAsync(size, cts.Token).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (cts.IsCancellationRequested)
+        {
+            // Superseded by a newer layout pass or view detach.
+        }
+        catch (Exception ex)
+        {
+            Log.Debug("Headless CEF viewport resize ended: {Error}", ex.Message);
+        }
     }
 
     private void OnCursorChanged(ChromeBrowserPage page) => Dispatcher.UIThread.Post(() =>
@@ -378,196 +542,20 @@ public sealed partial class EmbeddedBrowserView : UserControl
         if (ReferenceEquals(_page, page)) RefreshCursor();
     });
 
-    private void RefreshCursor() => BrowserCursor.ShowBrowserCursor(
-        _model?.CanTakeOver == true && _renderedViewport is { } size && _page?.ViewportSize == size ? _page.Cursor : null);
-
-    private void InvalidateFrame()
+    private void RefreshCursor()
     {
-        _renderedViewport = null;
-        BrowserCursor.ShowBrowserCursor(null);
-    }
-
-    private void ClearBitmap()
-    {
-        BrowserImage.Source = null;
-        _bitmap?.Dispose();
-        _bitmap = null;
-    }
-
-    private bool TryMapPoint(PointerEventArgs e, out Point result)
-    {
-        result = default;
-        var bounds = BrowserSurface.Bounds.Size;
-        if (_model is not { HasPage: true, HasPrompt: false } || _viewer is null || _renderedViewport is not { } size
-            || _preferredViewport != size || bounds.Width <= 0 || bounds.Height <= 0)
-            return false;
-
-        var point = e.GetPosition(BrowserSurface);
-        if (!new Rect(bounds).Contains(point))
-            return false;
-        result = new Point(point.X * size.Width / bounds.Width, point.Y * size.Height / bounds.Height);
-        _lastPoint = result;
-        return true;
-    }
-
-    private async void OnPointerPressed(object? sender, PointerPressedEventArgs e)
-    {
-        var button = e.GetCurrentPoint(BrowserSurface).Properties.PointerUpdateKind switch
+        var cursor = CanShowSurface && _model?.CanTakeOver == true ? _page?.Cursor : null;
+        ActiveCursor = cursor;
+        if (cursor is null || _owner is null || BrowserSurface.Bounds is not { Width: > 0, Height: > 0 } bounds)
         {
-            PointerUpdateKind.LeftButtonPressed => ("left", 1),
-            PointerUpdateKind.RightButtonPressed => ("right", 2),
-            PointerUpdateKind.MiddleButtonPressed => ("middle", 4),
-            _ => ("", 0)
-        };
-        if (_pressed || button.Item2 == 0 || !TryMapPoint(e, out var point))
-            return;
-        var position = e.GetPosition(BrowserSurface);
-        BrowserImeInput.Margin = new Thickness(position.X, position.Y, 0, 0);
-        BrowserImeInput.Focus();
-        e.Pointer.Capture(BrowserSurface);
-        _pressed = true;
-        (_button, _buttons) = button;
-        _clickCount = e.ClickCount;
-        var clicks = _clickCount;
-        e.Handled = true;
-        await SendInputAsync((viewer, token) => viewer.CallAsync("Input.dispatchMouseEvent", new
-        {
-            type = "mousePressed", x = point.X, y = point.Y, button = button.Item1, buttons = button.Item2,
-            clickCount = clicks, modifiers = ModifierMask(e.KeyModifiers)
-        }, token));
-    }
-
-    private async void OnPointerReleased(object? sender, PointerReleasedEventArgs e)
-    {
-        if (!_pressed) return;
-        _buttons = 0;
-        e.Pointer.Capture(null);
-        var preview = _preview;
-        var point = TryMapPoint(e, out var current) ? current : _lastPoint;
-        var button = _button;
-        var clicks = _clickCount;
-        e.Handled = true;
-        try
-        {
-            await SendInputAsync((viewer, token) => viewer.CallAsync("Input.dispatchMouseEvent", new
-            {
-                type = "mouseReleased", x = point.X, y = point.Y, button, buttons = 0, clickCount = clicks,
-                modifiers = ModifierMask(e.KeyModifiers)
-            }, token));
-        }
-        finally
-        {
-            if (ReferenceEquals(preview, _preview))
-            {
-                _pressed = false;
-                preview?.Signal();
-            }
-        }
-    }
-
-    private async void OnPointerMoved(object? sender, PointerEventArgs e)
-    {
-        var now = Environment.TickCount64;
-        if (_moving || now - _lastMove < 16 || !TryMapPoint(e, out var point)) return;
-        _lastMove = now;
-        _moving = true;
-        try
-        {
-            await SendInputAsync((viewer, token) => viewer.CallAsync("Input.dispatchMouseEvent", new
-            {
-                type = "mouseMoved", x = point.X, y = point.Y, buttons = _pressed ? _buttons : 0,
-                modifiers = ModifierMask(e.KeyModifiers)
-            }, token), changesPage: _pressed);
-        }
-        finally
-        {
-            _moving = false;
-        }
-    }
-
-    private async void OnWheel(object? sender, PointerWheelEventArgs e)
-    {
-        if (!TryMapPoint(e, out var point)) return;
-        e.Handled = true;
-        await SendInputAsync((viewer, token) => viewer.CallAsync("Input.dispatchMouseEvent", new
-        {
-            type = "mouseWheel", x = point.X, y = point.Y, deltaX = -e.Delta.X * 120, deltaY = -e.Delta.Y * 120,
-            modifiers = ModifierMask(e.KeyModifiers)
-        }, token));
-    }
-
-    private async void OnBrowserKeyDown(object? sender, KeyEventArgs e)
-    {
-        if (_model is not { HasPage: true, HasPrompt: false } || _viewer is null)
-            return;
-        if ((e.KeyModifiers & (KeyModifiers.Control | KeyModifiers.Meta)) != 0 && e.Key == Key.V)
-        {
-            e.Handled = true;
-            await SendInputAsync(async (viewer, token) =>
-            {
-                if (TopLevel.GetTopLevel(this)?.Clipboard is { } clipboard && await clipboard.TryGetTextAsync() is { } text)
-                    await viewer.CallAsync("Input.insertText", new { text }, token);
-            });
+            _cursorOverlay.Hide();
             return;
         }
-        var key = e.Key switch
-        {
-            Key.Enter => "Return",
-            Key.Tab => "Tab",
-            Key.Escape => "Escape",
-            Key.Left => "Left",
-            Key.Right => "Right",
-            Key.Up => "Up",
-            Key.Down => "Down",
-            Key.Home => "Home",
-            Key.End => "End",
-            Key.PageUp => "Page_Up",
-            Key.PageDown => "Page_Down",
-            Key.Back => "BackSpace",
-            Key.Delete => "Delete",
-            _ => null
-        };
-        if (key is null) return;
-        e.Handled = true;
-        await SendInputAsync((viewer, token) => BrowserComputerUseSession.PressKeyAsync(viewer, key, token));
-    }
 
-    private async void OnBrowserTextInput(object? sender, TextInputEventArgs e)
-    {
-        if (_model is not { HasPage: true, HasPrompt: false } || _viewer is null || string.IsNullOrEmpty(e.Text)) return;
-        e.Handled = true;
-        var text = e.Text;
-        await SendInputAsync((viewer, token) => BrowserComputerUseSession.TypeCommittedTextAsync(viewer, text, token));
+        var topLeft = BrowserSurface.PointToScreen(new Point(0, 0));
+        var bottomRight = BrowserSurface.PointToScreen(new Point(bounds.Width, bounds.Height));
+        var region = new PixelRect(topLeft, bottomRight);
+        var scale = OperatingSystem.IsMacOS() ? 1d : _owner.RenderScaling;
+        _cursorOverlay.Show(_owner, region, scale, cursor);
     }
-
-    private async Task SendInputAsync(Func<ChromeDevTools, CancellationToken, Task> send, bool changesPage = true)
-    {
-        if (_model is not { HasPage: true, HasPrompt: false } model || _page is not { } page
-            || _viewer is not { } viewer || _viewLifetime is not { } lease)
-            return;
-        var token = lease.Token;
-        try
-        {
-            // Keep manual events in order and send them between complete agent input operations.
-            await _manualInput.WaitAsync(token);
-            try
-            {
-                if (ReferenceEquals(lease, _viewLifetime))
-                    await model.WithManualInputAsync(page, () => send(viewer, token), token, changesPage);
-            }
-            finally { _manualInput.Release(); }
-        }
-        catch (OperationCanceledException) when (token.IsCancellationRequested) { }
-        catch (Exception exception)
-        {
-            if (ReferenceEquals(lease, _viewLifetime))
-                _model?.ReportPreviewError(exception.Message);
-        }
-    }
-
-    private static int ModifierMask(KeyModifiers keys) =>
-        ((keys & KeyModifiers.Alt) != 0 ? 1 : 0)
-        | ((keys & KeyModifiers.Control) != 0 ? 2 : 0)
-        | ((keys & KeyModifiers.Meta) != 0 ? 4 : 0)
-        | ((keys & KeyModifiers.Shift) != 0 ? 8 : 0);
 }

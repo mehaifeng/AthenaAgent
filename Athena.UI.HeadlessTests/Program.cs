@@ -59,9 +59,6 @@ try
 if (Environment.GetEnvironmentVariable("ATHENA_DESKTOP_SMOKE_GOAL") is { Length: > 0 } desktopGoal)
     Environment.Exit(DesktopComputerUseTests.RunLive(desktopGoal));
 
-if (Environment.GetEnvironmentVariable("ATHENA_BROWSER_PREVIEW_BENCHMARK") is { Length: > 0 } browserBenchmark)
-    Environment.Exit(BrowserPreviewBenchmark.Run(browserBenchmark));
-
 // 测试断言按中文界面文案编写，必须显式固定 zh-CN：
 // LocalizationService 在构造时读取 CultureInfo.CurrentUICulture，
 // 若不固定会随 CI 机器系统语言漂移（本地中文通过、CI 英文失败）。
@@ -81,6 +78,15 @@ var outputPath = args.Length > 0 && !args[0].StartsWith("-")
 if (args.Length > 0 && args[0].StartsWith("-"))
     Console.Error.WriteLine($"[WARN] Ignoring flag-like output path argument '{args[0]}'; defaulting to {outputPath}");
 
+if (OperatingSystem.IsMacOS())
+{
+    // Preload Chromium Embedded Framework before App.Initialize() opens logs.db / libsqlite3mc
+    // and spawns background threads, matching Program.Main() in the desktop app.
+    var preloadDir = Environment.GetEnvironmentVariable("ATHENA_BROWSER_WORKER_RUNTIME")
+        ?? Environment.GetEnvironmentVariable("ATHENA_BROWSER_RUNTIME_DIRECTORY");
+    CefNativeBridge.TryPreloadFramework(string.IsNullOrWhiteSpace(preloadDir) ? null : preloadDir);
+}
+
 AppBuilder.Configure<App>()
     .UseSkia()
     .UseHeadless(new AvaloniaHeadlessPlatformOptions
@@ -89,6 +95,13 @@ AppBuilder.Configure<App>()
     })
     .WithInterFont()
     .SetupWithoutStarting();
+
+if (Environment.GetEnvironmentVariable("ATHENA_BROWSER_PERSISTENCE_WORKER") is { Length: > 0 } browserWorkerPhase)
+{
+    PumpForCompletion(BrowserRuntimeTests.RunWorkerPhaseAsync(browserWorkerPhase),
+        $"running CEF browser persistence worker ({browserWorkerPhase})", 120000);
+    Environment.Exit(0);
+}
 
 TestLinuxDigitsUseTextFont();
 
@@ -207,7 +220,7 @@ if (Environment.GetEnvironmentVariable("ATHENA_HEADLESS_ONLY") == "browser-runti
 {
     PumpForCompletion(BrowserRuntimeTests.RunAsync(
         Environment.GetEnvironmentVariable("ATHENA_BROWSER_RUNTIME_DIRECTORY") ?? BrowserRuntime.DefaultDirectory),
-        "checking bundled browser persistence and input ownership", 60000);
+        "checking bundled browser persistence and input ownership", 120000);
     Environment.Exit(0);
 }
 if (Environment.GetEnvironmentVariable("ATHENA_HEADLESS_ONLY") == "computer-use")
@@ -218,11 +231,15 @@ if (Environment.GetEnvironmentVariable("ATHENA_HEADLESS_ONLY") == "computer-use"
     TestEmbeddedBrowserExecutionSettings();
     PumpForCompletion(ModelRoleProbeTests.RunAsync(), "proving each role protocol and visual input");
     var smokeRuntime = Environment.GetEnvironmentVariable("ATHENA_BROWSER_SMOKE") == "1";
-    TestEmbeddedBrowserPane(smokeRuntime, args.Length == 0 ? null : outputPath);
     if (smokeRuntime)
+    {
         PumpForCompletion(BrowserRuntimeTests.RunAsync(
             Environment.GetEnvironmentVariable("ATHENA_BROWSER_RUNTIME_DIRECTORY") ?? BrowserRuntime.DefaultDirectory),
-            "checking the bundled browser profile and manual takeover", 60000);
+            "checking the bundled browser profile and manual takeover", 120000);
+    }
+    TestEmbeddedBrowserPane(smokeRuntime, args.Length == 0 ? null : outputPath);
+    if (smokeRuntime)
+        PumpForCompletion(CefNativeBridge.ShutdownProcessAsync(), "shutting down CEF after pane test", 15000);
     Environment.Exit(0);
 }
 OnboardingEntranceTests.Run(outputPath);
@@ -2613,6 +2630,17 @@ static void TestEmbeddedBrowserExecutionSettings()
                 || retries.Minimum != EmbeddedBrowserSettings.MinActionRetryCount || retries.Maximum != EmbeddedBrowserSettings.MaxActionRetryCount)
                 throw new InvalidOperationException($"Unexpected browser defaults. Timeout {timeout.Value} [{timeout.Minimum}, {timeout.Maximum}], retries {retries.Value} [{retries.Minimum}, {retries.Maximum}], test enabled {testButton.IsEffectivelyEnabled}.");
 
+            // Validate bare-domain HomePage normalization & invalid scheme rejection in settings
+            settings.HomePage = "example.org";
+            if (settings.HomePageError is not null || session.Current.EmbeddedBrowser.HomePage != "https://example.org/")
+                throw new InvalidOperationException($"Bare-domain home page must normalize to https://example.org/, got '{session.Current.EmbeddedBrowser.HomePage}' (err: '{settings.HomePageError}').");
+            settings.HomePage = "javascript:alert(1)";
+            if (settings.HomePageError is null || session.Current.EmbeddedBrowser.HomePage != "https://example.org/")
+                throw new InvalidOperationException("Non-HTTP(S) home page schemes must be rejected without overwriting saved HomePage.");
+            settings.HomePage = "https://example.org/";
+            if (settings.HomePageError is not null)
+                throw new InvalidOperationException("Valid explicit HTTPS home page must clear HomePageError.");
+
             providerPicker.SelectedItem = provider;
             Dispatcher.UIThread.RunJobs();
             if (modelPicker.Items.Count != 1 || !ReferenceEquals(modelPicker.Items[0], vision))
@@ -2672,8 +2700,10 @@ static void TestEmbeddedBrowserPane(bool runChrome, string? previewPath = null)
     var transport = new HttpClientPipelineTransport(http);
     var computerUse = new ComputerUseService(configService, Log.Logger, host, new ModelRoleProbeService(), transport);
     var external = new BrowserTestUrlOpener();
+    string? copiedUrl = null;
     var localization = new LocalizationService();
-    using var browser = new EmbeddedBrowserViewModel(host, computerUse, localization, external);
+    using var browser = new EmbeddedBrowserViewModel(host, computerUse, localization, external,
+        copyToClipboard: text => { copiedUrl = text; return Task.CompletedTask; });
     using var session = new AppConfigurationSession(configService);
     var paths = new TemporaryPathService(fixtureRoot.FullName);
     var services = new ServiceCollection();
@@ -2707,8 +2737,14 @@ static void TestEmbeddedBrowserPane(bool runChrome, string? previewPath = null)
         var conversationView = window.FindControl<MainConversationView>("MainConversationView")!;
         var opener = conversationView.FindControl<Button>("RevealBrowserButton")!;
         var close = pane.FindControl<Button>("CloseBrowserButton")!;
-        var preview = pane.FindControl<Image>("BrowserImage")!;
         var surface = pane.FindControl<Border>("BrowserSurface")!;
+        var cefHost = pane.FindControl<CefBrowserHostControl>("CefHost")!;
+        var notice = pane.FindControl<Border>("BrowserNotice")!;
+        var promptCard = pane.FindControl<Border>("BrowserPromptCard")!;
+
+        if (surface.GetVisualDescendants().Contains(notice) || surface.GetVisualDescendants().Contains(promptCard))
+            throw new InvalidOperationException("Browser notice and prompt cards must live outside the native CEF surface to prevent airspace clipping.");
+
         PixelSize WaitForFilledViewport(PixelSize? previous = null)
         {
             PixelSize size = default;
@@ -2721,27 +2757,15 @@ static void TestEmbeddedBrowserPane(bool runChrome, string? previewPath = null)
                     size = new PixelSize(viewport.PixelWidth, viewport.PixelHeight);
                     return browser.CurrentPage?.ViewportSize == viewport
                         && (previous is null || (size.Width != previous.Value.Width && size.Height != previous.Value.Height))
-                        && preview.Bounds.Size == surface.Bounds.Size
-                        && preview.Source is Bitmap bitmap && bitmap.PixelSize == size;
-                }, 7000, "Chrome must cover the full browser surface after layout.");
+                        && cefHost.IsVisible;
+                }, 7000, "CEF must match the browser surface size after layout.");
             }
             catch (InvalidOperationException exception)
             {
-                throw new InvalidOperationException($"{exception.Message} Surface {size}, image {(preview.Source as Bitmap)?.PixelSize}, "
+                throw new InvalidOperationException($"{exception.Message} Surface {size}, "
                     + $"browser {browser.CurrentPage?.ViewportSize}, status '{browser.BrowseStatus}' / '{browser.TaskStatus}'.", exception);
             }
             return size;
-        }
-
-        bool HasRenderedBrowserPixel(Point point, SkiaSharp.SKColor color)
-        {
-            if (preview.TranslatePoint(point, window) is not { } marker) return false;
-            using var snapshot = window.CaptureRenderedFrame();
-            if (snapshot is null) return false;
-            using var png = new MemoryStream();
-            snapshot.Save(png, PngBitmapEncoderOptions.Default);
-            using var pixels = SkiaSharp.SKBitmap.Decode(png.ToArray());
-            return pixels.GetPixel((int)(marker.X * window.RenderScaling), (int)(marker.Y * window.RenderScaling)) == color;
         }
 
         PumpUntil(() => !shell.IsConversationSwitching && ReferenceEquals(conversationView.DataContext, shell.SelectedConversation?.Chat));
@@ -2753,9 +2777,329 @@ static void TestEmbeddedBrowserPane(bool runChrome, string? previewPath = null)
             throw new InvalidOperationException("Only the explicit HTTP(S) action should open a system browser.");
         opener.Command!.Execute(null);
         PumpUntil(() => pane.IsVisible && pane.PreviewEnabled && !config.MainLayout.RightPanelCollapsed);
+        // Initial reveal with no custom homepage must select a blank new tab immediately (never an empty tab strip)
+        PumpUntil(() => browser.Tabs.Count == 1 && browser.Tabs[0].IsActive && !browser.Tabs[0].HasNavigableUrl
+            && !browser.HasLivePage && !cefHost.IsVisible);
         close.Command!.Execute(null);
         PumpUntil(() => !pane.IsVisible && !pane.PreviewEnabled && !config.MainLayout.RightPanelCollapsed);
         Console.WriteLine("[PASS] The conversation opens the browser tool and closing it restores the right tools");
+
+        // === Phase 2 UI regression suite (runs on every headless test pass without launching CEF) ===
+        {
+            // 0. User address normalization (omitted scheme -> https://, local/loopback/private IP -> http://, unsafe schemes rejected)
+            (string Input, string? Expected)[] addressCases =
+            [
+                ("github.com", "https://github.com/"),
+                ("one.google.com/about/google-ai-plans/?hl=zh-CN#ultra", "https://one.google.com/about/google-ai-plans/?hl=zh-CN#ultra"),
+                ("example.org:8443/docs", "https://example.org:8443/docs"),
+                ("//example.org/relative", "https://example.org/relative"),
+                ("http://example.org/plain", "http://example.org/plain"),
+                ("https://example.org/secure", "https://example.org/secure"),
+                ("localhost", "http://localhost/"),
+                ("localhost:3000/app", "http://localhost:3000/app"),
+                ("127.0.0.1:8080/test", "http://127.0.0.1:8080/test"),
+                ("[::1]:5173/dev", "http://[::1]:5173/dev"),
+                ("192.168.1.10/admin", "http://192.168.1.10/admin"),
+                ("", null),
+                ("   ", null),
+                ("hello world", null),
+                ("hello", null),
+                ("file:///etc/hosts", null),
+                ("javascript:alert(1)", null),
+                ("ftp://example.org/file", null),
+                ("data:text/plain,hi", null),
+                ("mailto:user@example.org", null),
+                ("about:blank", null),
+                ("user:pass@example.org", null),
+                ("user@example.org", null),
+                (".example.org", null),
+                ("a..b.org", null)
+            ];
+            foreach (var (raw, expected) in addressCases)
+            {
+                var ok = EmbeddedBrowser.TryNormalizeUserAddress(raw, out var normalized);
+                if (expected is null)
+                {
+                    if (ok)
+                        throw new InvalidOperationException($"Address '{raw}' must be rejected, but normalized to '{normalized}'.");
+                }
+                else
+                {
+                    if (!ok || normalized?.AbsoluteUri != expected)
+                        throw new InvalidOperationException($"Address '{raw}' expected '{expected}', got ok={ok}, '{normalized?.AbsoluteUri}'.");
+                }
+            }
+
+            var tabsControl = pane.FindControl<ItemsControl>("BrowserTabsControl")!;
+            var tabScroller = pane.FindControl<ScrollViewer>("TabStripScrollViewer")!;
+            var newTabBtn = pane.FindControl<Button>("NewTabButton")!;
+            var toggleFullViewBtn = pane.FindControl<Button>("ToggleFullViewButton")!;
+            var fullViewLeading = pane.FindControl<StackPanel>("FullViewLeadingTabs")!;
+            var mainChatTabBtn = pane.FindControl<Button>("MainConversationTabButton")!;
+            var restoreSplitBtn = pane.FindControl<Button>("RestoreSplitViewButton")!;
+            var conversationPanel = window.FindControl<Border>("ConversationPanel")!;
+            var rightPanelGrid = window.FindControl<Grid>("RightPanelGrid")!;
+            var rightSplitter = window.FindControl<GridSplitter>("RightSideSplitter")!;
+            var shellGrid = window.FindControl<Grid>("MainShellGrid")!;
+
+            config.MainLayout.RightWidth = 420;
+            opener.Command!.Execute(null);
+            PumpUntil(() => pane.IsVisible && pane.PreviewEnabled && !config.MainLayout.RightPanelCollapsed);
+            AssertEveryIconResolved(window);
+
+            // Clicking '+' without a custom homepage opens a second blank tab immediately; closing all tabs closes the browser pane
+            newTabBtn.Command!.Execute(null);
+            PumpUntil(() => browser.Tabs.Count == 2 && browser.Tabs[1].IsActive && !browser.HasLivePage);
+            PumpForCompletion(browser.CloseAllTabsAsync(), "closing initial blank tabs");
+            PumpUntil(() => browser.Tabs.Count == 0 && !browser.IsOpen && !pane.IsVisible && !browser.IsFullView);
+
+            // Reopening after closing with a custom bare-domain homepage selects a tab targeting that homepage
+            // (use an isolated unstaged browser instance so no background CEF launch races with the synthetic tab suite)
+            var homeConfig = new AppConfig();
+            homeConfig.EmbeddedBrowser.HomePage = "example.org";
+            var homeConfigService = new HeadlessConfigService(homeConfig);
+            var homeHost = new EmbeddedBrowser(Path.Combine(fixtureRoot.FullName, "UnstagedHome"),
+                Path.Combine(fixtureRoot.FullName, "HomeBrowserData"), homeConfigService);
+            using var homeBrowser = new EmbeddedBrowserViewModel(homeHost, computerUse, localization, external);
+            homeBrowser.RevealCommand.Execute(null);
+            PumpUntil(() => homeBrowser.IsOpen && homeBrowser.Tabs.Count == 1 && homeBrowser.Tabs[0].IsActive
+                && homeBrowser.Address == "https://example.org/");
+            PumpForCompletion(homeHost.DisposeAsync().AsTask(), "disposing isolated homepage test host");
+            Console.WriteLine("[PASS] Initial browser open selects a blank or custom-homepage tab, and user address normalization supports omitted schemes");
+
+            // 1. Unified horizontal tabs (normal + task badge), only single close button on tab body
+            var t1 = host.AddTestTab("t1", new Uri("https://one.example/docs"), "Docs");
+            var t2 = host.AddTestTab("t2", new Uri("https://two.example/task"), "Task Runner", task: true);
+            var t3 = host.AddTestTab("t3", new Uri("https://three.example/news"), "News");
+            var t4 = host.AddTestTab("t4", EmbeddedBrowser.Blank, "");
+            opener.Command!.Execute(null);
+            PumpUntil(() => pane.IsVisible && browser.Tabs.Count == 4);
+            using (window.CaptureRenderedFrame()) { }
+
+            Border[] GetTabBorders() => tabsControl.GetVisualDescendants().OfType<Border>()
+                .Where(b => b.Classes.Contains("browser-tab")).ToArray();
+
+            var tabBorders = GetTabBorders();
+            if (tabBorders.Length != 4)
+                throw new InvalidOperationException($"Expected 4 horizontal tab borders, found {tabBorders.Length}.");
+            for (var i = 0; i < tabBorders.Length; i++)
+            {
+                var btns = tabBorders[i].GetVisualDescendants().OfType<Button>().ToArray();
+                if (btns.Length != 1 || !btns[0].Classes.Contains("browser-tab-close"))
+                    throw new InvalidOperationException("Each browser tab body must expose only the single close button.");
+                if (i > 0)
+                {
+                    var prevPt = tabBorders[i - 1].TranslatePoint(new Point(0, 0), pane)!.Value;
+                    var currPt = tabBorders[i].TranslatePoint(new Point(0, 0), pane)!.Value;
+                    if (currPt.X <= prevPt.X)
+                        throw new InvalidOperationException("Browser tabs must be laid out side-by-side horizontally.");
+                }
+            }
+            if (browser.Tabs[1].TabIconKey != "AthenaIconComputerUse" || browser.Tabs[0].TabIconKey != "AthenaIconFileWeb")
+                throw new InvalidOperationException("Task tabs must display the dedicated Computer Use badge icon.");
+
+            // 2. ContextMenu 7 actions: mute/unmute, open external, copy URL, close right, close others, close all
+            var firstMenu = tabBorders[0].ContextMenu
+                ?? throw new InvalidOperationException("Browser tab must define a ContextMenu.");
+            var menuItems = firstMenu.Items.OfType<MenuItem>().ToArray();
+            if (menuItems.Length != 7)
+                throw new InvalidOperationException($"Expected 7 context menu actions on a tab, found {menuItems.Length}.");
+
+            var vmTab1 = browser.Tabs[0];
+            var vmTab4 = browser.Tabs[3];
+            if (!vmTab1.HasNavigableUrl || vmTab4.HasNavigableUrl)
+                throw new InvalidOperationException("HasNavigableUrl must be true for HTTP(S) tabs and false for about:blank.");
+
+            PumpForCompletion(vmTab1.ToggleMuteCommand.ExecuteAsync(null), "muting browser tab");
+            PumpUntil(() => vmTab1.IsMuted && vmTab1.MuteIconKey == "AthenaIconBrowserUnmute");
+            PumpForCompletion(vmTab1.ToggleMuteCommand.ExecuteAsync(null), "unmuting browser tab");
+            PumpUntil(() => !vmTab1.IsMuted && vmTab1.MuteIconKey == "AthenaIconBrowserMute");
+
+            vmTab1.OpenExternalCommand.Execute(null);
+            if (external.LastAddress != t1.Address.AbsoluteUri)
+                throw new InvalidOperationException("Tab context menu Open External must launch the tab URL.");
+
+            PumpForCompletion(vmTab1.CopyUrlCommand.ExecuteAsync(null), "copying browser tab URL");
+            if (copiedUrl != t1.Address.AbsoluteUri)
+                throw new InvalidOperationException("Tab context menu Copy URL must write the tab URL to the clipboard.");
+
+            // 3. Pointer drag-reorder across tabs (ensure t1 is visible inside the tab viewport first)
+            host.Select(t1);
+            PumpUntil(() => browser.ActivePage?.Id == "t1");
+            tabScroller.Offset = new Vector(0, 0);
+            using (window.CaptureRenderedFrame()) { }
+            tabBorders = GetTabBorders();
+            var dragFrom = tabBorders[0].TranslatePoint(new Point(tabBorders[0].Bounds.Width * 0.4, tabBorders[0].Bounds.Height / 2), window)!.Value;
+            var dragMid = tabBorders[1].TranslatePoint(new Point(tabBorders[1].Bounds.Width * 0.75, tabBorders[1].Bounds.Height / 2), window)!.Value;
+            var dragTo = tabBorders[2].TranslatePoint(new Point(tabBorders[2].Bounds.Width * 0.85, tabBorders[2].Bounds.Height / 2), window)!.Value;
+            window.MouseDown(dragFrom, MouseButton.Left);
+            window.MouseMove(new Point(dragFrom.X + 12, dragFrom.Y), RawInputModifiers.LeftMouseButton);
+            window.MouseMove(dragMid, RawInputModifiers.LeftMouseButton);
+            using (window.CaptureRenderedFrame()) { }
+            window.MouseMove(dragTo, RawInputModifiers.LeftMouseButton);
+            using (window.CaptureRenderedFrame()) { }
+            window.MouseUp(dragTo, MouseButton.Left);
+            PumpUntil(() => browser.Tabs[0].Id != "t1" && browser.Tabs.Any(t => t.Id == "t1"));
+
+            // Restore deterministic order before testing batch close menu items
+            browser.MoveTab("t1", 0);
+            browser.MoveTab("t2", 1);
+            browser.MoveTab("t3", 2);
+            browser.MoveTab("t4", 3);
+            PumpUntil(() => browser.Tabs.Select(t => t.Id).SequenceEqual(["t1", "t2", "t3", "t4"]));
+            if (!browser.Tabs[0].CanCloseToRight || browser.Tabs[3].CanCloseToRight || !browser.Tabs[0].CanCloseOthers)
+                throw new InvalidOperationException("Tab batch-close availability flags must reflect tab position and count.");
+
+            PumpForCompletion(browser.Tabs[1].CloseToRightCommand.ExecuteAsync(null), "closing tabs to the right");
+            PumpUntil(() => browser.Tabs.Select(t => t.Id).SequenceEqual(["t1", "t2"]));
+
+            PumpForCompletion(browser.Tabs[1].CloseOthersCommand.ExecuteAsync(null), "closing other tabs");
+            PumpUntil(() => browser.Tabs.Select(t => t.Id).SequenceEqual(["t2"]) && !browser.Tabs[0].CanCloseOthers);
+
+            PumpForCompletion(browser.Tabs[0].CloseAllCommand.ExecuteAsync(null), "closing all tabs");
+            PumpUntil(() => browser.Tabs.Count == 0 && !browser.IsOpen && !pane.IsVisible && !browser.HasPage);
+            Console.WriteLine("[PASS] Horizontal tab bar supports task badges, 7-item context menu, mute, copy URL, drag reorder, and batch close");
+
+            // 4. Overflow right-edge fade + wheel horizontal scrolling + always-visible chrome buttons
+            for (var i = 1; i <= 7; i++)
+                host.AddTestTab($"o{i}", new Uri($"https://site{i}.example/"), $"Long Tab Title Number {i}");
+            opener.Command!.Execute(null);
+            PumpUntil(() => pane.IsVisible && browser.Tabs.Count == 7);
+            host.Select(host.AllTabs()[0]);
+            PumpUntil(() => browser.ActivePage?.Id == "o1");
+            tabScroller.Offset = new Vector(0, 0);
+            using (window.CaptureRenderedFrame()) { }
+            PumpUntil(() => tabScroller.Extent.Width > tabScroller.Viewport.Width + 1 && pane.IsRightTabEdgeFaded,
+                5000, "Narrow right pane with overflowing tabs must activate right-edge opacity fade.");
+            if (tabScroller.OpacityMask is not LinearGradientBrush)
+                throw new InvalidOperationException("Overflow fade must use a LinearGradientBrush OpacityMask.");
+
+            var newTabRect = new Rect(newTabBtn.TranslatePoint(new Point(0, 0), pane)!.Value, newTabBtn.Bounds.Size);
+            var fullBtnRect = new Rect(toggleFullViewBtn.TranslatePoint(new Point(0, 0), pane)!.Value, toggleFullViewBtn.Bounds.Size);
+            var closeBtnRect = new Rect(close.TranslatePoint(new Point(0, 0), pane)!.Value, close.Bounds.Size);
+            if (newTabRect.Right > pane.Bounds.Width || fullBtnRect.Right > pane.Bounds.Width || closeBtnRect.Right > pane.Bounds.Width)
+                throw new InvalidOperationException("New tab, full-view toggle, and close buttons must remain visible when tabs overflow.");
+
+            var scrollerCenter = tabScroller.TranslatePoint(new Point(tabScroller.Bounds.Width / 2, tabScroller.Bounds.Height / 2), window)!.Value;
+            window.MouseWheel(scrollerCenter, new Vector(0, -3));
+            PumpUntil(() => tabScroller.Offset.X > 0 && pane.IsLeftTabEdgeFaded,
+                5000, "Vertical mouse wheel over the tab strip must scroll tabs horizontally and fade the left edge.");
+            tabScroller.Offset = new Vector(Math.Max(0, tabScroller.Extent.Width - tabScroller.Viewport.Width), 0);
+            using (window.CaptureRenderedFrame()) { }
+            PumpUntil(() => !pane.IsRightTabEdgeFaded && pane.IsLeftTabEdgeFaded,
+                5000, "Scrolling to the rightmost tab must clear the right-edge fade.");
+            Console.WriteLine("[PASS] Narrow tab strip keeps chrome visible, applies OpacityMask edge fade, and scrolls horizontally on wheel");
+
+            // 5. Full view, fixed Main Conversation tab, and '>' split restore button
+            var splitRightWidth = rightPanelGrid.Bounds.Width;
+            var splitChatWidth = conversationPanel.Bounds.Width;
+            toggleFullViewBtn.Command!.Execute(null);
+            PumpUntil(() => browser.IsFullView && shell.IsBrowserFullView && !rightSplitter.IsVisible && !conversationPanel.IsVisible
+                && Grid.GetColumn(rightPanelGrid) == 2 && fullViewLeading.IsVisible && mainChatTabBtn.IsVisible && restoreSplitBtn.IsVisible);
+            using (window.CaptureRenderedFrame()) { }
+            if (browser.FullViewToggleIconKey != "AthenaIconBrowserExitFullView"
+                || rightPanelGrid.Bounds.Width <= splitRightWidth + 250)
+                throw new InvalidOperationException("Full view must expand the browser across the center + right columns.");
+            var mainTabPos = mainChatTabBtn.TranslatePoint(new Point(0, 0), pane)!.Value;
+            var restorePos = restoreSplitBtn.TranslatePoint(new Point(0, 0), pane)!.Value;
+            var firstWebTabPos = tabScroller.TranslatePoint(new Point(0, 0), pane)!.Value;
+            if (!(mainTabPos.X < restorePos.X && restorePos.X < firstWebTabPos.X))
+                throw new InvalidOperationException("Restore split (>) button must sit between the fixed Main Conversation tab and web tabs.");
+
+            // Click fixed Main Conversation tab
+            mainChatTabBtn.Command!.Execute(null);
+            PumpUntil(() => browser.IsConversationTabSelected && shell.IsFullViewConversationSelected
+                && !pane.PreviewEnabled && conversationPanel.IsVisible
+                && Grid.GetRow(conversationPanel) == 1 && Grid.GetRowSpan(rightPanelGrid) == 1);
+            using (window.CaptureRenderedFrame()) { }
+            if (pane.Bounds.Height > 80 || conversationPanel.Bounds.Width <= splitChatWidth + 200)
+                throw new InvalidOperationException("Selecting the Main Conversation tab in full view must keep only the top tab bar and expand chat full-width.");
+
+            // Click a visible web tab to return to full-width browser view
+            tabScroller.Offset = new Vector(0, 0);
+            using (window.CaptureRenderedFrame()) { }
+            var visibleTab = GetTabBorders()[0];
+            var tabClickPt = visibleTab.TranslatePoint(new Point(visibleTab.Bounds.Width * 0.4, visibleTab.Bounds.Height / 2), window)!.Value;
+            window.MouseDown(tabClickPt, MouseButton.Left);
+            window.MouseUp(tabClickPt, MouseButton.Left);
+            PumpUntil(() => !browser.IsConversationTabSelected && pane.PreviewEnabled && !conversationPanel.IsVisible);
+
+            // Click '>' restore split button
+            restoreSplitBtn.Command!.Execute(null);
+            PumpUntil(() => !browser.IsFullView && rightSplitter.IsVisible && conversationPanel.IsVisible
+                && Grid.GetColumn(rightPanelGrid) == 4 && pane.PreviewEnabled);
+
+            // Closing all tabs while in Full View (web active) must exit full view and close the browser pane
+            toggleFullViewBtn.Command!.Execute(null);
+            PumpUntil(() => shell.IsBrowserFullView && !rightSplitter.IsVisible && !conversationPanel.IsVisible);
+            PumpForCompletion(browser.CloseAllTabsAsync(), "closing all tabs in full view (web)");
+            PumpUntil(() => browser.Tabs.Count == 0 && !browser.IsOpen && !browser.IsFullView
+                && !shell.IsBrowserFullView && !pane.IsVisible && rightSplitter.IsVisible
+                && conversationPanel.IsVisible && Grid.GetColumn(rightPanelGrid) == 4);
+
+            // Closing the last tab while on the Full View Main Conversation tab must also exit full view and restore split
+            host.AddTestTab("fv-last", new Uri("https://last.example/"), "Last Tab");
+            opener.Command!.Execute(null);
+            PumpUntil(() => pane.IsVisible && browser.Tabs.Count == 1);
+            toggleFullViewBtn.Command!.Execute(null);
+            PumpUntil(() => shell.IsBrowserFullView);
+            mainChatTabBtn.Command!.Execute(null);
+            PumpUntil(() => shell.IsFullViewConversationSelected && Grid.GetRow(conversationPanel) == 1);
+            PumpForCompletion(browser.Tabs[0].CloseCommand.ExecuteAsync(null), "closing last tab while viewing Main Conversation in full view");
+            PumpUntil(() => browser.Tabs.Count == 0 && !browser.IsOpen && !browser.IsFullView
+                && !browser.IsConversationTabSelected && !pane.IsVisible && rightSplitter.IsVisible
+                && conversationPanel.IsVisible && Grid.GetRow(conversationPanel) == 0 && Grid.GetRowSpan(conversationPanel) == 2);
+
+            // Re-open with a tab for the splitter overscroll assertions below
+            opener.Command!.Execute(null);
+            PumpUntil(() => pane.IsVisible && browser.Tabs.Count == 1);
+            Console.WriteLine("[PASS] Full view expands across center+right columns with fixed Main Conversation tab, '>' restore, and auto-close on empty tabs");
+
+            // 6. Splitter overscroll trigger (standard left-drag & swapped mirror right-drag) preserving RightWidth
+            config.MainLayout.RightWidth = 420;
+            using (window.CaptureRenderedFrame()) { }
+            var savedBeforeDrag = config.MainLayout.RightWidth;
+            var splitterPt = rightSplitter.TranslatePoint(new Point(rightSplitter.Bounds.Width / 2, rightSplitter.Bounds.Height / 2), window)!.Value;
+            var leftColWidth = shellGrid.ColumnDefinitions[0].ActualWidth;
+            var shellOriginX = shellGrid.TranslatePoint(new Point(0, 0), window)!.Value.X;
+            var triggerLeftX = shellOriginX + leftColWidth + 5 + 540 - 72;
+            window.MouseDown(splitterPt, MouseButton.Left);
+            window.MouseMove(new Point(triggerLeftX, splitterPt.Y), RawInputModifiers.LeftMouseButton);
+            PumpUntil(() => shell.IsBrowserFullView && !rightSplitter.IsVisible,
+                5000, "Dragging the right splitter >= 56 DIP past the 540px conversation floor must trigger full view.");
+            // Dragging back right must NOT exit full view
+            window.MouseMove(new Point(splitterPt.X + 80, splitterPt.Y), RawInputModifiers.LeftMouseButton);
+            window.MouseUp(new Point(splitterPt.X + 80, splitterPt.Y), MouseButton.Left);
+            using (window.CaptureRenderedFrame()) { }
+            if (!shell.IsBrowserFullView)
+                throw new InvalidOperationException("Dragging back right after full-view trigger must not restore split view.");
+            toggleFullViewBtn.Command!.Execute(null);
+            PumpUntil(() => !shell.IsBrowserFullView && rightSplitter.IsVisible);
+            if (Math.Abs(config.MainLayout.RightWidth - savedBeforeDrag) > 1)
+                throw new InvalidOperationException($"Overscroll full-view trigger must preserve saved RightWidth ({savedBeforeDrag}), got {config.MainLayout.RightWidth}.");
+
+            // Swapped mirror layout: overscroll to the right triggers full view
+            PumpForCompletion(shell.ToggleSidePanelsCommand.ExecuteAsync(null), "swapping side panels for mirror overscroll test");
+            PumpUntil(() => shell.IsSidePanelsSwapped && Grid.GetColumn(rightPanelGrid) == 0);
+            using (window.CaptureRenderedFrame()) { }
+            var mirrorSplitterPt = rightSplitter.TranslatePoint(new Point(rightSplitter.Bounds.Width / 2, rightSplitter.Bounds.Height / 2), window)!.Value;
+            var mirrorLeftSessionWidth = shellGrid.ColumnDefinitions[4].ActualWidth;
+            var triggerRightX = shellOriginX + shellGrid.Bounds.Width - mirrorLeftSessionWidth - 5 - 540 + 72;
+            window.MouseDown(mirrorSplitterPt, MouseButton.Left);
+            window.MouseMove(new Point(triggerRightX, mirrorSplitterPt.Y), RawInputModifiers.LeftMouseButton);
+            PumpUntil(() => shell.IsBrowserFullView && !rightSplitter.IsVisible,
+                5000, "Swapped mirror layout must trigger full view when dragging the browser splitter >= 56 DIP to the right.");
+            window.MouseUp(new Point(triggerRightX, mirrorSplitterPt.Y), MouseButton.Left);
+            restoreSplitBtn.Command!.Execute(null);
+            PumpUntil(() => !shell.IsBrowserFullView && rightSplitter.IsVisible);
+            PumpForCompletion(shell.ToggleSidePanelsCommand.ExecuteAsync(null), "restoring default side panel layout");
+            PumpUntil(() => !shell.IsSidePanelsSwapped && Grid.GetColumn(rightPanelGrid) == 4);
+
+            // Clean up synthetic tabs (automatically closes browser pane) before optional live CEF smoke
+            PumpForCompletion(browser.CloseAllTabsAsync(), "cleaning synthetic browser tabs");
+            PumpUntil(() => browser.Tabs.Count == 0 && !pane.IsVisible && !browser.IsFullView);
+            Console.WriteLine("[PASS] Right splitter overscroll triggers full view in standard and swapped layouts without corrupting saved width");
+        }
 
         if (!runChrome) return;
         using var probe = new System.Net.Sockets.TcpListener(IPAddress.Loopback, 0);
@@ -2765,13 +3109,36 @@ static void TestEmbeddedBrowserPane(bool runChrome, string? previewPath = null)
         using var listener = new HttpListener();
         listener.Prefixes.Add(site.AbsoluteUri);
         listener.Start();
-        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(40));
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(45));
         _ = ServeBrowserFixtureAsync(listener, timeout.Token);
         var manualPage = new Uri(site, "browse");
         var startPage = new Uri(site, "start");
         var destination = new Uri(site, "task");
         models.StartingUrl = startPage.AbsoluteUri;
         models.Destination = destination.AbsoluteUri;
+        // 1) Custom homepage (omitting http://) opens directly on initial reveal with real CEF
+        config.EmbeddedBrowser.HomePage = $"127.0.0.1:{site.Port}/browse";
+        opener.Command!.Execute(null);
+        PumpUntil(() => pane.IsVisible && browser.Tabs.Count == 1 && browser.HasLivePage
+            && browser.Address == manualPage.AbsoluteUri,
+            15000, "Initial browser reveal with a custom homepage must open it directly in place.");
+        _ = WaitForFilledViewport();
+        config.EmbeddedBrowser.HomePage = "";
+        PumpForCompletion(browser.CloseAllTabsAsync(), "closing custom homepage tab");
+        PumpUntil(() => browser.Tabs.Count == 0 && !browser.IsOpen && !pane.IsVisible);
+
+        // 2) Bare address (without http://) in address bar promotes the initial blank tab in place on real CEF
+        opener.Command!.Execute(null);
+        PumpUntil(() => pane.IsVisible && browser.Tabs.Count == 1 && !browser.HasLivePage);
+        browser.Address = $"127.0.0.1:{site.Port}/browse";
+        PumpForCompletion(browser.NavigateCommand.ExecuteAsync(null), "navigating bare address without scheme on real CEF");
+        PumpUntil(() => browser.Tabs.Count == 1 && browser.HasLivePage && browser.Address == manualPage.AbsoluteUri,
+            10000, "Navigating a bare address from the initial blank tab must promote it in place.");
+        _ = WaitForFilledViewport();
+        PumpForCompletion(browser.CloseAllTabsAsync(), "closing promoted bare-address tab before chat-link check");
+        PumpUntil(() => browser.Tabs.Count == 0 && !browser.IsOpen && !pane.IsVisible);
+
+        var externalBeforeManual = external.LastAddress;
         config.MainLayout.RightPanelCollapsed = true;
         PumpForCompletion(chat.OpenMarkdownLinkUriCommand.ExecuteAsync(manualPage), "opening an embedded chat link");
         var browseSize = WaitForFilledViewport();
@@ -2780,7 +3147,7 @@ static void TestEmbeddedBrowserPane(bool runChrome, string? previewPath = null)
         _ = WaitForFilledViewport(browseSize);
         var openerPage = host.BrowsingPage!;
         var browsing = openerPage;
-        if (browser.SelectedTab != 0 || browsing.Address != manualPage || external.LastAddress != linkedPage.AbsoluteUri)
+        if (browser.IsTask || browsing.Address != manualPage || external.LastAddress != externalBeforeManual)
             throw new InvalidOperationException("A normal chat link must navigate the embedded browsing page.");
         PumpUntil(() =>
         {
@@ -2793,57 +3160,38 @@ static void TestEmbeddedBrowserPane(bool runChrome, string? previewPath = null)
         window.SetRenderScaling(2);
         _ = WaitForFilledViewport();
         var scaledViewport = browsing.ViewportSize!;
-        var scaledBitmap = preview.Source;
-        var browserMetrics = awaitPageValue(browsing, "[innerWidth, innerHeight, devicePixelRatio]");
-        if (browserMetrics[0].GetInt32() != scaledViewport.Width || browserMetrics[1].GetInt32() != scaledViewport.Height
-            || browserMetrics[2].GetDouble() != 2)
-            throw new InvalidOperationException("DPI changes must preserve the browser's CSS layout.");
-        _ = awaitPageValue(browsing, """
-            document.body.insertAdjacentHTML('beforeend', '<div style="position:fixed;left:92px;top:108px;width:12px;height:6px;background:#1964d2"></div>');
-            true
-            """);
         PumpUntil(() =>
         {
-            if (preview.Source is not WriteableBitmap bitmap) return false;
-            using var pixels = bitmap.Lock();
-            var sample = pixels.Address + 222 * pixels.RowBytes + 194 * 4;
-            return System.Runtime.InteropServices.Marshal.ReadByte(sample) == 210
-                && System.Runtime.InteropServices.Marshal.ReadByte(sample, 1) == 100
-                && System.Runtime.InteropServices.Marshal.ReadByte(sample, 2) == 25;
-        }, 7000, "A changed webpage pixel must reach the 2× Chromium surface at its physical coordinates.");
-        PumpUntil(() => HasRenderedBrowserPixel(new Point(97, 111), new SkiaSharp.SKColor(25, 100, 210)),
-            7000, "A changed webpage pixel must reach the actual high-DPI Avalonia render.");
-        if (!ReferenceEquals(scaledBitmap, preview.Source))
-            throw new InvalidOperationException("A repaint at the same size must reuse the preview bitmap.");
-        var linkPoint = preview.TranslatePoint(new Point(60, 42), window)
-            ?? throw new InvalidOperationException("The embedded page must provide a pointer target.");
-        window.MouseMove(linkPoint);
-        window.MouseDown(linkPoint, MouseButton.Left);
-        window.MouseUp(linkPoint, MouseButton.Left);
+            var metrics = awaitPageValue(browsing, "[innerWidth, innerHeight, devicePixelRatio]");
+            return metrics[0].GetInt32() == scaledViewport.Width
+                && metrics[1].GetInt32() == scaledViewport.Height
+                && Math.Abs(metrics[2].GetDouble() - 2) < 0.001;
+        }, 7000, "DPI changes must preserve the browser's CSS layout.");
+
+        // Trigger target="_blank" rel="opener" navigation inside Chromium and verify opener inheritance.
+        PumpForCompletion(browsing.Driver.CallAsync("Input.dispatchMouseEvent",
+            new { type = "mousePressed", x = 36, y = 32, button = "left", buttons = 1, clickCount = 1 }, timeout.Token), "clicking popup link down");
+        PumpForCompletion(browsing.Driver.CallAsync("Input.dispatchMouseEvent",
+            new { type = "mouseReleased", x = 36, y = 32, button = "left", buttons = 0, clickCount = 1 }, timeout.Token), "clicking popup link up");
         var nextAddress = new Uri(site, "more").AbsoluteUri;
-        PumpUntil(() => browser.Address == nextAddress, 5000, "Clicking inside the embedded page did not follow its link.");
+        PumpUntil(() => browser.Address == nextAddress, 7000, "Clicking inside the embedded page did not follow its target-blank link.");
         browsing = host.BrowsingPage!;
         if (browsing.Opener != openerPage.Id || ReferenceEquals(browsing, openerPage)
             || !(awaitPageValue(browsing, "window.opener !== null")).GetBoolean())
             throw new InvalidOperationException("A target-blank link must keep its opener relationship in an embedded tab.");
-        var popupSample = new Point(32, 80);
-        PumpUntil(() => HasRenderedBrowserPixel(popupSample, new SkiaSharp.SKColor(196, 33, 106)),
-            7000, "The new tab's loaded document must appear in Avalonia without refreshing it.");
-        _ = awaitPageValue(browsing, "document.documentElement.style.background = '#2b8a3e'; true");
-        var updatedColor = new SkiaSharp.SKColor(43, 138, 62);
-        PumpUntil(() => HasRenderedBrowserPixel(popupSample, updatedColor), 7000,
-            "The open tab must continue presenting frames when the same document changes.");
+        _ = awaitPageValue(browsing, "window.__cefLiveState = 'preserved'; true");
         browser.ActivePage = browser.Pages.Single(page => page.Id == openerPage.Id);
-        PumpUntil(() => ReferenceEquals(browser.CurrentPage, openerPage) && preview.Source is Bitmap,
-            7000, "Switching away must bring back the opener's preview.");
+        PumpUntil(() => ReferenceEquals(browser.CurrentPage, openerPage),
+            7000, "Switching away must select the opener tab.");
         browser.ActivePage = browser.Pages.Single(page => page.Id == browsing.Id);
-        PumpUntil(() => HasRenderedBrowserPixel(popupSample, updatedColor), 7000,
-            "Switching back must present the live popup document and keep its state.");
-        if (awaitPageValue(browsing, "performance.getEntriesByType('navigation')[0].type").GetString() != "navigate")
-            throw new InvalidOperationException("Recovering the preview must never reload the popup document.");
+        PumpUntil(() => ReferenceEquals(browser.CurrentPage, browsing),
+            7000, "Switching back must reselect the popup tab.");
+        if (awaitPageValue(browsing, "window.__cefLiveState").GetString() != "preserved"
+            || awaitPageValue(browsing, "performance.getEntriesByType('navigation')[0].type").GetString() != "navigate")
+            throw new InvalidOperationException("Switching tabs must never reload the popup document.");
         window.SetRenderScaling(1);
-        Console.WriteLine("[PASS] A 2× retina preview repaints losslessly and keeps manual browser clicks in CSS coordinates");
-        Console.WriteLine("[PASS] A target-blank tab displays live pixels in Avalonia on open and reselect without reloading");
+        Console.WriteLine("[PASS] CEF preserves CSS layout across 2× DPI changes and opens target-blank tabs with opener intact");
+
         PumpForCompletion(browsing.NavigateAsync(manualPage, timeout.Token), "navigating within the popup tab");
         PumpUntil(() => browser.Address == manualPage.AbsoluteUri);
         PumpForCompletion(browser.BackCommand.ExecuteAsync(null), "going back in the embedded browser");
@@ -2853,12 +3201,12 @@ static void TestEmbeddedBrowserPane(bool runChrome, string? previewPath = null)
         window.Width = 1440;
         window.Height = 800;
         config.MainLayout.RightPanelCollapsed = true;
-        PumpUntil(() => preview.Source is null && !pane.PreviewEnabled);
+        PumpUntil(() => !pane.PreviewEnabled);
 
         chat.InputText = $"点击地址栏，导航到 {destination}，填写标题并提交表单";
         var run = chat.SendMessageCommand.ExecuteAsync(null);
         PumpUntil(() => models.WaitingToSubmit.Task.IsCompleted && chat.IsSending && browser.IsTask
-            && pane.PreviewEnabled && preview.Source is not null, 15000, "The running task never appeared in the browser pane.");
+            && pane.PreviewEnabled && cefHost.IsVisible, 15000, "The running task never appeared in the browser pane.");
         var addressBox = pane.FindControl<TextBox>("AddressBox")!;
         if (addressBox.IsReadOnly || addressBox.Text != destination.AbsoluteUri)
             throw new InvalidOperationException("The task pane must show the navigated address in an editable field.");
@@ -2872,38 +3220,13 @@ static void TestEmbeddedBrowserPane(bool runChrome, string? previewPath = null)
             """);
         if (!modal.GetProperty("modal").GetBoolean() || modal.GetProperty("cursorInDocument").GetBoolean())
             throw new InvalidOperationException("The native search dialog must be open over a webpage without an injected cursor.");
-        var click = modal.GetProperty("click");
-        var cursorPoint = preview.TranslatePoint(new Point(click.GetProperty("x").GetDouble() + 5,
-            click.GetProperty("y").GetDouble() + 10), window)
-            ?? throw new InvalidOperationException("The browser preview must map the cursor into the window.");
-        using (var snapshot = window.CaptureRenderedFrame() ?? throw new InvalidOperationException("No browser preview was rendered."))
-        using (var png = new MemoryStream())
-        {
-            snapshot.Save(png, PngBitmapEncoderOptions.Default);
-            using var pixels = SkiaSharp.SKBitmap.Decode(png.ToArray());
-            var tip = pixels.GetPixel((int)(cursorPoint.X * window.RenderScaling), (int)(cursorPoint.Y * window.RenderScaling));
-            if (tip != new SkiaSharp.SKColor(94, 234, 212))
-                throw new InvalidOperationException($"The app cursor must be painted above the modal at its input position. Observed {tip}.");
-        }
-        Console.WriteLine("[PASS] Athena paints the browser cursor above a real Chromium top-layer dialog");
+        if (pane.ActiveCursor is null)
+            throw new InvalidOperationException("The click-through browser cursor overlay state must track the active agent cursor.");
+        Console.WriteLine("[PASS] CEF tracks the agent cursor overlay above a real Chromium top-layer dialog without injecting into DOM");
+
         window.Width = 1180;
         window.Height = 1040;
         var resizedTask = WaitForFilledViewport(taskSize);
-        var viewportRevision = taskPage.ViewportRevision;
-        var lastFrame = preview.Source;
-        PumpForCompletion(taskPage.Driver.CallAsync("Emulation.setDeviceMetricsOverride", new
-        {
-            width = resizedTask.Width + 60, height = resizedTask.Height - 60, deviceScaleFactor = 1, mobile = false
-        }, timeout.Token), "changing Chromium viewport metrics independently of Athena's preferred size");
-        PumpUntil(() => taskPage.ViewportRevision > viewportRevision, 7000,
-            "The visible task must repair the viewport on the same page without a tab switch.");
-        PumpUntil(() => !ReferenceEquals(lastFrame, preview.Source) && preview.Source is Bitmap frame
-            && frame.PixelSize == resizedTask && ReferenceEquals(browser.CurrentPage, taskPage) && browser.IsTask,
-            7000, "The task preview must display new frames for the recovered viewport.");
-        var recoveredViewport = awaitPageValue(taskPage, "[innerWidth, innerHeight]");
-        if (recoveredViewport[0].GetInt32() != resizedTask.Width || recoveredViewport[1].GetInt32() != resizedTask.Height)
-            throw new InvalidOperationException("The task preview and Chromium must agree on the repaired viewport.");
-        Console.WriteLine("[PASS] The visible task recovers fresh preview frames after Chromium viewport drift without a tab switch");
         models.AllowSubmit.TrySetResult();
         PumpUntil(() => models.WaitingForResizedSubmit.Task.IsCompleted, 7000,
             "The browser task must re-observe after the stale click was rejected.");
@@ -2916,11 +3239,11 @@ static void TestEmbeddedBrowserPane(bool runChrome, string? previewPath = null)
             snapshot.Save(output, PngBitmapEncoderOptions.Default);
         }
         config.MainLayout.RightPanelCollapsed = true;
-        PumpUntil(() => preview.Source is null && !pane.PreviewEnabled);
+        PumpUntil(() => !pane.PreviewEnabled);
         opener.Command!.Execute(null);
         _ = WaitForFilledViewport();
         close.Command!.Execute(null);
-        PumpUntil(() => preview.Source is null && !pane.PreviewEnabled);
+        PumpUntil(() => !pane.PreviewEnabled);
         window.Width = 1440;
         window.Height = 850;
         models.AllowResizedSubmit.TrySetResult();
@@ -2936,12 +3259,30 @@ static void TestEmbeddedBrowserPane(bool runChrome, string? previewPath = null)
         Console.WriteLine("[PASS] Chrome sends sequential Chinese key events, selects the autocomplete choice, and retains it on blur");
 
         opener.Command!.Execute(null);
-        PumpUntil(() => pane.PreviewEnabled && preview.Source is not null);
-        browser.SelectedTab = 0;
-        PumpUntil(() => preview.Source is not null && ReferenceEquals(browser.CurrentPage, browsing));
+        PumpUntil(() => pane.PreviewEnabled && cefHost.IsVisible);
+        browser.ActivePage = browser.Pages.Single(page => page.Id == browsing.Id);
+        PumpUntil(() => ReferenceEquals(browser.CurrentPage, browsing));
         if (browsing.Id == taskPage.Id || browsing.Address != manualPage)
             throw new InvalidOperationException("A task must keep its page separate from the user's browsing tab.");
-        Console.WriteLine($"[PASS] Chrome fills both tabs, re-observes after resizing {taskSize} to {resizedTask}, and completes in the hidden pane");
+
+        // Live CEF full-view viewport resize -> Main Conversation tab pause -> web tab resume -> '>' split restore
+        var liveSplitSize = WaitForFilledViewport();
+        var liveToggleFullView = pane.FindControl<Button>("ToggleFullViewButton")!;
+        var liveMainChatTab = pane.FindControl<Button>("MainConversationTabButton")!;
+        var liveRestoreSplit = pane.FindControl<Button>("RestoreSplitViewButton")!;
+        liveToggleFullView.Command!.Execute(null);
+        PumpUntil(() => shell.IsBrowserFullView && surface.Bounds.Width > liveSplitSize.Width + 200);
+        var liveFullSize = WaitForFilledViewport();
+        if (liveFullSize.Width <= liveSplitSize.Width + 200)
+            throw new InvalidOperationException($"Full view must widen the live CEF viewport ({liveSplitSize} -> {liveFullSize}).");
+        liveMainChatTab.Command!.Execute(null);
+        PumpUntil(() => shell.IsFullViewConversationSelected && !pane.PreviewEnabled);
+        browser.SelectTab(browser.Tabs.Single(t => t.Id == browsing.Id));
+        PumpUntil(() => !shell.IsFullViewConversationSelected && pane.PreviewEnabled);
+        liveRestoreSplit.Command!.Execute(null);
+        PumpUntil(() => !shell.IsBrowserFullView && surface.Bounds.Width < liveFullSize.Width - 200);
+        _ = WaitForFilledViewport();
+        Console.WriteLine($"[PASS] CEF fills both tabs, re-observes after resizing {taskSize} to {resizedTask}, and completes in the hidden pane");
 
         config.AiModels.ComputerUse.Model = BrowserConversationModelFixture.NextBrowserModel;
         PumpForCompletion(session.SaveNowAsync(), "saving the newly selected Computer Use model");

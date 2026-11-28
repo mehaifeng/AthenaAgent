@@ -1,16 +1,22 @@
 using System;
-using System.Collections.Generic;
 using System.IO;
-using System.IO.Compression;
 using System.Runtime.InteropServices;
-using System.Security.Cryptography;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 
 namespace Athena.UI.Services.ComputerUse;
 
-internal sealed class BrowserRuntime(string archiveDirectory, string dataDirectory)
+internal sealed record CefRuntimePaths(
+    string RuntimeDir,
+    string BridgeLibrary,
+    string FrameworkDir,
+    string MainBundleDir,
+    string SubprocessPath,
+    string ResourcesDir,
+    string LocalesDir);
+
+internal sealed class BrowserRuntime(string runtimeDirectory, string dataDirectory)
 {
     private const string Resources = "Athena.UI.ComputerUse.";
     private static readonly Lazy<JsonElement> Manifest = new(() =>
@@ -21,7 +27,8 @@ internal sealed class BrowserRuntime(string archiveDirectory, string dataDirecto
     });
 
     public static string Version => Manifest.Value.GetProperty("version").GetString()!;
-    private static string Rid => (OperatingSystem.IsWindows() ? "win" : OperatingSystem.IsMacOS() ? "osx" :
+    public static string ChromiumVersion => Manifest.Value.GetProperty("chromiumVersion").GetString()!;
+    internal static string Rid => (OperatingSystem.IsWindows() ? "win" : OperatingSystem.IsMacOS() ? "osx" :
         OperatingSystem.IsLinux() ? "linux" : "unknown") + "-" + RuntimeInformation.ProcessArchitecture.ToString().ToLowerInvariant();
     internal static string DefaultDirectory => Path.Combine(AppContext.BaseDirectory, "BrowserRuntime");
     internal static string DefaultDataDirectory => Path.Combine(
@@ -32,113 +39,99 @@ internal sealed class BrowserRuntime(string archiveDirectory, string dataDirecto
 
     private static JsonElement Package => Manifest.Value.GetProperty("packages").TryGetProperty(Rid, out var value)
         ? value : throw new PlatformNotSupportedException($"The bundled browser runtime is unavailable for {Rid}.");
-    private string Archive => Path.Combine(archiveDirectory, "runtime.zip");
-    private static string Executable => OperatingSystem.IsWindows() ? "electron.exe"
-        : OperatingSystem.IsMacOS() ? "Electron.app/Contents/MacOS/Electron" : "electron";
+
+    internal string RuntimeDirectory => runtimeDirectory;
+    internal string DataDirectory => dataDirectory;
+
+    private static string BridgeFileName => OperatingSystem.IsWindows() ? "athena_cef_bridge.dll"
+        : OperatingSystem.IsMacOS() ? "libathena_cef_bridge.dylib" : "libathena_cef_bridge.so";
 
     public bool IsBundled
     {
         get
         {
-            try { _ = Package; return File.Exists(Archive); }
-            catch (PlatformNotSupportedException) { return false; }
+            try
+            {
+                _ = Package;
+                return TryResolvePaths(runtimeDirectory, out _);
+            }
+            catch (PlatformNotSupportedException)
+            {
+                return false;
+            }
         }
     }
 
-    public Task<(string Executable, string Script)> PrepareAsync(CancellationToken token) => Task.Run(() =>
+    internal static bool TryResolveBridgeLibrary(string directory, out string bridgePath)
     {
-        var package = Package;
-        var archive = Archive;
-        if (!File.Exists(archive))
-            throw new FileNotFoundException($"The bundled browser runtime for {Rid} is missing at '{archive}'. "
-                + "For a source build, run 'dotnet run --project Athena.UI.csproj' with Python 3 available. "
-                + "For an installed build, reinstall Athena from its platform package.", archive);
-        var directory = Path.Combine(dataDirectory, "Runtime", $"{Version}-{Rid}");
-        var checksum = package.GetProperty("sha256").GetString()!;
-        var executable = Path.Combine(directory, Executable);
-        var stamp = Path.Combine(directory, ".sha256");
-        if (!File.Exists(executable) || !File.Exists(stamp) || File.ReadAllText(stamp) != checksum)
+        bridgePath = Path.Combine(directory, BridgeFileName);
+        return File.Exists(bridgePath);
+    }
+
+    internal static bool TryResolvePaths(string directory, out CefRuntimePaths paths)
+    {
+        var fullRuntime = Path.GetFullPath(directory);
+        var bridge = Path.Combine(fullRuntime, BridgeFileName);
+        if (OperatingSystem.IsMacOS())
         {
-            using var input = File.OpenRead(archive);
-            if (!Convert.ToHexString(SHA256.HashData(input)).Equals(checksum, StringComparison.OrdinalIgnoreCase))
-                throw new InvalidOperationException("The bundled browser runtime failed its checksum verification.");
-            input.Position = 0;
-            var stage = directory + "." + Guid.NewGuid().ToString("N");
-            Directory.CreateDirectory(stage);
-            try
-            {
-                Extract(input, stage, token);
-                if (!File.Exists(Path.Combine(stage, Executable)))
-                    throw new InvalidDataException("The browser archive did not contain its executable.");
-                File.WriteAllText(Path.Combine(stage, ".sha256"), checksum);
-                if (Directory.Exists(directory)) Directory.Delete(directory, recursive: true);
-                Directory.Move(stage, directory);
-            }
-            finally
-            {
-                if (Directory.Exists(stage)) Directory.Delete(stage, recursive: true);
-            }
+            // Inside a packaged Athena.app bundle, Frameworks live at Contents/Frameworks.
+            // During source builds (`dotnet run`), stage-browser-runtime.py puts Frameworks inside BrowserRuntime/.
+            var bundledFrameworks = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "Frameworks"));
+            var localFrameworks = Path.Combine(fullRuntime, "Frameworks");
+            var useAppBundle = PathsEqual(fullRuntime, Path.GetFullPath(DefaultDirectory))
+                && Directory.Exists(Path.Combine(bundledFrameworks, "Chromium Embedded Framework.framework"));
+            var frameworksDir = useAppBundle ? bundledFrameworks : localFrameworks;
+            var frameworkDir = Path.Combine(frameworksDir, "Chromium Embedded Framework.framework");
+            var frameworkBinary = Path.Combine(frameworkDir, "Chromium Embedded Framework");
+            var subprocess = Path.Combine(frameworksDir, "Athena Helper.app", "Contents", "MacOS", "Athena Helper");
+            var mainBundle = useAppBundle
+                ? Path.GetFullPath(Path.Combine(bundledFrameworks, "..", ".."))
+                : fullRuntime;
+            paths = new CefRuntimePaths(fullRuntime, bridge, frameworkDir, mainBundle, subprocess, "", "");
+            return File.Exists(bridge) && File.Exists(frameworkBinary) && File.Exists(subprocess);
         }
-        foreach (var name in new[] { "BrowserHost.cjs", "BrowserPrompt.cjs" })
+
+        if (OperatingSystem.IsWindows())
         {
-            using var scriptResource = Resource(name);
-            var script = Path.Combine(directory, name);
-            var stagingScript = script + ".tmp";
-            using (var output = File.Create(stagingScript)) scriptResource.CopyTo(output);
-            File.Move(stagingScript, script, overwrite: true);
+            var subprocess = Path.Combine(fullRuntime, "athena_cef_helper.exe");
+            var libcef = Path.Combine(fullRuntime, "libcef.dll");
+            var locales = Path.Combine(fullRuntime, "locales");
+            paths = new CefRuntimePaths(fullRuntime, bridge, "", "", subprocess, fullRuntime, locales);
+            return File.Exists(bridge) && File.Exists(libcef) && File.Exists(subprocess);
         }
-        return (executable, Path.Combine(directory, "BrowserHost.cjs"));
+
+        var linuxSubprocess = Path.Combine(fullRuntime, "athena_cef_helper");
+        var linuxLibcef = Path.Combine(fullRuntime, "libcef.so");
+        var linuxLocales = Path.Combine(fullRuntime, "locales");
+        paths = new CefRuntimePaths(fullRuntime, bridge, "", "", linuxSubprocess, fullRuntime, linuxLocales);
+        return File.Exists(bridge) && File.Exists(linuxLibcef) && File.Exists(linuxSubprocess);
+    }
+
+    public Task<CefRuntimePaths> PrepareAsync(CancellationToken token) => Task.Run(() =>
+    {
+        token.ThrowIfCancellationRequested();
+        _ = Package;
+        if (!TryResolvePaths(runtimeDirectory, out var paths))
+        {
+            var expected = Path.Combine(runtimeDirectory, BridgeFileName);
+            throw new FileNotFoundException(
+                $"The bundled CEF browser runtime for {Rid} is missing or incomplete at '{expected}'. "
+                + "For a source build, run 'dotnet run --project Athena.UI.csproj' or "
+                + $"'python3 Scripts/stage-browser-runtime.py {Rid} bin/Debug/net10.0' with Python 3 and a C++ compiler available. "
+                + "For an installed build, reinstall Athena from its platform package.",
+                expected);
+        }
+
+        Directory.CreateDirectory(dataDirectory);
+        return paths;
     }, token);
+
+    private static bool PathsEqual(string a, string b) =>
+        string.Equals(
+            a.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar),
+            b.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar),
+            OperatingSystem.IsWindows() || OperatingSystem.IsMacOS() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal);
 
     private static Stream Resource(string name) => typeof(BrowserRuntime).Assembly.GetManifestResourceStream(Resources + name)
         ?? throw new InvalidOperationException("The embedded browser resources are missing.");
-
-    private static void Extract(Stream stream, string destination, CancellationToken token)
-    {
-        var root = Path.GetFullPath(destination) + Path.DirectorySeparatorChar;
-        using var zip = new ZipArchive(stream, ZipArchiveMode.Read, leaveOpen: true);
-        var links = new List<(string Path, string Target)>();
-        foreach (var entry in zip.Entries)
-        {
-            token.ThrowIfCancellationRequested();
-            var path = Resolve(root, root, entry.FullName);
-            var unixMode = entry.ExternalAttributes >> 16;
-            if ((unixMode & 0xf000) == 0xa000)
-            {
-                using var reader = new StreamReader(entry.Open());
-                var target = reader.ReadToEnd().TrimEnd('\r', '\n');
-                _ = Resolve(root, Path.GetDirectoryName(path)!, target);
-                links.Add((path, target));
-                continue;
-            }
-            if (entry.Name.Length == 0)
-            {
-                Directory.CreateDirectory(path);
-                continue;
-            }
-            Directory.CreateDirectory(Path.GetDirectoryName(path)!);
-            entry.ExtractToFile(path, false);
-            if (!OperatingSystem.IsWindows() && (unixMode & 0x1ff) != 0)
-                File.SetUnixFileMode(path, (UnixFileMode)(unixMode & 0x1ff));
-        }
-
-        foreach (var (path, target) in links)
-        {
-            var actual = Path.Combine(Path.GetDirectoryName(path)!, target);
-            if (Directory.Exists(actual))
-                Directory.CreateSymbolicLink(path, target);
-            else
-                File.CreateSymbolicLink(path, target);
-        }
-    }
-
-    private static string Resolve(string root, string parent, string path)
-    {
-        if (Path.IsPathRooted(path) || path.Contains('\\'))
-            throw new InvalidDataException("The browser archive contains an invalid path.");
-        var resolved = Path.GetFullPath(Path.Combine(parent, path));
-        if (!resolved.StartsWith(root, OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal))
-            throw new InvalidDataException("The browser archive contains a path outside its destination.");
-        return resolved;
-    }
 }

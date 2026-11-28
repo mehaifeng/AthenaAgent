@@ -82,9 +82,15 @@ internal sealed class BrowserComputerUseSession(EmbeddedBrowser browser, ChromeB
             return null;
 
         var viewport = ReadViewport(state);
-        if (_page.ViewportSize is not { } size || viewport.Width != size.Width || viewport.Height != size.Height
-            || Math.Abs(viewport.Scale - size.Scale) > 0.0001)
+        if (viewport.Width <= 0 || viewport.Height <= 0)
             return null;
+        if (CefNativeBridge.IsHeadlessRuntime)
+        {
+            if (_page.ViewportSize is not { } expected
+                || viewport.Width != expected.Width || viewport.Height != expected.Height
+                || Math.Abs(viewport.Scale - expected.Scale) > 0.0001)
+                return null;
+        }
         if (!Uri.TryCreate(viewport.Url, UriKind.Absolute, out var document) || !EmbeddedBrowser.IsPageUri(document))
             throw new InvalidOperationException("Computer Use reached a tab outside HTTP and HTTPS webpages.");
         var capture = await DevTools.CallAsync("Page.captureScreenshot",
@@ -95,9 +101,11 @@ internal sealed class BrowserComputerUseSession(EmbeddedBrowser browser, ChromeB
         if (width <= 0 || height <= 0)
             throw new InvalidOperationException("Chrome returned an empty viewport image.");
 
+        var expectedPixels = new BrowserViewportSize(viewport.Width, viewport.Height, viewport.Scale);
         // Recheck after capture so a scroll or resize cannot pair the screenshot with stale controls.
         // Chromium may round a fractional device scale down by one pixel for a capture.
-        if (!ReferenceEquals(_page, browser.TaskPage) || Math.Abs(width - size.PixelWidth) > 1 || Math.Abs(height - size.PixelHeight) > 1
+        if (!ReferenceEquals(_page, browser.TaskPage)
+            || Math.Abs(width - expectedPixels.PixelWidth) > 2 || Math.Abs(height - expectedPixels.PixelHeight) > 2
             || viewport != ReadViewport(await EvaluateAsync("athenaPage.viewport()", token).ConfigureAwait(false)))
             return null;
         _viewport = viewport;
@@ -147,48 +155,56 @@ internal sealed class BrowserComputerUseSession(EmbeddedBrowser browser, ChromeB
             || !(await EvaluateAsync(check, token).ConfigureAwait(false)).GetBoolean())
             return "The page moved before input. Observe it again and choose the target from the new screenshot.";
 
-        if (action.Action == "press_key")
+        _page.SetAgentInputActive(true);
+        try
         {
-            await PressKeyAsync(DevTools, action.Key!, token).ConfigureAwait(false);
-            return $"Chrome received press_key ({action.Key}). Check the updated page for its effect.";
+            if (action.Action == "press_key")
+            {
+                await PressKeyAsync(DevTools, action.Key!, token).ConfigureAwait(false);
+                return $"Chrome received press_key ({action.Key}). Check the updated page for its effect.";
+            }
+
+            _page.Cursor = ComputerUseCursor.Move(_page.Cursor, x / viewport.Width, y / viewport.Height);
+            await Task.Delay(ComputerUseCursor.MoveMilliseconds, token).ConfigureAwait(false);
+            await DevTools.CallAsync("Input.dispatchMouseEvent", new { type = "mouseMoved", x, y }, token).ConfigureAwait(false);
+            if (viewport != ReadViewport(await EvaluateAsync("athenaPage.viewport()", token).ConfigureAwait(false))
+                || !(await EvaluateAsync(check, token).ConfigureAwait(false)).GetBoolean())
+                return "The target moved during the cursor animation. Observe again before sending input.";
+
+            switch (action.Action)
+            {
+                case "click":
+                    await ClickAsync(x, y, token).ConfigureAwait(false);
+                    break;
+                case "type_text":
+                    await ClickAsync(x, y, token).ConfigureAwait(false);
+                    if (!(await EvaluateAsync("athenaPage.hasEditableFocus()", token).ConfigureAwait(false)).GetBoolean())
+                        return "The click did not focus an editable field. No text was entered.";
+                    await TypeAsync(action.Text!, token).ConfigureAwait(false);
+                    break;
+                case "scroll":
+                    var deltaX = 0.0;
+                    if (action.Direction is "left" or "right")
+                    {
+                        var width = await EvaluateAsync($"athenaPage.horizontalScrollWidth({coordinates})", token).ConfigureAwait(false);
+                        // CEF uses native deviceScaleFactor rather than page zoom, so CDP mouseWheel takes CSS pixels directly.
+                        deltaX = Math.Max(1, width.GetDouble() * HorizontalScrollFraction)
+                            * (action.Direction == "left" ? -1 : 1);
+                    }
+                    var deltaY = action.Direction switch { "up" => -540, "down" => 540, _ => 0 };
+                    await DevTools.CallAsync("Input.dispatchMouseEvent",
+                        new { type = "mouseWheel", x, y, deltaX, deltaY }, token).ConfigureAwait(false);
+                    break;
+            }
+            var target = action.Element is { } selected
+                ? frame.Elements.First(e => e.Index == selected).Label
+                : "the selected point";
+            return $"Chrome received {action.Action} at {target}. Check the updated page for its effect.";
         }
-
-        _page.Cursor = ComputerUseCursor.Move(_page.Cursor, x / viewport.Width, y / viewport.Height);
-        await Task.Delay(ComputerUseCursor.MoveMilliseconds, token).ConfigureAwait(false);
-        await DevTools.CallAsync("Input.dispatchMouseEvent", new { type = "mouseMoved", x, y }, token).ConfigureAwait(false);
-        if (viewport != ReadViewport(await EvaluateAsync("athenaPage.viewport()", token).ConfigureAwait(false))
-            || !(await EvaluateAsync(check, token).ConfigureAwait(false)).GetBoolean())
-            return "The target moved during the cursor animation. Observe again before sending input.";
-
-        switch (action.Action)
+        finally
         {
-            case "click":
-                await ClickAsync(x, y, token).ConfigureAwait(false);
-                break;
-            case "type_text":
-                await ClickAsync(x, y, token).ConfigureAwait(false);
-                if (!(await EvaluateAsync("athenaPage.hasEditableFocus()", token).ConfigureAwait(false)).GetBoolean())
-                    return "The click did not focus an editable field. No text was entered.";
-                await TypeAsync(action.Text!, token).ConfigureAwait(false);
-                break;
-            case "scroll":
-                var deltaX = 0.0;
-                if (action.Direction is "left" or "right")
-                {
-                    var width = await EvaluateAsync($"athenaPage.horizontalScrollWidth({coordinates})", token).ConfigureAwait(false);
-                    // Chromium divides the wheel movement by the page zoom used for high-DPI rendering.
-                    deltaX = Math.Max(1, width.GetDouble() * HorizontalScrollFraction) * viewport.Scale
-                        * (action.Direction == "left" ? -1 : 1);
-                }
-                var deltaY = action.Direction switch { "up" => -540, "down" => 540, _ => 0 };
-                await DevTools.CallAsync("Input.dispatchMouseEvent",
-                    new { type = "mouseWheel", x, y, deltaX, deltaY }, token).ConfigureAwait(false);
-                break;
+            _page.SetAgentInputActive(false);
         }
-        var target = action.Element is { } selected
-            ? frame.Elements.First(e => e.Index == selected).Label
-            : "the selected point";
-        return $"Chrome received {action.Action} at {target}. Check the updated page for its effect.";
     }
 
     private async Task ClickAsync(double x, double y, CancellationToken token)

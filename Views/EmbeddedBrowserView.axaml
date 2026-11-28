@@ -5,106 +5,311 @@
              xmlns:loc="using:Athena.UI.Markup"
              x:Class="Athena.UI.Views.EmbeddedBrowserView"
              x:DataType="vm:EmbeddedBrowserViewModel">
-    <Border CornerRadius="8" ClipToBounds="True" BorderThickness="1"
+    <UserControl.Styles>
+        <Style Selector="Border#BrowserPanelBorder">
+            <Setter Property="CornerRadius" Value="8"/>
+            <Setter Property="BorderThickness" Value="1"/>
+        </Style>
+        <Style Selector="Border#BrowserPanelBorder.conversation-active">
+            <Setter Property="CornerRadius" Value="10,10,0,0"/>
+            <Setter Property="BorderThickness" Value="1,1,1,1"/>
+        </Style>
+        <Style Selector="Border.browser-tab">
+            <Setter Property="Background" Value="{DynamicResource App.HoverOverlayFaded}"/>
+            <Setter Property="BorderBrush" Value="Transparent"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="CornerRadius" Value="6"/>
+            <Setter Property="Height" Value="30"/>
+            <Setter Property="MinWidth" Value="92"/>
+            <Setter Property="MaxWidth" Value="188"/>
+            <Setter Property="Padding" Value="8,0,4,0"/>
+            <Setter Property="Cursor" Value="Hand"/>
+        </Style>
+        <Style Selector="Border.browser-tab:pointerover">
+            <Setter Property="Background" Value="{DynamicResource App.HoverOverlay}"/>
+        </Style>
+        <Style Selector="Border.browser-tab.active">
+            <Setter Property="Background" Value="{DynamicResource App.SelectedBackground}"/>
+            <Setter Property="BorderBrush" Value="{DynamicResource App.SurfaceBorder}"/>
+        </Style>
+        <Style Selector="Button.browser-main-tab">
+            <Setter Property="Background" Value="{DynamicResource App.HoverOverlayFaded}"/>
+            <Setter Property="BorderBrush" Value="Transparent"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="CornerRadius" Value="6"/>
+            <Setter Property="Height" Value="30"/>
+            <Setter Property="MinHeight" Value="30"/>
+            <Setter Property="Padding" Value="9,0,10,0"/>
+            <Setter Property="HorizontalContentAlignment" Value="Center"/>
+            <Setter Property="VerticalContentAlignment" Value="Center"/>
+            <Setter Property="Cursor" Value="Hand"/>
+        </Style>
+        <Style Selector="Button.browser-main-tab:pointerover">
+            <Setter Property="Background" Value="{DynamicResource App.HoverOverlay}"/>
+        </Style>
+        <Style Selector="Button.browser-main-tab:pressed">
+            <Setter Property="Background" Value="{DynamicResource App.PressOverlay}"/>
+        </Style>
+        <Style Selector="Button.browser-main-tab.active">
+            <Setter Property="Background" Value="{DynamicResource App.SelectedBackground}"/>
+            <Setter Property="BorderBrush" Value="{DynamicResource App.SurfaceBorder}"/>
+        </Style>
+        <Style Selector="Button.browser-tab-close">
+            <Setter Property="Width" Value="20"/>
+            <Setter Property="Height" Value="20"/>
+            <Setter Property="MinWidth" Value="20"/>
+            <Setter Property="MinHeight" Value="20"/>
+            <Setter Property="Padding" Value="0"/>
+            <Setter Property="CornerRadius" Value="4"/>
+        </Style>
+    </UserControl.Styles>
+
+    <Border x:Name="BrowserPanelBorder"
+            Classes.conversation-active="{Binding IsConversationTabSelected}"
+            ClipToBounds="True"
             BorderBrush="{DynamicResource App.PanelBorderBrush}"
             Background="{DynamicResource App.PanelBackgroundBrush}">
-        <Grid RowDefinitions="Auto,Auto,*,Auto">
-            <Grid Margin="9,7,9,0" ColumnDefinitions="*,Auto,Auto,Auto" ColumnSpacing="4">
-                <TabControl x:Name="BrowserTabs" SelectedIndex="{Binding SelectedTab}">
-                    <TabItem Header="{loc:Loc Browser.Browse}"/>
-                    <TabItem Header="{loc:Loc Browser.Task}"/>
-                </TabControl>
-                <Button Grid.Column="1" Classes="icon-plain" Command="{Binding NewTabCommand}"
-                        ToolTip.Tip="{loc:Loc Browser.NewTab}" AutomationProperties.Name="{loc:Loc Browser.NewTab}">
-                    <PathIcon Width="14" Height="14" Data="{StaticResource AthenaIconAdd}"/>
-                </Button>
-                <Button Grid.Column="2" Classes="icon-plain" Command="{Binding OpenInSystemBrowserCommand}"
-                        IsEnabled="{Binding HasPage}" ToolTip.Tip="{loc:Loc Browser.OpenExternal}"
-                        AutomationProperties.Name="{loc:Loc Browser.OpenExternal}">
-                    <PathIcon Width="14" Height="14" Data="{StaticResource CoreIconExternalLink}"/>
-                </Button>
-                <Button x:Name="CloseBrowserButton" Grid.Column="3" Classes="icon-plain" Command="{Binding CloseCommand}"
-                        ToolTip.Tip="{loc:Loc Browser.Close}" AutomationProperties.Name="{loc:Loc Browser.Close}">
-                    <PathIcon Width="14" Height="14" Data="{StaticResource AthenaIconClose}"/>
-                </Button>
-            </Grid>
-            <StackPanel Grid.Row="1" Margin="9,6" Spacing="4">
-                <Grid ColumnDefinitions="*,Auto" ColumnSpacing="4" IsVisible="{Binding HasMultipleTabs}">
-                    <ComboBox ItemsSource="{Binding Pages}" SelectedItem="{Binding ActivePage}" HorizontalAlignment="Stretch">
-                        <ComboBox.ItemTemplate>
-                            <DataTemplate x:DataType="vm:BrowserPageOption"><TextBlock Text="{Binding Label}" TextTrimming="CharacterEllipsis"/></DataTemplate>
-                        </ComboBox.ItemTemplate>
-                    </ComboBox>
-                    <Button Grid.Column="1" Classes="icon-plain" Command="{Binding CloseTabCommand}"
-                            ToolTip.Tip="{loc:Loc Browser.CloseTab}" AutomationProperties.Name="{loc:Loc Browser.CloseTab}">
+        <Grid RowDefinitions="Auto,Auto,Auto,*,Auto">
+            <!-- Row 0: Unified horizontal tab bar (always visible, shared with main chat in full view) -->
+            <Grid x:Name="TabBarHost" Margin="8,6,8,6" ColumnDefinitions="Auto,*,Auto" ColumnSpacing="4">
+                <!-- Col 0: Full-view fixed Main Conversation tab + Restore Split View (>) button -->
+                <StackPanel x:Name="FullViewLeadingTabs"
+                            Orientation="Horizontal"
+                            Spacing="4"
+                            VerticalAlignment="Center"
+                            IsVisible="{Binding IsFullView}">
+                    <Button x:Name="MainConversationTabButton"
+                            Classes="browser-main-tab"
+                            Classes.active="{Binding IsConversationTabSelected}"
+                            Command="{Binding SelectConversationTabCommand}"
+                            ToolTip.Tip="{loc:Loc Browser.MainConversationTab}"
+                            AutomationProperties.Name="{loc:Loc Browser.MainConversationTab}">
+                        <StackPanel Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
+                            <PathIcon Width="13" Height="13"
+                                      Data="{StaticResource AthenaIconConversation}"
+                                      Foreground="{DynamicResource App.IconAccentForeground}"/>
+                            <TextBlock Text="{loc:Loc Browser.MainConversationTab}"
+                                       FontSize="{DynamicResource App.FontSize.Body}"
+                                       FontWeight="Medium"
+                                       Foreground="{DynamicResource App.TextPrimary}"
+                                       VerticalAlignment="Center"/>
+                        </StackPanel>
+                    </Button>
+                    <Button x:Name="RestoreSplitViewButton"
+                            Classes="icon-plain"
+                            Command="{Binding ExitFullViewCommand}"
+                            ToolTip.Tip="{loc:Loc Browser.RestoreSplitView}"
+                            AutomationProperties.Name="{loc:Loc Browser.RestoreSplitView}">
+                        <PathIcon Width="12" Height="12"
+                                  Data="{StaticResource AthenaIconChevronRight}"
+                                  Foreground="{DynamicResource App.IconForeground}"/>
+                    </Button>
+                    <Border Width="1" Height="16" Margin="2,0"
+                            VerticalAlignment="Center"
+                            Background="{DynamicResource App.SurfaceBorder}"
+                            IsHitTestVisible="False"/>
+                </StackPanel>
+
+                <!-- Col 1: Scrollable horizontal web/task tabs with right-edge fade + adjacent New Tab (+) button -->
+                <Grid x:Name="WebTabStripContainer"
+                      Grid.Column="1"
+                      HorizontalAlignment="Left"
+                      VerticalAlignment="Center"
+                      ColumnDefinitions="*,Auto"
+                      ColumnSpacing="4">
+                    <ScrollViewer x:Name="TabStripScrollViewer"
+                                  HorizontalScrollBarVisibility="Hidden"
+                                  VerticalScrollBarVisibility="Disabled">
+                        <ItemsControl x:Name="BrowserTabsControl" ItemsSource="{Binding Tabs}">
+                            <ItemsControl.ItemsPanel>
+                                <ItemsPanelTemplate>
+                                    <StackPanel Orientation="Horizontal" Spacing="4"/>
+                                </ItemsPanelTemplate>
+                            </ItemsControl.ItemsPanel>
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate x:DataType="vm:BrowserTabItemViewModel">
+                                    <Border Classes="browser-tab"
+                                            Classes.active="{Binding IsActive}"
+                                            ToolTip.Tip="{Binding ToolTipText}">
+                                        <Border.ContextMenu>
+                                            <ContextMenu>
+                                                <MenuItem Header="{loc:Loc Browser.Tab.Close}"
+                                                          Command="{Binding CloseCommand}">
+                                                    <MenuItem.Icon>
+                                                        <PathIcon Width="12" Height="12"
+                                                                  Data="{StaticResource AthenaIconClose}"
+                                                                  Foreground="{DynamicResource App.IconForeground}"/>
+                                                    </MenuItem.Icon>
+                                                </MenuItem>
+                                                <MenuItem Header="{loc:Loc Browser.Tab.CloseOthers}"
+                                                          Command="{Binding CloseOthersCommand}"
+                                                          IsEnabled="{Binding CanCloseOthers}"/>
+                                                <MenuItem Header="{loc:Loc Browser.Tab.CloseRight}"
+                                                          Command="{Binding CloseToRightCommand}"
+                                                          IsEnabled="{Binding CanCloseToRight}"/>
+                                                <MenuItem Header="{loc:Loc Browser.Tab.CloseAll}"
+                                                          Command="{Binding CloseAllCommand}"/>
+                                                <Separator/>
+                                                <MenuItem Header="{Binding MuteMenuHeader}"
+                                                          Command="{Binding ToggleMuteCommand}">
+                                                    <MenuItem.Icon>
+                                                        <PathIcon Width="13" Height="13"
+                                                                  Data="{Binding MuteIconKey, Converter={StaticResource ToolIconKeyToGeometryConverter}}"
+                                                                  Foreground="{DynamicResource App.IconForeground}"/>
+                                                    </MenuItem.Icon>
+                                                </MenuItem>
+                                                <Separator/>
+                                                <MenuItem Header="{loc:Loc Browser.OpenExternal}"
+                                                          Command="{Binding OpenExternalCommand}"
+                                                          IsEnabled="{Binding HasNavigableUrl}">
+                                                    <MenuItem.Icon>
+                                                        <PathIcon Width="13" Height="13"
+                                                                  Data="{StaticResource AthenaIconOpenExternal}"
+                                                                  Foreground="{DynamicResource App.IconForeground}"/>
+                                                    </MenuItem.Icon>
+                                                </MenuItem>
+                                                <MenuItem Header="{loc:Loc Browser.Tab.CopyUrl}"
+                                                          Command="{Binding CopyUrlCommand}"
+                                                          IsEnabled="{Binding HasNavigableUrl}">
+                                                    <MenuItem.Icon>
+                                                        <PathIcon Width="13" Height="13"
+                                                                  Data="{StaticResource AthenaIconCopy}"
+                                                                  Foreground="{DynamicResource App.IconForeground}"/>
+                                                    </MenuItem.Icon>
+                                                </MenuItem>
+                                            </ContextMenu>
+                                        </Border.ContextMenu>
+                                        <Grid ColumnDefinitions="Auto,Auto,*,Auto" ColumnSpacing="5" VerticalAlignment="Center">
+                                            <PathIcon Grid.Column="0" Width="13" Height="13" VerticalAlignment="Center"
+                                                      Data="{Binding TabIconKey, Converter={StaticResource ToolIconKeyToGeometryConverter}}"
+                                                      Foreground="{DynamicResource App.IconForeground}"/>
+                                            <PathIcon Grid.Column="1" Width="12" Height="12" VerticalAlignment="Center"
+                                                      IsVisible="{Binding IsMuted}"
+                                                      IsHitTestVisible="False"
+                                                      Data="{StaticResource AthenaIconBrowserMute}"
+                                                      Foreground="{DynamicResource App.IconMutedForeground}"/>
+                                            <TextBlock Grid.Column="2"
+                                                       Text="{Binding Label}"
+                                                       FontSize="{DynamicResource App.FontSize.Body}"
+                                                       Foreground="{DynamicResource App.TextPrimary}"
+                                                       VerticalAlignment="Center"
+                                                       TextTrimming="CharacterEllipsis"/>
+                                            <Button Grid.Column="3"
+                                                    Classes="icon-plain browser-tab-close"
+                                                    Command="{Binding CloseCommand}"
+                                                    ToolTip.Tip="{loc:Loc Browser.Tab.Close}"
+                                                    AutomationProperties.Name="{loc:Loc Browser.Tab.Close}">
+                                                <PathIcon Width="10" Height="10"
+                                                          Data="{StaticResource AthenaIconClose}"
+                                                          Foreground="{DynamicResource App.IconMutedForeground}"/>
+                                            </Button>
+                                        </Grid>
+                                    </Border>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                    </ScrollViewer>
+                    <Button x:Name="NewTabButton"
+                            Grid.Column="1"
+                            Classes="icon-plain"
+                            Command="{Binding NewTabCommand}"
+                            ToolTip.Tip="{loc:Loc Browser.NewTab}"
+                            AutomationProperties.Name="{loc:Loc Browser.NewTab}">
+                        <PathIcon Width="14" Height="14" Data="{StaticResource AthenaIconAdd}"/>
+                    </Button>
+                </Grid>
+
+                <!-- Col 2: Always-visible right-edge chrome actions (Enter/Exit Full View + Close Browser Pane) -->
+                <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="2" VerticalAlignment="Center">
+                    <Button x:Name="ToggleFullViewButton"
+                            Classes="icon-plain"
+                            Command="{Binding ToggleFullViewCommand}"
+                            ToolTip.Tip="{Binding FullViewToggleTip}"
+                            AutomationProperties.Name="{Binding FullViewToggleTip}">
+                        <PathIcon Width="14" Height="14"
+                                  Data="{Binding FullViewToggleIconKey, Converter={StaticResource ToolIconKeyToGeometryConverter}}"/>
+                    </Button>
+                    <Button x:Name="CloseBrowserButton"
+                            Classes="icon-plain"
+                            Command="{Binding CloseCommand}"
+                            ToolTip.Tip="{loc:Loc Browser.Close}"
+                            AutomationProperties.Name="{loc:Loc Browser.Close}">
                         <PathIcon Width="14" Height="14" Data="{StaticResource AthenaIconClose}"/>
                     </Button>
-                </Grid>
-                <Grid ColumnDefinitions="Auto,Auto,Auto,*" ColumnSpacing="4">
-                    <Button Classes="icon-plain" Content="‹" Command="{Binding BackCommand}"
-                            ToolTip.Tip="{loc:Loc Browser.Back}" AutomationProperties.Name="{loc:Loc Browser.Back}"/>
-                    <Button Grid.Column="1" Classes="icon-plain" Content="›" Command="{Binding ForwardCommand}"
-                            ToolTip.Tip="{loc:Loc Browser.Forward}" AutomationProperties.Name="{loc:Loc Browser.Forward}"/>
-                    <Button Grid.Column="2" Classes="icon-plain" Command="{Binding ReloadCommand}"
-                            ToolTip.Tip="{loc:Loc Browser.Reload}" AutomationProperties.Name="{loc:Loc Browser.Reload}">
-                        <PathIcon Width="14" Height="14" Data="{StaticResource AthenaIconRefresh}"/>
-                    </Button>
-                    <TextBox x:Name="AddressBox" Grid.Column="3" PlaceholderText="{loc:Loc Browser.Address}"
-                             Text="{Binding Address}" AutomationProperties.Name="{loc:Loc Browser.Address}">
-                        <TextBox.KeyBindings>
-                            <KeyBinding Gesture="Enter" Command="{Binding NavigateCommand}"/>
-                        </TextBox.KeyBindings>
-                    </TextBox>
-                </Grid>
+                </StackPanel>
+            </Grid>
+
+            <!-- Row 1: Navigation toolbar -->
+            <Grid Grid.Row="1" Margin="9,0,9,6" ColumnDefinitions="Auto,Auto,Auto,*" ColumnSpacing="4"
+                  IsVisible="{Binding !IsConversationTabSelected}">
+                <Button Classes="icon-plain" Content="‹" Command="{Binding BackCommand}"
+                        ToolTip.Tip="{loc:Loc Browser.Back}" AutomationProperties.Name="{loc:Loc Browser.Back}"/>
+                <Button Grid.Column="1" Classes="icon-plain" Content="›" Command="{Binding ForwardCommand}"
+                        ToolTip.Tip="{loc:Loc Browser.Forward}" AutomationProperties.Name="{loc:Loc Browser.Forward}"/>
+                <Button Grid.Column="2" Classes="icon-plain" Command="{Binding ReloadCommand}"
+                        ToolTip.Tip="{loc:Loc Browser.Reload}" AutomationProperties.Name="{loc:Loc Browser.Reload}">
+                    <PathIcon Width="14" Height="14" Data="{StaticResource AthenaIconRefresh}"/>
+                </Button>
+                <TextBox x:Name="AddressBox" Grid.Column="3" PlaceholderText="{loc:Loc Browser.Address}"
+                         Text="{Binding Address}" AutomationProperties.Name="{loc:Loc Browser.Address}">
+                    <TextBox.KeyBindings>
+                        <KeyBinding Gesture="Enter" Command="{Binding NavigateCommand}"/>
+                    </TextBox.KeyBindings>
+                </TextBox>
+            </Grid>
+
+            <!-- Row 2: Non-overlapping info banner row: never clipped by native CEF child window airspace -->
+            <StackPanel Grid.Row="2" Margin="9,0,9,6" Spacing="6"
+                        IsVisible="{Binding !IsConversationTabSelected}">
+                <Border x:Name="BrowserNotice" IsVisible="{Binding HasNotice}" Padding="10,7"
+                        CornerRadius="8" BorderThickness="1" BorderBrush="{DynamicResource App.PanelBorderBrush}"
+                        Background="{DynamicResource App.PanelBackgroundBrush}">
+                    <TextBlock Text="{Binding Notice}" TextWrapping="Wrap"
+                               Foreground="{DynamicResource App.TextPrimary}"/>
+                </Border>
+                <Border x:Name="BrowserPromptCard" Background="{DynamicResource App.PanelBackgroundBrush}"
+                        IsVisible="{Binding HasPrompt}" Padding="12"
+                        BorderBrush="{DynamicResource App.PanelBorderBrush}" BorderThickness="1" CornerRadius="8">
+                    <ContentControl Content="{Binding Prompt}">
+                        <ContentControl.ContentTemplate>
+                            <DataTemplate x:DataType="vm:BrowserUserPrompt">
+                                <StackPanel Spacing="8">
+                                    <TextBlock Text="{Binding Title}" FontWeight="SemiBold"/>
+                                    <TextBlock Text="{Binding Message}" TextWrapping="Wrap"/>
+                                    <TextBox IsVisible="{Binding TextInput}" Text="{Binding Text}"/>
+                                    <TextBox IsVisible="{Binding Authentication}" Text="{Binding User}"
+                                             PlaceholderText="{loc:Loc Browser.Username}"/>
+                                    <TextBox IsVisible="{Binding Authentication}" Text="{Binding Password}" PasswordChar="●"
+                                             PlaceholderText="{loc:Loc Browser.Password}"/>
+                                    <StackPanel Orientation="Horizontal" Spacing="8" HorizontalAlignment="Right">
+                                        <Button Content="{loc:Loc Common.Cancel}" Command="{Binding CancelCommand}"/>
+                                        <Button Content="{loc:Loc Common.Confirm}" Command="{Binding AcceptCommand}"/>
+                                    </StackPanel>
+                                </StackPanel>
+                            </DataTemplate>
+                        </ContentControl.ContentTemplate>
+                    </ContentControl>
+                </Border>
             </StackPanel>
-            <Border x:Name="BrowserSurface" Grid.Row="2" Focusable="True" ClipToBounds="True"
-                    Background="{DynamicResource App.PanelBackgroundBrush}">
+
+            <!-- Row 3: Native CEF surface or empty state -->
+            <Border x:Name="BrowserSurface" Grid.Row="3" ClipToBounds="True"
+                    Background="{DynamicResource App.PanelBackgroundBrush}"
+                    IsVisible="{Binding !IsConversationTabSelected}">
                 <Panel>
-                    <Panel IsVisible="{Binding !HasPage}" HorizontalAlignment="Center" VerticalAlignment="Center" Margin="16">
+                    <Panel IsVisible="{Binding !HasLivePage}" HorizontalAlignment="Center" VerticalAlignment="Center" Margin="16">
                         <TextBlock IsVisible="{Binding IsBrowsing}" TextWrapping="Wrap" TextAlignment="Center"
                                    Foreground="{DynamicResource App.TextMuted}" Text="{loc:Loc Browser.Empty}"/>
                         <TextBlock IsVisible="{Binding IsTask}" TextWrapping="Wrap" TextAlignment="Center"
                                    Foreground="{DynamicResource App.TextMuted}" Text="{loc:Loc Browser.TaskEmpty}"/>
                     </Panel>
-                    <Image x:Name="BrowserImage" Stretch="Fill" IsHitTestVisible="False"/>
-                    <Border x:Name="BrowserGpuLayer" IsHitTestVisible="False"/>
-                    <controls:ComputerUsePreview x:Name="BrowserCursor" IsHitTestVisible="False"/>
-                    <Border x:Name="BrowserNotice" IsVisible="{Binding HasNotice}" IsHitTestVisible="False"
-                            HorizontalAlignment="Center" VerticalAlignment="Bottom" Margin="12" Padding="10,7"
-                            CornerRadius="8" BorderThickness="1" BorderBrush="{DynamicResource App.PanelBorderBrush}"
-                            Background="{DynamicResource App.PanelBackgroundBrush}">
-                        <TextBlock Text="{Binding Notice}" TextWrapping="Wrap"
-                                   Foreground="{DynamicResource App.TextPrimary}"/>
-                    </Border>
-                    <TextBox x:Name="BrowserImeInput" Width="2" Height="2" MinWidth="0" MinHeight="0" Padding="0"
-                             Opacity="0" IsHitTestVisible="False" IsTabStop="False"
-                             HorizontalAlignment="Left" VerticalAlignment="Top"/>
+                    <controls:CefBrowserHostControl x:Name="CefHost" IsVisible="{Binding HasLivePage}"/>
                 </Panel>
             </Border>
-            <Border Grid.Row="2" Background="{DynamicResource App.PanelBackgroundBrush}" IsVisible="{Binding HasPrompt}"
-                    HorizontalAlignment="Stretch" VerticalAlignment="Top" Margin="12" Padding="14"
-                    BorderBrush="{DynamicResource App.PanelBorderBrush}" BorderThickness="1" CornerRadius="8">
-                <ContentControl Content="{Binding Prompt}">
-                    <ContentControl.ContentTemplate>
-                        <DataTemplate x:DataType="vm:BrowserUserPrompt">
-                            <StackPanel Spacing="8">
-                                <TextBlock Text="{Binding Title}" FontWeight="SemiBold"/>
-                                <TextBlock Text="{Binding Message}" TextWrapping="Wrap"/>
-                                <TextBox IsVisible="{Binding TextInput}" Text="{Binding Text}"/>
-                                <TextBox IsVisible="{Binding Authentication}" Text="{Binding User}"
-                                         PlaceholderText="{loc:Loc Browser.Username}"/>
-                                <TextBox IsVisible="{Binding Authentication}" Text="{Binding Password}" PasswordChar="●"
-                                         PlaceholderText="{loc:Loc Browser.Password}"/>
-                                <StackPanel Orientation="Horizontal" Spacing="8" HorizontalAlignment="Right">
-                                    <Button Content="{loc:Loc Common.Cancel}" Command="{Binding CancelCommand}"/>
-                                    <Button Content="{loc:Loc Common.Confirm}" Command="{Binding AcceptCommand}"/>
-                                </StackPanel>
-                            </StackPanel>
-                        </DataTemplate>
-                    </ContentControl.ContentTemplate>
-                </ContentControl>
-            </Border>
-            <Grid Grid.Row="3" ColumnDefinitions="*,Auto" ColumnSpacing="6" Margin="9,5">
+
+            <!-- Row 4: Status bar & Computer Use takeover/resume controls -->
+            <Grid Grid.Row="4" ColumnDefinitions="*,Auto" ColumnSpacing="6" Margin="9,5"
+                  IsVisible="{Binding !IsConversationTabSelected}">
                 <Panel VerticalAlignment="Center">
                     <TextBlock IsVisible="{Binding IsTask}" Text="{Binding TaskStatus}" TextWrapping="Wrap" MaxLines="3"
                                TextTrimming="CharacterEllipsis" Foreground="{DynamicResource App.TextMuted}"/>

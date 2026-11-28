@@ -50,7 +50,7 @@ public sealed partial class EmbeddedBrowserSettingsViewModel : ViewModelBase, ID
 
     public AppSettingsState State { get; }
     public ProviderRoleSelectionViewModel ModelSelection { get; private set; }
-    public string RuntimeVersion => _browser != null ? $"Electron {_browser.RuntimeVersion}" : "";
+    public string RuntimeVersion => _browser != null ? $"Chromium {_browser.ChromiumVersion} (CEF)" : "";
     public string RuntimeStatus => _browser?.RuntimeError ?? (_browser?.IsRunning == true
         ? T("Settings.Browser.RuntimeRunning", "Running") : _browser?.IsAvailable == true
             ? T("Settings.Browser.RuntimeReady", "Bundled and ready")
@@ -74,13 +74,19 @@ public sealed partial class EmbeddedBrowserSettingsViewModel : ViewModelBase, ID
     partial void OnHomePageChanged(string value)
     {
         var address = value.Trim();
-        if (address.Length > 0 && (!Uri.TryCreate(address, UriKind.Absolute, out var uri) || !EmbeddedBrowser.IsPageUri(uri)))
+        if (address.Length == 0)
+        {
+            HomePageError = null;
+            State.Config.EmbeddedBrowser.HomePage = "";
+            return;
+        }
+        if (!EmbeddedBrowser.TryNormalizeUserAddress(address, out var uri))
         {
             HomePageError = T("Browser.InvalidAddress", "Enter an HTTP or HTTPS address.");
             return;
         }
         HomePageError = null;
-        State.Config.EmbeddedBrowser.HomePage = address;
+        State.Config.EmbeddedBrowser.HomePage = uri.AbsoluteUri;
     }
 
     partial void OnHistoryQueryChanged(string value) => _ = RefreshHistoryAsync();

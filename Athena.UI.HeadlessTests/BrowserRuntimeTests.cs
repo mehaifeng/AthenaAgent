@@ -1,18 +1,21 @@
+using System.Diagnostics;
 using System.Net;
 using System.Net.Sockets;
+using System.Reflection;
 using System.Text;
 using System.Text.Json;
 using Athena.UI.Services;
 using Athena.UI.Services.ComputerUse;
 using Athena.UI.Models;
+using Microsoft.Data.Sqlite;
 using Serilog;
 
 internal static class BrowserRuntimeTests
 {
-    public static async Task RunAsync(string archiveDirectory)
+    public static async Task RunAsync(string runtimeDirectory)
     {
         var root = Directory.CreateTempSubdirectory("athena-browser-persistence-");
-        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(75));
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(120));
         var token = timeout.Token;
         using var port = new TcpListener(IPAddress.Loopback, 0);
         port.Start();
@@ -29,36 +32,75 @@ internal static class BrowserRuntimeTests
             try
             {
                 await unstaged.PrepareAsync(token);
-                throw new InvalidOperationException("Browser startup must diagnose a missing archive.");
+                throw new InvalidOperationException("Browser startup must diagnose a missing runtime.");
             }
             catch (FileNotFoundException exception)
             {
-                Assert(exception.FileName == Path.Combine(unstagedDirectory, "runtime.zip")
+                var expectedBridge = Path.Combine(unstagedDirectory, OperatingSystem.IsWindows() ? "athena_cef_bridge.dll"
+                    : OperatingSystem.IsMacOS() ? "libathena_cef_bridge.dylib" : "libathena_cef_bridge.so");
+                Assert(exception.FileName == expectedBridge
                     && exception.Message.Contains("dotnet run", StringComparison.Ordinal),
-                    "The missing-runtime error must give the archive path and the source launch command.");
+                    "The missing-runtime error must give the bridge path and the source launch command.");
             }
 
-            await using (var browser = new EmbeddedBrowser(archiveDirectory, root.FullName))
+            var dataDirectory = Path.Combine(root.FullName, "UserBrowserData");
+            // Phase 1 runs in an isolated child process so CEF initializes cleanly, exercises all
+            // real Chromium 158 capabilities, and flushes cookies + localStorage on real cef_shutdown().
+            await RunWorkerAsync("phase1", runtimeDirectory, dataDirectory, site, token);
+
+            // Relocate the runtime installation directory while preserving the same user data directory.
+            var movedRuntimeDirectory = Path.Combine(root.FullName, "UpdatedInstall", "BrowserRuntime");
+            CopyDirectoryPreservingSymlinks(runtimeDirectory, movedRuntimeDirectory);
+
+            // Phase 2 runs in a fresh OS process to verify real restart persistence and clearing.
+            await RunWorkerAsync("phase2", movedRuntimeDirectory, dataDirectory, site, token);
+
+            Console.WriteLine("[PASS] Bundled CEF runtime uses shared persistent cookies and site data with searchable, separately clearable history");
+        }
+        finally
+        {
+            listener.Stop();
+            await server;
+            try { root.Delete(recursive: true); }
+            catch (IOException) { /* Best-effort cleanup of temp CEF profile files on Windows. */ }
+        }
+    }
+
+    internal static async Task RunWorkerPhaseAsync(string phase)
+    {
+        var runtimeDirectory = Environment.GetEnvironmentVariable("ATHENA_BROWSER_WORKER_RUNTIME")
+            ?? throw new InvalidOperationException("Missing ATHENA_BROWSER_WORKER_RUNTIME.");
+        var dataDirectory = Environment.GetEnvironmentVariable("ATHENA_BROWSER_WORKER_DATA")
+            ?? throw new InvalidOperationException("Missing ATHENA_BROWSER_WORKER_DATA.");
+        var site = new Uri(Environment.GetEnvironmentVariable("ATHENA_BROWSER_WORKER_SITE")
+            ?? throw new InvalidOperationException("Missing ATHENA_BROWSER_WORKER_SITE."));
+
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(90));
+        var token = timeout.Token;
+        try
+        {
+            if (phase == "phase1")
             {
+                await using var browser = new EmbeddedBrowser(runtimeDirectory, dataDirectory);
                 var login = await browser.OpenAsync(new Uri(site, "login"), token);
                 await WaitForAsync(() => IsTrue(login, "document.title === 'Signed in' && localStorage.getItem('fixture') === 'ready'", token), token);
 
                 var agent = await browser.OpenTaskAsync(new Uri(site, "session"), token);
                 await WaitForAsync(() => IsTrue(agent, "document.body?.textContent.includes('Logged in')", token), token);
                 Assert(agent.Id != login.Id, "The task must have its own tab while sharing the signed-in browser profile.");
-                await ReplayInteractionsAsync(browser, agent, root.FullName, token);
+
+                await VerifyTabDomainOperationsAsync(browser, login, agent, site, token);
+                await VerifyConcurrentSqliteAndAsyncHistoryAsync(browser, agent, dataDirectory, site, token);
+                await ReplayInteractionsAsync(browser, agent, dataDirectory, token);
                 await VerifyConcurrentBrowserInputAsync(browser, site, token);
                 await VerifyTakeoverAsync(browser, site, token);
                 await VerifyActiveTimeLimitAsync(browser, site, token);
                 await VerifyShadowDialogInputAsync(browser, site, token);
                 await VerifyHorizontalScrollingAsync(browser, site, token);
             }
-            // Recreate the host with a new installation location but the same user browser data.
-            var movedArchiveDirectory = Path.Combine(root.FullName, "UpdatedInstall");
-            Directory.CreateDirectory(movedArchiveDirectory);
-            File.Copy(Path.Combine(archiveDirectory, "runtime.zip"), Path.Combine(movedArchiveDirectory, "runtime.zip"));
-            await using (var restarted = new EmbeddedBrowser(movedArchiveDirectory, root.FullName))
+            else if (phase == "phase2")
             {
+                await using var restarted = new EmbeddedBrowser(runtimeDirectory, dataDirectory);
                 var page = await restarted.OpenAsync(new Uri(site, "session"), token);
                 await WaitForAsync(() => IsTrue(page,
                     "document.body?.textContent.includes('Logged in') && localStorage.getItem('fixture') === 'ready'", token), token);
@@ -66,7 +108,7 @@ internal static class BrowserRuntimeTests
                 var taskHistory = await restarted.SearchHistoryAsync("/session", token);
                 Assert(loginHistory.Any(entry => entry.Url.EndsWith("/login", StringComparison.Ordinal))
                     && taskHistory.Any(entry => entry.Url.EndsWith("/session", StringComparison.Ordinal)),
-                    "Committed visits and titles must survive a host restart and an install-directory change.");
+                    "Committed visits and titles must survive a real process restart and an install-directory change.");
                 await restarted.ClearHistoryAsync(token);
                 Assert((await restarted.SearchHistoryAsync("", token)).Count == 0
                     && await IsTrue(page, "document.body?.textContent.includes('Logged in')", token),
@@ -76,14 +118,149 @@ internal static class BrowserRuntimeTests
                 await WaitForAsync(() => IsTrue(cleared,
                     "document.body?.textContent.includes('Logged out') && localStorage.getItem('fixture') === null", token), token);
             }
-            Console.WriteLine("[PASS] Bundled runtime uses shared persistent cookies and site data with searchable, separately clearable history");
+            else
+            {
+                throw new InvalidOperationException($"Unknown browser persistence worker phase: {phase}");
+            }
         }
         finally
         {
-            listener.Stop();
-            await server;
-            root.Delete(recursive: true);
+            await CefNativeBridge.ShutdownProcessAsync();
         }
+    }
+
+    private static async Task RunWorkerAsync(string phase, string runtimeDirectory, string dataDirectory, Uri site, CancellationToken token)
+    {
+        var assembly = Assembly.GetExecutingAssembly().Location;
+        var start = new ProcessStartInfo("dotnet")
+        {
+            UseShellExecute = false,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            CreateNoWindow = true
+        };
+        start.ArgumentList.Add(assembly);
+        start.Environment.Remove("ATHENA_HEADLESS_ONLY");
+        start.Environment.Remove("ATHENA_BROWSER_SMOKE");
+        start.Environment["ATHENA_BROWSER_PERSISTENCE_WORKER"] = phase;
+        start.Environment["ATHENA_BROWSER_WORKER_RUNTIME"] = runtimeDirectory;
+        start.Environment["ATHENA_BROWSER_WORKER_DATA"] = dataDirectory;
+        start.Environment["ATHENA_BROWSER_WORKER_SITE"] = site.AbsoluteUri;
+
+        using var proc = Process.Start(start) ?? throw new InvalidOperationException($"Failed to launch CEF worker ({phase}).");
+        var stdoutTask = proc.StandardOutput.ReadToEndAsync(token);
+        var stderrTask = proc.StandardError.ReadToEndAsync(token);
+        await proc.WaitForExitAsync(token);
+        var stdout = await stdoutTask;
+        var stderr = await stderrTask;
+        if (!string.IsNullOrWhiteSpace(stdout))
+            Console.Write(stdout);
+        if (proc.ExitCode != 0)
+            throw new InvalidOperationException($"CEF persistence worker ({phase}) failed with exit code {proc.ExitCode}.\nSTDOUT:\n{stdout}\nSTDERR:\n{stderr}");
+    }
+
+    private static void CopyDirectoryPreservingSymlinks(string sourceDir, string destDir)
+    {
+        Directory.CreateDirectory(destDir);
+        foreach (var entry in new DirectoryInfo(sourceDir).EnumerateFileSystemInfos())
+        {
+            var targetPath = Path.Combine(destDir, entry.Name);
+            if (entry.LinkTarget is { } linkTarget)
+            {
+                if (entry is DirectoryInfo)
+                    Directory.CreateSymbolicLink(targetPath, linkTarget);
+                else
+                    File.CreateSymbolicLink(targetPath, linkTarget);
+            }
+            else if (entry is DirectoryInfo subDir)
+            {
+                CopyDirectoryPreservingSymlinks(subDir.FullName, targetPath);
+            }
+            else if (entry is FileInfo file)
+            {
+                file.CopyTo(targetPath, overwrite: true);
+            }
+        }
+    }
+
+    private static async Task VerifyTabDomainOperationsAsync(
+        EmbeddedBrowser browser, ChromeBrowserPage login, ChromeBrowserPage agent, Uri site, CancellationToken token)
+    {
+        var extra = await browser.NewTabAsync(new Uri(site, "session"), token);
+        await WaitForAsync(() => IsTrue(extra, "document.body?.textContent.includes('Logged in')", token), token);
+        Assert(browser.AllTabs().Count >= 3, "AllTabs must include both browsing and task tabs in order.");
+
+        // Mute / unmute round-trip on real CEF browser host
+        await browser.SetTabMutedAsync(extra, true, token);
+        Assert(extra.IsMuted, "SetTabMutedAsync(true) must mute the tab.");
+        await browser.SetTabMutedAsync(extra, false, token);
+        Assert(!extra.IsMuted, "SetTabMutedAsync(false) must unmute the tab.");
+
+        // MoveTab ordering
+        Assert(browser.MoveTab(extra.Id, 0) && browser.AllTabs()[0].Id == extra.Id,
+            "MoveTab must reorder tabs deterministically.");
+
+        // Batch close
+        var extra2 = await browser.NewTabAsync(EmbeddedBrowser.Blank, token);
+        await browser.CloseTabsAsync([extra, extra2], token);
+        var remainingIds = browser.AllTabs().Select(t => t.Id).ToHashSet();
+        Assert(!remainingIds.Contains(extra.Id) && !remainingIds.Contains(extra2.Id)
+            && remainingIds.Contains(login.Id) && remainingIds.Contains(agent.Id),
+            "CloseTabsAsync must close the targeted tabs while preserving others.");
+        browser.Select(agent);
+        Console.WriteLine("[PASS] CEF tabs support ordered listing, drag reordering, audio mute toggling, and batch close");
+    }
+
+    private static async Task VerifyConcurrentSqliteAndAsyncHistoryAsync(
+        EmbeddedBrowser browser, ChromeBrowserPage agent, string dataDirectory, Uri site, CancellationToken token)
+    {
+        if (OperatingSystem.IsMacOS())
+            Assert(CefNativeBridge.IsFrameworkPreloaded,
+                "macOS must preload Chromium Embedded Framework before worker threads/SQLite start to avoid PartitionAlloc malloc_zone unregister races.");
+
+        var stressDb = Path.Combine(dataDirectory, "sqlite-cef-stress.db");
+        using var stop = CancellationTokenSource.CreateLinkedTokenSource(token);
+        var workers = Enumerable.Range(0, 6).Select(workerId => Task.Run(() =>
+        {
+            var connStr = new SqliteConnectionStringBuilder
+            {
+                DataSource = stressDb,
+                Pooling = false,
+                DefaultTimeout = 5
+            }.ConnectionString;
+            for (var round = 0; round < 20 && !stop.IsCancellationRequested; round++)
+            {
+                using var conn = new SqliteConnection(connStr);
+                conn.Open();
+                using var cmd = conn.CreateCommand();
+                cmd.CommandText = """
+                    CREATE TABLE IF NOT EXISTS StressUpsert(Key TEXT PRIMARY KEY, Val TEXT NOT NULL, Ts INTEGER NOT NULL);
+                    INSERT INTO StressUpsert(Key, Val, Ts) VALUES ($k, $v, $t)
+                    ON CONFLICT(Key) DO UPDATE SET Val = CASE WHEN excluded.Val = '' THEN StressUpsert.Val ELSE excluded.Val END, Ts = excluded.Ts;
+                    """;
+                cmd.Parameters.AddWithValue("$k", $"worker-{workerId}-key-{round % 4}");
+                cmd.Parameters.AddWithValue("$v", $"payload-{workerId}-{round}");
+                cmd.Parameters.AddWithValue("$t", DateTimeOffset.UtcNow.ToUnixTimeMilliseconds());
+                try { cmd.ExecuteNonQuery(); }
+                catch (SqliteException ex) when (ex.SqliteErrorCode is 5 or 6)
+                {
+                    // SQLITE_BUSY / SQLITE_LOCKED under intentional 6-thread contention is expected;
+                    // the invariant under test is zero allocator traps / deadlocks in libsqlite3mc.
+                }
+            }
+        }, token)).ToArray();
+
+        // Concurrently navigate and update document.title so OnCefEvent queues async BrowserHistory writes
+        // while the 6 SQLite workers hammer libsqlite3mc upserts.
+        var markerTitle = $"AsyncHistory-{Guid.NewGuid():N}";
+        await agent.NavigateAsync(new Uri(site, "session?stress=1"), token);
+        await WaitForAsync(() => IsTrue(agent, "document.body?.textContent.includes('Logged in')", token), token);
+        await Evaluate(agent, $"document.title = '{markerTitle}'; true", token);
+        await WaitForAsync(async () => (await browser.SearchHistoryAsync(markerTitle, token)).Count > 0, token);
+        await Task.WhenAll(workers);
+        await agent.NavigateAsync(new Uri(site, "session"), token);
+        await WaitForAsync(() => IsTrue(agent, "document.body?.textContent.includes('Logged in')", token), token);
+        Console.WriteLine("[PASS] Preloaded CEF framework and async history queue stay free of SQLite allocator traps and main-thread deadlocks");
     }
 
     private static async Task ReplayInteractionsAsync(EmbeddedBrowser browser, ChromeBrowserPage page, string directory, CancellationToken token)
