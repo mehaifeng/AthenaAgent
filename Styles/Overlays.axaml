@@ -34,6 +34,9 @@
             <SolidColorBrush x:Key="App.PressOverlay" Color="White" Opacity="0.15" />
             <SolidColorBrush x:Key="App.PanelVeilBrush" Color="#16161A" />
             <SolidColorBrush x:Key="App.VeilAccentBrush" Color="White" Opacity="0.38" />
+            <SolidColorBrush x:Key="App.ModalScrimBrush" Color="#000000" Opacity="0.42" />
+            <SolidColorBrush x:Key="App.ModalBorderBrush" Color="#FFFFFF" Opacity="0.16" />
+            <BoxShadows x:Key="App.ModalShadow">0 18 48 0 #70000000</BoxShadows>
         </ResourceDictionary>
         <ResourceDictionary x:Key="Light">
             <SolidColorBrush x:Key="App.HoverOverlayFaded" Color="Black" Opacity="0" />
@@ -41,6 +44,9 @@
             <SolidColorBrush x:Key="App.PressOverlay" Color="Black" Opacity="0.11" />
             <SolidColorBrush x:Key="App.PanelVeilBrush" Color="#F5F6F8" />
             <SolidColorBrush x:Key="App.VeilAccentBrush" Color="Black" Opacity="0.32" />
+            <SolidColorBrush x:Key="App.ModalScrimBrush" Color="#000000" Opacity="0.22" />
+            <SolidColorBrush x:Key="App.ModalBorderBrush" Color="#000000" Opacity="0.14" />
+            <BoxShadows x:Key="App.ModalShadow">0 18 48 0 #30000000</BoxShadows>
         </ResourceDictionary>
     </ResourceDictionary.ThemeDictionaries>
 </ResourceDictionary>

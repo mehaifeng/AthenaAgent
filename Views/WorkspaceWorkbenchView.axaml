@@ -1,6 +1,7 @@
 <UserControl xmlns="https://github.com/avaloniaui"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:vm="using:Athena.UI.ViewModels"
+             xmlns:views="using:Athena.UI.Views"
              xmlns:services="using:Athena.UI.Services"
              xmlns:local="using:Athena.UI.Controls"
              xmlns:loc="using:Athena.UI.Markup"
@@ -511,9 +512,16 @@
                                 <ScrollViewer IsVisible="{Binding Mode, Converter={StaticResource EnumEqualsConverter}, ConverterParameter=Image}">
                                     <Image Source="{Binding Image}" Stretch="Uniform" Margin="12"/>
                                 </ScrollViewer>
-                                <!-- Office 预览：NativeWebView 由附加属性惰性创建（Url 为空时不创建任何平台控件） -->
-                                <Border IsVisible="{Binding Mode, Converter={StaticResource EnumEqualsConverter}, ConverterParameter=Office}"
-                                        local:OfficePreviewBridge.Url="{Binding PreviewUrl}"/>
+                                <!-- Office 预览：NativeWebView 由附加属性惰性创建（Url 为空时不创建任何平台控件）；
+                                     主窗口模态弹窗打开时暂时隐藏原生宿主，防止穿透遮罩层。 -->
+                                <Border local:OfficePreviewBridge.Url="{Binding PreviewUrl}">
+                                    <Border.IsVisible>
+                                        <MultiBinding Converter="{x:Static BoolConverters.And}">
+                                            <Binding Path="Mode" Converter="{StaticResource EnumEqualsConverter}" ConverterParameter="Office"/>
+                                            <Binding Path="!$parent[views:WorkspaceWorkbenchView].IsNativePreviewSuppressed"/>
+                                        </MultiBinding>
+                                    </Border.IsVisible>
+                                </Border>
                                 <StackPanel IsVisible="{Binding Mode, Converter={StaticResource EnumEqualsConverter}, ConverterParameter=Binary}"
                                             HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="8">
                                     <PathIcon Data="{StaticResource AthenaIconOpenFile}" Width="28" Height="28"

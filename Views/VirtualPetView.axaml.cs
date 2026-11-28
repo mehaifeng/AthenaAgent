@@ -58,6 +58,11 @@ public partial class VirtualPetView : UserControl
         var suppressed = change.GetNewValue<bool>();
         Opacity = suppressed ? 0 : 1;
         IsHitTestVisible = !suppressed;
+        if (!suppressed && VisualRoot != null)
+        {
+            UpdateMotionBounds();
+            ApplyMotion();
+        }
         UpdateTimers();
     }
 

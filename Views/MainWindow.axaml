@@ -310,9 +310,49 @@
         <Style Selector="GridSplitter.layout-splitter:pressed">
             <Setter Property="Background" Value="{DynamicResource App.IconAccentForeground}"/>
         </Style>
+        <Style Selector="Button.modal-close">
+            <Setter Property="Background" Value="{DynamicResource App.HoverOverlayFaded}"/>
+            <Setter Property="BorderThickness" Value="0"/>
+            <Setter Property="Padding" Value="0"/>
+            <Setter Property="Width" Value="30"/>
+            <Setter Property="Height" Value="30"/>
+            <Setter Property="CornerRadius" Value="8"/>
+            <Setter Property="HorizontalContentAlignment" Value="Center"/>
+            <Setter Property="VerticalContentAlignment" Value="Center"/>
+            <Setter Property="Transitions">
+                <Transitions>
+                    <BrushTransition Property="Background" Duration="0:0:0.16" Easing="CubicEaseOut"/>
+                </Transitions>
+            </Setter>
+        </Style>
+        <Style Selector="Button.modal-close:pointerover">
+            <Setter Property="Background" Value="{DynamicResource App.HoverOverlay}"/>
+        </Style>
+        <Style Selector="Button.modal-close:pressed">
+            <Setter Property="Background" Value="{DynamicResource App.PressOverlay}"/>
+        </Style>
+        <Style Selector="Button.modal-approval-pill">
+            <Setter Property="Background" Value="{DynamicResource History.PendingCardBackground}"/>
+            <Setter Property="BorderBrush" Value="{DynamicResource History.PendingCardBorderBrush}"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="CornerRadius" Value="14"/>
+            <Setter Property="Padding" Value="10,4"/>
+            <Setter Property="MinHeight" Value="28"/>
+            <Setter Property="VerticalAlignment" Value="Center"/>
+            <Setter Property="Cursor" Value="Hand"/>
+        </Style>
+        <Style Selector="Button.modal-approval-pill:pointerover">
+            <Setter Property="Background" Value="{DynamicResource History.PendingCardPointeroverBackground}"/>
+        </Style>
+        <Style Selector="Button.modal-approval-pill:pressed">
+            <Setter Property="Background" Value="{DynamicResource History.PendingCardSelectedBackground}"/>
+        </Style>
     </Window.Styles>
 
-    <Grid>
+    <Grid x:Name="WindowRootGrid">
+        <!-- 主窗口背景与三栏对话壳层统一包进可虚化容器：
+             模态弹窗打开时由 code-behind 挂 BlurEffect，关闭时置 null 保持正常对话零离屏开销。 -->
+        <Panel x:Name="MainWindowBackdropLayer">
         <!-- 两层底图的 Opacity 过渡就是材质切换的视觉斜坡。260ms 是取值，不是测量结论。
              终值由 ApplyShellPanelMaterial 同步赋，这里只负责斜坡。
              注意底图的 Opacity 只有材质代码会写——主题过渡动的是 RenderTransform 与 Effect，
@@ -341,7 +381,7 @@
         </Image>
         <Image x:Name="ThemeTransitionImage" Stretch="UniformToFill" Opacity="0" IsHitTestVisible="False"/>
 
-        <Grid x:Name="MainShellGrid" Margin="5" IsVisible="{Binding IsConversationPageActive}">
+        <Grid x:Name="MainShellGrid" Margin="5">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="292" MinWidth="260"/>
                 <ColumnDefinition Width="5" MinWidth="5"/>
@@ -608,6 +648,7 @@
                         <views:WorkspaceWorkbenchView x:Name="WorkspaceWorkbench"
                                                       DataContext="{Binding Workbench}"
                                                       IsVisible="{Binding ShowWorkbenchPane}"
+                                                      IsNativePreviewSuppressed="{Binding !$parent[Window].((vm:MainWindowViewModel)DataContext).IsConversationPageActive}"
                                                       Classes.shown="{Binding ShowWorkbenchPane}"/>
                     </Panel>
                     <GridSplitter Grid.Row="1"
@@ -718,66 +759,110 @@
         </views:VirtualPetView>
 
         </Grid>
+        </Panel>
 
-        <Border x:Name="MainPageHost"
-                Margin="5"
-                Background="{DynamicResource App.PanelVeilBrush}"
-                BorderBrush="{DynamicResource App.PanelBorderBrush}"
-                BorderThickness="1" CornerRadius="10"
-                ClipToBounds="True"
-                IsVisible="{Binding !IsConversationPageActive}">
-            <Grid RowDefinitions="Auto,*">
-                <Border Background="{DynamicResource App.SectionBg}"
-                        BorderBrush="{DynamicResource App.SurfaceBorder}"
-                        BorderThickness="0,0,0,1" Padding="14,10">
-                    <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="12">
-                        <Button x:Name="ReturnToConversationButton"
-                                Width="34" Height="34" Padding="0" CornerRadius="9"
-                                Command="{Binding ReturnToConversationCommand}"
-                                Theme="{StaticResource AccentButtonTheme}"
-                                ToolTip.Tip="{loc:Loc MainWindow.Navigation.Conversation}"
-                                AutomationProperties.Name="{loc:Loc MainWindow.Navigation.Conversation}">
-                            <PathIcon Data="{StaticResource AthenaIconConversation}" Width="17" Height="17"/>
-                        </Button>
-                        <TextBlock x:Name="MainPageTitle" Grid.Column="1"
-                                   VerticalAlignment="Center"
-                                   FontSize="{DynamicResource App.FontSize.PageTitle}" FontWeight="SemiBold"
-                                   Text="{Binding ActivePageTitle}" TextTrimming="CharacterEllipsis"/>
-                        <StackPanel x:Name="PageApprovalStatus" Grid.Column="2" Orientation="Horizontal"
-                                    VerticalAlignment="Center" Spacing="6"
-                                    IsVisible="{Binding ApprovalQueue.HasPending, FallbackValue=False}">
-                            <PathIcon Data="{StaticResource AthenaIconToolApproval}" Width="14" Height="14"
-                                      Foreground="{DynamicResource App.WarningForeground}"/>
-                            <TextBlock Text="{loc:Loc Approval.Heading}"
-                                       Foreground="{DynamicResource App.WarningForeground}"/>
-                            <TextBlock Text="{Binding ApprovalQueue.Pending.Count}" FontWeight="SemiBold"
-                                       Foreground="{DynamicResource App.WarningForeground}"/>
-                        </StackPanel>
+        <!-- 主窗口功能页与应用设置模态弹窗覆盖层：外围虚化 + 遮罩拦截外部交互，仅右上角关闭按钮或明确的跳回主屏幕操作可关闭。 -->
+        <Grid x:Name="MainPageOverlay"
+              ZIndex="200"
+              IsVisible="{Binding !IsConversationPageActive}">
+            <Border x:Name="MainPageBackdropScrim"
+                    Background="{DynamicResource App.ModalScrimBrush}"
+                    PointerPressed="OnModalBackdropPointerPressed"
+                    PointerWheelChanged="OnModalBackdropPointerWheelChanged"/>
+            <Border x:Name="MainPageHost"
+                    Margin="80,56"
+                    MaxWidth="1020"
+                    MaxHeight="680"
+                    HorizontalAlignment="Stretch"
+                    VerticalAlignment="Stretch"
+                    Background="{DynamicResource App.PanelVeilBrush}"
+                    BorderBrush="{DynamicResource App.ModalBorderBrush}"
+                    BorderThickness="1"
+                    CornerRadius="14"
+                    BoxShadow="{DynamicResource App.ModalShadow}"
+                    KeyboardNavigation.TabNavigation="Cycle"
+                    Focusable="True">
+                <!-- 外层负责 BoxShadow（不能 ClipToBounds，否则投影被裁），内层负责圆角内容裁剪。 -->
+                <Border CornerRadius="13" ClipToBounds="True">
+                    <Grid RowDefinitions="Auto,*">
+                        <Border x:Name="MainPageHeader"
+                                Background="{DynamicResource App.SectionBg}"
+                                BorderBrush="{DynamicResource App.SurfaceBorder}"
+                                BorderThickness="0,0,0,1"
+                                Padding="18,12">
+                            <Grid ColumnDefinitions="Auto,*,Auto,Auto" ColumnSpacing="10">
+                                <Border Width="28" Height="28"
+                                        CornerRadius="7"
+                                        Background="{DynamicResource App.SelectedBackground}"
+                                        VerticalAlignment="Center">
+                                    <PathIcon x:Name="MainPageIcon"
+                                              Width="15" Height="15"
+                                              Foreground="{DynamicResource App.IconAccentForeground}"
+                                              IsVisible="{Binding !IsConversationPageActive}"
+                                              Data="{Binding ActivePageIconKey, Converter={StaticResource ToolIconKeyToGeometryConverter}}"/>
+                                </Border>
+                                <TextBlock x:Name="MainPageTitle"
+                                           Grid.Column="1"
+                                           VerticalAlignment="Center"
+                                           FontSize="{DynamicResource App.FontSize.PageTitle}"
+                                           FontWeight="SemiBold"
+                                           Text="{Binding ActivePageTitle}"
+                                           TextTrimming="CharacterEllipsis"/>
+                                <Button x:Name="PageApprovalStatusButton"
+                                        Grid.Column="2"
+                                        Classes="modal-approval-pill"
+                                        Command="{Binding JumpToPendingApprovalCommand}"
+                                        IsVisible="{Binding ApprovalQueue.HasPending, FallbackValue=False}"
+                                        ToolTip.Tip="{loc:Loc MainWindow.Navigation.Conversation}"
+                                        AutomationProperties.Name="{loc:Loc Approval.Heading}">
+                                    <StackPanel x:Name="PageApprovalStatus"
+                                                Orientation="Horizontal"
+                                                VerticalAlignment="Center"
+                                                Spacing="6">
+                                        <PathIcon Data="{StaticResource AthenaIconToolApproval}" Width="14" Height="14"
+                                                  Foreground="{DynamicResource App.WarningForeground}"/>
+                                        <TextBlock Text="{loc:Loc Approval.Heading}"
+                                                   Foreground="{DynamicResource App.WarningForeground}"/>
+                                        <TextBlock Text="{Binding ApprovalQueue.Pending.Count}" FontWeight="SemiBold"
+                                                   Foreground="{DynamicResource App.WarningForeground}"/>
+                                    </StackPanel>
+                                </Button>
+                                <Button x:Name="MainPageCloseButton"
+                                        Grid.Column="3"
+                                        Classes="modal-close"
+                                        Command="{Binding ReturnToConversationCommand}"
+                                        ToolTip.Tip="{loc:Loc MainWindow.Close}"
+                                        AutomationProperties.Name="{loc:Loc MainWindow.Close}">
+                                    <PathIcon Data="{StaticResource AthenaIconClose}" Width="13" Height="13"
+                                              Foreground="{DynamicResource App.IconForeground}"/>
+                                </Button>
+                            </Grid>
+                        </Border>
+                        <ContentControl x:Name="MainPageContent" Grid.Row="1" Content="{Binding ActivePage}">
+                            <ContentControl.DataTemplates>
+                                <DataTemplate DataType="vm:AppSettingsViewModel">
+                                    <views:AppSettingsView/>
+                                </DataTemplate>
+                                <DataTemplate DataType="vm:ProviderModelsViewModel">
+                                    <views:ProviderModelsView/>
+                                </DataTemplate>
+                                <DataTemplate DataType="vm:SkillsConnectorsViewModel">
+                                    <views:SkillsConnectorsView/>
+                                </DataTemplate>
+                                <DataTemplate DataType="vm:WorkspaceContextSettingsViewModel">
+                                    <views:WorkspaceContextSettingsView/>
+                                </DataTemplate>
+                                <DataTemplate DataType="vm:TasksViewModel">
+                                    <views:TasksView/>
+                                </DataTemplate>
+                                <DataTemplate DataType="vm:KnowledgeBaseViewModel">
+                                    <views:KnowledgeBaseView/>
+                                </DataTemplate>
+                            </ContentControl.DataTemplates>
+                        </ContentControl>
                     </Grid>
                 </Border>
-                <ContentControl x:Name="MainPageContent" Grid.Row="1" Content="{Binding ActivePage}">
-                    <ContentControl.DataTemplates>
-                        <DataTemplate DataType="vm:AppSettingsViewModel">
-                            <views:AppSettingsView/>
-                        </DataTemplate>
-                        <DataTemplate DataType="vm:ProviderModelsViewModel">
-                            <views:ProviderModelsView/>
-                        </DataTemplate>
-                        <DataTemplate DataType="vm:SkillsConnectorsViewModel">
-                            <views:SkillsConnectorsView/>
-                        </DataTemplate>
-                        <DataTemplate DataType="vm:WorkspaceContextSettingsViewModel">
-                            <views:WorkspaceContextSettingsView/>
-                        </DataTemplate>
-                        <DataTemplate DataType="vm:TasksViewModel">
-                            <views:TasksView/>
-                        </DataTemplate>
-                        <DataTemplate DataType="vm:KnowledgeBaseViewModel">
-                            <views:KnowledgeBaseView/>
-                        </DataTemplate>
-                    </ContentControl.DataTemplates>
-                </ContentControl>
-            </Grid>
-        </Border>
+            </Border>
+        </Grid>
     </Grid>
 </Window>

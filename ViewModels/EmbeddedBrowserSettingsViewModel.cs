@@ -104,10 +104,16 @@ public sealed partial class EmbeddedBrowserSettingsViewModel : ViewModelBase, ID
         OnPropertyChanged(nameof(DownloadDirectory));
     }
 
+    public event EventHandler? OpenInMainRequested;
+
     [RelayCommand]
-    private Task OpenHistoryAsync(BrowserHistoryEntry? entry) =>
-        entry != null && _surface != null && Uri.TryCreate(entry.Url, UriKind.Absolute, out var address)
-            ? _surface.OpenLinkAsync(address) : Task.CompletedTask;
+    private Task OpenHistoryAsync(BrowserHistoryEntry? entry)
+    {
+        if (entry == null || _surface == null || !Uri.TryCreate(entry.Url, UriKind.Absolute, out var address) || !EmbeddedBrowser.IsPageUri(address))
+            return Task.CompletedTask;
+        OpenInMainRequested?.Invoke(this, EventArgs.Empty);
+        return _surface.OpenLinkAsync(address);
+    }
 
     [RelayCommand]
     private Task ClearHistoryAsync() => RunAsync(async () =>

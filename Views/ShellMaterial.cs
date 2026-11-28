@@ -99,4 +99,11 @@ internal static class ShellMaterial
         glassEnabled
             ? System.Math.Min(shellPanelOpacity, isLightTheme ? GlassTintOpacityLight : GlassTintOpacityDark)
             : shellPanelOpacity;
+
+    /// <summary>
+    /// 主窗口功能/设置弹窗打开时，外围主界面容器的虚化半径。
+    /// 仅在弹窗可见时挂在 MainWindowBackdropLayer 上，关闭时立即置 null，
+    /// 保证正常对话与滚动路径零离屏渲染成本。
+    /// </summary>
+    public const double ModalBackdropBlurRadius = 10.0;
 }

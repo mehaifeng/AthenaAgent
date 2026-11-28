@@ -406,11 +406,15 @@ public sealed partial class GameModeViewModel : ViewModelBase, IDisposable
         }
     }
 
-    /// <summary>窗口最小化 / 还原（外壳调用）：不可见时页面停止渲染（12.6）。</summary>
+    /// <summary>游戏原生 WebView 是否应显示（窗口最小化/隐藏或模态弹窗打开时暂时隐藏，避免原生窗口穿透 Avalonia 弹窗）。</summary>
+    public bool IsSurfaceVisible => _windowVisible;
+
+    /// <summary>窗口最小化 / 还原 / 模态弹窗遮挡（外壳调用）：不可见时页面停止渲染（12.6）并隐藏原生宿主。</summary>
     public void SetWindowVisible(bool visible)
     {
         if (_windowVisible == visible) return;
         _windowVisible = visible;
+        OnPropertyChanged(nameof(IsSurfaceVisible));
         if (_page != null) Post(new { type = "visibility", visible = visible && IsGameMode });
     }
 

@@ -57,9 +57,12 @@ public sealed partial class AppSettingsViewModel : ViewModelBase, IDisposable
             new("Settings.Nav.About", "About & updates", "AthenaIconAbout", about, localizationService)
         ];
         _selectedSection = Sections[0];
+        Browser.OpenInMainRequested += OnBrowserOpenInMainRequested;
         if (_localizationService != null)
             _localizationService.LanguageChanged += OnLanguageChanged;
     }
+
+    public event EventHandler? ReturnToMainRequested;
 
     public GeneralSettingsViewModel General { get; }
     public ConversationContextSettingsViewModel ConversationContext { get; }
@@ -74,10 +77,14 @@ public sealed partial class AppSettingsViewModel : ViewModelBase, IDisposable
 
     partial void OnSelectedSectionChanged(AppSettingsSection value) => Browser.Show(ReferenceEquals(value.Content, Browser));
 
+    private void OnBrowserOpenInMainRequested(object? sender, EventArgs e) =>
+        ReturnToMainRequested?.Invoke(this, EventArgs.Empty);
+
     public void Dispose()
     {
         if (_disposed) return;
         _disposed = true;
+        Browser.OpenInMainRequested -= OnBrowserOpenInMainRequested;
         if (_localizationService != null)
             _localizationService.LanguageChanged -= OnLanguageChanged;
         ConversationContext.Dispose();

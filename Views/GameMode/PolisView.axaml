@@ -19,6 +19,7 @@
                    IsVisible="{Binding IsLoading}"/>
 
         <Border x:Name="PolisPageHost"
+                IsVisible="{Binding IsSurfaceVisible}"
                 HorizontalAlignment="Stretch"
                 VerticalAlignment="Stretch"/>
 

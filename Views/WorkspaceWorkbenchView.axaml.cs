@@ -73,6 +73,16 @@ public partial class WorkspaceWorkbenchView : UserControl
         AttachViewModel(DataContext as WorkspaceWorkbenchViewModel);
     }
 
+    public static readonly StyledProperty<bool> IsNativePreviewSuppressedProperty =
+        AvaloniaProperty.Register<WorkspaceWorkbenchView, bool>(nameof(IsNativePreviewSuppressed));
+
+    /// <summary>主窗口打开模态弹窗时抑制 Office NativeWebView，防止原生子窗口穿透弹窗。</summary>
+    public bool IsNativePreviewSuppressed
+    {
+        get => GetValue(IsNativePreviewSuppressedProperty);
+        set => SetValue(IsNativePreviewSuppressedProperty, value);
+    }
+
     public event EventHandler? MinimumRequiredWidthChanged;
 
     /// <summary>NativeWebView 创建/加载失败：回退为二进制占位并提示（OfficePreviewBridge 静态事件）。</summary>

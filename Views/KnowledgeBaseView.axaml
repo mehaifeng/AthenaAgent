@@ -16,13 +16,12 @@
         <vm:KnowledgeBaseViewModel/>
     </Design.DataContext>
 
-    <Grid Margin="5" ColumnDefinitions="3*,5,7*">
-        <!-- 左侧目录区保持约三成宽度。 -->
+    <Grid ColumnDefinitions="272,*">
+        <!-- 左侧目录区固定宽度，弹窗缩放时右侧 Markdown 预览与编辑区优先伸缩。 -->
         <Border Grid.Column="0"
                 Background="{DynamicResource App.WorkspaceLeftBackground}"
-                BorderBrush="{DynamicResource SemiGreyLowBrush}"
-                BorderThickness="1"
-                CornerRadius="8">
+                BorderBrush="{DynamicResource App.SurfaceBorder}"
+                BorderThickness="0,0,1,0">
             <Grid RowDefinitions="Auto,*,Auto">
                 <Border Padding="12,10"
                         BorderBrush="{DynamicResource SystemControlForegroundBaseLowBrush}"
@@ -90,12 +89,9 @@
             </Grid>
         </Border>
 
-        <!-- 右侧编辑区允许随窗口完整拉伸。 -->
-        <Border Grid.Column="2"
-                Background="{DynamicResource App.WorkspaceRightBackground}"
-                BorderBrush="{DynamicResource SemiGreyLowBrush}"
-                BorderThickness="1"
-                CornerRadius="8">
+        <!-- 右侧编辑区随弹窗完整拉伸。 -->
+        <Border Grid.Column="1"
+                Background="{DynamicResource App.WorkspaceRightBackground}">
             <Grid RowDefinitions="Auto,Auto,Auto,*">
                 <!-- 功能集中到右侧顶部栏。 -->
                 <Border Padding="10,8"

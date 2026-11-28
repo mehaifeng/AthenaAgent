@@ -4,8 +4,9 @@
              xmlns:loc="using:Athena.UI.Markup"
              x:Class="Athena.UI.Views.WorkspaceContextSettingsView"
              x:DataType="vm:WorkspaceContextSettingsViewModel">
+    <Border Background="{DynamicResource App.WorkspaceRightBackground}">
     <Grid RowDefinitions="Auto,*,Auto" MaxWidth="1120">
-        <Border Padding="20,16" BorderBrush="{DynamicResource SemiGreyLowBrush}" BorderThickness="0,0,0,1">
+        <Border Padding="22,14" BorderBrush="{DynamicResource App.SurfaceBorder}" BorderThickness="0,0,0,1">
             <StackPanel Spacing="3">
                 <TextBlock Text="{Binding WorkspaceName}" FontSize="{DynamicResource App.FontSize.Heading}" FontWeight="SemiBold"/>
                 <TextBlock Foreground="{DynamicResource App.TextMuted}" Text="{loc:Loc WorkspaceContext.Description}" TextWrapping="Wrap"/>
@@ -13,7 +14,7 @@
         </Border>
 
         <ScrollViewer Grid.Row="1">
-            <StackPanel Margin="20" Spacing="12">
+            <StackPanel Margin="22,16" Spacing="12">
                 <Grid ColumnDefinitions="170,*,130,190" ColumnSpacing="10" Margin="4,0">
                     <TextBlock Foreground="{DynamicResource App.TextMuted}" Grid.Column="1" Text="{loc:Loc WorkspaceContext.Value}"/>
                     <TextBlock Foreground="{DynamicResource App.TextMuted}" Grid.Column="2" Text="{loc:Loc WorkspaceContext.Effective}"/>
@@ -94,11 +95,12 @@
             </StackPanel>
         </ScrollViewer>
 
-        <Border Grid.Row="2" Padding="16" BorderBrush="{DynamicResource SemiGreyLowBrush}" BorderThickness="0,1,0,0">
+        <Border Grid.Row="2" Padding="22,12" BorderBrush="{DynamicResource App.SurfaceBorder}" BorderThickness="0,1,0,0">
             <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Spacing="8">
                 <Button Content="{loc:Loc Common.Cancel}" Command="{Binding CancelCommand}"/>
                 <Button Content="{loc:Loc Common.Save}" Command="{Binding SaveCommand}" Theme="{StaticResource AccentButtonTheme}" IsEnabled="{Binding CanSave}"/>
             </StackPanel>
         </Border>
     </Grid>
+    </Border>
 </UserControl>

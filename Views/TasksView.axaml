@@ -49,14 +49,13 @@
         </Style>
     </UserControl.Styles>
 
-    <Grid Margin="5" ColumnDefinitions="3*,5,7*">
+    <Grid ColumnDefinitions="336,*">
 
         <!-- 左栏：创建/编辑共用同一个编辑器 -->
         <Border Grid.Column="0"
                 Background="{DynamicResource App.WorkspaceLeftBackground}"
-                BorderBrush="{DynamicResource SemiGreyLowBrush}"
-                BorderThickness="1"
-                CornerRadius="8">
+                BorderBrush="{DynamicResource App.SurfaceBorder}"
+                BorderThickness="0,0,1,0">
             <Grid RowDefinitions="Auto,*,Auto">
                 <Border Padding="14,10"
                         BorderBrush="{DynamicResource SemiGreyLowBrush}"
@@ -100,11 +99,8 @@
         </Border>
 
         <!-- 右栏：任务卡片列表 -->
-        <Border Grid.Column="2"
-                Background="{DynamicResource App.WorkspaceRightBackground}"
-                BorderBrush="{DynamicResource SemiGreyLowBrush}"
-                BorderThickness="1"
-                CornerRadius="8">
+        <Border Grid.Column="1"
+                Background="{DynamicResource App.WorkspaceRightBackground}">
             <Grid RowDefinitions="Auto,Auto,*">
                 <Border Padding="12,9"
                         BorderBrush="{DynamicResource SemiGreyLowBrush}"
@@ -207,8 +203,8 @@
                                         </StackPanel>
                                     </Grid>
 
-                                    <!-- 调度元信息 -->
-                                    <Grid ColumnDefinitions="Auto,*,Auto,*,Auto,Auto" ColumnSpacing="7">
+                                    <!-- 调度元信息：两行布局避免弹窗较窄时横向挤压截断 -->
+                                    <Grid RowDefinitions="Auto,Auto" ColumnDefinitions="Auto,*,Auto" ColumnSpacing="8" RowSpacing="4">
                                         <TextBlock Foreground="{DynamicResource App.TextMuted}" Text="{loc:Loc Cron.Card.Schedule}"
                                                    FontSize="{DynamicResource App.FontSize.Body}"/>
                                         <TextBlock Grid.Column="1"
@@ -217,20 +213,20 @@
                                                    FontSize="{DynamicResource App.FontSize.Body}"
                                                    FontWeight="SemiBold"/>
                                         <TextBlock Foreground="{DynamicResource App.TextMuted}" Grid.Column="2"
+                                                   Text="{Binding StatusText}"
+                                                   FontSize="{DynamicResource App.FontSize.Body}"
+                                                   FontWeight="SemiBold"/>
+                                        <TextBlock Foreground="{DynamicResource App.TextMuted}" Grid.Row="1"
                                                    Text="{loc:Loc Cron.Card.NextRun}"
                                                    FontSize="{DynamicResource App.FontSize.Body}"/>
-                                        <TextBlock Grid.Column="3"
+                                        <TextBlock Grid.Row="1" Grid.Column="1"
                                                    Text="{Binding NextRunText}"
+                                                   TextWrapping="Wrap"
                                                    FontSize="{DynamicResource App.FontSize.Body}"
                                                    FontWeight="SemiBold"/>
-                                        <TextBlock Foreground="{DynamicResource App.TextMuted}" Grid.Column="4"
+                                        <TextBlock Foreground="{DynamicResource App.TextMuted}" Grid.Row="1" Grid.Column="2"
                                                    Text="{Binding TimeZoneId}"
                                                    FontSize="{DynamicResource App.FontSize.Body}"/>
-                                        <TextBlock Foreground="{DynamicResource App.TextMuted}" Grid.Column="5"
-                                                   Text="{Binding StatusText}"
-                                                   Margin="8,0,0,0"
-                                                   FontSize="{DynamicResource App.FontSize.Body}"
-                                                   FontWeight="SemiBold"/>
                                     </Grid>
 
                                     <TextBlock Foreground="{DynamicResource App.TextMuted}" Text="{Binding CronExpression}"

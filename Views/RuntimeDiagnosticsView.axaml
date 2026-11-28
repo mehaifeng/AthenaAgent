@@ -6,7 +6,7 @@
              x:Class="Athena.UI.Views.RuntimeDiagnosticsView"
              x:DataType="vm:RuntimeDiagnosticsViewModel">
     <ScrollViewer>
-        <StackPanel Margin="28" MaxWidth="960" HorizontalAlignment="Stretch" Spacing="18">
+        <StackPanel Margin="24,20" MaxWidth="960" HorizontalAlignment="Stretch" Spacing="16">
             <StackPanel Spacing="4">
                 <TextBlock Text="{loc:Loc Settings.Diagnostics.Title}"
                            FontSize="{DynamicResource App.FontSize.PageTitle}"

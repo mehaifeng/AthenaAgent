@@ -7,11 +7,13 @@ using Avalonia.Animation;
 using Avalonia.Animation.Easings;
 using Avalonia.Controls;
 using Avalonia.Controls.Primitives;
+using Avalonia.Input;
 using Avalonia.Interactivity;
 using Avalonia.Media;
 using Avalonia.Media.Imaging;
 using Avalonia.Platform;
 using Avalonia.Styling;
+using Avalonia.Threading;
 using Avalonia.VisualTree;
 using System;
 using System.Collections.Concurrent;
@@ -61,6 +63,9 @@ public partial class MainWindow : Window
     private const double RightLogMinHeight = 120;
     private const double RightRowSplitterHeight = 5;
 
+    private Panel? _backdropLayer;
+    private Border? _mainPageHost;
+    private readonly BlurEffect _modalBackdropBlur = new() { Radius = ShellMaterial.ModalBackdropBlurRadius };
     private Image? _baseBackgroundImage;
     private Image? _themeTransitionImage;
     private Image? _glassBackdropImage;
@@ -80,6 +85,8 @@ public partial class MainWindow : Window
     public MainWindow()
     {
         InitializeComponent();
+        _backdropLayer = this.FindControl<Panel>("MainWindowBackdropLayer");
+        _mainPageHost = this.FindControl<Border>("MainPageHost");
         _baseBackgroundImage = this.FindControl<Image>("BaseBackgroundImage");
         _themeTransitionImage = this.FindControl<Image>("ThemeTransitionImage");
         _glassBackdropImage = this.FindControl<Image>("GlassBackdropImage");
@@ -121,6 +128,11 @@ public partial class MainWindow : Window
             ApplySavedLayout();
             ApplyShellPanelMaterial();
             UpdateGameRenderVisibility();
+            UpdateModalBackdropState();
+        }
+        else
+        {
+            UpdateModalBackdropState();
         }
     }
 
@@ -137,6 +149,31 @@ public partial class MainWindow : Window
         => _viewModel?.GameMode?.SetWindowVisible(
             IsVisible && WindowState != WindowState.Minimized && _viewModel.IsConversationPageActive);
 
+    private void UpdateModalBackdropState()
+    {
+        var modalOpen = _viewModel is { IsConversationPageActive: false };
+        if (_backdropLayer != null)
+            _backdropLayer.Effect = modalOpen ? _modalBackdropBlur : null;
+
+        if (!modalOpen || _mainPageHost == null) return;
+        var focused = FocusManager?.GetFocusedElement() as Visual;
+        if (focused == null || (_mainShellGrid != null && _mainShellGrid.IsVisualAncestorOf(focused)))
+        {
+            Dispatcher.UIThread.Post(() =>
+            {
+                if (_viewModel is { IsConversationPageActive: false } && _mainPageHost is { IsEffectivelyVisible: true })
+                    _mainPageHost.Focus();
+            }, DispatcherPriority.Input);
+        }
+    }
+
+    // 模态弹窗外围遮罩：吸收点击与滚轮，既不穿透到底层主界面，也不退出弹窗。
+    private void OnModalBackdropPointerPressed(object? sender, PointerPressedEventArgs e)
+        => e.Handled = true;
+
+    private void OnModalBackdropPointerWheelChanged(object? sender, PointerWheelEventArgs e)
+        => e.Handled = true;
+
     private void OnMainViewModelPropertyChanged(object? sender, PropertyChangedEventArgs e)
     {
         if (e.PropertyName is nameof(MainWindowViewModel.IsSidePanelsSwapped)
@@ -144,7 +181,11 @@ public partial class MainWindow : Window
             or nameof(MainWindowViewModel.ShowEmbeddedBrowser)) ApplySavedLayout();
         else if (e.PropertyName == nameof(MainWindowViewModel.ShellPanelOpacity)) ApplyShellPanelMaterial();
         else if (e.PropertyName == nameof(MainWindowViewModel.PanelGlassEnabled)) ApplyShellPanelMaterial();
-        else if (e.PropertyName == nameof(MainWindowViewModel.IsConversationPageActive)) UpdateGameRenderVisibility();
+        else if (e.PropertyName == nameof(MainWindowViewModel.IsConversationPageActive))
+        {
+            UpdateGameRenderVisibility();
+            UpdateModalBackdropState();
+        }
     }
 
     private void OnApplicationPropertyChanged(object? sender, PropertyChangedEventArgs e)

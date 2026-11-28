@@ -4905,16 +4905,24 @@ static void TestMainWindowPagesAndInlineApproval(string outputPath)
             new DocumentParserSettingsViewModel(session), localization);
     }
 
+    var browserFixtureDir = Directory.CreateTempSubdirectory("athena-main-pages-browser-");
+    var embeddedBrowser = new EmbeddedBrowser(Path.Combine(browserFixtureDir.FullName, "missing-runtime"),
+        Path.Combine(browserFixtureDir.FullName, "profile"), configService);
+    var browserComputerUse = new ComputerUseService(configService, Log.Logger, embeddedBrowser, new ModelRoleProbeService());
+    using var browserSurface = new EmbeddedBrowserViewModel(embeddedBrowser, browserComputerUse, localization, new BrowserTestUrlOpener());
+
     using var shell = new MainWindowViewModel(null, null, null, null, null, localization, null, null,
         null, null, null, null, null, null,
         workspaceService: new HeadlessWorkspaceService([workspace]),
         approvalQueue: queue,
         configurationSession: session,
         skillsConnectorsFactory: CreateConnectors,
-        appSettingsFactory: () => new AppSettingsViewModel(session, new AboutViewModel(), modePicker, localizationService: localization),
+        appSettingsFactory: () => new AppSettingsViewModel(session, new AboutViewModel(), modePicker,
+            localizationService: localization, browser: embeddedBrowser, browserSurface: browserSurface, computerUse: browserComputerUse),
         contextPolicyProvider: new WorkspaceEditorContextPolicyProvider(config),
         providerModelsFactory: () => new ProviderModelsViewModel(session, new HeadlessModelCatalogService()),
-        approvalModePicker: modePicker);
+        approvalModePicker: modePicker,
+        browser: browserSurface);
     var window = new MainWindow { DataContext = shell, Width = 1180, Height = 720 };
     try
     {
@@ -4924,8 +4932,10 @@ static void TestMainWindowPagesAndInlineApproval(string outputPath)
         var selected = shell.SelectedConversation!;
         const string draft = "返回后仍能继续编辑";
         selected.Chat.InputText = draft;
+        var backdropLayer = window.FindControl<Panel>("MainWindowBackdropLayer")!;
         var chatGrid = window.FindControl<Grid>("MainShellGrid")!;
         var chatView = window.FindControl<MainConversationView>("MainConversationView")!;
+        var workbenchView = window.FindControl<WorkspaceWorkbenchView>("WorkspaceWorkbench")!;
         var petView = window.FindControl<VirtualPetView>("VirtualPet")!;
         var petSurface = petView.FindControl<Border>("PetSurface")!;
         var composer = chatView.FindControl<Border>("ComposerHost")!;
@@ -4942,19 +4952,26 @@ static void TestMainWindowPagesAndInlineApproval(string outputPath)
         if (!ReferenceEquals(modeButton.Parent, screenshotButton.Parent) || controlGap is < 0 or > 4)
             throw new InvalidOperationException("审批模式按钮应紧挨在截图控件右侧。");
         var approvalView = chatView.FindControl<ApprovalQueueView>("InlineApprovalQueue")!;
+        var pageOverlay = window.FindControl<Grid>("MainPageOverlay")!;
+        var backdropScrim = window.FindControl<Border>("MainPageBackdropScrim")!;
         var pageHost = window.FindControl<Border>("MainPageHost")!;
         var pageContent = window.FindControl<ContentControl>("MainPageContent")!;
+        var pageIcon = window.FindControl<PathIcon>("MainPageIcon")!;
         var title = window.FindControl<TextBlock>("MainPageTitle")!;
+        var pendingStatusButton = window.FindControl<Button>("PageApprovalStatusButton")!;
         var pendingStatus = window.FindControl<StackPanel>("PageApprovalStatus")!;
-        var back = window.FindControl<Button>("ReturnToConversationButton")!;
-        if (back.Content is not PathIcon { Data: not null })
-            throw new InvalidOperationException("返回按钮应使用纯图标。");
-        var initialSize = window.ClientSize;
+        var closeButton = window.FindControl<Button>("MainPageCloseButton")!;
+        if (closeButton.Content is not PathIcon { Data: not null }
+            || string.IsNullOrWhiteSpace(AutomationProperties.GetName(closeButton)))
+            throw new InvalidOperationException("弹窗右上角关闭按钮应使用纯图标并提供无障碍名称。");
+        if (pageOverlay.IsEffectivelyVisible || backdropLayer.Effect != null || workbenchView.IsNativePreviewSuppressed)
+            throw new InvalidOperationException("对话主界面下不应显示弹窗、虚化或抑制原生预览。");
+        var expectedWindowSize = window.ClientSize;
         var group = shell.ConversationGroups.Single(item => item.Workspace == workspace);
 
         void RequirePetAbove(Control control)
         {
-            PumpUntil(() =>
+            PumpTimers(() =>
                 !petView.IsEffectivelyVisible
                 || (petSurface.TranslatePoint(new Point(0, petSurface.Bounds.Height), window) is { } petBottom
                     && control.TranslatePoint(default, window) is { } controlTop
@@ -4972,25 +4989,63 @@ static void TestMainWindowPagesAndInlineApproval(string outputPath)
         T RequirePage<T>(string expectedTitle) where T : UserControl
         {
             Dispatcher.UIThread.RunJobs();
-            if (!pageHost.IsEffectivelyVisible || chatGrid.IsEffectivelyVisible || !petView.IsSuppressed
-                || !back.IsEffectivelyVisible || !back.IsEffectivelyEnabled || title.Text != expectedTitle
-                || window.ClientSize != initialSize)
-                throw new InvalidOperationException($"主窗体页面 {expectedTitle} 必须占用原有窗口并显示统一返回按钮。");
+            using (window.CaptureRenderedFrame()) { }
+            Dispatcher.UIThread.RunJobs();
+            if (!pageOverlay.IsEffectivelyVisible || !pageHost.IsEffectivelyVisible || !backdropScrim.IsEffectivelyVisible
+                || !chatGrid.IsEffectivelyVisible || !petView.IsSuppressed || !workbenchView.IsNativePreviewSuppressed
+                || !closeButton.IsEffectivelyVisible || !closeButton.IsEffectivelyEnabled
+                || !pageIcon.IsEffectivelyVisible || pageIcon.Data is null
+                || title.Text != expectedTitle || window.ClientSize != expectedWindowSize)
+                throw new InvalidOperationException($"主窗体弹窗 {expectedTitle} 必须保留可见背景并显示居中弹窗与右上角关闭按钮。");
+            if (backdropLayer.Effect is not BlurEffect blur || Math.Abs(blur.Radius - ShellMaterial.ModalBackdropBlurRadius) > 0.01)
+                throw new InvalidOperationException($"弹窗打开时主界面外围必须施加虚化（期望半径 {ShellMaterial.ModalBackdropBlurRadius}，实际 {backdropLayer.Effect}）。");
+            var hostOrigin = pageHost.TranslatePoint(default, window)
+                ?? throw new InvalidOperationException("无法计算弹窗在主窗体内的位置。");
+            var leftGap = hostOrigin.X;
+            var rightGap = window.ClientSize.Width - (hostOrigin.X + pageHost.Bounds.Width);
+            var topGap = hostOrigin.Y;
+            var bottomGap = window.ClientSize.Height - (hostOrigin.Y + pageHost.Bounds.Height);
+            if (pageHost.Bounds.Width >= window.ClientSize.Width - 40
+                || pageHost.Bounds.Height >= window.ClientSize.Height - 40
+                || Math.Abs(leftGap - rightGap) > 2
+                || Math.Abs(topGap - bottomGap) > 2)
+                throw new InvalidOperationException(
+                    $"弹窗 {expectedTitle} 必须小于主窗口并居中（window={window.ClientSize}, host={pageHost.Bounds.Size}, gaps=L{leftGap:F1}/R{rightGap:F1}/T{topGap:F1}/B{bottomGap:F1}）。");
+            var titlePos = title.TranslatePoint(default, window)!.Value;
+            var closePos = closeButton.TranslatePoint(default, window)!.Value;
+            if (closePos.X <= titlePos.X)
+                throw new InvalidOperationException("关闭按钮必须位于弹窗标题栏右上角。");
             return pageContent.GetVisualDescendants().OfType<T>().Single(view => view.IsEffectivelyVisible);
+        }
+
+        void AssertOutsideClickAndEscapeDoNotDismiss()
+        {
+            var activeBefore = shell.ActivePage;
+            var outside = new Point(12, 12);
+            window.MouseMove(outside);
+            window.MouseDown(outside, MouseButton.Left);
+            window.MouseUp(outside, MouseButton.Left);
+            window.MouseWheel(outside, new Vector(0, -1));
+            pageHost.RaiseEvent(new KeyEventArgs { RoutedEvent = InputElement.KeyDownEvent, Key = Key.Escape });
+            Dispatcher.UIThread.RunJobs();
+            if (shell.IsConversationPageActive || !ReferenceEquals(shell.ActivePage, activeBefore) || !pageOverlay.IsEffectivelyVisible)
+                throw new InvalidOperationException("点击弹窗外部虚化区或按 Escape 不能退出弹窗。");
         }
 
         void Back()
         {
-            back.Command!.Execute(null);
+            closeButton.Command!.Execute(null);
             Dispatcher.UIThread.RunJobs();
-            if (pageHost.IsEffectivelyVisible || !chatGrid.IsEffectivelyVisible || petView.IsSuppressed
+            if (pageOverlay.IsEffectivelyVisible || pageHost.IsEffectivelyVisible || !chatGrid.IsEffectivelyVisible
+                || backdropLayer.Effect != null || petView.IsSuppressed || workbenchView.IsNativePreviewSuppressed
                 || !ReferenceEquals(shell.SelectedConversation, selected)
                 || !ReferenceEquals(chatView.DataContext, selected.Chat) || selected.Chat.InputText != draft)
-                throw new InvalidOperationException("返回必须恢复同一对话视图、选中会话和草稿。");
+                throw new InvalidOperationException("点击关闭按钮必须收起弹窗、清除虚化并恢复同一对话视图、选中会话和草稿。");
         }
 
         OpenFromChat(shell.OpenAppSettingsCommand);
         var settingsView = RequirePage<AppSettingsView>("应用设置");
+        AssertOutsideClickAndEscapeDoNotDismiss();
         localization.SwitchLanguage("en-US");
         RequirePage<AppSettingsView>("App Settings");
         localization.SwitchLanguage("zh-CN");
@@ -5020,7 +5075,18 @@ static void TestMainWindowPagesAndInlineApproval(string outputPath)
         if (interaction.ConfirmationCount != 1)
             throw new InvalidOperationException("切换到严格模式应立即生效。");
         SaveWindowFrame(window, Path.Combine(Path.GetDirectoryName(outputPath)!, "main-approval-mode-settings.png"));
-        Back();
+
+        // 内置浏览器历史条目点击属于「跳回主屏幕」操作：应自动收起应用设置弹窗并在右侧展示内置浏览器。
+        settings.SelectedSection = settings.Sections.Single(section => ReferenceEquals(section.Content, settings.Browser));
+        Dispatcher.UIThread.RunJobs();
+        var historyJump = settings.Browser.OpenHistoryCommand.ExecuteAsync(
+            new BrowserHistoryEntry("https://example.com/", "Example", DateTimeOffset.UtcNow));
+        PumpUntil(() => historyJump.IsCompleted && shell.IsConversationPageActive && browserSurface.IsOpen);
+        if (!shell.IsConversationPageActive || !browserSurface.IsOpen || pageOverlay.IsEffectivelyVisible || backdropLayer.Effect != null)
+            throw new InvalidOperationException("从设置页打开内置浏览器历史必须关闭设置弹窗并展示主屏幕浏览器。");
+        browserSurface.CloseCommand.Execute(null);
+        Dispatcher.UIThread.RunJobs();
+
         if (modeLabel.Text != "严格" || modeButton.Flyout is not MenuFlyout modeMenu)
             throw new InvalidOperationException("输入区必须同步设置页选择的模式，并提供切换菜单。");
 
@@ -5060,8 +5126,32 @@ static void TestMainWindowPagesAndInlineApproval(string outputPath)
         if (modeLabel.Text != "自动评审")
             throw new InvalidOperationException("外部替换配置后，设置和输入区都应使用最新配置实例。");
 
+        // 在默认宽屏尺寸（1440x900）下验证弹窗上限尺寸、居中比例以及点击外部被遮罩吸收不会触发底层入口。
+        window.Width = 1440;
+        window.Height = 900;
+        Dispatcher.UIThread.RunJobs();
+        expectedWindowSize = window.ClientSize;
+
+        OpenFromChat(shell.OpenAppSettingsCommand);
+        RequirePage<AppSettingsView>("应用设置");
+        SaveWindowFrame(window, Path.Combine(Path.GetDirectoryName(outputPath)!, "app-settings-popup-1440.png"));
+        Back();
+
         OpenFromChat(shell.OpenKnowledgeBaseCommand);
         var knowledge = RequirePage<KnowledgeBaseView>("知识库");
+        if (Math.Abs(pageHost.Bounds.Width - 1020) > 2 || Math.Abs(pageHost.Bounds.Height - 680) > 2)
+            throw new InvalidOperationException($"1440×900 窗口下弹窗应按上限居中呈现（期望 1020×680，实际 {pageHost.Bounds.Size}）。");
+        // 点击落在左侧被虚化遮挡的「供应商模型」入口按钮位置：遮罩必须吸收该点击，既不关闭也不切换页面。
+        var providerLauncher = chatGrid.GetVisualDescendants().OfType<Button>()
+            .Single(button => ReferenceEquals(button.Command, shell.OpenProviderModelsCommand));
+        var hiddenLauncherPoint = providerLauncher.TranslatePoint(new Point(providerLauncher.Bounds.Width * 0.25, providerLauncher.Bounds.Height * 0.5), window)!.Value;
+        window.MouseMove(hiddenLauncherPoint);
+        window.MouseDown(hiddenLauncherPoint, MouseButton.Left);
+        window.MouseUp(hiddenLauncherPoint, MouseButton.Left);
+        Dispatcher.UIThread.RunJobs();
+        if (!ReferenceEquals(shell.ActivePage, shell.KnowledgeBaseViewModel))
+            throw new InvalidOperationException("点击外围虚化区域上的底层侧栏按钮不能穿透触发切换或关闭弹窗。");
+
         if (!ReferenceEquals(knowledge.DataContext, shell.KnowledgeBaseViewModel)
             || knowledge.FindControl<Button>("RunKnowledgeMaintenanceButton")?.Command == null
             || knowledge.FindControl<Button>("RebuildVectorIndexButton")?.Command == null)
@@ -5081,10 +5171,29 @@ static void TestMainWindowPagesAndInlineApproval(string outputPath)
         var deleteProvider = provider.GetVisualDescendants().OfType<Button>().Single(button => button.Classes.Contains("provider-item-delete"));
         if (!ReferenceEquals(deleteProvider.Command, ((ProviderModelsViewModel)provider.DataContext!).DeleteProviderCommand))
             throw new InvalidOperationException("供应商列表项必须从嵌入页面解析删除命令。");
+        SaveWindowFrame(window, Path.Combine(Path.GetDirectoryName(outputPath)!, "provider-models-popup.png"));
+        var wasDarkTheme = Application.Current!.ActualThemeVariant == ThemeVariant.Dark;
+        try
+        {
+            Application.Current.RequestedThemeVariant = ThemeVariant.Dark;
+            Dispatcher.UIThread.RunJobs();
+            SaveWindowFrame(window, Path.Combine(Path.GetDirectoryName(outputPath)!, "provider-models-popup-dark.png"));
+        }
+        finally
+        {
+            Application.Current.RequestedThemeVariant = wasDarkTheme ? ThemeVariant.Dark : ThemeVariant.Light;
+            Dispatcher.UIThread.RunJobs();
+        }
         Back();
 
         OpenFromChat(shell.OpenSkillsConnectorsCommand);
         RequirePage<SkillsConnectorsView>("技能与扩展");
+        SaveWindowFrame(window, Path.Combine(Path.GetDirectoryName(outputPath)!, "skills-connectors-popup.png"));
+        Back();
+
+        OpenFromChat(shell.OpenTasksCommand);
+        RequirePage<TasksView>("定时消息");
+        SaveWindowFrame(window, Path.Combine(Path.GetDirectoryName(outputPath)!, "tasks-popup-1440.png"));
         Back();
 
         group.RequestContextSettingsCommand.Execute(null);
@@ -5105,9 +5214,15 @@ static void TestMainWindowPagesAndInlineApproval(string outputPath)
         if (!shell.IsConversationPageActive || workspace.ContextPolicyOverride?.WorkspaceKnowledgeCharBudget != 12000)
             throw new InvalidOperationException("保存工作区后必须返回对话。");
 
+        window.Width = 1180;
+        window.Height = 720;
+        Dispatcher.UIThread.RunJobs();
+        expectedWindowSize = window.ClientSize;
+
         OpenFromChat(shell.OpenTasksCommand);
         RequirePage<TasksView>("定时消息");
-        if (approvalView.IsVisible || pendingStatus.IsVisible)
+        SaveWindowFrame(window, Path.Combine(Path.GetDirectoryName(outputPath)!, "tasks-popup.png"));
+        if (approvalView.IsVisible || pendingStatusButton.IsVisible || pendingStatusButton.IsEffectivelyVisible)
             throw new InvalidOperationException("空审批队列不应占用布局空间。");
 
         var background = new ConversationSessionItemViewModel(new MainConversationViewModel(), workspace, null) { Title = "文件整理" };
@@ -5127,11 +5242,15 @@ static void TestMainWindowPagesAndInlineApproval(string outputPath)
         Task<ToolApprovalScope> second;
         using (accessor.Enter(selected.ConversationId))
             second = queue.PromptAsync(request, cancellation.Token);
-        PumpUntil(() => queue.Pending.Count == 2 && pendingStatus.IsEffectivelyVisible);
-        if (!background.IsWaitingForApproval || !selected.IsWaitingForApproval || approvalView.IsEffectivelyVisible
+        PumpUntil(() => queue.Pending.Count == 2 && pendingStatusButton.IsEffectivelyVisible && pendingStatus.IsEffectivelyVisible);
+        if (!background.IsWaitingForApproval || !selected.IsWaitingForApproval
             || queue.Pending[0].ConversationTitle != background.Title)
             throw new InvalidOperationException("功能页面应提示待审批，队列应保留每项请求所属的会话。");
-        Back();
+        // 点击弹窗顶栏待审批胶囊，直接收起弹窗回到主屏幕处理审批。
+        pendingStatusButton.Command!.Execute(null);
+        Dispatcher.UIThread.RunJobs();
+        if (!shell.IsConversationPageActive || pageOverlay.IsEffectivelyVisible || backdropLayer.Effect != null)
+            throw new InvalidOperationException("点击弹窗顶栏待审批胶囊必须关闭弹窗并回到主屏幕。");
         if (!approvalView.IsEffectivelyVisible || approvalView.Bounds.Bottom > composer.Bounds.Top
             || !approvalView.GetVisualDescendants().OfType<TextBox>().Any(box => box.IsReadOnly && box.Text == request.PrettyArguments))
             throw new InvalidOperationException("待审批项必须在输入框上方展示，参数可以完整查阅。");
@@ -5164,6 +5283,17 @@ static void TestMainWindowPagesAndInlineApproval(string outputPath)
             backgroundReview = queue.PromptAsync(review, backgroundStop.Token);
         PumpUntil(() => background.IsWaitingForApproval);
         if (approvalView.IsEffectivelyVisible) throw new InvalidOperationException("其他会话的自动评审不能在当前会话作答。");
+        // 后台会话有待人工接手的审批时，从弹窗点击待审批胶囊应关闭弹窗并直接切到该后台会话。
+        OpenFromChat(shell.OpenTasksCommand);
+        RequirePage<TasksView>("定时消息");
+        PumpUntil(() => pendingStatusButton.IsEffectivelyVisible);
+        pendingStatusButton.Command!.Execute(null);
+        PumpTimers(() => shell.IsConversationPageActive && ReferenceEquals(shell.SelectedConversation, background) && !shell.IsConversationSwitching);
+        if (!ReferenceEquals(shell.SelectedConversation, background) || !shell.IsConversationPageActive)
+            throw new InvalidOperationException("点击后台会话待审批胶囊必须收起弹窗并跳转到对应会话。");
+        shell.SelectedConversation = selected;
+        PumpTimers(() => ReferenceEquals(shell.DisplayedConversation, selected.Chat) && !shell.IsConversationSwitching);
+
         Task<ToolApprovalScope> currentReview;
         using (accessor.Enter(selected.ConversationId))
             currentReview = queue.PromptAsync(review, CancellationToken.None);
@@ -5176,15 +5306,17 @@ static void TestMainWindowPagesAndInlineApproval(string outputPath)
             throw new InvalidOperationException("跨会话审批发生了串扰。");
         backgroundStop.Cancel();
         PumpUntil(() => backgroundReview.IsCanceled && !queue.HasPending);
-
     }
     finally
     {
         window.Close();
         localization.SwitchLanguage(previousLanguage);
+        browserComputerUse.DisposeAsync().AsTask().GetAwaiter().GetResult();
+        embeddedBrowser.DisposeAsync().AsTask().GetAwaiter().GetResult();
+        try { browserFixtureDir.Delete(recursive: true); } catch { /* temporary test fixture */ }
     }
 
-    Console.WriteLine("[PASS] six main-window pages, icon-only return, composer spacing, and approval-mode confirmation from both surfaces");
+    Console.WriteLine("[PASS] six main-window modal popup pages, blurred backdrop, non-dismissing scrim/Esc, top-right close, main-screen jumps, and approval-mode confirmation");
     Console.WriteLine("[PASS] draft preservation, workspace save and cancellable inline approval queue");
 }
 
@@ -5641,8 +5773,18 @@ static void TestGameModeSwitchAndFailures()
         if (!page.Uri.AbsolutePath.EndsWith("/polis/index.html", StringComparison.Ordinal) || !page.Uri.Query.Contains("mode=live", StringComparison.Ordinal))
             throw new InvalidOperationException($"页面地址必须是回环服务的 /polis/ 路由（实时模式），实际 {page.Uri}。");
         var pageHost = polisView.FindControl<Border>("PolisPageHost");
-        if (pageHost == null || !ReferenceEquals(pageHost.Child, page.Control))
-            throw new InvalidOperationException($"页面必须挂进游戏视图的 PolisPageHost（host={pageHost != null}, child={pageHost?.Child?.GetType().Name}, pages={pages.Count}, disposed={page.Disposed}, state={gameMode.PageState}, failure={gameMode.FailureDetail}）。");
+        if (pageHost == null || !ReferenceEquals(pageHost.Child, page.Control) || !pageHost.IsVisible || !gameMode.IsSurfaceVisible)
+            throw new InvalidOperationException($"页面必须挂进游戏视图的 PolisPageHost 且可见（host={pageHost != null}, child={pageHost?.Child?.GetType().Name}, pages={pages.Count}, disposed={page.Disposed}, state={gameMode.PageState}, failure={gameMode.FailureDetail}）。");
+
+        // 游戏模式下打开主窗口模态弹窗：隐藏原生 WebView 宿主（防穿透遮罩），不销毁页面；关闭弹窗立即恢复可见。
+        shell.OpenKnowledgeBaseCommand.Execute(null);
+        Dispatcher.UIThread.RunJobs();
+        if (gameMode.IsSurfaceVisible || pageHost.IsVisible || page.Disposed)
+            throw new InvalidOperationException("模态弹窗打开时必须临时隐藏游戏原生 WebView 宿主，且不能销毁游戏页面。");
+        shell.ReturnToConversationCommand.Execute(null);
+        Dispatcher.UIThread.RunJobs();
+        if (!gameMode.IsSurfaceVisible || !pageHost.IsVisible || page.Disposed)
+            throw new InvalidOperationException("关闭模态弹窗后必须恢复游戏原生 WebView 宿主可见。");
 
         // 页面就绪：推 init（词条表）、城邦、成果、焦点
         page.Navigate(true);

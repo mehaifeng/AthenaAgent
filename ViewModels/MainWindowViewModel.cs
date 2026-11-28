@@ -151,6 +151,17 @@ public partial class MainWindowViewModel : ViewModelBase, IDisposable, ICronSess
         _ => string.Empty
     };
 
+    public string ActivePageIconKey => ActivePage switch
+    {
+        AppSettingsViewModel => "AthenaIconSettings",
+        ProviderModelsViewModel => "AthenaIconModelProvider",
+        SkillsConnectorsViewModel => "AthenaIconSkillsConnectors",
+        WorkspaceContextSettingsViewModel => "AthenaIconWorkspace",
+        TasksViewModel _ => "AthenaIconScheduledMessages",
+        KnowledgeBaseViewModel _ => "AthenaIconKnowledgeBase",
+        _ => "AthenaIconSettings"
+    };
+
     [ObservableProperty]
     private int _globalErrorCount;
 
@@ -1224,19 +1235,38 @@ public partial class MainWindowViewModel : ViewModelBase, IDisposable, ICronSess
     [RelayCommand]
     private void ReturnToConversation() => SetActivePage(null);
 
+    [RelayCommand]
+    private void JumpToPendingApproval()
+    {
+        if (_approvalQueue is { HasVisiblePending: false }
+            && _approvalQueue.Pending.FirstOrDefault(item => !string.IsNullOrWhiteSpace(item.ConversationId)) is { } pending
+            && TryNavigateToConversationCore(null, pending.ConversationId))
+        {
+            return;
+        }
+
+        ReturnToConversation();
+    }
+
     private void SetActivePage(ViewModelBase? page)
     {
         var previousPage = ActivePage;
         if (ReferenceEquals(previousPage, page)) return;
 
         if (previousPage is WorkspaceContextSettingsViewModel previousWorkspace)
-            previousWorkspace.CloseRequested -= OnWorkspaceSettingsCloseRequested;
+            previousWorkspace.CloseRequested -= OnPageCloseRequested;
+        else if (previousPage is AppSettingsViewModel previousSettings)
+            previousSettings.ReturnToMainRequested -= OnPageCloseRequested;
+
         if (page is WorkspaceContextSettingsViewModel workspace)
-            workspace.CloseRequested += OnWorkspaceSettingsCloseRequested;
+            workspace.CloseRequested += OnPageCloseRequested;
+        else if (page is AppSettingsViewModel settings)
+            settings.ReturnToMainRequested += OnPageCloseRequested;
 
         _activePage = page;
         OnPropertyChanged(nameof(ActivePage));
         OnPropertyChanged(nameof(ActivePageTitle));
+        OnPropertyChanged(nameof(ActivePageIconKey));
         OnPropertyChanged(nameof(IsConversationPageActive));
         OnPropertyChanged(nameof(IsBrowserPreviewActive));
 
@@ -1246,7 +1276,7 @@ public partial class MainWindowViewModel : ViewModelBase, IDisposable, ICronSess
             disposable.Dispose();
     }
 
-    private void OnWorkspaceSettingsCloseRequested(object? sender, EventArgs e) => ReturnToConversation();
+    private void OnPageCloseRequested(object? sender, EventArgs e) => ReturnToConversation();
 
     [RelayCommand]
     private async Task OpenDetailedLogsAsync()
