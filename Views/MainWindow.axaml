@@ -788,18 +788,22 @@
         </Grid>
         </Panel>
 
-        <!-- 主窗口功能页与应用设置模态弹窗覆盖层：外围虚化 + 遮罩拦截外部交互，仅右上角关闭按钮或明确的跳回主屏幕操作可关闭。 -->
+        <!-- 主窗口功能页与应用设置模态弹窗覆盖层：外围虚化 + 遮罩拦截外部交互，仅右上角关闭按钮或明确的跳回主屏幕操作可关闭。
+             使用 1*:6*:1*（75%×75%）星型网格居中承载，所有弹窗尺寸完全统一，并随主窗体缩放等比例伸缩（与 ShellMaterial.ModalSizeRatio 保持一致）。 -->
         <Grid x:Name="MainPageOverlay"
               ZIndex="200"
-              IsVisible="{Binding !IsConversationPageActive}">
+              IsVisible="{Binding !IsConversationPageActive}"
+              ColumnDefinitions="1*,6*,1*"
+              RowDefinitions="1*,6*,1*">
             <Border x:Name="MainPageBackdropScrim"
+                    Grid.RowSpan="3"
+                    Grid.ColumnSpan="3"
                     Background="{DynamicResource App.ModalScrimBrush}"
                     PointerPressed="OnModalBackdropPointerPressed"
                     PointerWheelChanged="OnModalBackdropPointerWheelChanged"/>
             <Border x:Name="MainPageHost"
-                    Margin="80,56"
-                    MaxWidth="1020"
-                    MaxHeight="680"
+                    Grid.Row="1"
+                    Grid.Column="1"
                     HorizontalAlignment="Stretch"
                     VerticalAlignment="Stretch"
                     Background="{DynamicResource App.PanelVeilBrush}"

@@ -106,4 +106,10 @@ internal static class ShellMaterial
     /// 保证正常对话与滚动路径零离屏渲染成本。
     /// </summary>
     public const double ModalBackdropBlurRadius = 10.0;
+
+    /// <summary>
+    /// 主窗口功能/设置弹窗相对主窗体客户区的统一缩放比例（宽高均为 75%，对应 MainWindow.axaml 中的 1*:6*:1* 网格）。
+    /// 不设固定 MaxWidth/MaxHeight 上限，使所有弹窗保持完全统一，并随主窗体缩放等比例伸缩。
+    /// </summary>
+    public const double ModalSizeRatio = 0.75;
 }

@@ -5346,12 +5346,14 @@ static void TestMainWindowPagesAndInlineApproval(string outputPath)
             var rightGap = window.ClientSize.Width - (hostOrigin.X + pageHost.Bounds.Width);
             var topGap = hostOrigin.Y;
             var bottomGap = window.ClientSize.Height - (hostOrigin.Y + pageHost.Bounds.Height);
-            if (pageHost.Bounds.Width >= window.ClientSize.Width - 40
-                || pageHost.Bounds.Height >= window.ClientSize.Height - 40
-                || Math.Abs(leftGap - rightGap) > 2
-                || Math.Abs(topGap - bottomGap) > 2)
+            var expectedModalWidth = window.ClientSize.Width * ShellMaterial.ModalSizeRatio;
+            var expectedModalHeight = window.ClientSize.Height * ShellMaterial.ModalSizeRatio;
+            if (Math.Abs(pageHost.Bounds.Width - expectedModalWidth) > 1.5
+                || Math.Abs(pageHost.Bounds.Height - expectedModalHeight) > 1.5
+                || Math.Abs(leftGap - rightGap) > 1.5
+                || Math.Abs(topGap - bottomGap) > 1.5)
                 throw new InvalidOperationException(
-                    $"弹窗 {expectedTitle} 必须小于主窗口并居中（window={window.ClientSize}, host={pageHost.Bounds.Size}, gaps=L{leftGap:F1}/R{rightGap:F1}/T{topGap:F1}/B{bottomGap:F1}）。");
+                    $"弹窗 {expectedTitle} 必须按主窗体比例居中缩放（window={window.ClientSize}, expected={expectedModalWidth:F1}x{expectedModalHeight:F1}, host={pageHost.Bounds.Size}, gaps=L{leftGap:F1}/R{rightGap:F1}/T{topGap:F1}/B{bottomGap:F1}）。");
             var titlePos = title.TranslatePoint(default, window)!.Value;
             var closePos = closeButton.TranslatePoint(default, window)!.Value;
             if (closePos.X <= titlePos.X)
@@ -5467,7 +5469,7 @@ static void TestMainWindowPagesAndInlineApproval(string outputPath)
         if (modeLabel.Text != "自动评审")
             throw new InvalidOperationException("外部替换配置后，设置和输入区都应使用最新配置实例。");
 
-        // 在默认宽屏尺寸（1440x900）下验证弹窗上限尺寸、居中比例以及点击外部被遮罩吸收不会触发底层入口。
+        // 在默认宽屏（1440x900）与全屏（1920x1080）尺寸下验证弹窗随主窗体等比例缩放、六页尺寸统一以及点击外部不会触发底层入口。
         window.Width = 1440;
         window.Height = 900;
         Dispatcher.UIThread.RunJobs();
@@ -5480,8 +5482,18 @@ static void TestMainWindowPagesAndInlineApproval(string outputPath)
 
         OpenFromChat(shell.OpenKnowledgeBaseCommand);
         var knowledge = RequirePage<KnowledgeBaseView>("知识库");
-        if (Math.Abs(pageHost.Bounds.Width - 1020) > 2 || Math.Abs(pageHost.Bounds.Height - 680) > 2)
-            throw new InvalidOperationException($"1440×900 窗口下弹窗应按上限居中呈现（期望 1020×680，实际 {pageHost.Bounds.Size}）。");
+        // 弹窗保持打开期间拉大主窗体到 1920x1080，弹窗必须实时按 75%×75% 等比例放大（1440x810）并保持居中；缩回 1440x900 后恢复 1080x675。
+        window.Width = 1920;
+        window.Height = 1080;
+        Dispatcher.UIThread.RunJobs();
+        expectedWindowSize = window.ClientSize;
+        RequirePage<KnowledgeBaseView>("知识库");
+        SaveWindowFrame(window, Path.Combine(Path.GetDirectoryName(outputPath)!, "knowledge-base-popup-1920.png"));
+        window.Width = 1440;
+        window.Height = 900;
+        Dispatcher.UIThread.RunJobs();
+        expectedWindowSize = window.ClientSize;
+        RequirePage<KnowledgeBaseView>("知识库");
         // 点击落在左侧被虚化遮挡的「供应商模型」入口按钮位置：遮罩必须吸收该点击，既不关闭也不切换页面。
         var providerLauncher = chatGrid.GetVisualDescendants().OfType<Button>()
             .Single(button => ReferenceEquals(button.Command, shell.OpenProviderModelsCommand));
